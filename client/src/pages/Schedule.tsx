@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Shift } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -91,6 +92,7 @@ export default function Schedule() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [draggedShift, setDraggedShift] = useState<Shift | null>(null);
   const [dropTarget, setDropTarget] = useState<{ empId: number; dayKey: string } | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<string>("all");
   
   const toggleGroupCollapse = (jobTitle: string) => {
     setCollapsedGroups(prev => {
@@ -310,11 +312,25 @@ export default function Schedule() {
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Weekly Schedule</h1>
-          <p className="text-muted-foreground mt-1">
-            Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))} • {formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground">Weekly Schedule</h1>
+            <p className="text-muted-foreground mt-1">
+              Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))} • {formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}
+            </p>
+          </div>
+          <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+            <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
+              <MapPin className="w-4 h-4 mr-2 text-muted-foreground" />
+              <SelectValue placeholder="All Locations" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Locations</SelectItem>
+              {(locations || []).filter(l => l.isActive).map(loc => (
+                <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         
         <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
@@ -426,11 +442,13 @@ export default function Schedule() {
 
               {/* Grouped Employee Rows - sorted by job priority */}
               {Object.entries(
-                (employees || []).reduce((acc, emp) => {
-                  if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
-                  acc[emp.jobTitle].push(emp);
-                  return acc;
-                }, {} as Record<string, NonNullable<typeof employees>>)
+                (employees || [])
+                  .filter(emp => selectedLocation === "all" || emp.location === selectedLocation)
+                  .reduce((acc, emp) => {
+                    if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
+                    acc[emp.jobTitle].push(emp);
+                    return acc;
+                  }, {} as Record<string, NonNullable<typeof employees>>)
               )
               .sort(([a], [b]) => getJobPriority(a) - getJobPriority(b))
               .map(([jobTitle, groupEmployees]) => {
