@@ -1,10 +1,11 @@
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Wand2 } from "lucide-react";
 import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
 import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, format } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 
@@ -14,15 +15,29 @@ function calculatePaidHours(startTime: Date, endTime: Date): number {
   return clockHours >= 6 ? clockHours - 0.5 : clockHours;
 }
 
+// Remediation metadata for clickable issues
+export interface RemediationData {
+  day: Date;
+  jobTitle: string;
+  shiftType: "opener" | "closer" | "mid";
+}
+
 interface Issue {
   type: "error" | "warning";
   message: string;
+  remediation?: RemediationData;
 }
 
-export function ScheduleValidator() {
-  // Use a fixed week for now or context-aware week (Sunday = 0)
-  const start = startOfWeek(new Date(), { weekStartsOn: 0 }).toISOString();
-  const end = endOfWeek(new Date(), { weekStartsOn: 0 }).toISOString();
+interface ScheduleValidatorProps {
+  onRemediate?: (remediation: RemediationData) => void;
+  weekStart?: Date;
+}
+
+export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorProps) {
+  // Use provided weekStart or default to current week (Sunday = 0)
+  const baseDate = weekStart || new Date();
+  const start = startOfWeek(baseDate, { weekStartsOn: 0 }).toISOString();
+  const end = endOfWeek(baseDate, { weekStartsOn: 0 }).toISOString();
 
   const { data: employees } = useEmployees();
   const { data: shifts } = useShifts(start, end);
@@ -156,14 +171,16 @@ export function ScheduleValidator() {
       if (openingManagers < managersRequired) {
         newIssues.push({
           type: "error",
-          message: `${dayLabel}: Need ${managersRequired} opening manager(s), have ${openingManagers}`
+          message: `${dayLabel}: Need ${managersRequired} opening manager(s), have ${openingManagers}`,
+          remediation: { day, jobTitle: "STSUPER", shiftType: "opener" }
         });
       }
       
       if (closingManagers < managersRequired) {
         newIssues.push({
           type: "error",
-          message: `${dayLabel}: Need ${managersRequired} closing manager(s), have ${closingManagers}`
+          message: `${dayLabel}: Need ${managersRequired} closing manager(s), have ${closingManagers}`,
+          remediation: { day, jobTitle: "STSUPER", shiftType: "closer" }
         });
       }
       
@@ -180,24 +197,26 @@ export function ScheduleValidator() {
                endStr === (settings.managerMorningEnd || "16:30");
       });
       
+      // Donor greeter closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
       const closingGreeter = donorGreeterShifts.some(s => {
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
-        return startStr === (settings.managerEveningStart || "12:00") && 
-               endStr === (settings.managerEveningEnd || "20:30");
+        return startStr === closerStartTime && endStr === closerEndTime;
       });
       
       if (!openingGreeter) {
         newIssues.push({
           type: "error",
-          message: `${dayLabel}: Missing opening donor greeter`
+          message: `${dayLabel}: Missing opening donor greeter`,
+          remediation: { day, jobTitle: "DONDOOR", shiftType: "opener" }
         });
       }
       
       if (!closingGreeter) {
         newIssues.push({
           type: "error",
-          message: `${dayLabel}: Missing closing donor greeter`
+          message: `${dayLabel}: Missing closing donor greeter`,
+          remediation: { day, jobTitle: "DONDOOR", shiftType: "closer" }
         });
       }
       
@@ -224,14 +243,16 @@ export function ScheduleValidator() {
       if (!openingCashier) {
         newIssues.push({
           type: "error",
-          message: `${dayLabel}: Missing opening cashier`
+          message: `${dayLabel}: Missing opening cashier`,
+          remediation: { day, jobTitle: "CASHSLS", shiftType: "opener" }
         });
       }
       
       if (!closingCashier) {
         newIssues.push({
           type: "error",
-          message: `${dayLabel}: Missing closing cashier`
+          message: `${dayLabel}: Missing closing cashier`,
+          remediation: { day, jobTitle: "CASHSLS", shiftType: "closer" }
         });
       }
       
@@ -311,9 +332,22 @@ export function ScheduleValidator() {
                 "p-3 rounded text-sm border flex items-start gap-3",
                 issue.type === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-orange-50 border-orange-200 text-orange-800"
               )}
+              data-testid={`validation-issue-${idx}`}
             >
                <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", issue.type === "error" ? "bg-red-500" : "bg-orange-500")} />
-               {issue.message}
+               <span className="flex-1">{issue.message}</span>
+               {issue.remediation && onRemediate && (
+                 <Button 
+                   size="sm" 
+                   variant="outline"
+                   className="shrink-0 h-7 px-2 text-xs gap-1"
+                   onClick={() => onRemediate(issue.remediation!)}
+                   data-testid={`button-fix-issue-${idx}`}
+                 >
+                   <Wand2 className="w-3 h-3" />
+                   Fix
+                 </Button>
+               )}
             </div>
           ))}
         </div>

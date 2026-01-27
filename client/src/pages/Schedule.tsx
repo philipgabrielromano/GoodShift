@@ -8,7 +8,7 @@ import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
 import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import { ShiftDialog } from "@/components/ShiftDialog";
-import { ScheduleValidator } from "@/components/ScheduleValidator";
+import { ScheduleValidator, RemediationData } from "@/components/ScheduleValidator";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -405,6 +405,101 @@ export default function Schedule() {
     setDialogOpen(true);
   };
 
+  // Handle remediation from validation issues
+  const handleRemediation = async (remediation: RemediationData) => {
+    const { day, jobTitle, shiftType } = remediation;
+    
+    // Find an available employee with the right job title
+    const availableEmployees = (employees || []).filter(emp => {
+      if (emp.jobTitle !== jobTitle && !isManagerJobCode(emp.jobTitle, jobTitle)) return false;
+      if (!emp.isActive) return false;
+      
+      // Check if already scheduled that day
+      const empShiftsOnDay = (shifts || []).filter(s => 
+        s.employeeId === emp.id && isSameDay(new Date(s.startTime), day)
+      );
+      if (empShiftsOnDay.length > 0) return false;
+      
+      return true;
+    });
+    
+    if (availableEmployees.length === 0) {
+      toast({ 
+        variant: "destructive", 
+        title: "No Available Employee", 
+        description: `No ${jobTitle} employees available for ${format(day, "EEE, MMM d")}`
+      });
+      return;
+    }
+    
+    // Pick the first available employee
+    const employee = availableEmployees[0];
+    
+    // Use global settings for shift times (with defaults matching the validation)
+    const morningStart = settings?.managerMorningStart || "08:00";
+    const morningEnd = settings?.managerMorningEnd || "16:30";
+    const eveningStart = settings?.managerEveningStart || "12:00";
+    const eveningEnd = settings?.managerEveningEnd || "20:30";
+    
+    // Parse time strings to hours/minutes
+    const parseTime = (timeStr: string) => {
+      const [hours, minutes] = timeStr.split(":").map(Number);
+      return { hours, minutes };
+    };
+    
+    // Determine shift times based on shiftType and settings
+    // First convert day to EST timezone, then set hours
+    const isSunday = day.getDay() === 0;
+    const dayInEST = toZonedTime(day, TIMEZONE);
+    let startTime: Date, endTime: Date;
+    
+    if (shiftType === "opener") {
+      const start = parseTime(morningStart);
+      const end = parseTime(morningEnd);
+      startTime = setMinutes(setHours(dayInEST, start.hours), start.minutes);
+      endTime = setMinutes(setHours(dayInEST, end.hours), end.minutes);
+    } else if (shiftType === "closer") {
+      if (isSunday) {
+        // Sunday: 11:00-19:30 (store closes at 7:30pm)
+        startTime = setMinutes(setHours(dayInEST, 11), 0);
+        endTime = setMinutes(setHours(dayInEST, 19), 30);
+      } else {
+        const start = parseTime(eveningStart);
+        const end = parseTime(eveningEnd);
+        startTime = setMinutes(setHours(dayInEST, start.hours), start.minutes);
+        endTime = setMinutes(setHours(dayInEST, end.hours), end.minutes);
+      }
+    } else {
+      // mid shift: 10:00-18:30
+      startTime = setMinutes(setHours(dayInEST, 10), 0);
+      endTime = setMinutes(setHours(dayInEST, 18), 30);
+    }
+    
+    try {
+      await apiRequest("POST", "/api/shifts", {
+        employeeId: employee.id,
+        startTime: fromZonedTime(startTime, TIMEZONE).toISOString(),
+        endTime: fromZonedTime(endTime, TIMEZONE).toISOString(),
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      
+      toast({ 
+        title: "Shift Created", 
+        description: `Scheduled ${employee.name} as ${shiftType} on ${format(day, "EEE, MMM d")}`
+      });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to create shift" });
+    }
+  };
+  
+  // Helper to check if employee job matches for manager roles
+  const isManagerJobCode = (empJob: string, targetJob: string): boolean => {
+    const managerCodes = ["STSUPER", "STASSTSP", "STLDWKR"];
+    if (targetJob === "STSUPER" && managerCodes.includes(empJob)) return true;
+    return false;
+  };
+
   if (shiftsLoading || empLoading || locLoading) {
     return <div className="p-8 space-y-4">
       <Skeleton className="h-12 w-64" />
@@ -752,7 +847,7 @@ export default function Schedule() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          <ScheduleValidator />
+          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} />
           
           {/* AI Reasoning Display */}
           {aiReasoning && (
