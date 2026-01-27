@@ -475,6 +475,49 @@ export async function registerRoutes(
     res.json(RETAIL_JOB_CODES);
   });
 
+  // === Locations (Admin only) ===
+  app.get(api.locations.list.path, async (req, res) => {
+    const locations = await storage.getLocations();
+    res.json(locations);
+  });
+
+  app.get(api.locations.get.path, requireAdmin, async (req, res) => {
+    const location = await storage.getLocation(Number(req.params.id));
+    if (!location) return res.status(404).json({ message: "Location not found" });
+    res.json(location);
+  });
+
+  app.post(api.locations.create.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.locations.create.input.parse(req.body);
+      const location = await storage.createLocation(input);
+      res.status(201).json(location);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.locations.update.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.locations.update.input.parse(req.body);
+      const location = await storage.updateLocation(Number(req.params.id), input);
+      res.json(location);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(404).json({ message: "Location not found" });
+    }
+  });
+
+  app.delete(api.locations.delete.path, requireAdmin, async (req, res) => {
+    await storage.deleteLocation(Number(req.params.id));
+    res.status(204).send();
+  });
+
   // === SEED DATA ===
   await seedDatabase();
 

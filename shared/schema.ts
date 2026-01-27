@@ -79,6 +79,14 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Locations table for store-specific settings
+export const locations = pgTable("locations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(), // Store name from UKG
+  weeklyHoursLimit: integer("weekly_hours_limit").notNull().default(0), // Hours allocated to this store
+  isActive: boolean("is_active").notNull().default(true),
+});
+
 // === RELATIONS ===
 
 export const employeesRelations = relations(employees, ({ many }) => ({
@@ -108,6 +116,7 @@ export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true });
 export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).omit({ id: true });
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -134,6 +143,10 @@ export type InsertGlobalSettings = z.infer<typeof insertGlobalSettingsSchema>;
 // User Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+// Location Types
+export type Location = typeof locations.$inferSelect;
+export type InsertLocation = z.infer<typeof insertLocationSchema>;
 
 // Complex Types for UI
 export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };

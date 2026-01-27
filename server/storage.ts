@@ -6,7 +6,8 @@ import {
   timeOffRequests, type TimeOffRequest, type InsertTimeOffRequest,
   roleRequirements, type RoleRequirement, type InsertRoleRequirement,
   globalSettings, type GlobalSettings, type InsertGlobalSettings,
-  users, type User, type InsertUser
+  users, type User, type InsertUser,
+  locations, type Location, type InsertLocation
 } from "@shared/schema";
 import { eq, and, gte, lte, inArray } from "drizzle-orm";
 
@@ -48,6 +49,14 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, user: Partial<InsertUser>): Promise<User>;
   deleteUser(id: number): Promise<void>;
+
+  // Locations
+  getLocations(): Promise<Location[]>;
+  getLocation(id: number): Promise<Location | undefined>;
+  getLocationByName(name: string): Promise<Location | undefined>;
+  createLocation(location: InsertLocation): Promise<Location>;
+  updateLocation(id: number, location: Partial<InsertLocation>): Promise<Location>;
+  deleteLocation(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -205,6 +214,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(id: number): Promise<void> {
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  // Locations
+  async getLocations(): Promise<Location[]> {
+    return await db.select().from(locations);
+  }
+
+  async getLocation(id: number): Promise<Location | undefined> {
+    const [location] = await db.select().from(locations).where(eq(locations.id, id));
+    return location;
+  }
+
+  async getLocationByName(name: string): Promise<Location | undefined> {
+    const [location] = await db.select().from(locations).where(eq(locations.name, name));
+    return location;
+  }
+
+  async createLocation(location: InsertLocation): Promise<Location> {
+    const [newLocation] = await db.insert(locations).values(location).returning();
+    return newLocation;
+  }
+
+  async updateLocation(id: number, location: Partial<InsertLocation>): Promise<Location> {
+    const [updated] = await db.update(locations).set(location).where(eq(locations.id, id)).returning();
+    return updated;
+  }
+
+  async deleteLocation(id: number): Promise<void> {
+    await db.delete(locations).where(eq(locations.id, id));
   }
 }
 

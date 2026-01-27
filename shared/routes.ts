@@ -7,12 +7,14 @@ import {
   insertRoleRequirementSchema,
   insertGlobalSettingsSchema,
   insertUserSchema,
+  insertLocationSchema,
   employees,
   timeOffRequests,
   shifts,
   roleRequirements,
   globalSettings,
-  users
+  users,
+  locations
 } from './schema';
 
 // ============================================
@@ -344,6 +346,50 @@ export const api = {
     delete: {
       method: 'DELETE' as const,
       path: '/api/users/:id',
+      responses: {
+        204: z.void(),
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  locations: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/locations',
+      responses: {
+        200: z.array(z.custom<typeof locations.$inferSelect>()),
+      },
+    },
+    get: {
+      method: 'GET' as const,
+      path: '/api/locations/:id',
+      responses: {
+        200: z.custom<typeof locations.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/locations',
+      input: insertLocationSchema,
+      responses: {
+        201: z.custom<typeof locations.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PUT' as const,
+      path: '/api/locations/:id',
+      input: insertLocationSchema.partial(),
+      responses: {
+        200: z.custom<typeof locations.$inferSelect>(),
+        400: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/locations/:id',
       responses: {
         204: z.void(),
         404: errorSchemas.notFound,
