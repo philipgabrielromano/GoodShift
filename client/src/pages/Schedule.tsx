@@ -26,10 +26,10 @@ interface AuthStatus {
 
 const TIMEZONE = "America/New_York";
 
-// Compute start of week in EST timezone
+// Compute start of week in EST timezone (Sunday = 0)
 function getESTWeekStart(date: Date): Date {
   const zonedDate = toZonedTime(date, TIMEZONE);
-  const weekStartZoned = startOfWeekDate(zonedDate, { weekStartsOn: 1 });
+  const weekStartZoned = startOfWeekDate(zonedDate, { weekStartsOn: 0 });
   return fromZonedTime(weekStartZoned, TIMEZONE);
 }
 
@@ -376,9 +376,9 @@ export default function Schedule() {
                                   >
                                     <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
                                     <div className="flex justify-between items-center flex-1">
-                                      <span>{formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm")}</span>
+                                      <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
                                       <span className="opacity-70">-</span>
-                                      <span>{formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm")}</span>
+                                      <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
                                     </div>
                                   </div>
                                 ))}
