@@ -29,7 +29,14 @@ class UKGClient {
   private cachedLocations: UKGLocation[] | null = null;
 
   constructor() {
-    this.baseUrl = process.env.UKG_API_URL || "";
+    let url = process.env.UKG_API_URL || "";
+    if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
+      url = `https://${url}`;
+    }
+    if (url.endsWith("/")) {
+      url = url.slice(0, -1);
+    }
+    this.baseUrl = url;
     this.username = process.env.UKG_USERNAME || "";
     this.password = process.env.UKG_PASSWORD || "";
     this.apiKey = process.env.UKG_API_KEY || "";
