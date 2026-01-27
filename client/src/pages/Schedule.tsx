@@ -41,6 +41,21 @@ const JOB_PRIORITY: Record<string, number> = {
   "DONDOOR": 7,
 };
 
+// Job-specific colors for schedule display
+const JOB_COLORS: Record<string, string> = {
+  "STSUPER": "#9333EA",   // Purple
+  "STASSTSP": "#F97316",  // Orange
+  "STLDWKR": "#84CC16",   // Lime green
+  "CASHSLS": "#EC4899",   // Hot pink
+  "APPROC": "#3B82F6",    // Electric blue
+  "DONPRI": "#22C55E",    // Green
+  "DONDOOR": "#A16207",   // Brown
+};
+
+function getJobColor(jobTitle: string): string {
+  return JOB_COLORS[jobTitle] ?? "#6B7280"; // Default gray
+}
+
 function getJobPriority(jobTitle: string): number {
   return JOB_PRIORITY[jobTitle] ?? 99;
 }
@@ -496,7 +511,7 @@ export default function Schedule() {
                         <div className="p-3 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
                           <div 
                             className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm flex-shrink-0"
-                            style={{ backgroundColor: emp.color }}
+                            style={{ backgroundColor: getJobColor(emp.jobTitle) }}
                           >
                             {emp.name.substring(0, 2).toUpperCase()}
                           </div>
@@ -550,7 +565,7 @@ export default function Schedule() {
                                     onDragEnd={handleDragEnd}
                                     onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
                                     className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
-                                    style={{ backgroundColor: emp.color }}
+                                    style={{ backgroundColor: getJobColor(emp.jobTitle) }}
                                     data-testid={`shift-${shift.id}`}
                                   >
                                     <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
