@@ -11,6 +11,7 @@ import { format } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { type Shift } from "@shared/schema";
 import { Trash2, Loader2 } from "lucide-react";
+import { getJobTitle } from "@/lib/utils";
 
 const TIMEZONE = "America/New_York";
 
@@ -114,7 +115,7 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
               <SelectContent>
                 {employees?.map((emp) => (
                   <SelectItem key={emp.id} value={emp.id.toString()}>
-                    {emp.name} ({emp.jobTitle})
+                    {emp.name} ({getJobTitle(emp.jobTitle)})
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { getJobTitle } from "@/lib/utils";
 import type { Employee, InsertEmployee } from "@shared/schema";
 
 export default function Employees() {
@@ -109,7 +110,7 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
         <span className="font-medium">{employee.name}</span>
       </div>
       <div className="text-sm text-muted-foreground truncate">{employee.email}</div>
-      <div className="text-sm truncate">{employee.jobTitle}</div>
+      <div className="text-sm truncate">{getJobTitle(employee.jobTitle)}</div>
       <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
         {employee.location ? (
           <>

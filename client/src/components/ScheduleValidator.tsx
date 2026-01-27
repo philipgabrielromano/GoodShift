@@ -3,11 +3,11 @@ import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
-import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, format } from "date-fns";
+import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, format, differenceInCalendarDays } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
-import { cn } from "@/lib/utils";
+import { cn, getJobTitle } from "@/lib/utils";
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
 function calculatePaidHours(startTime: Date, endTime: Date): number {
@@ -97,7 +97,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (roleHours < role.requiredWeeklyHours) {
         newIssues.push({
           type: "warning",
-          message: `${role.jobTitle} coverage is ${roleHours.toFixed(1)}h (Required: ${role.requiredWeeklyHours}h)`
+          message: `${getJobTitle(role.jobTitle)} coverage is ${roleHours.toFixed(1)}h (Required: ${role.requiredWeeklyHours}h)`
         });
       }
     });
@@ -296,7 +296,44 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
     });
 
-    // Check 6: Donor greeter shift variety (must have mix of opening and closing shifts)
+    // Check 6: Clopening detection (closing shift followed by opening shift next day)
+    employees.forEach(emp => {
+      const empShifts = shifts
+        .filter(s => s.employeeId === emp.id)
+        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      
+      for (let i = 0; i < empShifts.length - 1; i++) {
+        const currentShift = empShifts[i];
+        const nextShift = empShifts[i + 1];
+        
+        const currentEnd = new Date(currentShift.endTime);
+        const nextStart = new Date(nextShift.startTime);
+        
+        // Check if current shift ends late (7:30pm or later) and next shift starts early (8am-9am)
+        const currentEndHour = currentEnd.getHours();
+        const currentEndMinute = currentEnd.getMinutes();
+        const nextStartHour = nextStart.getHours();
+        
+        const isClosingShift = (currentEndHour > 19) || (currentEndHour === 19 && currentEndMinute >= 30);
+        const isOpeningShift = nextStartHour >= 8 && nextStartHour <= 9;
+        
+        // Check if they're on consecutive calendar days (not just 24h apart)
+        const currentDate = new Date(currentShift.startTime);
+        const nextDate = new Date(nextShift.startTime);
+        const calendarDaysDiff = differenceInCalendarDays(nextDate, currentDate);
+        
+        if (isClosingShift && isOpeningShift && calendarDaysDiff === 1) {
+          const closeDay = format(currentDate, "EEE");
+          const openDay = format(nextDate, "EEE");
+          newIssues.push({
+            type: "warning",
+            message: `${emp.name} has a clopening: closes ${closeDay} then opens ${openDay}`
+          });
+        }
+      }
+    });
+
+    // Check 7: Donor greeter shift variety (must have mix of opening and closing shifts)
     // This applies to both part-time and full-time employees
     const donorGreeters = employees.filter(emp => emp.jobTitle === 'DONDOOR' && emp.isActive);
     

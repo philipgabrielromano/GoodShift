@@ -82,10 +82,11 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 - **short_close**: 3:00 PM - 8:30 PM (5.5 paid hours)
 
 ### Gap Shifts (5 clock hours = 5 PAID hours, no lunch break)
-- **gap_open**: 8:00 AM - 1:00 PM (5 paid hours) - PREFERRED for 29h employees to hit exactly 29h
-- **gap_close**: 3:30 PM - 8:30 PM (5 paid hours) - PREFERRED for 29h employees to hit exactly 29h
+- **gap_open**: 8:00 AM - 1:00 PM (5 paid hours)
+- **gap_close**: 3:30 PM - 8:30 PM (5 paid hours)
 
-**CRITICAL FOR 29H PART-TIMERS**: Use 3 full shifts (24h) + 1 gap shift (5h) = 29h exactly!
+**PART-TIMER FLEXIBILITY**: Part-timers can work up to 5 days with flexible 5+ hour shifts.
+Available shift lengths: Full (8h), Short (5.5h), Gap (5h)
 
 ## Daily Coverage Requirements (EVERY DAY, 7 days)
 - Openers Required: ${settings.openersRequired ?? 2}
@@ -122,13 +123,13 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 1. Full shifts = 8 PAID hours, Short shifts = 5.5 PAID hours, Gap shifts = 5 PAID hours
 2. **MAXIMIZE each employee's hours** - Get as close to their maxWeeklyHours as possible!
 3. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32) MUST GET EXACTLY 5 FULL SHIFTS = 40 paid hours**
-4. **PART-TIME EMPLOYEES with maxWeeklyHours = 29**:
-   - **MUST USE: 3 full shifts (24h) + 1 gap shift (5h) = 29h EXACTLY**
-   - Use gap_open or gap_close for the 4th shift, NOT a short shift!
-5. **Other PART-TIME EMPLOYEES**: Use appropriate mix of full, short, and gap shifts
-   - Example: maxWeeklyHours 24 → 3 full shifts = 24h
-   - Example: maxWeeklyHours 20 → 2 full shifts (16h) + 1 gap shift = 21h (or 2 full + adjust)
-6. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
+4. **PART-TIME EMPLOYEES** can work up to 5 days with flexible 5+ hour shifts:
+   - Use any combination of full (8h), short (5.5h), and gap (5h) shifts to reach maxWeeklyHours
+   - Examples for 29h max: 3x8h + 1x5h = 29h, or 5x5.5h = 27.5h (close to max)
+   - Examples for 24h max: 3x8h = 24h, or 4x5.5h + 1x2h = 24h
+   - Part-timers don't have to work 4 days with full shifts - they can spread hours across 5 days
+   - NEVER exceed maxWeeklyHours - pick the closest combination that stays at or under the limit
+5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
 7. An employee can only work ONE shift per day (no doubles)
 8. Never exceed an employee's maxWeeklyHours
 9. Never schedule someone on approved time off days
@@ -151,12 +152,11 @@ Respond with a JSON object:
 
 ## IMPORTANT RULES
 1. **FULL-TIME (maxWeeklyHours >= 32) = EXACTLY 5 FULL SHIFTS = 40 hours** - No exceptions!
-2. **29h PART-TIMERS = 3 FULL SHIFTS (24h) + 1 GAP SHIFT (5h) = 29h** - This is MANDATORY!
-   - Do NOT use 5 short shifts (that gives 27.5h, not 29h)
-   - Do NOT use 3 full + 1 short (that gives 29.5h, exceeds 29h)
-3. Other part-timers: Use appropriate mix to hit their max
-4. Never exceed an employee's maxWeeklyHours
-5. **Minimum 2 days off per employee** - No exceptions
+2. **PART-TIMERS**: Flexible scheduling - can work 3-5 days with various shift lengths:
+   - Use full (8h), short (5.5h), or gap (5h) shifts to reach their maxWeeklyHours
+   - Spreading hours across 5 shorter days is allowed and sometimes preferred
+3. Never exceed an employee's maxWeeklyHours
+4. **Minimum 2 days off per employee** - No exceptions
 6. Never schedule an employee on a day they have approved time off
 7. STSUPER (Store Manager) counts as manager for opening/closing coverage
 8. Prioritize manager coverage (one manager opening, one closing each day)
