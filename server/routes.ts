@@ -366,18 +366,29 @@ export async function registerRoutes(
       console.log(`[Scheduler] Managers: ${managers.length}, Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
 
       // ========== SHIFT TIME DEFINITIONS ==========
-      const getShiftTimes = (day: Date) => ({
-        // Full 8-hour shifts (8.5 clock hours)
-        opener: { start: createESTTime(day, 8, 0), end: createESTTime(day, 16, 30) },
-        early9: { start: createESTTime(day, 9, 0), end: createESTTime(day, 17, 30) },
-        mid10: { start: createESTTime(day, 10, 0), end: createESTTime(day, 18, 30) },
-        mid11: { start: createESTTime(day, 11, 0), end: createESTTime(day, 19, 30) },
-        closer: { start: createESTTime(day, 12, 0), end: createESTTime(day, 20, 30) },
-        // Short 5-hour shifts (5.5 clock hours) for filling remaining PT hours
-        shortMorning: { start: createESTTime(day, 8, 0), end: createESTTime(day, 13, 30) },
-        shortMid: { start: createESTTime(day, 11, 0), end: createESTTime(day, 16, 30) },
-        shortEvening: { start: createESTTime(day, 15, 0), end: createESTTime(day, 20, 30) }
-      });
+      const getShiftTimes = (day: Date) => {
+        const dayOfWeek = day.getDay(); // 0 = Sunday
+        const isSunday = dayOfWeek === 0;
+        
+        return {
+          // Full 8-hour shifts (8.5 clock hours)
+          opener: { start: createESTTime(day, 8, 0), end: createESTTime(day, 16, 30) },
+          early9: { start: createESTTime(day, 9, 0), end: createESTTime(day, 17, 30) },
+          mid10: { start: createESTTime(day, 10, 0), end: createESTTime(day, 18, 30) },
+          mid11: { start: createESTTime(day, 11, 0), end: createESTTime(day, 19, 30) },
+          // Sunday closes at 7:30pm, so closer is 11am-7:30pm instead of 12pm-8:30pm
+          closer: isSunday 
+            ? { start: createESTTime(day, 11, 0), end: createESTTime(day, 19, 30) }
+            : { start: createESTTime(day, 12, 0), end: createESTTime(day, 20, 30) },
+          // Short 5-hour shifts (5.5 clock hours) for filling remaining PT hours
+          shortMorning: { start: createESTTime(day, 8, 0), end: createESTTime(day, 13, 30) },
+          shortMid: { start: createESTTime(day, 11, 0), end: createESTTime(day, 16, 30) },
+          // Sunday short evening ends at 7:30pm
+          shortEvening: isSunday
+            ? { start: createESTTime(day, 14, 0), end: createESTTime(day, 19, 30) }
+            : { start: createESTTime(day, 15, 0), end: createESTTime(day, 20, 30) }
+        };
+      };
 
       // ========== DAILY COVERAGE REQUIREMENTS ==========
       const managersRequired = settings.managersRequired ?? 1;
