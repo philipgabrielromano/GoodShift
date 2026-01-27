@@ -19,7 +19,7 @@ interface ScheduleShift {
   employeeId: number;
   employeeName: string;
   jobTitle: string;
-  shiftType: "opener" | "mid1" | "mid2" | "mid3" | "closer" | "short_open" | "short_close";
+  shiftType: "opener" | "mid1" | "mid2" | "mid3" | "closer" | "short_open" | "short_close" | "gap_open" | "gap_close";
   dayIndex: number;
 }
 
@@ -78,10 +78,14 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 - **Closer**: 12:00 PM - 8:30 PM (8 paid hours)
 
 ### Short Shifts (5.5 clock hours = 5.5 PAID hours, no lunch break under 6 hours)
-- **short_open**: 8:00 AM - 1:30 PM (5.5 paid hours) - Use to top up part-timers
-- **short_close**: 3:00 PM - 8:30 PM (5.5 paid hours) - Use to top up part-timers
+- **short_open**: 8:00 AM - 1:30 PM (5.5 paid hours)
+- **short_close**: 3:00 PM - 8:30 PM (5.5 paid hours)
 
-**IMPORTANT**: Use short shifts to get part-time employees closer to their maxWeeklyHours!
+### Gap Shifts (5 clock hours = 5 PAID hours, no lunch break)
+- **gap_open**: 8:00 AM - 1:00 PM (5 paid hours) - PREFERRED for 29h employees to hit exactly 29h
+- **gap_close**: 3:30 PM - 8:30 PM (5 paid hours) - PREFERRED for 29h employees to hit exactly 29h
+
+**CRITICAL FOR 29H PART-TIMERS**: Use 3 full shifts (24h) + 1 gap shift (5h) = 29h exactly!
 
 ## Daily Coverage Requirements (EVERY DAY, 7 days)
 - Openers Required: ${settings.openersRequired ?? 2}
@@ -115,19 +119,21 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 }).join('\n') : 'None'}
 
 ## SCHEDULING RULES
-1. Full shifts = 8 PAID hours, Short shifts = 5.5 PAID hours
+1. Full shifts = 8 PAID hours, Short shifts = 5.5 PAID hours, Gap shifts = 5 PAID hours
 2. **MAXIMIZE each employee's hours** - Get as close to their maxWeeklyHours as possible!
 3. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32) MUST GET EXACTLY 5 FULL SHIFTS = 40 paid hours**
-4. **PART-TIME EMPLOYEES: Maximize their hours using a mix of full and short shifts**
-   - Example: maxWeeklyHours 29 → 3 full shifts (24h) + 1 short shift (5.5h) = 29.5h (cap at 29)
+4. **PART-TIME EMPLOYEES with maxWeeklyHours = 29**:
+   - **MUST USE: 3 full shifts (24h) + 1 gap shift (5h) = 29h EXACTLY**
+   - Use gap_open or gap_close for the 4th shift, NOT a short shift!
+5. **Other PART-TIME EMPLOYEES**: Use appropriate mix of full, short, and gap shifts
    - Example: maxWeeklyHours 24 → 3 full shifts = 24h
-   - Example: maxWeeklyHours 20 → 2 full shifts (16h) + 1 short shift (4h remaining, but 5.5h shift would exceed, so just 2 full = 16h, or 1 full + 2 short = 19h)
-5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
-6. An employee can only work ONE shift per day (no doubles)
-7. Never exceed an employee's maxWeeklyHours
-8. Never schedule someone on approved time off days
-9. Generate shifts for ALL 7 days (Sunday=0 through Saturday=6)
-10. STSUPER (Store Manager) counts as manager coverage for opener/closer requirements
+   - Example: maxWeeklyHours 20 → 2 full shifts (16h) + 1 gap shift = 21h (or 2 full + adjust)
+6. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
+7. An employee can only work ONE shift per day (no doubles)
+8. Never exceed an employee's maxWeeklyHours
+9. Never schedule someone on approved time off days
+10. Generate shifts for ALL 7 days (Sunday=0 through Saturday=6)
+11. STSUPER (Store Manager) counts as manager coverage for opener/closer requirements
 
 ## OUTPUT FORMAT
 
@@ -145,17 +151,18 @@ Respond with a JSON object:
 
 ## IMPORTANT RULES
 1. **FULL-TIME (maxWeeklyHours >= 32) = EXACTLY 5 FULL SHIFTS = 40 hours** - No exceptions!
-2. **PART-TIME: Use full shifts + short shifts to get as close to maxWeeklyHours as possible**
-   - If remaining hours >= 5.5, add a short shift
-   - Never exceed maxWeeklyHours
-3. Never exceed an employee's maxWeeklyHours
-4. **Minimum 2 days off per employee** - No exceptions
-5. Never schedule an employee on a day they have approved time off
-6. STSUPER (Store Manager) counts as manager for opening/closing coverage
-7. Prioritize manager coverage (one manager opening, one closing each day)
-8. Ensure donor greeter coverage (one opening, one closing each day)
-9. Ensure cashier coverage (one opening, one closing each day)
-10. An employee should not work both opener AND closer on the same day`;
+2. **29h PART-TIMERS = 3 FULL SHIFTS (24h) + 1 GAP SHIFT (5h) = 29h** - This is MANDATORY!
+   - Do NOT use 5 short shifts (that gives 27.5h, not 29h)
+   - Do NOT use 3 full + 1 short (that gives 29.5h, exceeds 29h)
+3. Other part-timers: Use appropriate mix to hit their max
+4. Never exceed an employee's maxWeeklyHours
+5. **Minimum 2 days off per employee** - No exceptions
+6. Never schedule an employee on a day they have approved time off
+7. STSUPER (Store Manager) counts as manager for opening/closing coverage
+8. Prioritize manager coverage (one manager opening, one closing each day)
+9. Ensure donor greeter coverage (one opening, one closing each day)
+10. Ensure cashier coverage (one opening, one closing each day)
+11. An employee should not work both opener AND closer on the same day`;
 
   try {
     const response = await openai.chat.completions.create({
@@ -189,6 +196,8 @@ Respond with a JSON object:
       closer: { startHour: 12, startMin: 0, endHour: 20, endMin: 30 },
       short_open: { startHour: 8, startMin: 0, endHour: 13, endMin: 30 },
       short_close: { startHour: 15, startMin: 0, endHour: 20, endMin: 30 },
+      gap_open: { startHour: 8, startMin: 0, endHour: 13, endMin: 0 },
+      gap_close: { startHour: 15, startMin: 30, endHour: 20, endMin: 30 },
     };
 
     const createdShifts = [];

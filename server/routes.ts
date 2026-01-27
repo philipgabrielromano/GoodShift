@@ -352,21 +352,23 @@ export async function registerRoutes(
       
       // Calculate best shift type for part-timer to maximize hours
       // Strategy for 29 max hours employees:
-      // - If they have 4+ days remaining: use full shifts (3 full + 1 gap = 29h is optimal)
-      // - If they have 5 days remaining but already have full shifts: continue with full
-      // - Otherwise use short shifts for flexibility
+      // - 3 full shifts (24h) + 1 gap shift (5h) = 29h (OPTIMAL)
+      // - Keep scheduling full shifts until they hit 24h, then use gap shift
       const getBestShiftForPartTimer = (emp: typeof employees[0], day: Date, dayIndex: number, shifts: ReturnType<typeof getShiftTimes>) => {
         const remaining = getRemainingHours(emp);
         const state = employeeState[emp.id];
         const daysRemaining = 5 - state.daysWorked;
+        const hoursScheduled = state.hoursScheduled;
         
-        // For 29h max employees, calculate optimal strategy:
-        // - 3 full (24h) + 1 gap (5h) = 29h (optimal when possible)
-        // - 5 short (27.5h) is fallback
-        const shouldPreferFull = emp.maxWeeklyHours === 29 && daysRemaining >= 4;
+        // For 29h max employees: optimal strategy is 3 full (24h) + 1 gap (5h) = 29h
+        // Keep preferring full shifts until we reach 24h scheduled
+        // Then switch to gap shift for the final 5h
+        const is29hEmployee = emp.maxWeeklyHours === 29;
+        const needsMoreFullShifts = is29hEmployee && hoursScheduled < 24 && daysRemaining >= 2;
+        const needsGapShift = is29hEmployee && remaining === 5;
         
-        // If preferring full shifts and can work a full shift
-        if (shouldPreferFull && canWorkFullShift(emp, day, dayIndex)) {
+        // For 29h employees: continue full shifts until 24h, then gap shift for 5h
+        if (needsMoreFullShifts && canWorkFullShift(emp, day, dayIndex)) {
           if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
             return shifts.opener;
           } else if (emp.jobTitle === 'DONDOOR') {
@@ -377,7 +379,7 @@ export async function registerRoutes(
         }
         
         // If remaining hours is exactly 5, use gap shift (for the 3 full + 1 gap strategy)
-        if (remaining === 5 && canWorkGapShift(emp, day, dayIndex)) {
+        if (needsGapShift && canWorkGapShift(emp, day, dayIndex)) {
           if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
             return shifts.gapMorning;
           } else if (emp.jobTitle === 'DONDOOR') {
@@ -398,7 +400,7 @@ export async function registerRoutes(
           }
         }
         
-        // Otherwise prefer short shifts for part-timers
+        // For non-29h part-timers or as fallback, prefer short shifts
         if (canWorkShortShift(emp, day, dayIndex)) {
           if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
             return shifts.shortMorning;
@@ -409,7 +411,7 @@ export async function registerRoutes(
           }
         }
         
-        // Fallback to full shift if nothing else works
+        // Fallback to full shift if nothing else works and they can work it
         if (canWorkFullShift(emp, day, dayIndex)) {
           if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
             return shifts.opener;
