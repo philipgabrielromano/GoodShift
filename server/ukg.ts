@@ -1,5 +1,4 @@
 import { InsertEmployee } from "@shared/schema";
-import * as soap from "soap";
 
 interface UKGProEmployee {
   employeeId: string;
@@ -68,57 +67,84 @@ class UKGClient {
     }, 2);
   }
 
-  private getSoapSecurityHeader(): string {
-    return `
-      <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
-        <wsse:UsernameToken>
-          <wsse:Username>${this.username}</wsse:Username>
-          <wsse:Password>${this.password}</wsse:Password>
-        </wsse:UsernameToken>
-      </wsse:Security>
-    `;
+  private buildLoginSoapRequest(): string {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+  <s:Header>
+    <a:Action s:mustUnderstand="1">http://www.ultipro.com/services/loginservice/ILoginService/Authenticate</a:Action>
+    <h:ClientAccessKey xmlns:h="http://www.ultipro.com/services/loginservice">${this.customerApiKey}</h:ClientAccessKey>
+    <h:Password xmlns:h="http://www.ultipro.com/services/loginservice">${this.password}</h:Password>
+    <h:UserAccessKey xmlns:h="http://www.ultipro.com/services/loginservice">${this.userApiKey}</h:UserAccessKey>
+    <h:UserName xmlns:h="http://www.ultipro.com/services/loginservice">${this.username}</h:UserName>
+  </s:Header>
+  <s:Body>
+    <TokenRequest xmlns="http://www.ultipro.com/contracts" />
+  </s:Body>
+</s:Envelope>`;
   }
 
-  private getServiceEndpoint(serviceName: string): string {
-    return `${this.baseUrl}/services/${serviceName}`;
-  }
-
-  private getWsdlUrl(serviceName: string): string {
-    return `${this.getServiceEndpoint(serviceName)}?wsdl`;
+  private buildFindPeopleSoapRequest(): string {
+    return `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+  <s:Header>
+    <a:Action s:mustUnderstand="1">http://www.ultipro.com/services/employeeperson/IEmployeePerson/FindPeople</a:Action>
+    <UltiProToken xmlns="http://www.ultimatesoftware.com/foundation/authentication/ultiprotoken">${this.authToken}</UltiProToken>
+    <ClientAccessKey xmlns="http://www.ultimatesoftware.com/foundation/authentication/clientaccesskey">${this.customerApiKey}</ClientAccessKey>
+  </s:Header>
+  <s:Body>
+    <FindPeople xmlns="http://www.ultipro.com/services/employeeperson">
+      <query xmlns:b="http://www.ultipro.com/contracts" xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+        <b:PageNumber>1</b:PageNumber>
+        <b:PageSize>100</b:PageSize>
+      </query>
+    </FindPeople>
+  </s:Body>
+</s:Envelope>`;
   }
 
   async authenticate(): Promise<boolean> {
     try {
-      const wsdlUrl = this.getWsdlUrl("LoginService");
-      console.log(`UKG: Authenticating via ${wsdlUrl}`);
+      const loginUrl = `${this.baseUrl}/services/LoginService`;
+      console.log(`UKG: Authenticating via ${loginUrl}`);
       
-      const client = await soap.createClientAsync(wsdlUrl);
+      const soapRequest = this.buildLoginSoapRequest();
+      console.log("UKG: Login request (masked):", soapRequest.replace(this.password, "***").replace(this.userApiKey, "***"));
       
-      client.addSoapHeader(this.getSoapSecurityHeader());
-      client.addHttpHeader("Us-Customer-Api-Key", this.customerApiKey);
-      if (this.userApiKey) {
-        client.addHttpHeader("Api-Key", this.userApiKey);
-      }
-
-      const [result] = await client.AuthenticateAsync({
-        UserName: this.username,
-        Password: this.password,
-        ClientAccessKey: this.customerApiKey,
-        UserAccessKey: this.userApiKey,
+      const response = await fetch(loginUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/soap+xml; charset=utf-8",
+        },
+        body: soapRequest,
       });
 
-      if (result?.Token) {
-        this.authToken = result.Token;
+      const responseText = await response.text();
+      console.log("UKG: Login response status:", response.status);
+      console.log("UKG: Login response:", responseText.slice(0, 1000));
+
+      if (!response.ok) {
+        this.lastError = `Login failed with status ${response.status}: ${responseText.slice(0, 500)}`;
+        return false;
+      }
+
+      const tokenMatch = responseText.match(/<a:Token[^>]*>([^<]+)<\/a:Token>/i) ||
+                         responseText.match(/<Token[^>]*>([^<]+)<\/Token>/i) ||
+                         responseText.match(/>([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})</i);
+      
+      if (tokenMatch && tokenMatch[1]) {
+        this.authToken = tokenMatch[1];
         this.lastError = null;
-        console.log("UKG: Authentication successful");
+        console.log("UKG: Authentication successful, token obtained");
         return true;
       } else {
-        this.lastError = "Authentication returned no token";
+        const errorMatch = responseText.match(/<[^>]*Message[^>]*>([^<]+)<\/[^>]*Message>/i) ||
+                          responseText.match(/<[^>]*Fault[^>]*>([^<]+)<\/[^>]*Fault>/i);
+        this.lastError = `Login failed: ${errorMatch ? errorMatch[1] : "No token in response"}. Response: ${responseText.slice(0, 300)}`;
         return false;
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.lastError = `Login failed: ${message}`;
+      this.lastError = `Login exception: ${message}`;
       console.error("UKG Authentication error:", message);
       return false;
     }
@@ -174,77 +200,121 @@ class UKGClient {
 
   async getAllEmployees(): Promise<UKGProEmployee[]> {
     try {
-      console.log("UKG: Fetching employees via SOAP");
+      console.log("UKG: Fetching employees");
       
-      const wsdlUrl = this.getWsdlUrl("EmployeePerson");
-      console.log(`UKG: WSDL URL: ${wsdlUrl}`);
-      
-      const client = await soap.createClientAsync(wsdlUrl);
-      
-      client.addSoapHeader(this.getSoapSecurityHeader());
-      client.addHttpHeader("Us-Customer-Api-Key", this.customerApiKey);
-      if (this.userApiKey) {
-        client.addHttpHeader("Api-Key", this.userApiKey);
+      if (!this.authToken) {
+        console.log("UKG: No auth token, authenticating first...");
+        const authenticated = await this.authenticate();
+        if (!authenticated) {
+          return [];
+        }
       }
 
-      const operations = Object.keys(client).filter(k => 
-        !k.startsWith("_") && 
-        typeof (client as Record<string, unknown>)[k] === "function" &&
-        k.endsWith("Async")
-      );
-      console.log("UKG: Available SOAP operations:", operations);
+      const personUrl = `${this.baseUrl}/services/EmployeePerson`;
+      console.log(`UKG: Calling FindPeople at ${personUrl}`);
+      
+      const soapRequest = this.buildFindPeopleSoapRequest();
+      console.log("UKG: FindPeople request:", soapRequest.slice(0, 500));
+      
+      const response = await fetch(personUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/soap+xml; charset=utf-8",
+        },
+        body: soapRequest,
+      });
 
-      let result: unknown;
-      console.log("UKG: Calling FindPeopleAsync");
-      try {
-        [result] = await client.FindPeopleAsync({
-          query: {
-            CompanyCode: this.customerApiKey,
-            PageSize: 100,
-            PageNumber: 1,
+      const responseText = await response.text();
+      console.log("UKG: FindPeople response status:", response.status);
+      console.log("UKG: FindPeople response:", responseText.slice(0, 1500));
+
+      if (!response.ok) {
+        if (response.status === 401 || responseText.includes("Authentication") || responseText.includes("Token")) {
+          console.log("UKG: Token may have expired, re-authenticating...");
+          this.authToken = null;
+          const authenticated = await this.authenticate();
+          if (authenticated) {
+            return this.getAllEmployees();
           }
-        });
-      } catch (soapError: unknown) {
-        const errMsg = soapError instanceof Error ? soapError.message : String(soapError);
-        console.log("UKG: FindPeople failed, trying Ping to test connection...");
-        
-        try {
-          const [pingResult] = await client.PingAsync({});
-          console.log("UKG: Ping result:", this.safeStringify(pingResult));
-          this.lastError = `FindPeople failed (${errMsg}), but Ping succeeded. Check query parameters.`;
-        } catch (pingError: unknown) {
-          const pingMsg = pingError instanceof Error ? pingError.message : String(pingError);
-          this.lastError = `Authentication failed. Ping error: ${pingMsg}. Check credentials.`;
         }
-        throw soapError;
+        this.lastError = `FindPeople failed with status ${response.status}: ${responseText.slice(0, 500)}`;
+        return [];
       }
 
-      console.log("UKG: Raw result:", this.safeStringify(result).slice(0, 1000));
-      
-      const employees: UKGProEmployee[] = [];
-      if (Array.isArray(result)) {
-        for (const person of result) {
-          employees.push({
-            employeeId: person.EmployeeId || person.employeeId || "",
-            firstName: person.FirstName || person.firstName || "",
-            lastName: person.LastName || person.lastName || "",
-            jobTitle: person.JobTitle || person.jobTitle || "Staff",
-            employmentStatus: person.EmploymentStatus || person.employmentStatus || "Active",
-          });
-        }
-      }
-
+      const employees = this.parseEmployeesFromXml(responseText);
       this.lastError = null;
       console.log(`UKG: Fetched ${employees.length} employees`);
       return employees;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      if (!this.lastError) {
-        this.lastError = `Failed to fetch employees: ${message}`;
-      }
+      this.lastError = `Failed to fetch employees: ${message}`;
       console.error("Failed to fetch employees from UKG:", message);
       return [];
     }
+  }
+
+  private parseEmployeesFromXml(xml: string): UKGProEmployee[] {
+    const employees: UKGProEmployee[] = [];
+    
+    const personMatches = xml.matchAll(/<[^>]*Person[^>]*>([\s\S]*?)<\/[^>]*Person>/gi);
+    
+    for (const match of personMatches) {
+      const personXml = match[1];
+      
+      const getValue = (tagName: string): string | undefined => {
+        const regex = new RegExp(`<[^>]*${tagName}[^>]*>([^<]*)<\/[^>]*${tagName}>`, 'i');
+        const m = personXml.match(regex);
+        return m ? m[1].trim() : undefined;
+      };
+
+      const employeeId = getValue("EmployeeId") || getValue("EmployeeNumber") || "";
+      const firstName = getValue("FirstName") || "";
+      const lastName = getValue("LastName") || "";
+      
+      if (firstName || lastName) {
+        employees.push({
+          employeeId,
+          firstName,
+          lastName,
+          jobTitle: getValue("JobTitle") || getValue("JobDescription") || "Staff",
+          workLocationCode: getValue("LocationCode") || getValue("WorkLocationCode"),
+          workLocationDescription: getValue("LocationDescription") || getValue("WorkLocationDescription"),
+          orgLevel1Code: getValue("OrgLevel1Code"),
+          orgLevel1Description: getValue("OrgLevel1Description"),
+          employmentStatus: getValue("EmploymentStatus") || getValue("Status") || "Active",
+          scheduledHours: parseFloat(getValue("ScheduledHours") || "40"),
+        });
+      }
+    }
+
+    if (employees.length === 0) {
+      console.log("UKG: No Person elements found, trying alternative parsing...");
+      const resultMatches = xml.matchAll(/<[^>]*Result[^>]*>([\s\S]*?)<\/[^>]*Result>/gi);
+      for (const match of resultMatches) {
+        const resultXml = match[1];
+        const getValue = (tagName: string): string | undefined => {
+          const regex = new RegExp(`<[^>]*${tagName}[^>]*>([^<]*)<\/[^>]*${tagName}>`, 'i');
+          const m = resultXml.match(regex);
+          return m ? m[1].trim() : undefined;
+        };
+        
+        const firstName = getValue("FirstName") || "";
+        const lastName = getValue("LastName") || "";
+        
+        if (firstName || lastName) {
+          employees.push({
+            employeeId: getValue("EmployeeId") || getValue("EmployeeNumber") || "",
+            firstName,
+            lastName,
+            jobTitle: getValue("JobTitle") || "Staff",
+            employmentStatus: "Active",
+            scheduledHours: 40,
+          });
+        }
+      }
+    }
+
+    return employees;
   }
 
   convertToAppEmployee(ukgEmployee: UKGProEmployee): InsertEmployee {
