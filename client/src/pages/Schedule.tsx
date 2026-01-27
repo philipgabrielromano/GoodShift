@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, Wand2, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -290,18 +290,8 @@ export default function Schedule() {
         <div className="flex gap-3">
           <Button 
             variant="outline" 
-            onClick={handleAutoGenerate} 
-            disabled={isGenerating || isAIGenerating}
-            className="border-primary/20 hover:border-primary/50"
-            data-testid="button-auto-generate"
-          >
-            <Wand2 className={cn("w-4 h-4 mr-2", isGenerating && "animate-spin")} />
-            {isGenerating ? "Generating..." : "Auto-Generate"}
-          </Button>
-          <Button 
-            variant="outline" 
             onClick={handleAIGenerate} 
-            disabled={isGenerating || isAIGenerating}
+            disabled={isAIGenerating}
             className="border-accent/50 hover:border-accent bg-accent/10 hover:bg-accent/20"
             data-testid="button-ai-generate"
           >
