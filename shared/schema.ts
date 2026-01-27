@@ -91,6 +91,21 @@ export const locations = pgTable("locations", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
+// Time clock entries from UKG - stores historical time punch data
+export const timeClockEntries = pgTable("time_clock_entries", {
+  id: serial("id").primaryKey(),
+  ukgEmployeeId: text("ukg_employee_id").notNull(), // UKG EmpId (e.g., "000950588-Q2VBU")
+  workDate: date("work_date").notNull(), // Date worked
+  clockIn: text("clock_in"), // Clock in time
+  clockOut: text("clock_out"), // Clock out time
+  regularHours: integer("regular_hours").notNull().default(0), // Regular hours in minutes
+  overtimeHours: integer("overtime_hours").notNull().default(0), // Overtime hours in minutes
+  totalHours: integer("total_hours").notNull().default(0), // Total hours in minutes
+  locationId: integer("location_id"), // UKG location ID
+  jobId: integer("job_id"), // UKG job ID
+  syncedAt: timestamp("synced_at").defaultNow(), // When this record was last synced
+});
+
 // === RELATIONS ===
 
 export const employeesRelations = relations(employees, ({ many }) => ({
@@ -121,6 +136,7 @@ export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
+export const insertTimeClockEntrySchema = createInsertSchema(timeClockEntries).omit({ id: true, syncedAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -151,6 +167,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 // Location Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
+
+// Time Clock Entry Types
+export type TimeClockEntry = typeof timeClockEntries.$inferSelect;
+export type InsertTimeClockEntry = z.infer<typeof insertTimeClockEntrySchema>;
 
 // Complex Types for UI
 export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };
