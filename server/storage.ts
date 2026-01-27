@@ -7,7 +7,8 @@ import {
   roleRequirements, type RoleRequirement, type InsertRoleRequirement,
   globalSettings, type GlobalSettings, type InsertGlobalSettings,
   users, type User, type InsertUser,
-  locations, type Location, type InsertLocation
+  locations, type Location, type InsertLocation,
+  timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -60,6 +61,11 @@ export interface IStorage {
   createLocation(location: InsertLocation): Promise<Location>;
   updateLocation(id: number, location: Partial<InsertLocation>): Promise<Location>;
   deleteLocation(id: number): Promise<void>;
+
+  // Time Clock Entries
+  getTimeClockEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
+  upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
+  getLastTimeClockSyncDate(): Promise<string | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -287,6 +293,60 @@ export class DatabaseStorage implements IStorage {
     
     console.log(`[Storage] Auto-created location: ${trimmedName}`);
     return newLocation;
+  }
+
+  // Time Clock Entries
+  async getTimeClockEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]> {
+    return await db.select().from(timeClockEntries)
+      .where(and(
+        gte(timeClockEntries.workDate, startDate),
+        lte(timeClockEntries.workDate, endDate)
+      ));
+  }
+
+  async upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number> {
+    if (entries.length === 0) return 0;
+
+    let upserted = 0;
+    
+    // Process in batches of 100 to avoid overwhelming the DB
+    const batchSize = 100;
+    for (let i = 0; i < entries.length; i += batchSize) {
+      const batch = entries.slice(i, i + batchSize);
+      
+      for (const entry of batch) {
+        // Check if entry exists for this employee/date
+        const [existing] = await db.select().from(timeClockEntries)
+          .where(and(
+            eq(timeClockEntries.ukgEmployeeId, entry.ukgEmployeeId),
+            eq(timeClockEntries.workDate, entry.workDate)
+          ));
+        
+        if (existing) {
+          // Update existing entry
+          await db.update(timeClockEntries)
+            .set({
+              ...entry,
+              syncedAt: new Date(),
+            })
+            .where(eq(timeClockEntries.id, existing.id));
+        } else {
+          // Insert new entry
+          await db.insert(timeClockEntries).values(entry);
+        }
+        upserted++;
+      }
+    }
+
+    return upserted;
+  }
+
+  async getLastTimeClockSyncDate(): Promise<string | null> {
+    const [latest] = await db.select({ workDate: timeClockEntries.workDate })
+      .from(timeClockEntries)
+      .orderBy(timeClockEntries.workDate)
+      .limit(1);
+    return latest?.workDate || null;
   }
 }
 
