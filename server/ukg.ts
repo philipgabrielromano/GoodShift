@@ -25,12 +25,9 @@ class UKGClient {
   private baseUrl: string;
   private username: string;
   private password: string;
-  private clientId: string;
-  private clientSecret: string;
+  private customerApiKey: string;
   private cachedLocations: UKGLocation[] | null = null;
   private lastError: string | null = null;
-  private accessToken: string | null = null;
-  private tokenExpiry: number = 0;
 
   constructor() {
     let url = process.env.UKG_API_URL || "";
@@ -40,101 +37,40 @@ class UKGClient {
     if (url.endsWith("/")) {
       url = url.slice(0, -1);
     }
-    if (url.includes("service4.ultipro.com")) {
-      url = url.replace("service4.ultipro.com", "ew33.ultipro.com");
+    if (url.includes("/services")) {
+      url = url.split("/services")[0];
     }
     this.baseUrl = url;
     this.username = process.env.UKG_USERNAME || "";
     this.password = process.env.UKG_PASSWORD || "";
-    this.clientId = process.env.UKG_API_KEY || "";
-    this.clientSecret = process.env.UKG_USER_API_KEY || "";
+    this.customerApiKey = process.env.UKG_API_KEY || "";
   }
 
   isConfigured(): boolean {
-    return !!(this.baseUrl && this.username && this.password && this.clientId);
+    return !!(this.baseUrl && this.username && this.password && this.customerApiKey);
   }
 
   getLastError(): string | null {
     return this.lastError;
   }
 
-  private async getAccessToken(): Promise<string | null> {
-    if (this.accessToken && Date.now() < this.tokenExpiry) {
-      return this.accessToken;
-    }
-
-    try {
-      const tokenUrl = `${this.baseUrl}/api/authentication/access_token`;
-      console.log(`UKG: Getting access token from ${tokenUrl}`);
-      
-      const params = new URLSearchParams({
-        username: this.username,
-        password: this.password,
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        grant_type: "password",
-        auth_chain: "OAuthLdapService",
-      });
-
-      const response = await fetch(tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: params.toString(),
-      });
-
-      const responseText = await response.text();
-      console.log("UKG: Token response status:", response.status);
-      console.log("UKG: Token response:", responseText.slice(0, 500));
-
-      if (!response.ok) {
-        this.lastError = `Token request failed (${response.status}): ${responseText.slice(0, 300)}`;
-        return null;
-      }
-
-      let data: { access_token?: string; expires_in?: number };
-      try {
-        data = JSON.parse(responseText);
-      } catch {
-        this.lastError = `Invalid token response JSON: ${responseText.slice(0, 200)}`;
-        return null;
-      }
-
-      if (!data.access_token) {
-        this.lastError = `No access_token in response: ${responseText.slice(0, 200)}`;
-        return null;
-      }
-
-      this.accessToken = data.access_token;
-      this.tokenExpiry = Date.now() + ((data.expires_in || 3600) - 60) * 1000;
-      this.lastError = null;
-      console.log("UKG: Access token obtained successfully");
-      return this.accessToken;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.lastError = `Token request exception: ${message}`;
-      console.error("UKG token error:", message);
-      return null;
-    }
+  private getAuthHeaders(): Record<string, string> {
+    const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
+    return {
+      "Authorization": `Basic ${basicAuth}`,
+      "Us-Customer-Api-Key": this.customerApiKey,
+      "Content-Type": "application/json",
+    };
   }
 
   private async apiRequest<T>(endpoint: string, method = "GET", body?: object): Promise<T | null> {
-    const token = await this.getAccessToken();
-    if (!token) {
-      return null;
-    }
-
-    const url = `${this.baseUrl}/api${endpoint}`;
+    const url = `${this.baseUrl}${endpoint}`;
     console.log(`UKG: ${method} ${url}`);
 
     try {
       const response = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": token,
-        },
+        headers: this.getAuthHeaders(),
         body: body ? JSON.stringify(body) : undefined,
       });
 
@@ -143,19 +79,23 @@ class UKGClient {
       console.log("UKG: API response:", responseText.slice(0, 1000));
 
       if (!response.ok) {
-        this.lastError = `API request failed (${response.status}): ${responseText.slice(0, 300)}`;
+        this.lastError = `API error (${response.status}): ${responseText.slice(0, 300)}`;
         return null;
+      }
+
+      if (!responseText.trim()) {
+        return [] as unknown as T;
       }
 
       try {
         return JSON.parse(responseText) as T;
       } catch {
-        this.lastError = `Invalid JSON response: ${responseText.slice(0, 200)}`;
+        this.lastError = `Invalid JSON: ${responseText.slice(0, 200)}`;
         return null;
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.lastError = `API request exception: ${message}`;
+      this.lastError = `API exception: ${message}`;
       console.error("UKG API error:", message);
       return null;
     }
@@ -210,115 +150,87 @@ class UKGClient {
   }
 
   async getAllEmployees(): Promise<UKGProEmployee[]> {
-    console.log("UKG: Fetching employees via REST API");
+    console.log("UKG: Fetching employees via REST API with Basic Auth");
     
-    interface PersonResponse {
-      personIdentity?: { personKey?: number };
-      personInformation?: {
-        personData?: {
-          person?: {
-            firstName?: string;
-            lastName?: string;
-          };
-        };
-        employmentStatusList?: Array<{
-          employmentStatusName?: string;
-        }>;
-        expectedHoursList?: Array<{
-          quantity?: number;
-          timePeriodTypeName?: string;
-        }>;
-        jobAssignment?: {
-          primaryLaborAccounts?: Array<{
-            organizationPath?: string;
-            laborCategoryName?: string;
-          }>;
-          baseWageRate?: { hourlyRate?: number };
-        };
-      };
+    interface EmployeeLookupResult {
+      employeeId?: string;
+      employeeNumber?: string;
+      firstName?: string;
+      lastName?: string;
+      jobTitle?: string;
+      primaryWorkLocation?: string;
+      employmentStatus?: string;
+      scheduledHours?: number;
     }
 
-    interface MultiReadResponse {
-      data?: {
-        children?: Array<{
-          key?: { PEOPLE?: string };
-          coreEntityKey?: { EMP?: { id?: string } };
-          attributes?: Array<{
-            key?: string;
-            value?: string;
-          }>;
-        }>;
-      };
+    interface PersonnelResult {
+      content?: EmployeeLookupResult[];
+      results?: EmployeeLookupResult[];
     }
 
-    const multiReadBody = {
-      select: [
-        { key: "EMP_COMMON_FULL_NAME" },
-        { key: "EMP_COMMON_PRIMARY_JOB" },
-        { key: "EMP_COMMON_PRIMARY_ORG" },
-        { key: "PEOPLE_HIRE_DATE" },
-        { key: "EMP_COMMON_EMP_STATUS" },
-      ],
-      from: {
-        view: "EMP",
-        employeeSet: {
-          hyperfind: { id: "1" },
-          dateRange: {
-            symbolicPeriod: { id: 5 }
-          }
-        }
-      }
-    };
-
-    const result = await this.apiRequest<MultiReadResponse>("/v1/commons/data/multi_read", "POST", multiReadBody);
+    const result = await this.apiRequest<PersonnelResult | EmployeeLookupResult[]>("/personnel/v1/employees");
     
     if (!result) {
-      console.log("UKG: multi_read failed, trying /v1/commons/persons endpoint...");
+      console.log("UKG: /personnel/v1/employees failed, trying alternative endpoints...");
       
-      const personsResult = await this.apiRequest<PersonResponse[]>("/v1/commons/persons");
+      const altResult = await this.apiRequest<PersonnelResult | EmployeeLookupResult[]>("/personnel/v1/employee-employment-details");
       
-      if (!personsResult) {
-        return [];
+      if (!altResult) {
+        const lookupResult = await this.apiRequest<EmployeeLookupResult[]>("/personnel/v1/employee-lookup", "POST", {
+          employeeIdentifiers: []
+        });
+        
+        if (!lookupResult) {
+          return [];
+        }
+        
+        return this.parseEmployeeResults(lookupResult);
       }
-
-      return personsResult.map((person, index) => ({
-        employeeId: String(person.personIdentity?.personKey || index),
-        firstName: person.personInformation?.personData?.person?.firstName || "",
-        lastName: person.personInformation?.personData?.person?.lastName || "",
-        jobTitle: "Staff",
-        employmentStatus: person.personInformation?.employmentStatusList?.[0]?.employmentStatusName || "Active",
-        scheduledHours: person.personInformation?.expectedHoursList?.find(h => h.timePeriodTypeName === "Weekly")?.quantity || 40,
-      }));
+      
+      return this.parseEmployeeResults(altResult);
     }
 
+    return this.parseEmployeeResults(result);
+  }
+
+  private parseEmployeeResults(result: unknown): UKGProEmployee[] {
     const employees: UKGProEmployee[] = [];
     
-    if (result.data?.children) {
-      for (const child of result.data.children) {
-        const attrs = child.attributes || [];
-        const getAttr = (key: string) => attrs.find(a => a.key === key)?.value;
-        
-        const fullName = getAttr("EMP_COMMON_FULL_NAME") || "";
-        const nameParts = fullName.split(" ");
-        const firstName = nameParts[0] || "";
-        const lastName = nameParts.slice(1).join(" ") || "";
+    let items: unknown[] = [];
+    if (Array.isArray(result)) {
+      items = result;
+    } else if (result && typeof result === 'object') {
+      const r = result as Record<string, unknown>;
+      if (Array.isArray(r.content)) {
+        items = r.content;
+      } else if (Array.isArray(r.results)) {
+        items = r.results;
+      }
+    }
+    
+    for (const item of items) {
+      if (item && typeof item === 'object') {
+        const emp = item as Record<string, unknown>;
+        const firstName = String(emp.firstName || emp.FirstName || "");
+        const lastName = String(emp.lastName || emp.LastName || "");
         
         if (firstName || lastName) {
           employees.push({
-            employeeId: child.coreEntityKey?.EMP?.id || child.key?.PEOPLE || "",
+            employeeId: String(emp.employeeId || emp.employeeNumber || emp.EmployeeId || ""),
             firstName,
             lastName,
-            jobTitle: getAttr("EMP_COMMON_PRIMARY_JOB") || "Staff",
-            orgLevel1Description: getAttr("EMP_COMMON_PRIMARY_ORG"),
-            employmentStatus: getAttr("EMP_COMMON_EMP_STATUS") || "Active",
-            scheduledHours: 40,
+            jobTitle: String(emp.jobTitle || emp.JobTitle || "Staff"),
+            workLocationCode: String(emp.primaryWorkLocation || emp.workLocationCode || ""),
+            workLocationDescription: String(emp.workLocationDescription || ""),
+            employmentStatus: String(emp.employmentStatus || emp.EmploymentStatus || "Active"),
+            scheduledHours: Number(emp.scheduledHours || emp.ScheduledHours || 40),
           });
         }
       }
     }
 
     this.lastError = null;
-    console.log(`UKG: Fetched ${employees.length} employees`);
+    console.log(`UKG: Parsed ${employees.length} employees`);
     return employees;
   }
 
@@ -339,8 +251,6 @@ class UKGClient {
 
   clearCache(): void {
     this.cachedLocations = null;
-    this.accessToken = null;
-    this.tokenExpiry = 0;
   }
 }
 
