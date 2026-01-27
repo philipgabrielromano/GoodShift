@@ -1,0 +1,194 @@
+Web Services
+Introduction
+UKG Pro Web Services is an automation product offering that allows data transfer using an Application Programming Interface (API). With UKG Pro Web Services, you can leverage your UKG Pro data for solving business application and integration needs.
+
+UKG Pro API
+The UKG Pro API enables you to resolve integration needs by providing a programmatic interface to your UKG Pro data via SOAP-based and REST-based web services. The API enables the integration of UKG Pro data in a variety of use cases from API dashboards to data replication and custom reporting front-ends.
+
+The API supports the retrieval and updating of UKG Pro data. You can use a user name and password for a UKG Pro Service Account or a UKG Pro Web User account with Web Services permissions. Service Accounts can be granted permission to any of our web services on the Service Account administrative page in UKG Pro. Authentication also requires a valid Customer API key and User API Key.
+
+Web Service Feature Highlights
+Access all data the user is authorized to see for a given service
+Search for UKG Pro data using multiple filter criteria
+Update one or more employees at a time
+Technical Specifications
+Simple Object Access Protocol (SOAP) 1.2
+WS-* specifications
+JSON or XML REST services
+HTTPS / Secure Sockets Layer (SSL)
+Managing UKG Pro web services requires the active participation of a customer programming resource that is familiar with software development, web service technologies, and using APIs.
+
+Service Accounts
+Using a UKG Pro Service Account is recommended. For information regarding establishing and maintaining a UKG Pro Service Account, refer to the Manage Service Accounts guide available in the UKG Community Library.
+
+General Functionality
+The UKG Pro API has common functionality that is used by all services. This section will detail the information you will need to consume the UKG Pro web services.
+
+Authentication
+Each web service requires authentication information in order to gain access to the UKG Pro data. The following items are required in order to authenticate to the services.
+
+A UKG Pro Service Account username and password OR a UKG Pro Web User username and password
+The Customer API key from the UKG Pro Web Service administrative page
+If you use an UKG Pro Service Account:
+You will need the User API key from the Service Account administrative page.
+You must have appropriate permissions granted to the Service Account on the Service Account administrative page for the services you plan to use.
+If you use an UKG Pro Web User account:
+You will need the User API key from the Web Service administrative page.
+To locate the Customer API key and the User API key for the UKG Pro Service Account, navigate to Menu > System Configuration > Security > Service Account Administration.
+
+Service Account Administration Page
+To locate the Customer API key and the User API key for the UKG Pro Web User, navigate to Menu > System Configuration > Security > Web Services
+
+Web Services Page
+Finding Employees
+The web services provide a way that you can search for and return multiple employees based on filter criteria that you provide. This is similar to the UKG Pro portal when searching for employees as a manager or administrator.
+
+You can search based on the following properties using the documented operations below.
+
+Property
+
+Comments
+
+LastName
+
+—
+
+FirstName
+
+—
+
+FormerName
+
+—
+
+EmployeeNumber
+
+—
+
+Status
+
+Search is based on the following status codes:
+A=Active
+
+L=Leave of absence
+
+O=On strike
+
+R=Released/laid off
+
+S=Suspended
+
+T=Terminated
+
+Job
+
+Search is based on the UKG Pro code
+
+Location
+
+Search is based on the UKG Pro code
+
+OrganizationalLevel1
+
+Search is based on the UKG Pro code
+
+OrganizationalLevel2
+
+Search is based on the UKG Pro code
+
+OrganizationalLevel3
+
+Search is based on the UKG Pro code
+
+OrganizationalLevel4
+
+Search is based on the UKG Pro code
+
+CompanyCode
+
+—
+
+CompanyName
+
+—
+
+PayGroup
+
+Search is based on the UKG Pro code
+
+TimeClockId
+
+—
+
+FullOrPartTime
+
+F=Full time
+
+P=Part time
+
+SupervisorLastName
+
+—
+
+Country
+
+Country code
+
+LastHire
+
+—
+
+OriginalHire
+
+—
+
+TerminationDate
+
+—
+
+Supported Operations
+
+Operator	Comments
+=	Equal to
+<>	Not equal to
+>	Greater than
+>=	Greater than or equal to
+<	Less than
+<=	Less than or equal to
+..	Range of data. Requires a start and end value. Example: 1/1/2010-6/1/2010
+Available for dates, number and currency
+
+IN(value, value2, valueN)	Searches for any value within the list provided
+Example: IN(“OH”,”FL”,”TX” )
+
+IN(1, 5, 9)
+
+LIKE(value)	Search for properties like “value”
+Example: firstName LIKE(ja%)
+
+Lastname LIKE(“%O’Conn%”)
+
+Like supports double quotes or no quotes.
+
+% is a wildcard search
+
+Employee Identifiers
+There are several ways that you can identify your employees in UKG Pro when retrieving and updating data. Each service provides the following identifiers to represent an employee in UKG Pro.
+
+Employee number
+Social Security Number (SSN)
+Social Insurance Number (SIN)– Canadian companies
+Email address
+Each service has a method that you can get an employee by their employee identifier. Each update will require an employee identifier as well. The following details the rules when using the identifiers.
+
+Item	Comments
+CompanyCode	This is an optional property on the identifier. The company will default to their home company code if not provided.
+You will need to provide a company code on updates if the employee is in multiple companies otherwise you could inadvertently update the wrong company file.
+
+Updates	The update operations require an identifier that will return a unique employee. If your identifier does not return a unique identifier the update will fail. Use the company code or another identifier to create a successful update.
+What is Next?
+Once you have your API keys and are familiar with the information in this document, please go to the applicable API guide to obtain information on each UKG Pro Web Service offered. UKG recommends that you review the Login Service API guide first; this guide will assist you in understanding the login process to UKG Pro Web Services.
+
+© 2023 UKG Inc. All rights reserved. For a full list of UKG trademarks, visit https://www.ukg.com/trademarks. All other trademarks, if any, are the property of their respective owners.
+
+This document and all information contained herein are provided to you "AS IS" and UKG Inc. and its affiliates (collectively "UKG") make no representation or
