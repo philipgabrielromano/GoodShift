@@ -475,77 +475,65 @@ export async function registerRoutes(
           }
         }
 
-        // 3. Staff Coverage based on labor allocation
+        // 3. Staff Coverage - Schedule ALL active retail employees
         const openersRequired = settings.openersRequired ?? 2;
         const closersRequired = settings.closersRequired ?? 2;
         
-        // Define mid-shift times (9-5:30, 10-6:30, 11-7:30)
-        const midShifts = [
-          { start: createESTTime(currentDay, 9, 0), end: createESTTime(currentDay, 17, 30) },
-          { start: createESTTime(currentDay, 10, 0), end: createESTTime(currentDay, 18, 30) },
-          { start: createESTTime(currentDay, 11, 0), end: createESTTime(currentDay, 19, 30) }
+        // Define all shift times
+        const allShifts = [
+          { type: 'opener', start: morningStart, end: morningEnd },
+          { type: 'mid1', start: createESTTime(currentDay, 9, 0), end: createESTTime(currentDay, 17, 30) },
+          { type: 'mid2', start: createESTTime(currentDay, 10, 0), end: createESTTime(currentDay, 18, 30) },
+          { type: 'mid3', start: createESTTime(currentDay, 11, 0), end: createESTTime(currentDay, 19, 30) },
+          { type: 'closer', start: eveningStart, end: eveningEnd }
         ];
         
-        // Calculate daily targets per category
-        for (const category of laborCategories) {
-          const dailyTarget = category.weeklyHours / 7;
-          const remainingForToday = dailyTarget;
+        // Get ALL active retail employees (not just by category)
+        const retailJobCodes = ['CASHSLS', 'DONPRI', 'APPROC', 'DONDOOR'];
+        const retailEmployees = employees.filter(emp => 
+          retailJobCodes.includes(emp.jobTitle) && emp.isActive
+        );
+        
+        // Shuffle employees to distribute shifts more evenly
+        const shuffledEmployees = [...retailEmployees].sort(() => Math.random() - 0.5);
+        
+        let shiftTypeIndex = 0;
+        let openersAssigned = 0;
+        let closersAssigned = 0;
+        
+        for (const emp of shuffledEmployees) {
+          // Skip if already worked today (assigned earlier as manager/greeter)
+          if (workedToday.has(emp.id)) continue;
+          if (isOnTimeOff(emp.id, currentDay)) continue;
+          if (employeeHours[emp.id] + SHIFT_HOURS > emp.maxWeeklyHours) continue;
+          if (!canWorkMoreDays(emp.id)) continue; // 2 days off requirement
           
-          // Get employees for this category's job codes
-          const categoryEmployees = employees.filter(emp => 
-            category.jobCodes.includes(emp.jobTitle) && emp.isActive
-          );
-          
-          let assignedToday = 0;
-          let openersAssigned = 0;
-          let closersAssigned = 0;
-          let midShiftIndex = 0;
-          let midShiftsAssigned = 0;
-          
-          for (const emp of categoryEmployees) {
-            // Enforce weekly allocation limit for this category
-            if (category.assignedHours + SHIFT_HOURS > category.weeklyHours) break;
-            if (assignedToday >= remainingForToday) break;
-            if (isOnTimeOff(emp.id, currentDay)) continue;
-            if (employeeHours[emp.id] + SHIFT_HOURS > emp.maxWeeklyHours) continue;
-            if (!canWorkMoreDays(emp.id)) continue; // 2 days off requirement
-            
-            // Rotate through opener, mid-shifts, and closer
-            let shiftStart, shiftEnd;
-            if (openersAssigned < openersRequired) {
-              shiftStart = morningStart;
-              shiftEnd = morningEnd;
-              openersAssigned++;
-            } else if (midShiftsAssigned < 3) {
-              // Assign mid-shifts (rotate through the 3 options)
-              const midShift = midShifts[midShiftIndex % 3];
-              shiftStart = midShift.start;
-              shiftEnd = midShift.end;
-              midShiftIndex++;
-              midShiftsAssigned++;
-            } else if (closersAssigned < closersRequired) {
-              shiftStart = eveningStart;
-              shiftEnd = eveningEnd;
-              closersAssigned++;
-            } else {
-              // Continue rotating mid-shifts after all required positions filled
-              const midShift = midShifts[midShiftIndex % 3];
-              shiftStart = midShift.start;
-              shiftEnd = midShift.end;
-              midShiftIndex++;
-            }
-            
-            const shift = await storage.createShift({ 
-              employeeId: emp.id, 
-              startTime: shiftStart, 
-              endTime: shiftEnd 
-            });
-            generatedShifts.push(shift);
-            employeeHours[emp.id] += SHIFT_HOURS;
-            category.assignedHours += SHIFT_HOURS;
-            assignedToday += SHIFT_HOURS;
-            workedToday.add(emp.id);
+          // Pick shift type - prioritize coverage needs
+          let shiftStart, shiftEnd;
+          if (openersAssigned < openersRequired) {
+            shiftStart = allShifts[0].start;
+            shiftEnd = allShifts[0].end;
+            openersAssigned++;
+          } else if (closersAssigned < closersRequired) {
+            shiftStart = allShifts[4].start;
+            shiftEnd = allShifts[4].end;
+            closersAssigned++;
+          } else {
+            // Rotate through mid-shifts
+            const midShiftIdx = (shiftTypeIndex % 3) + 1; // 1, 2, or 3
+            shiftStart = allShifts[midShiftIdx].start;
+            shiftEnd = allShifts[midShiftIdx].end;
+            shiftTypeIndex++;
           }
+          
+          const shift = await storage.createShift({ 
+            employeeId: emp.id, 
+            startTime: shiftStart, 
+            endTime: shiftEnd 
+          });
+          generatedShifts.push(shift);
+          employeeHours[emp.id] += SHIFT_HOURS;
+          workedToday.add(emp.id);
         }
         
         // Increment days worked for each employee who worked today
