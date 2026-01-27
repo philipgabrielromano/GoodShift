@@ -193,30 +193,29 @@ class UKGClient {
         k.endsWith("Async")
       );
       console.log("UKG: Available SOAP operations:", operations);
-      
-      const methods = client.describe();
-      const safeDescribe = this.safeStringify(methods);
-      console.log("UKG: Service description:", safeDescribe.slice(0, 2000));
 
       let result: unknown;
-      const methodName = operations.find(op => 
-        op.toLowerCase().includes("find") || 
-        op.toLowerCase().includes("get") ||
-        op.toLowerCase().includes("query")
-      );
-
-      if (!methodName) {
-        this.lastError = `No suitable query method found. Available: ${operations.join(", ")}`;
-        return [];
-      }
-
-      console.log(`UKG: Calling ${methodName}`);
+      console.log("UKG: Calling FindPeopleAsync");
       try {
-        const method = (client as Record<string, Function>)[methodName];
-        [result] = await method({});
+        [result] = await client.FindPeopleAsync({
+          query: {
+            CompanyCode: this.customerApiKey,
+            PageSize: 100,
+            PageNumber: 1,
+          }
+        });
       } catch (soapError: unknown) {
         const errMsg = soapError instanceof Error ? soapError.message : String(soapError);
-        this.lastError = `SOAP ${methodName} error: ${errMsg}. Available operations: ${operations.join(", ")}`;
+        console.log("UKG: FindPeople failed, trying Ping to test connection...");
+        
+        try {
+          const [pingResult] = await client.PingAsync({});
+          console.log("UKG: Ping result:", this.safeStringify(pingResult));
+          this.lastError = `FindPeople failed (${errMsg}), but Ping succeeded. Check query parameters.`;
+        } catch (pingError: unknown) {
+          const pingMsg = pingError instanceof Error ? pingError.message : String(pingError);
+          this.lastError = `Authentication failed. Ping error: ${pingMsg}. Check credentials.`;
+        }
         throw soapError;
       }
 
