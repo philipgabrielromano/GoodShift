@@ -60,40 +60,43 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   
   const approvedTimeOff = timeOff.filter(t => t.status === "approved");
 
-  const prompt = `You are an expert retail store scheduler. Generate an optimal weekly schedule based on the following requirements and constraints.
+  const totalEmployeeCapacity = activeEmployees.reduce((sum, e) => sum + (e.maxWeeklyHours || 40), 0);
+  const targetHours = Math.min(totalAvailableHours, totalEmployeeCapacity);
 
-## REQUIREMENTS
+  const prompt = `You are an expert retail store scheduler. Generate a FULL weekly schedule that MAXIMIZES hour usage.
 
-### Shift Types (all shifts are 8.5 hours)
+## CRITICAL GOAL
+**USE AS MANY HOURS AS POSSIBLE** - Target: ${targetHours} hours (Budget: ${totalAvailableHours} hours available)
+**SCHEDULE EVERY EMPLOYEE** - You have ${activeEmployees.length} employees. Each should get shifts up to their max hours.
+
+## Shift Types (all shifts are 8.5 hours)
 - **Opener**: 8:00 AM - 4:30 PM
 - **Mid-Shift 1**: 9:00 AM - 5:30 PM  
 - **Mid-Shift 2**: 10:00 AM - 6:30 PM
 - **Mid-Shift 3**: 11:00 AM - 7:30 PM
 - **Closer**: 12:00 PM - 8:30 PM
 
-### Daily Coverage Requirements
+## Daily Coverage Requirements (EVERY DAY, 7 days)
 - Openers Required: ${settings.openersRequired ?? 2}
 - Closers Required: ${settings.closersRequired ?? 2}
-- Managers Required: ${settings.managersRequired ?? 1} (one for opening shift, one for closing shift)
+- Managers Required: ${settings.managersRequired ?? 1} (one opener, one closer)
 - At least 1 Donor Greeter (DONDOOR) on opening shift
 - At least 1 Donor Greeter (DONDOOR) on closing shift
-- At least 1-3 mid-shifts per day for continuous coverage
+- Fill mid-shifts to maximize coverage and hour usage
 
-### Labor Allocation (percentage of hours by category)
+## Labor Allocation (percentage of hours by category)
 - Cashiering (CASHSLS): ${settings.cashieringPercent ?? 40}%
 - Donation Pricing (DONPRI, APPROC): ${settings.donationPricingPercent ?? 35}%
 - Donor Greeting (DONDOOR): ${settings.donorGreetingPercent ?? 25}%
 
-### Manager Job Codes
+## Manager Job Codes
 - STRSUPER (Store Manager)
 - STASSTSP (Assistant Manager)
 - STLDWKR (Team Lead)
 
-### Total Weekly Hours Budget: ${totalAvailableHours} hours
+## ALL EMPLOYEES - SCHEDULE EACH ONE (${activeEmployees.length} total)
 
-## EMPLOYEES AVAILABLE
-
-${activeEmployees.map(e => `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max Hours/Week: ${e.maxWeeklyHours}, Location: ${e.location || 'Unknown'}`).join('\n')}
+${activeEmployees.map(e => `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max Hours/Week: ${e.maxWeeklyHours || 40}`).join('\n')}
 
 ## APPROVED TIME OFF (Do NOT schedule these employees on these days)
 
@@ -102,20 +105,28 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
   return `- ${emp?.name || 'Unknown'} (ID: ${t.employeeId}): ${t.startDate} to ${t.endDate}`;
 }).join('\n') : 'None'}
 
-## SCHEDULE TO GENERATE
-
-Generate a 7-day schedule (Sunday through Saturday, days 0-6).
+## SCHEDULING RULES
+1. Each shift is 8.5 hours
+2. Schedule EVERY employee for shifts up to their maxWeeklyHours
+3. Full-time employees (maxWeeklyHours >= 32): Schedule 4-5 shifts per week
+4. Part-time employees (maxWeeklyHours < 32): Schedule 2-3 shifts per week
+5. An employee can only work ONE shift per day (no doubles)
+6. Never exceed an employee's maxWeeklyHours
+7. Never schedule someone on approved time off days
+8. Generate shifts for ALL 7 days (Sunday=0 through Saturday=6)
 
 ## OUTPUT FORMAT
 
-Respond with a JSON object in this exact format:
+Respond with a JSON object:
 {
   "shifts": [
     {"employeeId": 1, "employeeName": "John Doe", "jobTitle": "CASHSLS", "shiftType": "opener", "dayIndex": 0},
+    {"employeeId": 1, "employeeName": "John Doe", "jobTitle": "CASHSLS", "shiftType": "opener", "dayIndex": 1},
     ...
   ],
-  "reasoning": "Brief explanation of key scheduling decisions",
-  "warnings": ["Any issues or constraints that couldn't be fully satisfied"]
+  "reasoning": "Brief explanation",
+  "warnings": ["Any issues"],
+  "totalHoursScheduled": 850
 }
 
 ## IMPORTANT RULES
