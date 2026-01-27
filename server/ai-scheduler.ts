@@ -84,6 +84,8 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 - Managers Required: ${settings.managersRequired ?? 1} (one opener, one closer)
 - At least 1 Donor Greeter (DONDOOR) on opening shift
 - At least 1 Donor Greeter (DONDOOR) on closing shift
+- At least 1 Cashier (CASHSLS) on opening shift
+- At least 1 Cashier (CASHSLS) on closing shift
 - Fill mid-shifts to maximize coverage and hour usage
 
 ## Labor Allocation (percentage of hours by category)

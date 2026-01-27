@@ -197,6 +197,40 @@ export function ScheduleValidator() {
         });
       }
       
+      // Check cashier coverage (one opening, one closing)
+      const cashierShifts = dayShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp?.jobTitle === 'CASHSLS';
+      });
+      
+      const openingCashier = cashierShifts.some(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerMorningStart || "08:00") && 
+               endStr === (settings.managerMorningEnd || "16:30");
+      });
+      
+      const closingCashier = cashierShifts.some(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerEveningStart || "12:00") && 
+               endStr === (settings.managerEveningEnd || "20:30");
+      });
+      
+      if (!openingCashier) {
+        newIssues.push({
+          type: "error",
+          message: `${dayLabel}: Missing opening cashier`
+        });
+      }
+      
+      if (!closingCashier) {
+        newIssues.push({
+          type: "error",
+          message: `${dayLabel}: Missing closing cashier`
+        });
+      }
+      
       // Check for mid-shift coverage (9-5:30, 10-6:30, 11-7:30)
       const midShiftTimes = [
         { start: "09:00", end: "17:30" },
