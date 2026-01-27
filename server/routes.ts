@@ -255,8 +255,8 @@ export async function registerRoutes(
       
       const employees = await storage.getEmployees();
       const settings = await storage.getGlobalSettings();
-      const roles = await storage.getRoleRequirements();
       const timeOff = await storage.getTimeOffRequests();
+      const locations = await storage.getLocations();
 
       // Clear existing shifts for the week (7 days from start)
       const weekEndMs = startDate.getTime() + 7 * 24 * 60 * 60 * 1000;
@@ -267,82 +267,177 @@ export async function registerRoutes(
       }
 
       const generatedShifts = [];
-      let totalAssignedHours = 0;
+      
+      // Calculate total available hours from all active locations
+      const activeLocations = locations.filter(l => l.isActive);
+      const totalAvailableHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
+      
+      // Get labor allocation percentages from settings
+      const cashieringPercent = settings.cashieringPercent ?? 40;
+      const donationPricingPercent = settings.donationPricingPercent ?? 35;
+      const donorGreetingPercent = settings.donorGreetingPercent ?? 25;
+      
+      // Validate percentages sum to 100 (normalize if not)
+      const totalPercent = cashieringPercent + donationPricingPercent + donorGreetingPercent;
+      const normalizedCashiering = totalPercent > 0 ? cashieringPercent / totalPercent : 0.4;
+      const normalizedDonationPricing = totalPercent > 0 ? donationPricingPercent / totalPercent : 0.35;
+      const normalizedDonorGreeting = totalPercent > 0 ? donorGreetingPercent / totalPercent : 0.25;
+      
+      // Calculate weekly hours per labor category based on percentages
+      const cashieringHours = Math.floor(totalAvailableHours * normalizedCashiering);
+      const donationPricingHours = Math.floor(totalAvailableHours * normalizedDonationPricing);
+      const donorGreetingHours = Math.floor(totalAvailableHours * normalizedDonorGreeting);
+      
+      // Map labor categories to job codes
+      // Cashiering: CASHSLS
+      // Donation Pricing: DONPRI, APPROC
+      // Donor Greeting: DONDOOR
+      const laborCategories = [
+        { 
+          name: 'Cashiering', 
+          jobCodes: ['CASHSLS'], 
+          weeklyHours: cashieringHours,
+          assignedHours: 0
+        },
+        { 
+          name: 'Donation Pricing', 
+          jobCodes: ['DONPRI', 'APPROC'], 
+          weeklyHours: donationPricingHours,
+          assignedHours: 0
+        },
+        { 
+          name: 'Donor Greeting', 
+          jobCodes: ['DONDOOR'], 
+          weeklyHours: donorGreetingHours,
+          assignedHours: 0
+        }
+      ];
+      
+      // Group employees by job code and track their weekly hours
+      const employeeHours: Record<number, number> = {};
+      employees.forEach(emp => { employeeHours[emp.id] = 0; });
+      
+      // Manager job codes for coverage
+      const managerCodes = ['STRSUPER', 'STASSTSP'];
+      const managers = employees.filter(emp => 
+        managerCodes.includes(emp.jobTitle) && emp.isActive
+      );
+      
+      // Shift durations (8.5 hours for opener/closer)
+      const SHIFT_HOURS = 8.5;
 
-      // Group employees by job title
-      const employeesByRole = employees.reduce((acc, emp) => {
-        if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
-        acc[emp.jobTitle].push({ ...emp, currentHours: 0 });
-        return acc;
-      }, {} as Record<string, any>);
+      // Helper to check if employee is on approved time off
+      const isOnTimeOff = (empId: number, day: Date) => {
+        return timeOff.some(to => 
+          to.employeeId === empId && 
+          to.status === "approved" && 
+          new Date(to.startDate) <= day && 
+          new Date(to.endDate) >= day
+        );
+      };
 
-      // Day-by-day generation (use milliseconds to add days reliably)
+      // Day-by-day generation
       for (let i = 0; i < 7; i++) {
         const currentDayMs = startDate.getTime() + i * 24 * 60 * 60 * 1000;
         const currentDay = new Date(currentDayMs);
 
-        // 1. Mandatory Manager Coverage
-        const managers = employeesByRole["Manager"] || [];
-        if (managers.length >= 2) {
-          // Morning Manager (08:00 - 16:30 EST)
-          const morningStart = createESTTime(currentDay, 8, 0);
-          const morningEnd = createESTTime(currentDay, 16, 30);
-
-          // Evening Manager (12:00 - 20:30 EST)
-          const eveningStart = createESTTime(currentDay, 12, 0);
-          const eveningEnd = createESTTime(currentDay, 20, 30);
-
-          // Assign if not on time off
-          const morningManager = managers.find((m: any) => 
-            !timeOff.some(to => to.employeeId === m.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay)
-          );
-          if (morningManager && totalAssignedHours + 8.5 <= settings.totalWeeklyHoursLimit) {
-            const shift = await storage.createShift({ employeeId: morningManager.id, startTime: morningStart, endTime: morningEnd });
-            generatedShifts.push(shift);
-            morningManager.currentHours += 8.5;
-            totalAssignedHours += 8.5;
-          }
-
-          const eveningManager = managers.find((m: any) => 
-            m.id !== morningManager?.id &&
-            !timeOff.some(to => to.employeeId === m.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay)
-          );
-          if (eveningManager && totalAssignedHours + 8.5 <= settings.totalWeeklyHoursLimit) {
-            const shift = await storage.createShift({ employeeId: eveningManager.id, startTime: eveningStart, endTime: eveningEnd });
-            generatedShifts.push(shift);
-            eveningManager.currentHours += 8.5;
-            totalAssignedHours += 8.5;
-          }
+        // 1. Manager Coverage (opening and closing shifts)
+        const managersRequired = settings.managersRequired ?? 1;
+        
+        // Opening shift (08:00 - 16:30 EST)
+        const morningStart = createESTTime(currentDay, 8, 0);
+        const morningEnd = createESTTime(currentDay, 16, 30);
+        
+        // Closing shift (12:00 - 20:30 EST)
+        const eveningStart = createESTTime(currentDay, 12, 0);
+        const eveningEnd = createESTTime(currentDay, 20, 30);
+        
+        const assignedMorningManagers: number[] = [];
+        const assignedEveningManagers: number[] = [];
+        
+        // Assign morning managers
+        for (const mgr of managers) {
+          if (assignedMorningManagers.length >= managersRequired) break;
+          if (isOnTimeOff(mgr.id, currentDay)) continue;
+          if (employeeHours[mgr.id] + SHIFT_HOURS > mgr.maxWeeklyHours) continue;
+          
+          const shift = await storage.createShift({ 
+            employeeId: mgr.id, 
+            startTime: morningStart, 
+            endTime: morningEnd 
+          });
+          generatedShifts.push(shift);
+          employeeHours[mgr.id] += SHIFT_HOURS;
+          assignedMorningManagers.push(mgr.id);
+        }
+        
+        // Assign evening managers (different from morning)
+        for (const mgr of managers) {
+          if (assignedEveningManagers.length >= managersRequired) break;
+          if (assignedMorningManagers.includes(mgr.id)) continue; // Not same as morning
+          if (isOnTimeOff(mgr.id, currentDay)) continue;
+          if (employeeHours[mgr.id] + SHIFT_HOURS > mgr.maxWeeklyHours) continue;
+          
+          const shift = await storage.createShift({ 
+            employeeId: mgr.id, 
+            startTime: eveningStart, 
+            endTime: eveningEnd 
+          });
+          generatedShifts.push(shift);
+          employeeHours[mgr.id] += SHIFT_HOURS;
+          assignedEveningManagers.push(mgr.id);
         }
 
-        // 2. Distribute remaining hours based on Role Requirements
-        for (const role of roles) {
-          if (role.jobTitle === "Manager") continue;
-
-          const roleEmployees = employeesByRole[role.jobTitle] || [];
-          const targetHoursPerDay = role.requiredWeeklyHours / 7;
-          let dailyAssigned = 0;
-
-          for (const emp of roleEmployees) {
-            if (dailyAssigned >= targetHoursPerDay) break;
-            if (emp.currentHours >= emp.maxWeeklyHours) continue;
-            if (totalAssignedHours >= settings.totalWeeklyHoursLimit) break;
-
-            const onTimeOff = timeOff.some(to => to.employeeId === emp.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay);
-            if (onTimeOff) continue;
-
-            // Create shift times in EST (9:00 - 17:00 EST)
-            const shiftStart = createESTTime(currentDay, 9, 0);
-            const shiftEnd = createESTTime(currentDay, 17, 0);
+        // 2. Staff Coverage based on labor allocation
+        const openersRequired = settings.openersRequired ?? 2;
+        const closersRequired = settings.closersRequired ?? 2;
+        
+        // Calculate daily targets per category
+        for (const category of laborCategories) {
+          const dailyTarget = category.weeklyHours / 7;
+          const remainingForToday = dailyTarget;
+          
+          // Get employees for this category's job codes
+          const categoryEmployees = employees.filter(emp => 
+            category.jobCodes.includes(emp.jobTitle) && emp.isActive
+          );
+          
+          let assignedToday = 0;
+          let openersAssigned = 0;
+          let closersAssigned = 0;
+          
+          for (const emp of categoryEmployees) {
+            // Enforce weekly allocation limit for this category
+            if (category.assignedHours + SHIFT_HOURS > category.weeklyHours) break;
+            if (assignedToday >= remainingForToday) break;
+            if (isOnTimeOff(emp.id, currentDay)) continue;
+            if (employeeHours[emp.id] + SHIFT_HOURS > emp.maxWeeklyHours) continue;
             
-            const shiftHours = 8;
-            if (emp.currentHours + shiftHours <= emp.maxWeeklyHours && totalAssignedHours + shiftHours <= settings.totalWeeklyHoursLimit) {
-              const shift = await storage.createShift({ employeeId: emp.id, startTime: shiftStart, endTime: shiftEnd });
-              generatedShifts.push(shift);
-              emp.currentHours += shiftHours;
-              totalAssignedHours += shiftHours;
-              dailyAssigned += shiftHours;
+            // Alternate between opener and closer shifts
+            let shiftStart, shiftEnd;
+            if (openersAssigned < openersRequired) {
+              shiftStart = morningStart;
+              shiftEnd = morningEnd;
+              openersAssigned++;
+            } else if (closersAssigned < closersRequired) {
+              shiftStart = eveningStart;
+              shiftEnd = eveningEnd;
+              closersAssigned++;
+            } else {
+              // Default to opener if both met
+              shiftStart = morningStart;
+              shiftEnd = morningEnd;
             }
+            
+            const shift = await storage.createShift({ 
+              employeeId: emp.id, 
+              startTime: shiftStart, 
+              endTime: shiftEnd 
+            });
+            generatedShifts.push(shift);
+            employeeHours[emp.id] += SHIFT_HOURS;
+            category.assignedHours += SHIFT_HOURS;
+            assignedToday += SHIFT_HOURS;
           }
         }
       }
