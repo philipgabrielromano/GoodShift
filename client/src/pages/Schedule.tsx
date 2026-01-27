@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks, getISOWeek } from "date-fns";
+import { useState, useMemo } from "react";
+import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate } from "date-fns";
+import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, UserCircle, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
@@ -8,22 +9,35 @@ import { ShiftDialog } from "@/components/ShiftDialog";
 import { ScheduleValidator } from "@/components/ScheduleValidator";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Shift } from "@shared/routes";
+import type { Shift } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+const TIMEZONE = "America/New_York";
+
+// Compute start of week in EST timezone
+function getESTWeekStart(date: Date): Date {
+  const zonedDate = toZonedTime(date, TIMEZONE);
+  const weekStartZoned = startOfWeekDate(zonedDate, { weekStartsOn: 1 });
+  return fromZonedTime(weekStartZoned, TIMEZONE);
+}
 
 export default function Schedule() {
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
-  const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
-  const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
+  
+  // Calculate week boundaries in EST
+  const weekStart = useMemo(() => getESTWeekStart(currentDate), [currentDate]);
+  const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart]);
 
   const { data: shifts, isLoading: shiftsLoading } = useShifts(
     weekStart.toISOString(),
-    addDays(weekStart, 6).toISOString()
+    weekEnd.toISOString()
   );
   
-  const { data: employees, isLoading: empLoading } = useEmployees();
+  // Only fetch employees with retail job codes for scheduling
+  const { data: employees, isLoading: empLoading } = useEmployees({ retailOnly: true });
 
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -78,7 +92,7 @@ export default function Schedule() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Weekly Schedule</h1>
           <p className="text-muted-foreground mt-1">
-            Week {getISOWeek(currentDate)} • {format(weekStart, "MMM d")} - {format(addDays(weekStart, 6), "MMM d, yyyy")}
+            Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))} • {formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}
           </p>
         </div>
         
@@ -87,7 +101,7 @@ export default function Schedule() {
             <ChevronLeft className="w-5 h-5" />
           </Button>
           <div className="px-4 font-medium min-w-[120px] text-center">
-            {format(currentDate, "MMMM yyyy")}
+            {formatInTimeZone(currentDate, TIMEZONE, "MMMM yyyy")}
           </div>
           <Button variant="ghost" size="icon" onClick={handleNextWeek}>
             <ChevronRight className="w-5 h-5" />
@@ -121,17 +135,22 @@ export default function Schedule() {
                 <div className="p-4 border-r font-medium text-muted-foreground sticky left-0 bg-muted/30 backdrop-blur z-10">
                   Employee
                 </div>
-                {weekDays.map(day => (
-                  <div key={day.toString()} className="p-3 text-center border-r last:border-r-0">
-                    <div className="text-sm font-semibold text-foreground">{format(day, "EEE")}</div>
-                    <div className={cn(
-                      "text-xs mt-1 w-8 h-8 flex items-center justify-center rounded-full mx-auto",
-                      isSameDay(day, new Date()) ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground"
-                    )}>
-                      {format(day, "d")}
+                {weekDays.map(day => {
+                  const todayEST = toZonedTime(new Date(), TIMEZONE);
+                  const dayEST = toZonedTime(day, TIMEZONE);
+                  const isToday = isSameDay(todayEST, dayEST);
+                  return (
+                    <div key={day.toString()} className="p-3 text-center border-r last:border-r-0">
+                      <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
+                      <div className={cn(
+                        "text-xs mt-1 w-8 h-8 flex items-center justify-center rounded-full mx-auto",
+                        isToday ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground"
+                      )}>
+                        {formatInTimeZone(day, TIMEZONE, "d")}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Grouped Employee Rows */}
@@ -140,13 +159,13 @@ export default function Schedule() {
                   if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
                   acc[emp.jobTitle].push(emp);
                   return acc;
-                }, {} as Record<string, typeof employees>)
+                }, {} as Record<string, NonNullable<typeof employees>>)
               ).map(([jobTitle, groupEmployees]) => (
                 <div key={jobTitle} className="border-b last:border-b-0">
                   <div className="bg-muted/10 px-4 py-2 font-bold text-xs uppercase tracking-wider text-muted-foreground border-b">
                     {jobTitle}s
                   </div>
-                  {groupEmployees.map(emp => (
+                  {(groupEmployees || []).map(emp => (
                     <div key={emp.id} className="grid grid-cols-8 border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
                       <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
                         <div 
@@ -162,9 +181,12 @@ export default function Schedule() {
                       </div>
                       
                       {weekDays.map(day => {
-                        const dayShifts = shifts?.filter(s => 
-                          s.employeeId === emp.id && isSameDay(s.startTime, day)
-                        );
+                        // Compare dates in EST timezone
+                        const dayEST = toZonedTime(day, TIMEZONE);
+                        const dayShifts = shifts?.filter(s => {
+                          const shiftStartEST = toZonedTime(s.startTime, TIMEZONE);
+                          return s.employeeId === emp.id && isSameDay(shiftStartEST, dayEST);
+                        });
 
                         return (
                           <div key={day.toString()} className="p-2 border-r last:border-r-0 min-h-[100px] relative">
@@ -186,9 +208,9 @@ export default function Schedule() {
                                   style={{ backgroundColor: emp.color }}
                                 >
                                   <div className="flex justify-between items-center">
-                                    <span>{format(shift.startTime, "HH:mm")}</span>
+                                    <span>{formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm")}</span>
                                     <span className="opacity-70">-</span>
-                                    <span>{format(shift.endTime, "HH:mm")}</span>
+                                    <span>{formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm")}</span>
                                   </div>
                                 </div>
                               ))}

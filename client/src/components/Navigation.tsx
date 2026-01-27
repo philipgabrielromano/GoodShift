@@ -1,20 +1,45 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, CalendarOff, Settings, Menu } from "lucide-react";
+import { LayoutDashboard, Users, CalendarOff, Settings, Menu, Shield } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import clsx from "clsx";
+import { useQuery } from "@tanstack/react-query";
 
-const navItems = [
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string } | null;
+  ssoConfigured: boolean;
+}
+
+const baseNavItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/requests", label: "Time Off", icon: CalendarOff },
+];
+
+const adminNavItems = [
+  { href: "/users", label: "Users", icon: Shield },
+];
+
+const settingsNavItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Navigation() {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const { data: authStatus } = useQuery<AuthStatus>({
+    queryKey: ["/api/auth/status"],
+  });
+
+  const isAdmin = authStatus?.user?.role === "admin";
+  const navItems = [
+    ...baseNavItems,
+    ...(isAdmin ? adminNavItems : []),
+    ...settingsNavItems,
+  ];
 
   return (
     <>
@@ -53,8 +78,8 @@ export function Navigation() {
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-purple-600"></div>
               <div>
-                <p className="text-sm font-semibold">Admin User</p>
-                <p className="text-xs text-muted-foreground">Manager</p>
+                <p className="text-sm font-semibold">{authStatus?.user?.name || "Guest"}</p>
+                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
               </div>
             </div>
           </div>

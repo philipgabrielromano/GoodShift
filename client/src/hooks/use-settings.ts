@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type RoleRequirement, type InsertRoleRequirement, type InsertGlobalSettings } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
+import type { RoleRequirement, InsertRoleRequirement, InsertGlobalSettings } from "@shared/schema";
 
 // Role Requirements
 export function useRoleRequirements() {

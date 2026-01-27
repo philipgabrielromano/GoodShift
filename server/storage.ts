@@ -5,9 +5,10 @@ import {
   shifts, type Shift, type InsertShift,
   timeOffRequests, type TimeOffRequest, type InsertTimeOffRequest,
   roleRequirements, type RoleRequirement, type InsertRoleRequirement,
-  globalSettings, type GlobalSettings, type InsertGlobalSettings
+  globalSettings, type GlobalSettings, type InsertGlobalSettings,
+  users, type User, type InsertUser
 } from "@shared/schema";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -38,6 +39,15 @@ export interface IStorage {
   // Global Settings
   getGlobalSettings(): Promise<GlobalSettings>;
   updateGlobalSettings(settings: InsertGlobalSettings): Promise<GlobalSettings>;
+
+  // Users
+  getUsers(): Promise<User[]>;
+  getUser(id: number): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByMicrosoftId(microsoftId: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, user: Partial<InsertUser>): Promise<User>;
+  deleteUser(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -157,6 +167,44 @@ export class DatabaseStorage implements IStorage {
       .where(eq(globalSettings.id, existing.id))
       .returning();
     return updated;
+  }
+
+  // Users
+  async getUsers(): Promise<User[]> {
+    return await db.select().from(users);
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
+    return user;
+  }
+
+  async getUserByMicrosoftId(microsoftId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.microsoftId, microsoftId));
+    return user;
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const [newUser] = await db.insert(users).values({
+      ...user,
+      email: user.email.toLowerCase(),
+    }).returning();
+    return newUser;
+  }
+
+  async updateUser(id: number, user: Partial<InsertUser>): Promise<User> {
+    const updateData = user.email ? { ...user, email: user.email.toLowerCase() } : user;
+    const [updated] = await db.update(users).set(updateData).where(eq(users.id, id)).returning();
+    return updated;
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
   }
 }
 

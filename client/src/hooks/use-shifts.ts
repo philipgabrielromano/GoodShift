@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type Shift, type InsertShift } from "@shared/routes";
-import { z } from "zod";
+import { api, buildUrl } from "@shared/routes";
+import type { Shift, InsertShift } from "@shared/schema";
 
 export function useShifts(start?: string, end?: string, employeeId?: number) {
   return useQuery({

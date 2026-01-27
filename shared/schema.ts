@@ -49,6 +49,34 @@ export const globalSettings = pgTable("global_settings", {
   managerMorningEnd: text("manager_morning_end").notNull().default("16:30"),
   managerEveningStart: text("manager_evening_start").notNull().default("12:00"),
   managerEveningEnd: text("manager_evening_end").notNull().default("20:30"),
+  timezone: text("timezone").notNull().default("America/New_York"),
+  // Labor allocation percentages (must total 100)
+  cashieringPercent: integer("cashiering_percent").notNull().default(40),
+  donationPricingPercent: integer("donation_pricing_percent").notNull().default(35),
+  donorGreetingPercent: integer("donor_greeting_percent").notNull().default(25),
+});
+
+// Retail job codes that are scheduleable
+export const RETAIL_JOB_CODES = [
+  "APPROC",    // Apparel Processor
+  "DONDOOR",   // Donor Greeter
+  "CASHSLS",   // Cashier
+  "DONPRI",    // Donation Pricing Associate
+  "STRSUPER",  // Store Manager
+  "STASSTSP",  // Assistant Manager
+  "STLDWKR",   // Team Lead
+] as const;
+
+// Users table for authentication and role management
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  role: text("role").notNull().default("viewer"), // admin, manager, viewer
+  locationIds: text("location_ids").array(), // Array of location IDs this user can access
+  isActive: boolean("is_active").notNull().default(true),
+  microsoftId: text("microsoft_id"), // Microsoft 365 user ID
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // === RELATIONS ===
@@ -79,6 +107,7 @@ export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).om
 export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true });
 export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).omit({ id: true });
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -101,6 +130,10 @@ export type InsertRoleRequirement = z.infer<typeof insertRoleRequirementSchema>;
 // Global Settings Types
 export type GlobalSettings = typeof globalSettings.$inferSelect;
 export type InsertGlobalSettings = z.infer<typeof insertGlobalSettingsSchema>;
+
+// User Types
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 // Complex Types for UI
 export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };

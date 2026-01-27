@@ -1,10 +1,30 @@
 
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { ukgClient } from "./ukg";
+import { RETAIL_JOB_CODES } from "@shared/schema";
+import { toZonedTime, fromZonedTime } from "date-fns-tz";
+
+const TIMEZONE = "America/New_York";
+
+// Create a date with specific time in EST timezone
+function createESTTime(baseDate: Date, hours: number, minutes: number = 0): Date {
+  const zonedDate = toZonedTime(baseDate, TIMEZONE);
+  zonedDate.setHours(hours, minutes, 0, 0);
+  return fromZonedTime(zonedDate, TIMEZONE);
+}
+
+// Middleware to require admin role
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const user = (req.session as any)?.user;
+  if (!user || user.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -13,7 +33,24 @@ export async function registerRoutes(
 
   // === Employees ===
   app.get(api.employees.list.path, async (req, res) => {
-    const employees = await storage.getEmployees();
+    let employees = await storage.getEmployees();
+    
+    // Filter by retail job codes if requested
+    const retailOnly = req.query.retailOnly === "true";
+    if (retailOnly) {
+      employees = employees.filter(emp => 
+        RETAIL_JOB_CODES.some(code => emp.jobTitle.toUpperCase().includes(code))
+      );
+    }
+    
+    // Filter by location for managers
+    const user = (req.session as any)?.user;
+    if (user && user.role === "manager" && user.locationIds && user.locationIds.length > 0) {
+      employees = employees.filter(emp => 
+        emp.location && user.locationIds.includes(emp.location)
+      );
+    }
+    
     res.json(employees);
   });
 
@@ -197,6 +234,7 @@ export async function registerRoutes(
   app.post(api.schedule.generate.path, async (req, res) => {
     try {
       const { weekStart } = api.schedule.generate.input.parse(req.body);
+      // Normalize weekStart to EST timezone
       const startDate = new Date(weekStart);
       
       const employees = await storage.getEmployees();
@@ -204,10 +242,10 @@ export async function registerRoutes(
       const roles = await storage.getRoleRequirements();
       const timeOff = await storage.getTimeOffRequests();
 
-      // Clear existing shifts for the week
-      const weekEnd = new Date(startDate);
-      weekEnd.setDate(startDate.getDate() + 7);
-      const existingShifts = await storage.getShifts(startDate, weekEnd);
+      // Clear existing shifts for the week (7 days from start)
+      const weekEndMs = startDate.getTime() + 7 * 24 * 60 * 60 * 1000;
+      const weekEndDate = new Date(weekEndMs);
+      const existingShifts = await storage.getShifts(startDate, weekEndDate);
       for (const shift of existingShifts) {
         await storage.deleteShift(shift.id);
       }
@@ -222,25 +260,21 @@ export async function registerRoutes(
         return acc;
       }, {} as Record<string, any>);
 
-      // Day-by-day generation
+      // Day-by-day generation (use milliseconds to add days reliably)
       for (let i = 0; i < 7; i++) {
-        const currentDay = new Date(startDate);
-        currentDay.setDate(startDate.getDate() + i);
+        const currentDayMs = startDate.getTime() + i * 24 * 60 * 60 * 1000;
+        const currentDay = new Date(currentDayMs);
 
         // 1. Mandatory Manager Coverage
         const managers = employeesByRole["Manager"] || [];
         if (managers.length >= 2) {
-          // Morning Manager (08:00 - 16:30)
-          const morningStart = new Date(currentDay);
-          morningStart.setHours(8, 0, 0, 0);
-          const morningEnd = new Date(currentDay);
-          morningEnd.setHours(16, 30, 0, 0);
+          // Morning Manager (08:00 - 16:30 EST)
+          const morningStart = createESTTime(currentDay, 8, 0);
+          const morningEnd = createESTTime(currentDay, 16, 30);
 
-          // Evening Manager (12:00 - 20:30)
-          const eveningStart = new Date(currentDay);
-          eveningStart.setHours(12, 0, 0, 0);
-          const eveningEnd = new Date(currentDay);
-          eveningEnd.setHours(20, 30, 0, 0);
+          // Evening Manager (12:00 - 20:30 EST)
+          const eveningStart = createESTTime(currentDay, 12, 0);
+          const eveningEnd = createESTTime(currentDay, 20, 30);
 
           // Assign if not on time off
           const morningManager = managers.find((m: any) => 
@@ -281,10 +315,9 @@ export async function registerRoutes(
             const onTimeOff = timeOff.some(to => to.employeeId === emp.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay);
             if (onTimeOff) continue;
 
-            const shiftStart = new Date(currentDay);
-            shiftStart.setHours(9, 0, 0, 0);
-            const shiftEnd = new Date(currentDay);
-            shiftEnd.setHours(17, 0, 0, 0);
+            // Create shift times in EST (9:00 - 17:00 EST)
+            const shiftStart = createESTTime(currentDay, 9, 0);
+            const shiftEnd = createESTTime(currentDay, 17, 0);
             
             const shiftHours = 8;
             if (emp.currentHours + shiftHours <= emp.maxWeeklyHours && totalAssignedHours + shiftHours <= settings.totalWeeklyHoursLimit) {
@@ -392,6 +425,54 @@ export async function registerRoutes(
       }
       throw err;
     }
+  });
+
+  // === Users ===
+  app.get(api.users.list.path, requireAdmin, async (req, res) => {
+    const users = await storage.getUsers();
+    res.json(users);
+  });
+
+  app.get(api.users.get.path, requireAdmin, async (req, res) => {
+    const user = await storage.getUser(Number(req.params.id));
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json(user);
+  });
+
+  app.post(api.users.create.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.users.create.input.parse(req.body);
+      const user = await storage.createUser(input);
+      res.status(201).json(user);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.put(api.users.update.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.users.update.input.parse(req.body);
+      const user = await storage.updateUser(Number(req.params.id), input);
+      res.json(user);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(404).json({ message: "User not found" });
+    }
+  });
+
+  app.delete(api.users.delete.path, requireAdmin, async (req, res) => {
+    await storage.deleteUser(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // === Retail Job Codes ===
+  app.get("/api/retail-job-codes", (req, res) => {
+    res.json(RETAIL_JOB_CODES);
   });
 
   // === SEED DATA ===

@@ -35,11 +35,12 @@ The server uses a storage abstraction layer (`server/storage.ts`) that implement
 - **Migrations**: Drizzle Kit manages schema migrations (output to `./migrations`)
 
 Database tables:
-- `employees` - Staff members with job titles, max hours, and status
+- `employees` - Staff members with job titles, max hours, location, and status
 - `shifts` - Scheduled work periods with start/end timestamps
 - `time_off_requests` - Employee vacation/leave requests with approval status
-- `role_requirements` - Minimum weekly hours required per job title
-- `global_settings` - Application-wide configuration (hours limits, manager schedules)
+- `role_requirements` - Minimum weekly hours required per job title with color coding
+- `global_settings` - Application-wide configuration (hours limits, timezone, labor allocation)
+- `users` - User accounts with roles (admin/manager/viewer) and location access control
 
 ### Shared Code Architecture
 The `shared/` directory contains code used by both frontend and backend:
@@ -70,6 +71,7 @@ This approach ensures type safety across the full stack and eliminates API contr
 
 ### Utility Libraries
 - **date-fns**: Date manipulation and formatting
+- **date-fns-tz**: Timezone-aware date handling (Eastern Time)
 - **Zod**: Runtime type validation for API inputs/outputs
 - **drizzle-zod**: Generates Zod schemas from Drizzle table definitions
 - **class-variance-authority**: Component variant styling
@@ -137,6 +139,35 @@ Real-time validation checks for:
 - Total weekly hours limit
 - Time-off conflicts
 - Manager coverage requirements
+
+### User Administration
+Role-based access control with three user roles:
+- **Admin**: Full access to all features including user management
+- **Manager**: Can view and schedule employees from their assigned locations only
+- **Viewer**: Read-only access to schedule and employee data
+
+Managers are automatically filtered to only see employees from their assigned store locations.
+
+### Retail Job Codes
+Only employees with specific retail job codes are scheduleable:
+- APPROC - Apparel Processor
+- DONDOOR - Donor Greeter  
+- CASHSLS - Cashier
+- DONPRI - Donation Pricing Associate
+- STRSUPER - Store Manager
+- STASSTSP - Assistant Manager
+- STLDWKR - Team Lead
+
+### Labor Allocation
+Configurable percentages for distributing store hours:
+- Cashiering (CASHSLS)
+- Donation Pricing (DONPRI, APPROC)
+- Donor Greeting (DONDOOR)
+
+These percentages must total 100% and are used by the scheduler to allocate hours appropriately.
+
+### Timezone Handling
+All scheduling is done in Eastern Time (America/New_York). The application uses date-fns-tz for timezone-aware date handling.
 
 ### Business Context
 This application is designed for retail thrift store scheduling, with the ability to:

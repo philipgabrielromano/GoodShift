@@ -9,12 +9,13 @@ import Schedule from "@/pages/Schedule";
 import Employees from "@/pages/Employees";
 import TimeOffRequests from "@/pages/TimeOffRequests";
 import Settings from "@/pages/Settings";
+import Users from "@/pages/Users";
 import Login from "@/pages/Login";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
   isAuthenticated: boolean;
-  user: { id: string; name: string; email: string } | null;
+  user: { id: number; name: string; email: string; role: string; locationIds: string[] | null } | null;
   ssoConfigured: boolean;
 }
 
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/" component={Schedule} />
       <Route path="/employees" component={Employees} />
       <Route path="/requests" component={TimeOffRequests} />
+      <Route path="/users" component={Users} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>

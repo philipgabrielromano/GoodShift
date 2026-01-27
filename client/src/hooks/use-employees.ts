@@ -1,13 +1,18 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type Employee, type InsertEmployee } from "@shared/routes";
-import { z } from "zod";
+import { api, buildUrl } from "@shared/routes";
+import type { Employee, InsertEmployee } from "@shared/schema";
 
 // Fetch all employees
-export function useEmployees() {
+export function useEmployees(options?: { retailOnly?: boolean }) {
+  const retailOnly = options?.retailOnly ?? false;
+  const url = retailOnly 
+    ? `${api.employees.list.path}?retailOnly=true`
+    : api.employees.list.path;
+  
   return useQuery({
-    queryKey: [api.employees.list.path],
+    queryKey: [api.employees.list.path, { retailOnly }],
     queryFn: async () => {
-      const res = await fetch(api.employees.list.path, { credentials: "include" });
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch employees");
       const data = await res.json();
       return api.employees.list.responses[200].parse(data);

@@ -2,13 +2,17 @@ import { ConfidentialClientApplication, Configuration, AuthorizationCodeRequest 
 import type { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import crypto from "crypto";
+import { storage } from "./storage";
 
 declare module "express-session" {
   interface SessionData {
     user?: {
-      id: string;
+      id: number;
+      microsoftId: string;
       name: string;
       email: string;
+      role: string;
+      locationIds: string[] | null;
     };
     isAuthenticated?: boolean;
     oauthState?: string;
@@ -129,10 +133,44 @@ export function setupAuth(app: Express) {
       const response = await client.acquireTokenByCode(tokenRequest);
 
       if (response?.account) {
+        const microsoftId = response.account.localAccountId;
+        const email = response.account.username.toLowerCase();
+        const name = response.account.name || "User";
+
+        // Find or create user
+        let user = await storage.getUserByMicrosoftId(microsoftId);
+        
+        if (!user) {
+          // Check if user exists by email
+          user = await storage.getUserByEmail(email);
+          if (user) {
+            // Link Microsoft ID to existing user
+            user = await storage.updateUser(user.id, { microsoftId });
+          } else {
+            // Create new user - first user is admin, rest are viewers
+            const existingUsers = await storage.getUsers();
+            const role = existingUsers.length === 0 ? "admin" : "viewer";
+            user = await storage.createUser({
+              email,
+              name,
+              microsoftId,
+              role,
+              isActive: true,
+            });
+          }
+        }
+
+        if (!user.isActive) {
+          return res.redirect("/?error=account_disabled");
+        }
+
         req.session.user = {
-          id: response.account.localAccountId,
-          name: response.account.name || "User",
-          email: response.account.username,
+          id: user.id,
+          microsoftId,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          locationIds: user.locationIds,
         };
         req.session.isAuthenticated = true;
       }

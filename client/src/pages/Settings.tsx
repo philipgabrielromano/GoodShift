@@ -4,8 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
-import { Plus, Trash2, Save, RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Trash2, Save, RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Clock, PieChart } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -20,8 +20,21 @@ export default function Settings() {
   const { toast } = useToast();
 
   const [weeklyLimit, setWeeklyLimit] = useState<number | undefined>(undefined);
+  const [cashieringPercent, setCashieringPercent] = useState<number>(40);
+  const [donationPricingPercent, setDonationPricingPercent] = useState<number>(35);
+  const [donorGreetingPercent, setDonorGreetingPercent] = useState<number>(25);
   const [newRole, setNewRole] = useState({ jobTitle: "", requiredWeeklyHours: 40, color: "#3b82f6" });
   const [selectedStore, setSelectedStore] = useState<string>("");
+
+  // Initialize labor allocation from settings
+  useEffect(() => {
+    if (settings) {
+      if (weeklyLimit === undefined) setWeeklyLimit(settings.totalWeeklyHoursLimit);
+      setCashieringPercent(settings.cashieringPercent ?? 40);
+      setDonationPricingPercent(settings.donationPricingPercent ?? 35);
+      setDonorGreetingPercent(settings.donorGreetingPercent ?? 25);
+    }
+  }, [settings]);
 
   const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string } | null; ssoConfigured: boolean }>({
     queryKey: ["/api/auth/status"],
@@ -75,10 +88,7 @@ export default function Settings() {
     },
   });
 
-  // Init state from data
-  if (weeklyLimit === undefined && settings) {
-    setWeeklyLimit(settings.totalWeeklyHoursLimit);
-  }
+  const totalPercent = cashieringPercent + donationPricingPercent + donorGreetingPercent;
 
   const handleSaveGlobal = async () => {
     if (!weeklyLimit) return;
@@ -87,6 +97,23 @@ export default function Settings() {
       toast({ title: "Settings saved" });
     } catch (err) {
       toast({ variant: "destructive", title: "Error", description: "Failed to save settings" });
+    }
+  };
+
+  const handleSaveLaborAllocation = async () => {
+    if (totalPercent !== 100) {
+      toast({ variant: "destructive", title: "Error", description: "Labor percentages must total 100%" });
+      return;
+    }
+    try {
+      await updateSettings.mutateAsync({ 
+        cashieringPercent, 
+        donationPricingPercent, 
+        donorGreetingPercent 
+      });
+      toast({ title: "Labor allocation saved" });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to save labor allocation" });
     }
   };
 
@@ -131,14 +158,84 @@ export default function Settings() {
                   type="number" 
                   value={weeklyLimit || ""} 
                   onChange={e => setWeeklyLimit(parseInt(e.target.value))}
+                  data-testid="input-weekly-limit"
                 />
-                <Button onClick={handleSaveGlobal} disabled={updateSettings.isPending}>
+                <Button onClick={handleSaveGlobal} disabled={updateSettings.isPending} data-testid="button-save-weekly-limit">
                   <Save className="w-4 h-4 mr-2" /> Save
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
                 The scheduler will show a warning if the total hours across all employees exceeds this value.
               </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Timezone
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                All scheduling is done in Eastern Time (EST/EDT).
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <PieChart className="w-5 h-5" />
+              Labor Allocation
+            </CardTitle>
+            <CardDescription>Configure how store hours are distributed across roles.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>Cashiering (CASHSLS) %</Label>
+                <Input 
+                  type="number" 
+                  min={0} 
+                  max={100}
+                  value={cashieringPercent} 
+                  onChange={e => setCashieringPercent(parseInt(e.target.value) || 0)}
+                  data-testid="input-cashiering-percent"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Donation Pricing (DONPRI, APPROC) %</Label>
+                <Input 
+                  type="number" 
+                  min={0} 
+                  max={100}
+                  value={donationPricingPercent} 
+                  onChange={e => setDonationPricingPercent(parseInt(e.target.value) || 0)}
+                  data-testid="input-donation-pricing-percent"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Donor Greeting (DONDOOR) %</Label>
+                <Input 
+                  type="number" 
+                  min={0} 
+                  max={100}
+                  value={donorGreetingPercent} 
+                  onChange={e => setDonorGreetingPercent(parseInt(e.target.value) || 0)}
+                  data-testid="input-donor-greeting-percent"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className={`text-sm font-medium ${totalPercent === 100 ? "text-green-600" : "text-destructive"}`}>
+                Total: {totalPercent}%
+                {totalPercent !== 100 && " (must equal 100%)"}
+              </div>
+              <Button 
+                onClick={handleSaveLaborAllocation} 
+                disabled={updateSettings.isPending || totalPercent !== 100}
+                data-testid="button-save-labor-allocation"
+              >
+                <Save className="w-4 h-4 mr-2" /> Save
+              </Button>
             </div>
           </CardContent>
         </Card>

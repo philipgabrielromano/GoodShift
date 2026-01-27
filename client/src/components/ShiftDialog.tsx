@@ -7,9 +7,12 @@ import { useCreateShift, useUpdateShift, useDeleteShift } from "@/hooks/use-shif
 import { useEmployees } from "@/hooks/use-employees";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { format, parseISO } from "date-fns";
-import { type Shift } from "@shared/routes";
+import { format } from "date-fns";
+import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
+import { type Shift } from "@shared/schema";
 import { Trash2, Loader2 } from "lucide-react";
+
+const TIMEZONE = "America/New_York";
 
 interface ShiftDialogProps {
   isOpen: boolean;
@@ -35,12 +38,13 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
     if (isOpen) {
       if (shift) {
         setEmployeeId(shift.employeeId.toString());
-        setDate(format(shift.startTime, "yyyy-MM-dd"));
-        setStartTime(format(shift.startTime, "HH:mm"));
-        setEndTime(format(shift.endTime, "HH:mm"));
+        // Display dates in EST
+        setDate(formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd"));
+        setStartTime(formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm"));
+        setEndTime(formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm"));
       } else {
         setEmployeeId(defaultEmployeeId?.toString() || "");
-        setDate(defaultDate ? format(defaultDate, "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
+        setDate(defaultDate ? formatInTimeZone(defaultDate, TIMEZONE, "yyyy-MM-dd") : formatInTimeZone(new Date(), TIMEZONE, "yyyy-MM-dd"));
         setStartTime("09:00");
         setEndTime("17:00");
       }
@@ -49,12 +53,13 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const startDateTime = new Date(`${date}T${startTime}`);
-    const endDateTime = new Date(`${date}T${endTime}`);
+    // Create dates in EST timezone
+    const startDateTime = fromZonedTime(`${date}T${startTime}:00`, TIMEZONE);
+    let endDateTime = fromZonedTime(`${date}T${endTime}:00`, TIMEZONE);
 
     // Handle overnight shifts if needed (simple check if end < start)
     if (endDateTime < startDateTime) {
-      endDateTime.setDate(endDateTime.getDate() + 1);
+      endDateTime = new Date(endDateTime.getTime() + 24 * 60 * 60 * 1000);
     }
 
     try {
@@ -62,15 +67,15 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
         await updateShift.mutateAsync({
           id: shift.id,
           employeeId: parseInt(employeeId),
-          startTime: startDateTime.toISOString(),
-          endTime: endDateTime.toISOString(),
+          startTime: startDateTime,
+          endTime: endDateTime,
         });
         toast({ title: "Shift updated", description: "The schedule has been updated." });
       } else {
         await createShift.mutateAsync({
           employeeId: parseInt(employeeId),
-          startTime: startDateTime.toISOString(),
-          endTime: endDateTime.toISOString(),
+          startTime: startDateTime,
+          endTime: endDateTime,
         });
         toast({ title: "Shift created", description: "New shift added to schedule." });
       }
