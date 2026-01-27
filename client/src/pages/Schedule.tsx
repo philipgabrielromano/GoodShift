@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
+import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import { ShiftDialog } from "@/components/ShiftDialog";
 import { ScheduleValidator } from "@/components/ScheduleValidator";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { Shift } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -57,6 +60,10 @@ export default function Schedule() {
   
   // Get locations for hours tracking
   const { data: locations, isLoading: locLoading } = useLocations();
+  
+  // Get global settings for staffing requirements
+  const { data: settings } = useGlobalSettings();
+  const updateSettings = useUpdateGlobalSettings();
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -398,6 +405,76 @@ export default function Schedule() {
         {/* Sidebar */}
         <div className="space-y-6">
           <ScheduleValidator />
+          
+          {/* Staffing Requirements Panel */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Staffing Requirements</CardTitle>
+              <CardDescription>Configure daily shift coverage needs</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="openers" className="text-sm">
+                  Openers Required <span className="text-muted-foreground">(8:00am - 4:30pm)</span>
+                </Label>
+                <Input
+                  id="openers"
+                  type="number"
+                  min="0"
+                  value={settings?.openersRequired ?? 2}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    if (settings) {
+                      updateSettings.mutate({ ...settings, openersRequired: val });
+                    }
+                  }}
+                  className="w-full"
+                  data-testid="input-openers-required"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="closers" className="text-sm">
+                  Closers Required <span className="text-muted-foreground">(12:00pm - 8:30pm)</span>
+                </Label>
+                <Input
+                  id="closers"
+                  type="number"
+                  min="0"
+                  value={settings?.closersRequired ?? 2}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    if (settings) {
+                      updateSettings.mutate({ ...settings, closersRequired: val });
+                    }
+                  }}
+                  className="w-full"
+                  data-testid="input-closers-required"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="managers" className="text-sm">
+                  Managers Required <span className="text-muted-foreground">(per shift)</span>
+                </Label>
+                <Input
+                  id="managers"
+                  type="number"
+                  min="0"
+                  value={settings?.managersRequired ?? 1}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0;
+                    if (settings) {
+                      updateSettings.mutate({ ...settings, managersRequired: val });
+                    }
+                  }}
+                  className="w-full"
+                  data-testid="input-managers-required"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Changes are saved automatically.
+              </p>
+            </CardContent>
+          </Card>
           
           {/* Location Hours Panel */}
           {userLocations.length > 0 && (

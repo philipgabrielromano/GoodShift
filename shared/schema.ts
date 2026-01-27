@@ -54,6 +54,10 @@ export const globalSettings = pgTable("global_settings", {
   cashieringPercent: integer("cashiering_percent").notNull().default(40),
   donationPricingPercent: integer("donation_pricing_percent").notNull().default(35),
   donorGreetingPercent: integer("donor_greeting_percent").notNull().default(25),
+  // Staffing requirements per shift
+  openersRequired: integer("openers_required").notNull().default(2),
+  closersRequired: integer("closers_required").notNull().default(2),
+  managersRequired: integer("managers_required").notNull().default(1),
 });
 
 // Retail job codes that are scheduleable

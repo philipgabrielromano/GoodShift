@@ -14,9 +14,9 @@ interface Issue {
 }
 
 export function ScheduleValidator() {
-  // Use a fixed week for now or context-aware week
-  const start = startOfWeek(new Date(), { weekStartsOn: 1 }).toISOString();
-  const end = endOfWeek(new Date(), { weekStartsOn: 1 }).toISOString();
+  // Use a fixed week for now or context-aware week (Sunday = 0)
+  const start = startOfWeek(new Date(), { weekStartsOn: 0 }).toISOString();
+  const end = endOfWeek(new Date(), { weekStartsOn: 0 }).toISOString();
 
   const { data: employees } = useEmployees();
   const { data: shifts } = useShifts(start, end);
@@ -73,40 +73,77 @@ export function ScheduleValidator() {
       }
     });
 
-    // Check 4: Manager Coverage
+    // Check 4: Staffing Coverage (Openers, Closers, Managers)
+    const openersRequired = settings.openersRequired ?? 2;
+    const closersRequired = settings.closersRequired ?? 2;
+    const managersRequired = settings.managersRequired ?? 1;
+    
     weekDays.forEach(day => {
       const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
-      const managerShifts = dayShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
-        return emp?.jobTitle === "Manager";
-      });
-
-      // Morning shift: 08:00 - 16:30
-      // Evening shift: 12:00 - 20:30
-      const hasMorningManager = managerShifts.some(s => {
+      
+      // Count openers (8:00am - 4:30pm shifts)
+      const openerShifts = dayShifts.filter(s => {
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
         return startStr === (settings.managerMorningStart || "08:00") && 
                endStr === (settings.managerMorningEnd || "16:30");
       });
-
-      const hasEveningManager = managerShifts.some(s => {
+      
+      // Count closers (12:00pm - 8:30pm shifts)
+      const closerShifts = dayShifts.filter(s => {
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
         return startStr === (settings.managerEveningStart || "12:00") && 
                endStr === (settings.managerEveningEnd || "20:30");
       });
+      
+      // Count managers on opening and closing shifts (must match full shift times)
+      const managerShifts = dayShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp?.jobTitle?.toLowerCase().includes("manager");
+      });
+      
+      const openingManagers = managerShifts.filter(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerMorningStart || "08:00") && 
+               endStr === (settings.managerMorningEnd || "16:30");
+      }).length;
+      
+      const closingManagers = managerShifts.filter(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerEveningStart || "12:00") && 
+               endStr === (settings.managerEveningEnd || "20:30");
+      }).length;
 
-      if (!hasMorningManager) {
+      const dayLabel = format(day, "EEE, MMM d");
+      
+      if (openerShifts.length < openersRequired) {
         newIssues.push({
-          type: "error",
-          message: `Missing Morning Manager on ${format(day, "EEEE, MMM d")}`
+          type: "warning",
+          message: `${dayLabel}: ${openerShifts.length}/${openersRequired} openers scheduled`
         });
       }
-      if (!hasEveningManager) {
+      
+      if (closerShifts.length < closersRequired) {
+        newIssues.push({
+          type: "warning",
+          message: `${dayLabel}: ${closerShifts.length}/${closersRequired} closers scheduled`
+        });
+      }
+      
+      if (openingManagers < managersRequired) {
         newIssues.push({
           type: "error",
-          message: `Missing Evening Manager on ${format(day, "EEEE, MMM d")}`
+          message: `${dayLabel}: Need ${managersRequired} opening manager(s), have ${openingManagers}`
+        });
+      }
+      
+      if (closingManagers < managersRequired) {
+        newIssues.push({
+          type: "error",
+          message: `${dayLabel}: Need ${managersRequired} closing manager(s), have ${closingManagers}`
         });
       }
     });
