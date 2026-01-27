@@ -298,7 +298,7 @@ export default function Settings() {
 
           {!ukgStatus?.configured && (
             <p className="text-sm text-muted-foreground">
-              To enable UKG integration, please configure the UKG API credentials in your environment variables (UKG_API_URL, UKG_CLIENT_ID, UKG_CLIENT_SECRET, UKG_API_KEY).
+              To enable UKG integration, please configure the UKG service account credentials in your environment variables (UKG_API_URL, UKG_USERNAME, UKG_PASSWORD, UKG_API_KEY).
             </p>
           )}
         </CardContent>
