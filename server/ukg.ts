@@ -1,21 +1,47 @@
 import { InsertEmployee } from "@shared/schema";
 
-interface UKGProEmployee {
-  employeeId: string;
-  firstName: string;
-  lastName: string;
-  jobTitle?: string;
-  workLocationCode?: string;
-  workLocationDescription?: string;
-  orgLevel1Code?: string;
-  orgLevel1Description?: string;
-  orgLevel2Code?: string;
-  orgLevel2Description?: string;
-  employmentStatus?: string;
-  scheduledHours?: number;
+interface UKGODataEmployee {
+  Id: number;
+  EmpId: string;
+  FirstName: string;
+  LastName: string;
+  Active: string;
+  Email?: string;
+  JobId: number;
+  LocationId: number;
+  PayCate: string;
+  PaygroupId?: number;
+  OrgLevel1Id?: number;
+}
+
+interface UKGJob {
+  Id: number;
+  Name?: string;
+  Description?: string;
+  Code?: string;
 }
 
 interface UKGLocation {
+  Id: number;
+  Name?: string;
+  Description?: string;
+  Code?: string;
+}
+
+interface UKGProEmployee {
+  employeeId: string;
+  ukgId: number;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  jobTitle: string;
+  location: string;
+  employmentType: string;
+  isActive: boolean;
+  scheduledHours: number;
+}
+
+interface UKGLocationInfo {
   id: string;
   name: string;
   code: string;
@@ -25,8 +51,10 @@ class UKGClient {
   private baseUrl: string;
   private username: string;
   private password: string;
-  private cachedLocations: UKGLocation[] | null = null;
+  private cachedLocations: UKGLocationInfo[] | null = null;
   private lastError: string | null = null;
+  private jobCache: Map<number, string> = new Map();
+  private locationCache: Map<number, string> = new Map();
 
   constructor() {
     let url = process.env.UKG_API_URL || "";
@@ -69,25 +97,24 @@ class UKGClient {
     };
   }
 
-  private getODataBaseUrl(): string {
-    return this.baseUrl;
-  }
-
-  private async apiRequest<T>(endpoint: string, method = "GET"): Promise<T | null> {
-    const baseUrl = this.getODataBaseUrl();
-    const url = `${baseUrl}${endpoint}`;
+  private async apiRequest<T>(endpoint: string, method = "GET", timeoutMs = 30000): Promise<T | null> {
+    const url = `${this.baseUrl}${endpoint}`;
     console.log(`UKG: ${method} ${url}`);
-    console.log(`UKG: Headers (masked): Authorization: Basic ***`);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(url, {
         method,
         headers: this.getAuthHeaders(),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const responseText = await response.text();
       console.log("UKG: API response status:", response.status);
-      console.log("UKG: API response:", responseText.slice(0, 1500));
 
       if (!response.ok) {
         this.lastError = `API error (${response.status}): ${responseText.slice(0, 300)}`;
@@ -105,208 +132,160 @@ class UKGClient {
         return null;
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.lastError = `API exception: ${message}`;
-      console.error("UKG API error:", message);
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        this.lastError = `API timeout after ${timeoutMs}ms`;
+        console.error(`UKG API timeout: ${url}`);
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        this.lastError = `API exception: ${message}`;
+        console.error("UKG API error:", message);
+      }
       return null;
     }
   }
 
-  async discoverEndpoints(): Promise<string[]> {
-    console.log("UKG: Discovering available OData endpoints...");
-    
-    interface ODataMetadata {
-      value?: Array<{ name?: string; url?: string }>;
+  private async fetchAllPaginated<T>(endpoint: string): Promise<T[]> {
+    const allItems: T[] = [];
+    const pageSize = 500;
+    let skip = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      interface ODataResponse {
+        value?: T[];
+        "@odata.nextLink"?: string;
+      }
+
+      const result = await this.apiRequest<ODataResponse>(`/${endpoint}?$top=${pageSize}&$skip=${skip}`);
+      
+      if (!result?.value || result.value.length === 0) {
+        hasMore = false;
+      } else {
+        allItems.push(...result.value);
+        console.log(`UKG: Fetched ${result.value.length} items from ${endpoint} (total: ${allItems.length})`);
+        
+        if (result.value.length < pageSize) {
+          hasMore = false;
+        } else {
+          skip += pageSize;
+        }
+      }
     }
-    
-    const result = await this.apiRequest<ODataMetadata>("");
-    
-    if (result?.value) {
-      const endpoints = result.value.map(e => e.name || e.url || "").filter(Boolean);
-      console.log("UKG: Available endpoints:", endpoints);
-      return endpoints;
-    }
-    
-    return [];
+
+    return allItems;
   }
 
-  async getLocations(): Promise<UKGLocation[]> {
+  private async loadJobsAndLocations(): Promise<void> {
+    if (this.jobCache.size > 0 && this.locationCache.size > 0) {
+      return;
+    }
+
+    console.log("UKG: Loading jobs and locations lookup tables...");
+
+    const [jobs, locations] = await Promise.all([
+      this.fetchAllPaginated<UKGJob>("Job"),
+      this.fetchAllPaginated<UKGLocation>("Location"),
+    ]);
+
+    for (const job of jobs) {
+      const name = job.Name || job.Description || job.Code || `Job ${job.Id}`;
+      this.jobCache.set(job.Id, name);
+    }
+    console.log(`UKG: Loaded ${this.jobCache.size} jobs`);
+
+    for (const location of locations) {
+      const name = location.Name || location.Description || location.Code || `Location ${location.Id}`;
+      this.locationCache.set(location.Id, name);
+    }
+    console.log(`UKG: Loaded ${this.locationCache.size} locations`);
+  }
+
+  async getLocations(): Promise<UKGLocationInfo[]> {
     if (this.cachedLocations) {
       return this.cachedLocations;
     }
 
-    try {
-      const employees = await this.getAllEmployees();
-      
-      const locationMap = new Map<string, UKGLocation>();
-      
-      for (const emp of employees) {
-        if (emp.workLocationCode && emp.workLocationDescription) {
-          locationMap.set(emp.workLocationCode, {
-            id: emp.workLocationCode,
-            code: emp.workLocationCode,
-            name: emp.workLocationDescription,
-          });
-        }
-        if (emp.orgLevel1Code && emp.orgLevel1Description && !locationMap.has(emp.orgLevel1Code)) {
-          locationMap.set(emp.orgLevel1Code, {
-            id: emp.orgLevel1Code,
-            code: emp.orgLevel1Code,
-            name: emp.orgLevel1Description,
-          });
-        }
-      }
+    await this.loadJobsAndLocations();
+    
+    this.cachedLocations = Array.from(this.locationCache.entries()).map(([id, name]) => ({
+      id: String(id),
+      code: String(id),
+      name,
+    }));
 
-      this.cachedLocations = Array.from(locationMap.values());
-      return this.cachedLocations;
-    } catch (error) {
-      console.error("Failed to fetch locations from UKG:", error);
-      return [];
-    }
+    return this.cachedLocations;
   }
 
   async getEmployeesByLocation(locationCode: string): Promise<UKGProEmployee[]> {
-    try {
-      const allEmployees = await this.getAllEmployees();
-      return allEmployees.filter(emp => 
-        emp.workLocationCode === locationCode || 
-        emp.orgLevel1Code === locationCode
-      );
-    } catch (error) {
-      console.error("Failed to fetch employees by location from UKG:", error);
-      return [];
-    }
+    const allEmployees = await this.getAllEmployees();
+    const locationId = parseInt(locationCode);
+    return allEmployees.filter(emp => emp.location === this.locationCache.get(locationId));
   }
 
   async getAllEmployees(): Promise<UKGProEmployee[]> {
-    console.log("UKG: Fetching employees via OData API");
+    console.log("UKG: Fetching all employees with pagination...");
     
-    const endpoints = await this.discoverEndpoints();
-    console.log("UKG: Discovered endpoints:", endpoints);
+    await this.loadJobsAndLocations();
+    this.lastError = null;
     
-    const employeeEndpoints = ["Employee", "Employees", "Person", "Persons", "Worker", "Workers"];
-    const matchingEndpoint = endpoints.find(e => 
-      employeeEndpoints.some(ep => e.toLowerCase().includes(ep.toLowerCase()))
-    );
-    
-    interface ODataResponse {
-      value?: Array<Record<string, unknown>>;
-    }
+    const rawEmployees = await this.fetchAllPaginated<UKGODataEmployee>("Employee");
+    console.log(`UKG: Total employees fetched: ${rawEmployees.length}`);
 
-    if (matchingEndpoint) {
-      console.log(`UKG: Found employee endpoint: ${matchingEndpoint}`);
-      const result = await this.apiRequest<ODataResponse>(`/${matchingEndpoint}?$top=100`);
-      
-      if (result?.value) {
-        return this.parseODataEmployees(result.value);
-      }
-    }
+    const employees: UKGProEmployee[] = rawEmployees.map(emp => {
+      const jobTitle = this.jobCache.get(emp.JobId) || "Staff";
+      const location = this.locationCache.get(emp.LocationId) || "";
+      const employmentType = emp.PayCate === "1" ? "Full-Time" : "Part-Time";
+      const isActive = emp.Active === "A";
 
-    console.log("UKG: No dedicated employee endpoint, trying Time data to extract employees...");
-    const timeResult = await this.apiRequest<ODataResponse>("/Time?$top=100");
-    
-    if (timeResult?.value) {
-      return this.extractEmployeesFromTimeData(timeResult.value);
-    }
+      return {
+        employeeId: emp.EmpId,
+        ukgId: emp.Id,
+        firstName: emp.FirstName || "",
+        lastName: emp.LastName || "",
+        email: emp.Email || undefined,
+        jobTitle,
+        location,
+        employmentType,
+        isActive,
+        scheduledHours: employmentType === "Full-Time" ? 40 : 25,
+      };
+    });
 
-    const otherEndpoints = endpoints.filter(e => !e.toLowerCase().includes("time"));
-    for (const endpoint of otherEndpoints.slice(0, 3)) {
-      console.log(`UKG: Trying endpoint: ${endpoint}`);
-      const result = await this.apiRequest<ODataResponse>(`/${endpoint}?$top=10`);
-      if (result?.value && result.value.length > 0) {
-        console.log(`UKG: Sample data from ${endpoint}:`, JSON.stringify(result.value[0]).slice(0, 500));
-      }
-    }
-
-    return [];
-  }
-
-  private parseODataEmployees(data: Record<string, unknown>[]): UKGProEmployee[] {
-    const employees: UKGProEmployee[] = [];
+    console.log(`UKG: Processed ${employees.length} employees`);
+    console.log(`UKG: Active: ${employees.filter(e => e.isActive).length}, Terminated: ${employees.filter(e => !e.isActive).length}`);
     
-    for (const item of data) {
-      const firstName = String(item.FirstName || item.firstName || item.first_name || "");
-      const lastName = String(item.LastName || item.lastName || item.last_name || "");
-      
-      if (firstName || lastName) {
-        employees.push({
-          employeeId: String(item.EmployeeId || item.employeeId || item.employee_id || item.Id || item.id || ""),
-          firstName,
-          lastName,
-          jobTitle: String(item.JobTitle || item.jobTitle || item.Position || item.position || "Staff"),
-          workLocationCode: String(item.LocationCode || item.locationCode || item.Location || ""),
-          workLocationDescription: String(item.LocationName || item.locationName || ""),
-          employmentStatus: String(item.Status || item.status || item.EmploymentStatus || "Active"),
-          scheduledHours: Number(item.ScheduledHours || item.scheduledHours || 40),
-        });
-      }
-    }
-    
-    console.log(`UKG: Parsed ${employees.length} employees from OData`);
-    return employees;
-  }
-
-  private extractEmployeesFromTimeData(timeData: Record<string, unknown>[]): UKGProEmployee[] {
-    const employeeMap = new Map<string, UKGProEmployee>();
-    
-    for (const item of timeData) {
-      const employeeId = String(item.EmployeeId || item.employeeId || item.employee_id || item.EmpId || "");
-      const employeeName = String(item.EmployeeName || item.employeeName || item.employee_name || item.EmpName || "");
-      
-      if (employeeId && !employeeMap.has(employeeId)) {
-        const nameParts = employeeName.split(/[,\s]+/).filter(Boolean);
-        let firstName = "";
-        let lastName = "";
-        
-        if (nameParts.length >= 2) {
-          if (employeeName.includes(",")) {
-            lastName = nameParts[0];
-            firstName = nameParts.slice(1).join(" ");
-          } else {
-            firstName = nameParts[0];
-            lastName = nameParts.slice(1).join(" ");
-          }
-        } else if (nameParts.length === 1) {
-          firstName = nameParts[0];
-        }
-        
-        employeeMap.set(employeeId, {
-          employeeId,
-          firstName,
-          lastName,
-          jobTitle: String(item.JobTitle || item.jobTitle || item.Position || "Staff"),
-          workLocationCode: String(item.LocationCode || item.locationCode || item.Location || ""),
-          workLocationDescription: String(item.LocationName || item.locationName || ""),
-          employmentStatus: "Active",
-          scheduledHours: 40,
-        });
-      }
-    }
-    
-    const employees = Array.from(employeeMap.values());
-    console.log(`UKG: Extracted ${employees.length} unique employees from time data`);
     return employees;
   }
 
   convertToAppEmployee(ukgEmployee: UKGProEmployee): InsertEmployee {
     const firstName = ukgEmployee.firstName || "";
     const lastName = ukgEmployee.lastName || "";
+    const fullName = `${firstName} ${lastName}`.trim() || "Unknown";
+    
+    let email = ukgEmployee.email;
+    if (!email || email.trim() === "") {
+      email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}@store.com`.replace(/\s+/g, "");
+    }
     
     return {
-      name: `${firstName} ${lastName}`.trim() || "Unknown",
-      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@store.com`.replace(/\s+/g, ""),
+      name: fullName,
+      email,
       jobTitle: ukgEmployee.jobTitle || "Staff",
       maxWeeklyHours: ukgEmployee.scheduledHours || 40,
-      isActive: ukgEmployee.employmentStatus?.toLowerCase() === "active" || 
-                ukgEmployee.employmentStatus?.toLowerCase() === "a" ||
-                !ukgEmployee.employmentStatus,
+      isActive: ukgEmployee.isActive,
+      location: ukgEmployee.location || null,
+      employmentType: ukgEmployee.employmentType || null,
+      ukgEmployeeId: String(ukgEmployee.ukgId),
     };
   }
 
   clearCache(): void {
     this.cachedLocations = null;
+    this.jobCache.clear();
+    this.locationCache.clear();
   }
 }
 
 export const ukgClient = new UKGClient();
-export type { UKGProEmployee, UKGLocation };
+export type { UKGProEmployee, UKGLocationInfo as UKGLocation };

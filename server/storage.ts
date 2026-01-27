@@ -13,6 +13,7 @@ export interface IStorage {
   // Employees
   getEmployees(): Promise<Employee[]>;
   getEmployee(id: number): Promise<Employee | undefined>;
+  getEmployeeByUkgId(ukgEmployeeId: string): Promise<Employee | undefined>;
   createEmployee(employee: InsertEmployee): Promise<Employee>;
   updateEmployee(id: number, employee: Partial<InsertEmployee>): Promise<Employee>;
   deleteEmployee(id: number): Promise<void>;
@@ -47,6 +48,11 @@ export class DatabaseStorage implements IStorage {
 
   async getEmployee(id: number): Promise<Employee | undefined> {
     const [employee] = await db.select().from(employees).where(eq(employees.id, id));
+    return employee;
+  }
+
+  async getEmployeeByUkgId(ukgEmployeeId: string): Promise<Employee | undefined> {
+    const [employee] = await db.select().from(employees).where(eq(employees.ukgEmployeeId, ukgEmployeeId));
     return employee;
   }
 

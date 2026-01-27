@@ -81,18 +81,30 @@ This approach ensures type safety across the full stack and eliminates API contr
 ## Integrations
 
 ### UKG Workforce Management
-The application integrates with UKG (Ultimate Kronos Group) to pull employee data directly from your workforce management system using a service account.
+The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OData API to pull employee data directly from your workforce management system.
 
 **Configuration** (via environment variables):
-- `UKG_API_URL` - Base URL for your UKG API
-- `UKG_USERNAME` - Service account username
-- `UKG_PASSWORD` - Service account password
-- `UKG_API_KEY` - API key for authentication
+- `UKG_API_URL` - Base URL for your UKG API (e.g., https://kew33.ulticlock.com/UtmOdataServices/api)
+- `UKG_AUTH_HEADER` - Pre-encoded Basic auth header for API authentication
 
 **Features**:
-- Sync employees from UKG by store
-- Automatic employee creation/update based on UKG data
-- Store selector to filter by location
+- Automatic daily sync with UKG (runs on server startup and every 24 hours)
+- Full pagination support for large employee datasets (handles 11,000+ employees)
+- Job title lookup from UKG Job table (maps JobId to job names)
+- Location lookup from UKG Location table (maps LocationId to location names)
+- Employment type mapping (PayCate: 1=Full-Time, 2=Part-Time)
+- Active/Terminated status tracking (Active: A=active, I=terminated)
+- Only syncs active employees to database (terminated employees are skipped)
+- Uses UKG unique ID (Id field) for employee matching to prevent duplicates
+
+**Data Fields Synced**:
+- Name (FirstName + LastName)
+- Email (or auto-generated from name if not provided)
+- Job Title (from Job lookup table)
+- Location (from Location lookup table)
+- Employment Type (Full-Time/Part-Time)
+- Active Status
+- UKG Employee ID (for update matching)
 
 ### Microsoft 365 SSO
 Single sign-on authentication using Microsoft Azure AD.

@@ -354,34 +354,38 @@ export async function registerRoutes(
 
       const apiError = ukgClient.getLastError();
       if (apiError) {
-        return res.json({ imported: 0, updated: 0, errors: 0, apiError });
+        return res.json({ imported: 0, updated: 0, errors: 0, skipped: 0, apiError });
       }
+
+      const activeEmployees = ukgEmployees.filter(emp => emp.isActive);
+      const skipped = ukgEmployees.length - activeEmployees.length;
+      console.log(`UKG: Processing ${activeEmployees.length} active employees (skipping ${skipped} terminated)`);
 
       let imported = 0;
       let updated = 0;
       let errors = 0;
 
-      const existingEmployees = await storage.getEmployees();
-      const existingByName = new Map(existingEmployees.map(e => [e.name.toLowerCase(), e]));
-
-      for (const ukgEmp of ukgEmployees) {
+      for (const ukgEmp of activeEmployees) {
         try {
           const appEmployee = ukgClient.convertToAppEmployee(ukgEmp);
-          const existing = existingByName.get(appEmployee.name.toLowerCase());
           
-          if (existing) {
-            await storage.updateEmployee(existing.id, appEmployee);
+          const existingByUkgId = await storage.getEmployeeByUkgId(String(ukgEmp.ukgId));
+          
+          if (existingByUkgId) {
+            await storage.updateEmployee(existingByUkgId.id, appEmployee);
             updated++;
           } else {
             await storage.createEmployee(appEmployee);
             imported++;
           }
-        } catch {
+        } catch (err) {
+          console.error("Error syncing employee:", err);
           errors++;
         }
       }
 
-      res.json({ imported, updated, errors, apiError: null });
+      console.log(`UKG Sync complete: ${imported} imported, ${updated} updated, ${skipped} skipped (terminated), ${errors} errors`);
+      res.json({ imported, updated, skipped, errors, apiError: null });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
