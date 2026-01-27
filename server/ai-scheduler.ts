@@ -110,7 +110,7 @@ Available shift lengths: Full (8h), Short (5.5h), Gap (5h)
 
 ## ALL EMPLOYEES - SCHEDULE EACH ONE (${activeEmployees.length} total)
 
-${activeEmployees.map(e => `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max Hours/Week: ${e.maxWeeklyHours || 40}`).join('\n')}
+${activeEmployees.map(e => `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max Hours/Week: ${e.maxWeeklyHours || 40}, Preferred Days/Week: ${e.preferredDaysPerWeek || 5}`).join('\n')}
 
 ## APPROVED TIME OFF (Do NOT schedule these employees on these days)
 
@@ -130,6 +130,7 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
    - Part-timers don't have to work 4 days with full shifts - they can spread hours across 5 days
    - NEVER exceed maxWeeklyHours - pick the closest combination that stays at or under the limit
 5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
+6. **RESPECT preferred days per week** - Each employee has a preferredDaysPerWeek (4 or 5). Do not exceed this limit.
 7. An employee can only work ONE shift per day (no doubles)
 8. Never exceed an employee's maxWeeklyHours
 9. Never schedule someone on approved time off days

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect } from "react";
 import { Search, MoreHorizontal, Pencil, Trash2, MapPin } from "lucide-react";
 import {
@@ -159,7 +160,8 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
     jobTitle: "",
     maxWeeklyHours: 40,
     color: "#3b82f6",
-    isActive: true
+    isActive: true,
+    preferredDaysPerWeek: 5
   });
 
   // Update state when dialog opens or employee changes
@@ -174,7 +176,8 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
           jobTitle: "",
           maxWeeklyHours: 40,
           color: "#3b82f6",
-          isActive: true
+          isActive: true,
+          preferredDaysPerWeek: 5
         });
       }
     }
@@ -239,20 +242,32 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <Label>Color Tag</Label>
-            <div className="flex gap-2">
-              <Input 
-                type="color" 
-                value={formData.color} 
-                onChange={e => setFormData({...formData, color: e.target.value})} 
-                className="w-12 h-10 p-1"
-              />
-              <Input 
-                value={formData.color} 
-                onChange={e => setFormData({...formData, color: e.target.value})} 
-                className="flex-1"
-              />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Preferred Days/Week</Label>
+              <Select 
+                value={String(formData.preferredDaysPerWeek || 5)} 
+                onValueChange={v => setFormData({...formData, preferredDaysPerWeek: parseInt(v)})}
+              >
+                <SelectTrigger data-testid="select-preferred-days">
+                  <SelectValue placeholder="Select days" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="4">4 days</SelectItem>
+                  <SelectItem value="5">5 days</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Color Tag</Label>
+              <div className="flex gap-2">
+                <Input 
+                  type="color" 
+                  value={formData.color} 
+                  onChange={e => setFormData({...formData, color: e.target.value})} 
+                  className="w-12 h-10 p-1"
+                />
+              </div>
             </div>
           </div>
           <DialogFooter>

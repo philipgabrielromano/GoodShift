@@ -297,13 +297,16 @@ export async function registerRoutes(
         );
       };
       
+      // Get max days per week for an employee (uses preferred setting, defaults to 5)
+      const getMaxDays = (emp: typeof employees[0]) => emp.preferredDaysPerWeek || 5;
+      
       // Check if employee can work a full 8-hour shift
       const canWorkFullShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
         if (!emp.isActive) return false;
         if (isOnTimeOff(emp.id, day)) return false;
         if (state.hoursScheduled + FULL_SHIFT_HOURS > emp.maxWeeklyHours) return false;
-        if (state.daysWorked >= 5) return false; // Max 5 days = minimum 2 days off
+        if (state.daysWorked >= getMaxDays(emp)) return false; // Respect preferred days setting
         if (state.daysWorkedOn.has(dayIndex)) return false; // Already working this day
         return true;
       };
@@ -314,7 +317,7 @@ export async function registerRoutes(
         if (!emp.isActive) return false;
         if (isOnTimeOff(emp.id, day)) return false;
         if (state.hoursScheduled + SHORT_SHIFT_HOURS > emp.maxWeeklyHours) return false;
-        if (state.daysWorked >= 5) return false;
+        if (state.daysWorked >= getMaxDays(emp)) return false;
         if (state.daysWorkedOn.has(dayIndex)) return false;
         return true;
       };
@@ -325,7 +328,7 @@ export async function registerRoutes(
         if (!emp.isActive) return false;
         if (isOnTimeOff(emp.id, day)) return false;
         if (state.hoursScheduled >= emp.maxWeeklyHours) return false; // Already maxed
-        if (state.daysWorked >= 5) return false;
+        if (state.daysWorked >= getMaxDays(emp)) return false;
         if (state.daysWorkedOn.has(dayIndex)) return false;
         return true;
       };
@@ -337,7 +340,7 @@ export async function registerRoutes(
         if (!emp.isActive) return false;
         if (isOnTimeOff(emp.id, day)) return false;
         if (state.hoursScheduled + GAP_SHIFT_HOURS > emp.maxWeeklyHours) return false;
-        if (state.daysWorked >= 5) return false;
+        if (state.daysWorked >= getMaxDays(emp)) return false;
         if (state.daysWorkedOn.has(dayIndex)) return false;
         return true;
       };
@@ -360,7 +363,8 @@ export async function registerRoutes(
       const getBestShiftForPartTimer = (emp: typeof employees[0], day: Date, dayIndex: number, shifts: ReturnType<typeof getShiftTimes>) => {
         const remaining = getRemainingHours(emp);
         const state = employeeState[emp.id];
-        const daysRemaining = 5 - state.daysWorked;
+        const maxDays = getMaxDays(emp);
+        const daysRemaining = maxDays - state.daysWorked;
         
         // Calculate optimal shift length based on remaining hours and days
         // If we have N days left and X hours remaining, average shift = X/N
@@ -441,7 +445,7 @@ export async function registerRoutes(
       const getEmployeePriority = (emp: typeof employees[0]) => {
         const state = employeeState[emp.id];
         const hoursRemaining = emp.maxWeeklyHours - state.hoursScheduled;
-        const daysRemaining = 5 - state.daysWorked;
+        const daysRemaining = getMaxDays(emp) - state.daysWorked;
         // Prioritize: more hours remaining, fewer days already worked
         return -(hoursRemaining * 10 + daysRemaining);
       };
@@ -817,7 +821,7 @@ export async function registerRoutes(
         const state = employeeState[emp.id];
         
         // Skip if they can't work more days
-        if (state.daysWorked >= 5) continue;
+        if (state.daysWorked >= getMaxDays(emp)) continue;
         
         // Use gap shift (5h) if remaining is exactly 5h or close to it
         if (remaining >= 5 && remaining <= 5.5) {

@@ -17,6 +17,7 @@ export const employees = pgTable("employees", {
   location: text("location"), // Store/location name from UKG
   employmentType: text("employment_type"), // "Full-Time" or "Part-Time"
   ukgEmployeeId: text("ukg_employee_id").unique(), // UKG employee ID for sync - unique to prevent duplicates
+  preferredDaysPerWeek: integer("preferred_days_per_week").default(5), // 4 or 5 days per week for scheduling
 });
 
 export const timeOffRequests = pgTable("time_off_requests", {

@@ -192,6 +192,8 @@ Part-time employees (less than 32 max hours) can work up to 5 days per week with
 
 The scheduler intelligently picks the best combination of shift types to maximize hours while staying within max weekly hours limits.
 
+Each employee has a **Preferred Days/Week** setting (4 or 5) that managers can configure in the employee profile. The scheduler will respect this setting, allowing some employees to work fewer days with longer shifts while others spread hours across more days.
+
 ### Labor Allocation
 Configurable percentages for distributing store hours:
 - Cashiering (CASHSLS)
