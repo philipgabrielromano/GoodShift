@@ -711,11 +711,6 @@ export default function Schedule() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-          {/* AI Generate button hidden - infrastructure kept for future use */}
-          <Button onClick={() => handleAddShift(new Date())} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all" data-testid="button-add-shift">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Shift
-          </Button>
         </div>
       </div>
 
