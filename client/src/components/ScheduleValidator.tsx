@@ -296,6 +296,58 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
     });
 
+    // Check 6: Donor greeter shift variety (must have mix of opening and closing shifts)
+    // This applies to both part-time and full-time employees
+    const donorGreeters = employees.filter(emp => emp.jobTitle === 'DONDOOR' && emp.isActive);
+    
+    donorGreeters.forEach(greeter => {
+      const greeterShifts = shifts.filter(s => s.employeeId === greeter.id);
+      
+      if (greeterShifts.length < 2) return; // Need at least 2 shifts to check variety
+      
+      let openingCount = 0;
+      let closingCount = 0;
+      let midShiftCount = 0;
+      
+      greeterShifts.forEach(shift => {
+        const startStr = format(shift.startTime, "HH:mm");
+        const endStr = format(shift.endTime, "HH:mm");
+        const shiftDay = new Date(shift.startTime);
+        const isSunday = shiftDay.getDay() === 0;
+        
+        const openerStart = settings.managerMorningStart || "08:00";
+        const openerEnd = settings.managerMorningEnd || "16:30";
+        const closerStart = isSunday ? "11:00" : (settings.managerEveningStart || "12:00");
+        const closerEnd = isSunday ? "19:30" : (settings.managerEveningEnd || "20:30");
+        
+        if (startStr === openerStart && endStr === openerEnd) {
+          openingCount++;
+        } else if (startStr === closerStart && endStr === closerEnd) {
+          closingCount++;
+        } else {
+          // Mid-shifts and other shifts count as variety
+          midShiftCount++;
+        }
+      });
+      
+      // Warn if all opening/closing shifts are the same type
+      // Mid-shifts count as variety, so only flag if there are 0 mid-shifts AND all are same type
+      const totalShifts = openingCount + closingCount + midShiftCount;
+      if (totalShifts >= 2 && midShiftCount === 0) {
+        if (openingCount === 0 && closingCount >= 2) {
+          newIssues.push({
+            type: "warning",
+            message: `${greeter.name} (Donor Greeter) has ${closingCount} closing shifts but no opening shifts - needs variety`
+          });
+        } else if (closingCount === 0 && openingCount >= 2) {
+          newIssues.push({
+            type: "warning",
+            message: `${greeter.name} (Donor Greeter) has ${openingCount} opening shifts but no closing shifts - needs variety`
+          });
+        }
+      }
+    });
+
     return newIssues;
   }, [employees, shifts, roles, settings, timeOff]);
 
