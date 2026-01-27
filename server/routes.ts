@@ -567,6 +567,31 @@ export async function registerRoutes(
     }
   });
 
+  // Clear schedule for a week
+  app.post("/api/schedule/clear", async (req, res) => {
+    try {
+      const { weekStart } = api.schedule.generate.input.parse(req.body);
+      const startDate = new Date(weekStart);
+      const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      const existingShifts = await storage.getShifts(startDate, endDate);
+      let deletedCount = 0;
+      
+      for (const shift of existingShifts) {
+        await storage.deleteShift(shift.id);
+        deletedCount++;
+      }
+      
+      res.json({ message: `Cleared ${deletedCount} shifts`, deletedCount });
+    } catch (err) {
+      console.error("Clear schedule error:", err);
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      res.status(500).json({ message: "Failed to clear schedule" });
+    }
+  });
+
   // === UKG INTEGRATION ===
   app.get(api.ukg.status.path, async (req, res) => {
     const configured = ukgClient.isConfigured();

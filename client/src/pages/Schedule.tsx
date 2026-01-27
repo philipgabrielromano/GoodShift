@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -211,6 +211,7 @@ export default function Schedule() {
 
   const [isAIGenerating, setIsAIGenerating] = useState(false);
   const [aiReasoning, setAIReasoning] = useState<string | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
 
   const handleAIGenerate = async () => {
     setIsAIGenerating(true);
@@ -230,6 +231,22 @@ export default function Schedule() {
       toast({ variant: "destructive", title: "AI Generation Failed", description: "Could not generate AI schedule. Try the standard scheduler." });
     } finally {
       setIsAIGenerating(false);
+    }
+  };
+
+  const handleClearSchedule = async () => {
+    if (!confirm("Are you sure you want to clear all shifts for this week? This cannot be undone.")) {
+      return;
+    }
+    setIsClearing(true);
+    try {
+      await apiRequest("POST", "/api/schedule/clear", { weekStart: weekStart.toISOString() });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Schedule Cleared", description: "All shifts for this week have been removed." });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Clear Failed", description: "Could not clear the schedule." });
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -288,6 +305,16 @@ export default function Schedule() {
         </div>
 
         <div className="flex gap-3">
+          <Button 
+            variant="outline" 
+            onClick={handleClearSchedule} 
+            disabled={isClearing}
+            className="border-destructive/50 hover:border-destructive text-destructive hover:bg-destructive/10"
+            data-testid="button-clear-schedule"
+          >
+            <Trash2 className={cn("w-4 h-4 mr-2", isClearing && "animate-pulse")} />
+            {isClearing ? "Clearing..." : "Clear Week"}
+          </Button>
           <Button 
             variant="outline" 
             onClick={handleAIGenerate} 
