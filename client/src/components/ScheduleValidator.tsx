@@ -385,6 +385,37 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
     });
 
+    // Check 8: Manager closing shift limit (max 3 closes per week)
+    const managerJobCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
+    const managers = employees.filter(emp => managerJobCodes.includes(emp.jobTitle) && emp.isActive);
+    
+    managers.forEach(manager => {
+      const managerShifts = shifts.filter(s => s.employeeId === manager.id);
+      
+      let closingCount = 0;
+      
+      managerShifts.forEach(shift => {
+        const startStr = format(shift.startTime, "HH:mm");
+        const endStr = format(shift.endTime, "HH:mm");
+        const shiftDay = new Date(shift.startTime);
+        const isSunday = shiftDay.getDay() === 0;
+        
+        const closerStart = isSunday ? "11:00" : (settings.managerEveningStart || "12:00");
+        const closerEnd = isSunday ? "19:30" : (settings.managerEveningEnd || "20:30");
+        
+        if (startStr === closerStart && endStr === closerEnd) {
+          closingCount++;
+        }
+      });
+      
+      if (closingCount > 3) {
+        newIssues.push({
+          type: "warning",
+          message: `${manager.name} (${getJobTitle(manager.jobTitle)}) has ${closingCount} closing shifts this week (max 3 recommended)`
+        });
+      }
+    });
+
     return newIssues;
   }, [employees, shifts, roles, settings, timeOff]);
 
