@@ -81,12 +81,12 @@ This approach ensures type safety across the full stack and eliminates API contr
 ## Integrations
 
 ### UKG Workforce Management
-The application integrates with UKG (Ultimate Kronos Group) to pull employee data directly from your workforce management system.
+The application integrates with UKG (Ultimate Kronos Group) to pull employee data directly from your workforce management system using a service account.
 
 **Configuration** (via environment variables):
 - `UKG_API_URL` - Base URL for your UKG API
-- `UKG_CLIENT_ID` - OAuth client ID
-- `UKG_CLIENT_SECRET` - OAuth client secret
+- `UKG_USERNAME` - Service account username
+- `UKG_PASSWORD` - Service account password
 - `UKG_API_KEY` - API key for authentication
 
 **Features**:

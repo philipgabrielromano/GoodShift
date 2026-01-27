@@ -16,69 +16,36 @@ interface UKGStore {
   code: string;
 }
 
-interface UKGAuthResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-}
-
 class UKGClient {
   private baseUrl: string;
-  private clientId: string;
-  private clientSecret: string;
+  private username: string;
+  private password: string;
   private apiKey: string;
-  private accessToken: string | null = null;
-  private tokenExpiry: Date | null = null;
 
   constructor() {
     this.baseUrl = process.env.UKG_API_URL || "";
-    this.clientId = process.env.UKG_CLIENT_ID || "";
-    this.clientSecret = process.env.UKG_CLIENT_SECRET || "";
+    this.username = process.env.UKG_USERNAME || "";
+    this.password = process.env.UKG_PASSWORD || "";
     this.apiKey = process.env.UKG_API_KEY || "";
   }
 
   isConfigured(): boolean {
-    return !!(this.baseUrl && this.clientId && this.clientSecret && this.apiKey);
+    return !!(this.baseUrl && this.username && this.password && this.apiKey);
   }
 
-  private async authenticate(): Promise<string> {
-    if (this.accessToken && this.tokenExpiry && new Date() < this.tokenExpiry) {
-      return this.accessToken;
-    }
-
-    const response = await fetch(`${this.baseUrl}/authentication/access_token`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Api-Key": this.apiKey,
-      },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`UKG authentication failed: ${response.statusText}`);
-    }
-
-    const data: UKGAuthResponse = await response.json();
-    this.accessToken = data.access_token;
-    this.tokenExpiry = new Date(Date.now() + (data.expires_in - 60) * 1000);
-    return this.accessToken;
+  private getAuthHeaders(): Record<string, string> {
+    const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
+    return {
+      "Authorization": `Basic ${basicAuth}`,
+      "Api-Key": this.apiKey,
+      "Content-Type": "application/json",
+    };
   }
 
   private async request<T>(endpoint: string, method = "GET", body?: object): Promise<T> {
-    const token = await this.authenticate();
-
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       method,
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Api-Key": this.apiKey,
-        "Content-Type": "application/json",
-      },
+      headers: this.getAuthHeaders(),
       body: body ? JSON.stringify(body) : undefined,
     });
 
