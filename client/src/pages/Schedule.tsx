@@ -361,18 +361,18 @@ export default function Schedule() {
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
         {/* Main Schedule Grid */}
         <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden relative">
-          {/* Generation Loading Overlay */}
+          {/* Generation Loading Overlay - positioned at top */}
           {(isAIGenerating || isManualGenerating) && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-4" data-testid="overlay-generating">
+            <div className="absolute top-0 left-0 right-0 bg-primary/95 backdrop-blur-sm z-50 flex items-center justify-center gap-4 py-4 px-6 shadow-lg" data-testid="overlay-generating">
               <div className="relative">
-                <div className="w-16 h-16 border-4 border-primary/30 rounded-full"></div>
-                <div className="absolute inset-0 w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <div className="w-8 h-8 border-3 border-primary-foreground/30 rounded-full"></div>
+                <div className="absolute inset-0 w-8 h-8 border-3 border-primary-foreground border-t-transparent rounded-full animate-spin"></div>
               </div>
-              <div className="text-center space-y-2">
-                <p className="text-lg font-semibold text-foreground">
-                  {isAIGenerating ? "AI Generating Schedule" : "Generating Schedule"}
+              <div className="text-center">
+                <p className="text-base font-semibold text-primary-foreground">
+                  {isAIGenerating ? "AI Generating Schedule..." : "Generating Schedule..."}
                 </p>
-                <p className="text-sm text-muted-foreground animate-pulse">
+                <p className="text-xs text-primary-foreground/80">
                   {isAIGenerating 
                     ? "AI is analyzing employee availability, coverage requirements, and labor allocation..." 
                     : "Creating schedule based on coverage rules and employee constraints..."}
