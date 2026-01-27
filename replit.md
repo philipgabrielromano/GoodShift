@@ -165,6 +165,16 @@ Real-time validation checks for:
 - Manager coverage requirements
 - **Clopening detection**: Warns when an employee works a closing shift (ending 7:30pm+) followed by an opening shift (starting 8-9am) the next day
 
+### Schedule Publishing
+Managers can control the visibility of weekly schedules:
+- **Publish**: Makes the week's schedule visible to all employees (viewers)
+- **Unpublish**: Hides the schedule from employees until it's ready
+
+Access control:
+- **Viewers** only see schedules that have been published; unpublished weeks show "Schedule Not Available"
+- **Managers/Admins** always see the full schedule regardless of publish status
+- Only managers and admins can publish/unpublish schedules
+
 ### User Administration
 Role-based access control with three user roles:
 - **Admin**: Full access to all features including user management

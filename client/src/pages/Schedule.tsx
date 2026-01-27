@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff } from "lucide-react";
 import { cn, getJobTitle } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -180,6 +180,20 @@ export default function Schedule() {
     }
     return map;
   }, [weatherData]);
+
+  // Check if current week's schedule is published (for viewer access control)
+  const { data: publishStatus, refetch: refetchPublishStatus } = useQuery<{ weekStart: string; isPublished: boolean }>({
+    queryKey: ["/api/schedule/published", weekStartStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/schedule/published/${weekStartStr}`);
+      if (!res.ok) throw new Error("Failed to check publish status");
+      return res.json();
+    },
+  });
+
+  const isSchedulePublished = publishStatus?.isPublished ?? false;
+  const userRole = authStatus?.user?.role ?? "viewer";
+  const canViewSchedule = userRole === "admin" || userRole === "manager" || isSchedulePublished;
 
   // Create a lookup map for time clock entries by employee UKG ID and date
   const timeClockByEmpDate = useMemo(() => {
@@ -418,6 +432,34 @@ export default function Schedule() {
       toast({ title: "Template Deleted", description: `Template "${templateName}" deleted.` });
     } catch (error) {
       toast({ variant: "destructive", title: "Delete Failed", description: "Could not delete template." });
+    }
+  };
+
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  const handlePublishSchedule = async () => {
+    setIsPublishing(true);
+    try {
+      await apiRequest("POST", "/api/schedule/publish", { weekStart: weekStartStr });
+      refetchPublishStatus();
+      toast({ title: "Schedule Published", description: "This week's schedule is now visible to all employees." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Publish Failed", description: error?.message || "Could not publish schedule." });
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handleUnpublishSchedule = async () => {
+    setIsPublishing(true);
+    try {
+      await apiRequest("DELETE", `/api/schedule/publish/${weekStartStr}`);
+      refetchPublishStatus();
+      toast({ title: "Schedule Unpublished", description: "This week's schedule is now hidden from employees." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Unpublish Failed", description: error?.message || "Could not unpublish schedule." });
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -734,9 +776,46 @@ export default function Schedule() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          
+          {/* Publish/Unpublish Button - managers and admins only */}
+          {(userRole === "admin" || userRole === "manager") && (
+            isSchedulePublished ? (
+              <Button
+                variant="outline"
+                onClick={handleUnpublishSchedule}
+                disabled={isPublishing}
+                data-testid="button-unpublish-schedule"
+              >
+                <EyeOff className="w-4 h-4 mr-2" />
+                {isPublishing ? "Unpublishing..." : "Unpublish"}
+              </Button>
+            ) : (
+              <Button
+                onClick={handlePublishSchedule}
+                disabled={isPublishing}
+                className="bg-primary"
+                data-testid="button-publish-schedule"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {isPublishing ? "Publishing..." : "Publish Schedule"}
+              </Button>
+            )
+          )}
         </div>
       </div>
 
+      {/* Show message for viewers when schedule is not published */}
+      {!canViewSchedule && (
+        <div className="flex flex-col items-center justify-center py-20 px-8 bg-card rounded border">
+          <EyeOff className="w-16 h-16 text-muted-foreground mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Schedule Not Available</h2>
+          <p className="text-muted-foreground text-center max-w-md">
+            The schedule for this week hasn't been published yet. Please check back later or contact your manager.
+          </p>
+        </div>
+      )}
+
+      {canViewSchedule && (
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
         {/* Main Schedule Grid */}
         <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden relative">
@@ -1106,6 +1185,7 @@ export default function Schedule() {
           )}
         </div>
       </div>
+      )}
 
       <ShiftDialog 
         isOpen={dialogOpen} 
