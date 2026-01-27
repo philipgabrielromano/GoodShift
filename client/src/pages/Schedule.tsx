@@ -927,12 +927,12 @@ export default function Schedule() {
                         <div className="mt-1 space-y-0.5 text-[10px]" data-testid={`production-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
                           {apparelProduction > 0 && (
                             <div className="text-lime-600 dark:text-lime-400" title="Apparel Pricer Production">
-                              AP: {apparelProduction.toLocaleString()}
+                              Apparel: {apparelProduction.toLocaleString()}
                             </div>
                           )}
                           {donationProduction > 0 && (
                             <div className="text-orange-600 dark:text-orange-400" title="Donation Pricer Production">
-                              DP: {donationProduction.toLocaleString()}
+                              Wares: {donationProduction.toLocaleString()}
                             </div>
                           )}
                         </div>
