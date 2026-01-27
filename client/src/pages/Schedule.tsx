@@ -49,7 +49,7 @@ const JOB_COLORS: Record<string, string> = {
   "CASHSLS": "#EC4899",   // Hot pink
   "APPROC": "#3B82F6",    // Electric blue
   "DONPRI": "#22C55E",    // Green
-  "DONDOOR": "#A16207",   // Brown
+  "DONDOOR": "#F472B6",   // Pink
 };
 
 function getJobColor(jobTitle: string): string {
