@@ -40,6 +40,9 @@ class UKGClient {
     if (url.endsWith("/")) {
       url = url.slice(0, -1);
     }
+    if (url.includes("service4.ultipro.com")) {
+      url = url.replace("service4.ultipro.com", "ew33.ultipro.com");
+    }
     this.baseUrl = url;
     this.username = process.env.UKG_USERNAME || "";
     this.password = process.env.UKG_PASSWORD || "";
