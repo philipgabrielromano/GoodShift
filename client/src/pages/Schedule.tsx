@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer } from "lucide-react";
 import { cn, getJobTitle } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -157,6 +157,29 @@ export default function Schedule() {
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
     retry: 1, // Only retry once
   });
+
+  // Weather forecast data
+  interface WeatherForecast {
+    date: string;
+    highTemp: number;
+    lowTemp: number;
+    precipitationChance: number;
+  }
+  
+  const { data: weatherData } = useQuery<WeatherForecast[]>({
+    queryKey: ["/api/weather/forecast"],
+    staleTime: 60 * 60 * 1000, // Cache for 1 hour
+  });
+  
+  // Create a lookup map for weather by date
+  const weatherByDate = useMemo(() => {
+    const map = new Map<string, WeatherForecast>();
+    if (!weatherData) return map;
+    for (const forecast of weatherData) {
+      map.set(forecast.date, forecast);
+    }
+    return map;
+  }, [weatherData]);
 
   // Create a lookup map for time clock entries by employee UKG ID and date
   const timeClockByEmpDate = useMemo(() => {
@@ -787,6 +810,10 @@ export default function Schedule() {
                   }, 0);
                   const donationProduction = Math.round(donationEffectiveHours * PIECES_PER_EFFECTIVE_HOUR);
                   
+                  // Get weather for this day
+                  const dateKey = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
+                  const weather = weatherByDate.get(dateKey);
+                  
                   return (
                     <div key={day.toString()} className="p-2 text-center border-r">
                       <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
@@ -796,6 +823,23 @@ export default function Schedule() {
                       )}>
                         {formatInTimeZone(day, TIMEZONE, "d")}
                       </div>
+                      {/* Weather forecast */}
+                      {weather && (
+                        <div className="mt-1 flex flex-col items-center gap-0.5" data-testid={`weather-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
+                          <div className="flex items-center gap-1 text-[10px]" title="High / Low Temperature">
+                            <Thermometer className="w-3 h-3 text-orange-500" />
+                            <span className="text-orange-600 dark:text-orange-400">{weather.highTemp}°</span>
+                            <span className="text-muted-foreground">/</span>
+                            <span className="text-blue-600 dark:text-blue-400">{weather.lowTemp}°</span>
+                          </div>
+                          {weather.precipitationChance > 0 && (
+                            <div className="flex items-center gap-0.5 text-[10px] text-sky-600 dark:text-sky-400" title="Precipitation Chance">
+                              <Droplets className="w-3 h-3" />
+                              <span>{weather.precipitationChance}%</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="text-xs font-medium text-muted-foreground mt-1" data-testid={`text-daily-hours-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
                         {dayHours.toFixed(1)}h
                       </div>
