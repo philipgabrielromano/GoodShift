@@ -55,6 +55,19 @@ class UKGClient {
     return this.lastError;
   }
 
+  private safeStringify(obj: unknown): string {
+    const seen = new WeakSet();
+    return JSON.stringify(obj, (key, value) => {
+      if (typeof value === "object" && value !== null) {
+        if (seen.has(value)) {
+          return "[Circular]";
+        }
+        seen.add(value);
+      }
+      return value;
+    }, 2);
+  }
+
   private getSoapSecurityHeader(): string {
     return `
       <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
@@ -174,26 +187,40 @@ class UKGClient {
         client.addHttpHeader("Api-Key", this.userApiKey);
       }
 
-      let result: unknown[];
+      const operations = Object.keys(client).filter(k => 
+        !k.startsWith("_") && 
+        typeof (client as Record<string, unknown>)[k] === "function" &&
+        k.endsWith("Async")
+      );
+      console.log("UKG: Available SOAP operations:", operations);
+      
+      const methods = client.describe();
+      const safeDescribe = this.safeStringify(methods);
+      console.log("UKG: Service description:", safeDescribe.slice(0, 2000));
+
+      let result: unknown;
+      const methodName = operations.find(op => 
+        op.toLowerCase().includes("find") || 
+        op.toLowerCase().includes("get") ||
+        op.toLowerCase().includes("query")
+      );
+
+      if (!methodName) {
+        this.lastError = `No suitable query method found. Available: ${operations.join(", ")}`;
+        return [];
+      }
+
+      console.log(`UKG: Calling ${methodName}`);
       try {
-        [result] = await client.FindPeopleAsync({
-          query: "",
-        });
+        const method = (client as Record<string, Function>)[methodName];
+        [result] = await method({});
       } catch (soapError: unknown) {
-        const operations = Object.keys(client).filter(k => 
-          !k.startsWith("_") && typeof (client as Record<string, unknown>)[k] === "function"
-        );
-        console.log("UKG: Available SOAP operations:", operations.slice(0, 20));
-        
-        const methods = client.describe();
-        console.log("UKG: Service description:", JSON.stringify(methods, null, 2).slice(0, 1000));
-        
         const errMsg = soapError instanceof Error ? soapError.message : String(soapError);
-        this.lastError = `SOAP error: ${errMsg}. Available operations: ${operations.slice(0, 10).join(", ")}`;
+        this.lastError = `SOAP ${methodName} error: ${errMsg}. Available operations: ${operations.join(", ")}`;
         throw soapError;
       }
 
-      console.log("UKG: Raw result:", JSON.stringify(result).slice(0, 500));
+      console.log("UKG: Raw result:", this.safeStringify(result).slice(0, 1000));
       
       const employees: UKGProEmployee[] = [];
       if (Array.isArray(result)) {
