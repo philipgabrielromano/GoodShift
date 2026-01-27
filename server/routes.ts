@@ -1024,6 +1024,66 @@ export async function registerRoutes(
     }
   });
 
+  // Discover available UKG OData entities/tables
+  app.get(api.ukg.discover.path, requireAdmin, async (req, res) => {
+    if (!ukgClient.isConfigured()) {
+      return res.json({ entities: [], error: "UKG is not configured" });
+    }
+
+    // Known UKG UltiClock OData entities to probe
+    const knownEntities = [
+      "Employee",
+      "Job",
+      "Location",
+      "Paygroup",
+      "Shift",
+      "ShiftDet",
+      "Schedule",
+      "ScheduleRequest",
+      "Timecard",
+      "TimecardDet",
+      "Punch",
+      "PunchDet",
+      "PayPeriod",
+      "Paycode",
+      "Holiday",
+      "Accrual",
+      "AccrualTransaction",
+      "OrgLevel1",
+      "OrgLevel2",
+      "OrgLevel3",
+      "OrgLevel4",
+    ];
+
+    const results: { name: string; accessible: boolean; fields: string[] }[] = [];
+
+    // Probe each known entity to see if it's accessible
+    for (const entityName of knownEntities) {
+      const probe = await ukgClient.probeEntity(entityName);
+      results.push({
+        name: entityName,
+        accessible: probe.success,
+        fields: probe.sampleFields,
+      });
+    }
+
+    // Also try to discover additional entities from the service document
+    const discoveredEntities = await ukgClient.discoverEntities();
+    for (const entity of discoveredEntities) {
+      if (!knownEntities.includes(entity)) {
+        const probe = await ukgClient.probeEntity(entity);
+        results.push({
+          name: entity,
+          accessible: probe.success,
+          fields: probe.sampleFields,
+        });
+      }
+    }
+
+    const error = ukgClient.getLastError();
+    res.json({ entities: results, error });
+  });
+
   // === Users ===
   app.get(api.users.list.path, requireAdmin, async (req, res) => {
     const users = await storage.getUsers();

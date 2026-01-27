@@ -308,6 +308,20 @@ export const api = {
         400: errorSchemas.validation,
       },
     },
+    discover: {
+      method: 'GET' as const,
+      path: '/api/ukg/discover',
+      responses: {
+        200: z.object({
+          entities: z.array(z.object({
+            name: z.string(),
+            accessible: z.boolean(),
+            fields: z.array(z.string()),
+          })),
+          error: z.string().nullable(),
+        }),
+      },
+    },
   },
   users: {
     list: {

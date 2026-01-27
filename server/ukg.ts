@@ -300,6 +300,95 @@ class UKGClient {
     this.jobCache.clear();
     this.locationCache.clear();
   }
+
+  // Discover available OData entities/tables
+  async discoverEntities(): Promise<string[]> {
+    if (!this.isConfigured()) {
+      this.lastError = "UKG API not configured";
+      return [];
+    }
+
+    try {
+      // OData typically exposes metadata at $metadata endpoint
+      // But we can also try to get the service document which lists available entity sets
+      const url = `${this.baseUrl}`;
+      console.log(`UKG: Discovering entities at ${url}`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        this.lastError = `Discovery failed (${response.status}): ${responseText.slice(0, 300)}`;
+        return [];
+      }
+
+      // Try to parse as JSON (OData service document)
+      try {
+        const data = JSON.parse(responseText);
+        // OData service document typically has a "value" array with entity sets
+        if (data.value && Array.isArray(data.value)) {
+          return data.value.map((item: { name?: string; url?: string }) => item.name || item.url || "Unknown");
+        }
+        // Or it might be a direct object with entity names as keys
+        return Object.keys(data).filter(key => !key.startsWith("@"));
+      } catch {
+        // If not JSON, try to extract entity names from XML
+        const entityMatches = responseText.match(/EntitySet\s+Name="([^"]+)"/g);
+        if (entityMatches) {
+          return entityMatches.map(m => {
+            const match = m.match(/Name="([^"]+)"/);
+            return match ? match[1] : "Unknown";
+          });
+        }
+        this.lastError = "Could not parse OData service document";
+        return [];
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = `Discovery error: ${message}`;
+      return [];
+    }
+  }
+
+  // Try to fetch sample data from a specific entity/table
+  async probeEntity(entityName: string): Promise<{ success: boolean; sampleFields: string[]; count: number }> {
+    if (!this.isConfigured()) {
+      return { success: false, sampleFields: [], count: 0 };
+    }
+
+    try {
+      interface ODataResponse {
+        value?: Record<string, unknown>[];
+        "@odata.count"?: number;
+      }
+
+      const result = await this.apiRequest<ODataResponse>(`/${entityName}?$top=1`);
+      
+      if (!result || !result.value || result.value.length === 0) {
+        return { success: false, sampleFields: [], count: 0 };
+      }
+
+      const sampleRecord = result.value[0];
+      const fields = Object.keys(sampleRecord).filter(key => !key.startsWith("@"));
+      
+      return { 
+        success: true, 
+        sampleFields: fields,
+        count: result["@odata.count"] || result.value.length
+      };
+    } catch {
+      return { success: false, sampleFields: [], count: 0 };
+    }
+  }
 }
 
 export const ukgClient = new UKGClient();
