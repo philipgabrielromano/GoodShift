@@ -94,6 +94,12 @@ export function ScheduleValidator() {
     
     weekDays.forEach(day => {
       const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
+      const isSunday = day.getDay() === 0;
+      
+      // Closing shift times differ on Sunday (store closes at 7:30pm)
+      // Sunday: 11:00-19:30, Other days: 12:00-20:30
+      const closerStartTime = isSunday ? "11:00" : (settings.managerEveningStart || "12:00");
+      const closerEndTime = isSunday ? "19:30" : (settings.managerEveningEnd || "20:30");
       
       // Count openers (8:00am - 4:30pm shifts)
       const openerShifts = dayShifts.filter(s => {
@@ -103,12 +109,11 @@ export function ScheduleValidator() {
                endStr === (settings.managerMorningEnd || "16:30");
       });
       
-      // Count closers (12:00pm - 8:30pm shifts)
+      // Count closers (Sunday: 11:00-19:30, Other days: 12:00-20:30)
       const closerShifts = dayShifts.filter(s => {
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
-        return startStr === (settings.managerEveningStart || "12:00") && 
-               endStr === (settings.managerEveningEnd || "20:30");
+        return startStr === closerStartTime && endStr === closerEndTime;
       });
       
       // Count managers on opening and closing shifts (must match full shift times)
@@ -129,8 +134,7 @@ export function ScheduleValidator() {
       const closingManagers = managerShifts.filter(s => {
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
-        return startStr === (settings.managerEveningStart || "12:00") && 
-               endStr === (settings.managerEveningEnd || "20:30");
+        return startStr === closerStartTime && endStr === closerEndTime;
       }).length;
 
       const dayLabel = format(day, "EEE, MMM d");

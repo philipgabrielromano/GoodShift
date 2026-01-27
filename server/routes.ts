@@ -342,17 +342,15 @@ export async function registerRoutes(
       
       // Calculate best shift type for part-timer to maximize hours
       // For 29 max hours: 5 short shifts (27.5h) > 3 full shifts (24h)
+      // Strategy: part-timers with <= 29 max hours should always use short shifts
+      // because 5 short = 27.5h beats any mix with full shifts
       const getBestShiftForPartTimer = (emp: typeof employees[0], day: Date, dayIndex: number, shifts: ReturnType<typeof getShiftTimes>) => {
         const remaining = getRemainingHours(emp);
-        const state = employeeState[emp.id];
-        const daysLeft = 5 - state.daysWorked;
         
-        // Calculate what's achievable with remaining days
-        const maxWithFullShifts = Math.min(Math.floor(remaining / FULL_SHIFT_HOURS), daysLeft) * FULL_SHIFT_HOURS;
-        const maxWithShortShifts = Math.min(Math.floor(remaining / SHORT_SHIFT_HOURS), daysLeft) * SHORT_SHIFT_HOURS;
-        
-        // Use short shifts if they get more hours overall
-        const preferShort = maxWithShortShifts > maxWithFullShifts;
+        // For employees with 29 or fewer max hours, short shifts are always better
+        // 5 short shifts = 27.5h (best for 29 max)
+        // Only use full shifts if they can't fit a short shift but can fit a full
+        const preferShort = emp.maxWeeklyHours <= 29;
         
         // Get appropriate shift based on role
         if (preferShort && canWorkShortShift(emp, day, dayIndex)) {
@@ -370,6 +368,15 @@ export async function registerRoutes(
             return shifts.closer;
           } else {
             return shifts.mid10;
+          }
+        } else if (canWorkShortShift(emp, day, dayIndex)) {
+          // Fallback: if can't do full shift but can do short, do short
+          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            return shifts.shortMorning;
+          } else if (emp.jobTitle === 'DONDOOR') {
+            return shifts.shortEvening;
+          } else {
+            return shifts.shortMid;
           }
         }
         return null;
