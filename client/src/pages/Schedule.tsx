@@ -29,14 +29,15 @@ interface AuthStatus {
 
 const TIMEZONE = "America/New_York";
 
-// Job title priority order for schedule display
+// Job title priority order for schedule display (STSUPER first)
 const JOB_PRIORITY: Record<string, number> = {
-  "STASSTSP": 1,
-  "STLDWKR": 2,
-  "CASHSLS": 3,
-  "APPROC": 4,
-  "DONPRI": 5,
-  "DONDOOR": 6,
+  "STSUPER": 1,
+  "STASSTSP": 2,
+  "STLDWKR": 3,
+  "CASHSLS": 4,
+  "APPROC": 5,
+  "DONPRI": 6,
+  "DONDOOR": 7,
 };
 
 function getJobPriority(jobTitle: string): number {
@@ -338,7 +339,7 @@ export default function Schedule() {
           <div className="overflow-x-auto">
             <div className="min-w-[800px]">
               {/* Header Row */}
-              <div className="grid border-b bg-muted/30" style={{ gridTemplateColumns: "minmax(200px, 1fr) repeat(7, 1fr)" }}>
+              <div className="grid border-b bg-muted/30" style={{ gridTemplateColumns: "200px repeat(7, 120px) 80px" }}>
                 <div className="p-4 border-r font-medium text-muted-foreground sticky left-0 bg-muted/30 backdrop-blur z-10">
                   Employee
                 </div>
@@ -347,7 +348,7 @@ export default function Schedule() {
                   const dayEST = toZonedTime(day, TIMEZONE);
                   const isToday = isSameDay(todayEST, dayEST);
                   return (
-                    <div key={day.toString()} className="p-3 text-center border-r last:border-r-0">
+                    <div key={day.toString()} className="p-3 text-center border-r">
                       <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
                       <div className={cn(
                         "text-xs mt-1 w-8 h-8 flex items-center justify-center rounded-full mx-auto",
@@ -358,6 +359,9 @@ export default function Schedule() {
                     </div>
                   );
                 })}
+                <div className="p-3 text-center font-medium text-muted-foreground" data-testid="header-hours">
+                  Hours
+                </div>
               </div>
 
               {/* Grouped Employee Rows - sorted by job priority */}
@@ -392,18 +396,35 @@ export default function Schedule() {
                       )}
                     </button>
                     
-                    {!isCollapsed && (groupEmployees || []).map(emp => (
-                      <div key={emp.id} className="grid border-b last:border-b-0 hover:bg-muted/10 transition-colors group" style={{ gridTemplateColumns: "minmax(200px, 1fr) repeat(7, 1fr)" }}>
-                        <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
+                    {!isCollapsed && (groupEmployees || []).map(emp => {
+                      // Calculate total hours for this employee
+                      const empShifts = shifts?.filter(s => s.employeeId === emp.id) || [];
+                      const totalHours = empShifts.reduce((sum, shift) => {
+                        const startTime = new Date(shift.startTime);
+                        const endTime = new Date(shift.endTime);
+                        const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+                        return sum + hours;
+                      }, 0);
+                      const isFT = (emp.maxWeeklyHours || 40) >= 32;
+                      const isMaxed = totalHours >= (emp.maxWeeklyHours || 40);
+                      
+                      return (
+                      <div key={emp.id} className="grid border-b last:border-b-0 hover:bg-muted/10 transition-colors group" style={{ gridTemplateColumns: "200px repeat(7, 120px) 80px" }}>
+                        <div className="p-3 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
                           <div 
-                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm flex-shrink-0"
                             style={{ backgroundColor: emp.color }}
                           >
                             {emp.name.substring(0, 2).toUpperCase()}
                           </div>
-                          <div className="overflow-hidden">
+                          <div className="overflow-hidden min-w-0">
                             <p className="font-semibold truncate text-sm">{emp.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">{emp.jobTitle}</p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={isFT ? "default" : "secondary"} className="text-[10px] px-1 py-0" data-testid={`badge-status-${emp.id}`}>
+                                {isFT ? "FT" : "PT"}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground" data-testid={`text-max-hours-${emp.id}`}>{emp.maxWeeklyHours || 40}h max</span>
+                            </div>
                           </div>
                         </div>
                         
@@ -421,7 +442,7 @@ export default function Schedule() {
                             <div 
                               key={dayKey} 
                               className={cn(
-                                "p-2 border-r last:border-r-0 min-h-[100px] relative transition-colors",
+                                "p-2 border-r h-[100px] relative transition-colors",
                                 isDropTarget && "bg-primary/10 ring-2 ring-primary/30 ring-inset"
                               )}
                               onDragOver={(e) => handleDragOver(e, emp.id, dayKey)}
@@ -437,7 +458,7 @@ export default function Schedule() {
                                 />
                               </div>
 
-                              <div className="space-y-2 relative z-10">
+                              <div className="space-y-1 relative z-10">
                                 {dayShifts?.map(shift => (
                                   <div 
                                     key={shift.id}
@@ -445,14 +466,13 @@ export default function Schedule() {
                                     onDragStart={(e) => handleDragStart(e, shift)}
                                     onDragEnd={handleDragEnd}
                                     onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                                    className="cursor-grab active:cursor-grabbing p-2 rounded text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
+                                    className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
                                     style={{ backgroundColor: emp.color }}
                                     data-testid={`shift-${shift.id}`}
                                   >
                                     <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                    <div className="flex justify-between items-center flex-1">
+                                    <div className="flex flex-col leading-tight">
                                       <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
-                                      <span className="opacity-70">-</span>
                                       <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
                                     </div>
                                   </div>
@@ -461,8 +481,19 @@ export default function Schedule() {
                             </div>
                           );
                         })}
+                        
+                        {/* Total Hours Column */}
+                        <div 
+                          className={cn(
+                            "p-3 flex items-center justify-center font-semibold text-sm",
+                            isMaxed ? "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/30" : "text-muted-foreground"
+                          )}
+                          data-testid={`cell-total-hours-${emp.id}`}
+                        >
+                          {totalHours.toFixed(1)}
+                        </div>
                       </div>
-                    ))}
+                    );})}
                   </div>
                 );
               })}

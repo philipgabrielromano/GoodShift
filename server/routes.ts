@@ -317,8 +317,8 @@ export async function registerRoutes(
       const employeeHours: Record<number, number> = {};
       employees.forEach(emp => { employeeHours[emp.id] = 0; });
       
-      // Manager job codes for coverage
-      const managerCodes = ['STRSUPER', 'STASSTSP'];
+      // Manager job codes for coverage (STSUPER = Store Manager)
+      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
       const managers = employees.filter(emp => 
         managerCodes.includes(emp.jobTitle) && emp.isActive
       );

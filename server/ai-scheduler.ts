@@ -107,13 +107,15 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 
 ## SCHEDULING RULES
 1. Each shift is 8.5 hours
-2. Schedule EVERY employee for shifts up to their maxWeeklyHours
-3. Full-time employees (maxWeeklyHours >= 32): Schedule 4-5 shifts per week
-4. Part-time employees (maxWeeklyHours < 32): Schedule 2-3 shifts per week
-5. An employee can only work ONE shift per day (no doubles)
-6. Never exceed an employee's maxWeeklyHours
-7. Never schedule someone on approved time off days
-8. Generate shifts for ALL 7 days (Sunday=0 through Saturday=6)
+2. **MAXIMIZE each employee's hours** - Schedule as close to their maxWeeklyHours as possible
+3. Full-time employees (maxWeeklyHours >= 32): Schedule up to 5 shifts to approach their max hours
+4. Part-time employees (maxWeeklyHours < 32): Schedule 3-4 shifts to approach their max hours (e.g., 29h = 3 shifts = 25.5h)
+5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
+6. An employee can only work ONE shift per day (no doubles)
+7. Never exceed an employee's maxWeeklyHours
+8. Never schedule someone on approved time off days
+9. Generate shifts for ALL 7 days (Sunday=0 through Saturday=6)
+10. STSUPER (Store Manager) counts as manager coverage for opener/closer requirements
 
 ## OUTPUT FORMAT
 
@@ -130,14 +132,16 @@ Respond with a JSON object:
 }
 
 ## IMPORTANT RULES
-1. Never exceed an employee's maxWeeklyHours
-2. Never schedule an employee on a day they have approved time off
-3. Prioritize manager coverage (opening and closing managers each day)
-4. Ensure donor greeter coverage (one opening, one closing each day)
-5. Distribute shifts fairly among employees
-6. Respect labor allocation percentages when possible
-7. An employee should not work both opener AND closer on the same day
-8. Prefer giving employees consistent shift times when possible`;
+1. **MAXIMIZE hours for EVERY employee** - Get as close to maxWeeklyHours as possible
+2. Never exceed an employee's maxWeeklyHours
+3. **Minimum 2 days off per employee** - No exceptions
+4. Never schedule an employee on a day they have approved time off
+5. STSUPER (Store Manager) counts as manager for opening/closing coverage
+6. Prioritize manager coverage (one manager opening, one closing each day)
+7. Ensure donor greeter coverage (one opening, one closing each day)
+8. Respect labor allocation percentages when possible
+9. An employee should not work both opener AND closer on the same day
+10. Prefer giving employees consistent shift times when possible`;
 
   try {
     const response = await openai.chat.completions.create({
