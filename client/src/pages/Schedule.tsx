@@ -338,7 +338,7 @@ export default function Schedule() {
           <div className="overflow-x-auto">
             <div className="min-w-[800px]">
               {/* Header Row */}
-              <div className="grid grid-cols-8 border-b bg-muted/30">
+              <div className="grid border-b bg-muted/30" style={{ gridTemplateColumns: "minmax(200px, 1fr) repeat(7, 1fr)" }}>
                 <div className="p-4 border-r font-medium text-muted-foreground sticky left-0 bg-muted/30 backdrop-blur z-10">
                   Employee
                 </div>
@@ -393,7 +393,7 @@ export default function Schedule() {
                     </button>
                     
                     {!isCollapsed && (groupEmployees || []).map(emp => (
-                      <div key={emp.id} className="grid grid-cols-8 border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
+                      <div key={emp.id} className="grid border-b last:border-b-0 hover:bg-muted/10 transition-colors group" style={{ gridTemplateColumns: "minmax(200px, 1fr) repeat(7, 1fr)" }}>
                         <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
                           <div 
                             className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
