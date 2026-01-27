@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks, getISOWeek } from "date-fns";
-import { ChevronLeft, ChevronRight, Plus, UserCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, UserCircle, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -9,8 +9,11 @@ import { ScheduleValidator } from "@/components/ScheduleValidator";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Shift } from "@shared/routes";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Schedule() {
+  const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
@@ -21,6 +24,21 @@ export default function Schedule() {
   );
   
   const { data: employees, isLoading: empLoading } = useEmployees();
+
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const handleAutoGenerate = async () => {
+    setIsGenerating(true);
+    try {
+      await apiRequest("POST", "/api/schedule/generate", { weekStart: weekStart.toISOString() });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Schedule Generated", description: "Successfully generated a week's schedule." });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Generation Failed", description: "Could not automatically generate schedule." });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -77,6 +95,15 @@ export default function Schedule() {
         </div>
 
         <div className="flex gap-3">
+          <Button 
+            variant="outline" 
+            onClick={handleAutoGenerate} 
+            disabled={isGenerating}
+            className="border-primary/20 hover:border-primary/50"
+          >
+            <Wand2 className={cn("w-4 h-4 mr-2", isGenerating && "animate-spin")} />
+            {isGenerating ? "Generating..." : "Auto-Generate"}
+          </Button>
           <Button onClick={() => handleAddShift(new Date())} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all">
             <Plus className="w-4 h-4 mr-2" />
             Add Shift

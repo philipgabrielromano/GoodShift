@@ -193,6 +193,119 @@ export async function registerRoutes(
     }
   });
 
+  app.post(api.schedule.generate.path, async (req, res) => {
+    try {
+      const { weekStart } = api.schedule.generate.input.parse(req.body);
+      const startDate = new Date(weekStart);
+      
+      const employees = await storage.getEmployees();
+      const settings = await storage.getGlobalSettings();
+      const roles = await storage.getRoleRequirements();
+      const timeOff = await storage.getTimeOffRequests();
+
+      // Clear existing shifts for the week
+      const weekEnd = new Date(startDate);
+      weekEnd.setDate(startDate.getDate() + 7);
+      const existingShifts = await storage.getShifts(startDate, weekEnd);
+      for (const shift of existingShifts) {
+        await storage.deleteShift(shift.id);
+      }
+
+      const generatedShifts = [];
+      let totalAssignedHours = 0;
+
+      // Group employees by job title
+      const employeesByRole = employees.reduce((acc, emp) => {
+        if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
+        acc[emp.jobTitle].push({ ...emp, currentHours: 0 });
+        return acc;
+      }, {} as Record<string, any>);
+
+      // Day-by-day generation
+      for (let i = 0; i < 7; i++) {
+        const currentDay = new Date(startDate);
+        currentDay.setDate(startDate.getDate() + i);
+
+        // 1. Mandatory Manager Coverage
+        const managers = employeesByRole["Manager"] || [];
+        if (managers.length >= 2) {
+          // Morning Manager (08:00 - 16:30)
+          const morningStart = new Date(currentDay);
+          morningStart.setHours(8, 0, 0, 0);
+          const morningEnd = new Date(currentDay);
+          morningEnd.setHours(16, 30, 0, 0);
+
+          // Evening Manager (12:00 - 20:30)
+          const eveningStart = new Date(currentDay);
+          eveningStart.setHours(12, 0, 0, 0);
+          const eveningEnd = new Date(currentDay);
+          eveningEnd.setHours(20, 30, 0, 0);
+
+          // Assign if not on time off
+          const morningManager = managers.find(m => 
+            !timeOff.some(to => to.employeeId === m.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay)
+          );
+          if (morningManager && totalAssignedHours + 8.5 <= settings.totalWeeklyHoursLimit) {
+            const shift = await storage.createShift({ employeeId: morningManager.id, startTime: morningStart, endTime: morningEnd });
+            generatedShifts.push(shift);
+            morningManager.currentHours += 8.5;
+            totalAssignedHours += 8.5;
+          }
+
+          const eveningManager = managers.find(m => 
+            m.id !== morningManager?.id &&
+            !timeOff.some(to => to.employeeId === m.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay)
+          );
+          if (eveningManager && totalAssignedHours + 8.5 <= settings.totalWeeklyHoursLimit) {
+            const shift = await storage.createShift({ employeeId: eveningManager.id, startTime: eveningStart, endTime: eveningEnd });
+            generatedShifts.push(shift);
+            eveningManager.currentHours += 8.5;
+            totalAssignedHours += 8.5;
+          }
+        }
+
+        // 2. Distribute remaining hours based on Role Requirements
+        for (const role of roles) {
+          if (role.jobTitle === "Manager") continue;
+
+          const roleEmployees = employeesByRole[role.jobTitle] || [];
+          const targetHoursPerDay = role.requiredWeeklyHours / 7;
+          let dailyAssigned = 0;
+
+          for (const emp of roleEmployees) {
+            if (dailyAssigned >= targetHoursPerDay) break;
+            if (emp.currentHours >= emp.maxWeeklyHours) continue;
+            if (totalAssignedHours >= settings.totalWeeklyHoursLimit) break;
+
+            const onTimeOff = timeOff.some(to => to.employeeId === emp.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay);
+            if (onTimeOff) continue;
+
+            const shiftStart = new Date(currentDay);
+            shiftStart.setHours(9, 0, 0, 0);
+            const shiftEnd = new Date(currentDay);
+            shiftEnd.setHours(17, 0, 0, 0);
+            
+            const shiftHours = 8;
+            if (emp.currentHours + shiftHours <= emp.maxWeeklyHours && totalAssignedHours + shiftHours <= settings.totalWeeklyHoursLimit) {
+              const shift = await storage.createShift({ employeeId: emp.id, startTime: shiftStart, endTime: shiftEnd });
+              generatedShifts.push(shift);
+              emp.currentHours += shiftHours;
+              totalAssignedHours += shiftHours;
+              dailyAssigned += shiftHours;
+            }
+          }
+        }
+      }
+
+      res.status(201).json(generatedShifts);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
   // === SEED DATA ===
   await seedDatabase();
 

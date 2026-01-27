@@ -204,6 +204,20 @@ export const api = {
       },
     },
   },
+
+  schedule: {
+    generate: {
+      method: 'POST' as const,
+      path: '/api/schedule/generate',
+      input: z.object({
+        weekStart: z.string(), // ISO date string
+      }),
+      responses: {
+        201: z.array(z.custom<typeof shifts.$inferSelect>()),
+        400: errorSchemas.validation,
+      },
+    },
+  },
 };
 
 // ============================================
