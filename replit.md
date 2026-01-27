@@ -77,3 +77,58 @@ This approach ensures type safety across the full stack and eliminates API contr
 
 ### Development Tools
 - **Replit Plugins**: Runtime error overlay, cartographer, dev banner (development only)
+
+## Integrations
+
+### UKG Workforce Management
+The application integrates with UKG (Ultimate Kronos Group) to pull employee data directly from your workforce management system.
+
+**Configuration** (via environment variables):
+- `UKG_API_URL` - Base URL for your UKG API
+- `UKG_CLIENT_ID` - OAuth client ID
+- `UKG_CLIENT_SECRET` - OAuth client secret
+- `UKG_API_KEY` - API key for authentication
+
+**Features**:
+- Sync employees from UKG by store
+- Automatic employee creation/update based on UKG data
+- Store selector to filter by location
+
+### Microsoft 365 SSO
+Single sign-on authentication using Microsoft Azure AD.
+
+**Configuration** (via environment variables):
+- `AZURE_CLIENT_ID` - Azure AD application client ID
+- `AZURE_TENANT_ID` - Azure AD tenant ID
+- `AZURE_CLIENT_SECRET` - Azure AD application secret
+- `SESSION_SECRET` - Secret for session encryption
+
+**Features**:
+- Sign in with Microsoft 365 organizational accounts
+- Secure session management
+- Automatic user profile retrieval
+
+## Key Features
+
+### Auto-Generate Schedule
+The application can automatically generate a week's schedule based on:
+- Employee availability and max weekly hours
+- Role requirements (minimum hours per job title)
+- Time-off requests
+- Manager coverage requirements (morning and evening shifts)
+- Total weekly hours budget
+
+### Schedule Validation
+Real-time validation checks for:
+- Employee max hours exceeded
+- Role coverage shortfalls
+- Total weekly hours limit
+- Time-off conflicts
+- Manager coverage requirements
+
+### Business Context
+This application is designed for retail thrift store scheduling, with the ability to:
+- Import employees from UKG by store location
+- Authenticate staff via Microsoft 365 SSO
+- Manage multiple job roles (Manager, Staff, etc.)
+- Track time-off requests and approvals

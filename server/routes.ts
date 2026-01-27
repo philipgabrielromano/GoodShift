@@ -4,6 +4,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
+import { ukgClient } from "./ukg";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -242,7 +243,7 @@ export async function registerRoutes(
           eveningEnd.setHours(20, 30, 0, 0);
 
           // Assign if not on time off
-          const morningManager = managers.find(m => 
+          const morningManager = managers.find((m: any) => 
             !timeOff.some(to => to.employeeId === m.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay)
           );
           if (morningManager && totalAssignedHours + 8.5 <= settings.totalWeeklyHoursLimit) {
@@ -252,7 +253,7 @@ export async function registerRoutes(
             totalAssignedHours += 8.5;
           }
 
-          const eveningManager = managers.find(m => 
+          const eveningManager = managers.find((m: any) => 
             m.id !== morningManager?.id &&
             !timeOff.some(to => to.employeeId === m.id && to.status === "approved" && new Date(to.startDate) <= currentDay && new Date(to.endDate) >= currentDay)
           );
@@ -298,6 +299,84 @@ export async function registerRoutes(
       }
 
       res.status(201).json(generatedShifts);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  // === UKG INTEGRATION ===
+  app.get(api.ukg.status.path, async (req, res) => {
+    const configured = ukgClient.isConfigured();
+    let connected = false;
+    if (configured) {
+      try {
+        await ukgClient.getStores();
+        connected = true;
+      } catch {
+        connected = false;
+      }
+    }
+    res.json({ configured, connected });
+  });
+
+  app.get(api.ukg.stores.path, async (req, res) => {
+    if (!ukgClient.isConfigured()) {
+      return res.json([]);
+    }
+    const stores = await ukgClient.getStores();
+    res.json(stores);
+  });
+
+  app.get(api.ukg.employees.path, async (req, res) => {
+    if (!ukgClient.isConfigured()) {
+      return res.json([]);
+    }
+    const storeId = req.query.storeId as string | undefined;
+    const employees = storeId 
+      ? await ukgClient.getEmployeesByStore(storeId)
+      : await ukgClient.getAllEmployees();
+    res.json(employees);
+  });
+
+  app.post(api.ukg.sync.path, async (req, res) => {
+    try {
+      if (!ukgClient.isConfigured()) {
+        return res.status(400).json({ message: "UKG is not configured" });
+      }
+
+      const { storeId } = api.ukg.sync.input.parse(req.body);
+      const ukgEmployees = storeId 
+        ? await ukgClient.getEmployeesByStore(storeId)
+        : await ukgClient.getAllEmployees();
+
+      let imported = 0;
+      let updated = 0;
+      let errors = 0;
+
+      const existingEmployees = await storage.getEmployees();
+      const existingByName = new Map(existingEmployees.map(e => [e.name.toLowerCase(), e]));
+
+      for (const ukgEmp of ukgEmployees) {
+        try {
+          const appEmployee = ukgClient.convertToAppEmployee(ukgEmp);
+          const existing = existingByName.get(appEmployee.name.toLowerCase());
+          
+          if (existing) {
+            await storage.updateEmployee(existing.id, appEmployee);
+            updated++;
+          } else {
+            await storage.createEmployee(appEmployee);
+            imported++;
+          }
+        } catch {
+          errors++;
+        }
+      }
+
+      res.json({ imported, updated, errors });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });

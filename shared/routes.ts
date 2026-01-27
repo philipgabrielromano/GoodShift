@@ -210,10 +210,96 @@ export const api = {
       method: 'POST' as const,
       path: '/api/schedule/generate',
       input: z.object({
-        weekStart: z.string(), // ISO date string
+        weekStart: z.string(),
       }),
       responses: {
         201: z.array(z.custom<typeof shifts.$inferSelect>()),
+        400: errorSchemas.validation,
+      },
+    },
+  },
+
+  auth: {
+    status: {
+      method: 'GET' as const,
+      path: '/api/auth/status',
+      responses: {
+        200: z.object({
+          isAuthenticated: z.boolean(),
+          user: z.object({
+            id: z.string(),
+            name: z.string(),
+            email: z.string(),
+          }).nullable(),
+          ssoConfigured: z.boolean(),
+        }),
+      },
+    },
+    login: {
+      method: 'GET' as const,
+      path: '/api/auth/login',
+      responses: {
+        302: z.any(),
+      },
+    },
+    logout: {
+      method: 'POST' as const,
+      path: '/api/auth/logout',
+      responses: {
+        200: z.object({ success: z.boolean() }),
+      },
+    },
+  },
+
+  ukg: {
+    status: {
+      method: 'GET' as const,
+      path: '/api/ukg/status',
+      responses: {
+        200: z.object({
+          configured: z.boolean(),
+          connected: z.boolean(),
+        }),
+      },
+    },
+    stores: {
+      method: 'GET' as const,
+      path: '/api/ukg/stores',
+      responses: {
+        200: z.array(z.object({
+          id: z.string(),
+          name: z.string(),
+          code: z.string(),
+        })),
+      },
+    },
+    employees: {
+      method: 'GET' as const,
+      path: '/api/ukg/employees',
+      responses: {
+        200: z.array(z.object({
+          id: z.string(),
+          firstName: z.string(),
+          lastName: z.string(),
+          jobTitle: z.string(),
+          maxHoursPerWeek: z.number().optional(),
+          storeId: z.string().optional(),
+          status: z.enum(["active", "inactive"]),
+        })),
+      },
+    },
+    sync: {
+      method: 'POST' as const,
+      path: '/api/ukg/sync',
+      input: z.object({
+        storeId: z.string().optional(),
+      }),
+      responses: {
+        200: z.object({
+          imported: z.number(),
+          updated: z.number(),
+          errors: z.number(),
+        }),
         400: errorSchemas.validation,
       },
     },
