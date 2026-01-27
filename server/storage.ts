@@ -244,6 +244,29 @@ export class DatabaseStorage implements IStorage {
   async deleteLocation(id: number): Promise<void> {
     await db.delete(locations).where(eq(locations.id, id));
   }
+
+  // Auto-create location if it doesn't exist (used during employee sync)
+  async ensureLocationExists(locationName: string): Promise<Location | null> {
+    if (!locationName || locationName.trim() === '') {
+      return null;
+    }
+    
+    const trimmedName = locationName.trim();
+    const existing = await this.getLocationByName(trimmedName);
+    if (existing) {
+      return existing;
+    }
+    
+    // Create new location with 0 hours (admin will set the allocation)
+    const [newLocation] = await db.insert(locations).values({
+      name: trimmedName,
+      weeklyHoursLimit: 0,
+      isActive: true,
+    }).returning();
+    
+    console.log(`[Storage] Auto-created location: ${trimmedName}`);
+    return newLocation;
+  }
 }
 
 export const storage = new DatabaseStorage();

@@ -28,9 +28,19 @@ async function syncEmployeesFromUKG(): Promise<void> {
     let updated = 0;
     let errors = 0;
 
+    // Track unique locations to auto-create
+    const locationsSeen = new Set<string>();
+
     for (const ukgEmp of activeEmployees) {
       try {
         const appEmployee = ukgClient.convertToAppEmployee(ukgEmp);
+        
+        // Auto-create location if employee has one
+        if (appEmployee.location && !locationsSeen.has(appEmployee.location)) {
+          await storage.ensureLocationExists(appEmployee.location);
+          locationsSeen.add(appEmployee.location);
+        }
+        
         const existingByUkgId = await storage.getEmployeeByUkgId(String(ukgEmp.ukgId));
         
         if (existingByUkgId) {
@@ -45,6 +55,8 @@ async function syncEmployeesFromUKG(): Promise<void> {
         errors++;
       }
     }
+    
+    console.log(`[Scheduler] Auto-discovered ${locationsSeen.size} unique locations`);
 
     console.log(`[Scheduler] UKG Sync complete: ${imported} imported, ${updated} updated, ${errors} errors`);
   } catch (err) {

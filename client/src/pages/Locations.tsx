@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { MapPin, Plus, Pencil, Save, X, Trash2 } from "lucide-react";
-import { useLocations, useUpdateLocation, useCreateLocation, useDeleteLocation } from "@/hooks/use-locations";
+import { MapPin, Pencil, Save, X } from "lucide-react";
+import { useLocations, useUpdateLocation } from "@/hooks/use-locations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,22 +8,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import type { Location } from "@shared/schema";
 
 export default function Locations() {
   const { toast } = useToast();
   const { data: locations, isLoading } = useLocations();
   const updateLocation = useUpdateLocation();
-  const createLocation = useCreateLocation();
-  const deleteLocation = useDeleteLocation();
   
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [newLocationName, setNewLocationName] = useState("");
-  const [newLocationHours, setNewLocationHours] = useState("0");
 
   const handleEdit = (location: Location) => {
     setEditingId(location.id);
@@ -51,42 +44,6 @@ export default function Locations() {
     setEditingHours("");
   };
 
-  const handleAddLocation = async () => {
-    if (!newLocationName.trim()) {
-      toast({ variant: "destructive", title: "Name required", description: "Please enter a location name." });
-      return;
-    }
-    
-    const hours = parseInt(newLocationHours);
-    if (isNaN(hours) || hours < 0) {
-      toast({ variant: "destructive", title: "Invalid hours", description: "Please enter a valid number of hours." });
-      return;
-    }
-
-    try {
-      await createLocation.mutateAsync({ 
-        name: newLocationName.trim(), 
-        weeklyHoursLimit: hours,
-        isActive: true 
-      });
-      toast({ title: "Location added", description: "New store location has been created." });
-      setShowAddDialog(false);
-      setNewLocationName("");
-      setNewLocationHours("0");
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to add location." });
-    }
-  };
-
-  const handleDelete = async (id: number) => {
-    try {
-      await deleteLocation.mutateAsync(id);
-      toast({ title: "Location deleted", description: "Store location has been removed." });
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to delete location." });
-    }
-  };
-
   const totalHours = locations?.reduce((sum, loc) => sum + loc.weeklyHoursLimit, 0) || 0;
   const activeLocations = locations?.filter(loc => loc.isActive).length || 0;
 
@@ -108,18 +65,9 @@ export default function Locations() {
             Store Locations
           </h1>
           <p className="text-muted-foreground mt-1">
-            Manage weekly hours allocation for each store
+            Locations are auto-discovered from employee data. Set weekly hours allocation for each store.
           </p>
         </div>
-        
-        <Button 
-          onClick={() => setShowAddDialog(true)}
-          className="bg-primary shadow-lg shadow-primary/25"
-          data-testid="button-add-location"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Location
-        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -212,25 +160,14 @@ export default function Locations() {
                           </Button>
                         </div>
                       ) : (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => handleEdit(location)}
-                            data-testid={`button-edit-${location.id}`}
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => handleDelete(location.id)}
-                            disabled={deleteLocation.isPending}
-                            data-testid={`button-delete-${location.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </div>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleEdit(location)}
+                          data-testid={`button-edit-${location.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
                       )}
                     </TableCell>
                   </TableRow>
@@ -240,52 +177,6 @@ export default function Locations() {
           </Table>
         </CardContent>
       </Card>
-
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Location</DialogTitle>
-            <DialogDescription>
-              Create a new store location and set its weekly hours allocation.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Location Name</Label>
-              <Input
-                id="name"
-                value={newLocationName}
-                onChange={(e) => setNewLocationName(e.target.value)}
-                placeholder="Enter store name"
-                data-testid="input-new-location-name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="hours">Weekly Hours</Label>
-              <Input
-                id="hours"
-                type="number"
-                value={newLocationHours}
-                onChange={(e) => setNewLocationHours(e.target.value)}
-                min="0"
-                data-testid="input-new-location-hours"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleAddLocation}
-              disabled={createLocation.isPending}
-              data-testid="button-confirm-add-location"
-            >
-              Add Location
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

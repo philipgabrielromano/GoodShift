@@ -1,11 +1,10 @@
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee } from "@/hooks/use-employees";
-import { useRoleRequirements } from "@/hooks/use-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { useState } from "react";
-import { Plus, Search, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Search, MoreHorizontal, Pencil, Trash2, MapPin } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,18 +12,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, InsertEmployee, RoleRequirement } from "@shared/schema";
+import type { Employee, InsertEmployee } from "@shared/schema";
 
 export default function Employees() {
   const { data: employees, isLoading } = useEmployees();
-  const { data: roles } = useRoleRequirements();
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
   const filteredEmployees = employees?.filter(e => 
     e.name.toLowerCase().includes(search.toLowerCase()) || 
-    e.jobTitle.toLowerCase().includes(search.toLowerCase())
+    e.jobTitle.toLowerCase().includes(search.toLowerCase()) ||
+    (e.location && e.location.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -56,10 +55,11 @@ export default function Employees() {
         </div>
       ) : (
         <div className="bg-card rounded border shadow-sm overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_120px_100px_100px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
+          <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_120px_120px_100px_100px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
             <div>Name</div>
             <div>Email</div>
             <div>Job Title</div>
+            <div>Location</div>
             <div>Max Hours</div>
             <div>Status</div>
             <div></div>
@@ -69,7 +69,6 @@ export default function Employees() {
               <EmployeeRow 
                 key={employee.id} 
                 employee={employee} 
-                roles={roles || []}
                 onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
               />
             ))}
@@ -91,7 +90,7 @@ export default function Employees() {
   );
 }
 
-function EmployeeRow({ employee, roles, onEdit }: { employee: Employee; roles: RoleRequirement[]; onEdit: () => void }) {
+function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
   const deleteEmployee = useDeleteEmployee();
   const { toast } = useToast();
 
@@ -102,14 +101,12 @@ function EmployeeRow({ employee, roles, onEdit }: { employee: Employee; roles: R
     }
   };
 
-  const roleColor = roles.find(r => r.jobTitle.toLowerCase() === employee.jobTitle.toLowerCase())?.color || employee.color;
-
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_100px_100px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_120px_100px_100px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
       <div className="flex items-center gap-3">
         <div 
           className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0" 
-          style={{ backgroundColor: roleColor }}
+          style={{ backgroundColor: employee.color }}
         >
           {employee.name.substring(0, 2).toUpperCase()}
         </div>
@@ -117,6 +114,16 @@ function EmployeeRow({ employee, roles, onEdit }: { employee: Employee; roles: R
       </div>
       <div className="text-sm text-muted-foreground truncate">{employee.email}</div>
       <div className="text-sm truncate">{employee.jobTitle}</div>
+      <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
+        {employee.location ? (
+          <>
+            <MapPin className="w-3 h-3 flex-shrink-0" />
+            {employee.location}
+          </>
+        ) : (
+          <span className="text-muted-foreground/50">-</span>
+        )}
+      </div>
       <div className="text-sm">{employee.maxWeeklyHours}h</div>
       <div>
         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${employee.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'}`}>
@@ -149,7 +156,7 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
   const updateEmployee = useUpdateEmployee();
   const { toast } = useToast();
 
-  const [formData, setFormData] = useState<Partial<InsertEmployee>>({
+  const [formData, setFormData] = useState<Partial<InsertEmployee> & { id?: number }>({
     name: "",
     email: "",
     jobTitle: "",
@@ -158,36 +165,23 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
     isActive: true
   });
 
-  // Reset form when dialog opens/closes or employee changes
-  useState(() => {
-    if (employee) {
-      setFormData(employee);
-    } else {
-      setFormData({
-        name: "",
-        email: "",
-        jobTitle: "",
-        maxWeeklyHours: 40,
-        color: "#3b82f6",
-        isActive: true
-      });
+  // Update state when dialog opens or employee changes
+  useEffect(() => {
+    if (open) {
+      if (employee) {
+        setFormData(employee);
+      } else {
+        setFormData({
+          name: "",
+          email: "",
+          jobTitle: "",
+          maxWeeklyHours: 40,
+          color: "#3b82f6",
+          isActive: true
+        });
+      }
     }
-  });
-
-  // Need useEffect to update state when prop changes
-  if (open && employee && formData.id !== employee.id) {
-     setFormData(employee);
-  }
-  if (open && !employee && formData.id) {
-    setFormData({
-      name: "",
-      email: "",
-      jobTitle: "",
-      maxWeeklyHours: 40,
-      color: "#3b82f6",
-      isActive: true
-    });
-  }
+  }, [open, employee]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
