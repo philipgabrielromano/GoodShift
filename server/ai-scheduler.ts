@@ -19,7 +19,7 @@ interface ScheduleShift {
   employeeId: number;
   employeeName: string;
   jobTitle: string;
-  shiftType: "opener" | "mid1" | "mid2" | "mid3" | "closer";
+  shiftType: "opener" | "mid1" | "mid2" | "mid3" | "closer" | "short_open" | "short_close";
   dayIndex: number;
 }
 
@@ -69,14 +69,19 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 **MAXIMIZE EACH EMPLOYEE'S HOURS** - Schedule every employee as close to their maxWeeklyHours as possible
 **SCHEDULE EVERY EMPLOYEE** - You have ${activeEmployees.length} employees. Each should get shifts up to their max hours.
 
-## Shift Types (all shifts are 8.5 clock hours, but 8 PAID hours due to 30-min unpaid lunch)
+## Shift Types
+### Full Shifts (8.5 clock hours = 8 PAID hours, includes 30-min unpaid lunch)
 - **Opener**: 8:00 AM - 4:30 PM (8 paid hours)
 - **Mid-Shift 1**: 9:00 AM - 5:30 PM (8 paid hours)
 - **Mid-Shift 2**: 10:00 AM - 6:30 PM (8 paid hours)
 - **Mid-Shift 3**: 11:00 AM - 7:30 PM (8 paid hours)
 - **Closer**: 12:00 PM - 8:30 PM (8 paid hours)
 
-**IMPORTANT**: All hour calculations should use 8 PAID hours per shift (not 8.5)
+### Short Shifts (5.5 clock hours = 5.5 PAID hours, no lunch break under 6 hours)
+- **short_open**: 8:00 AM - 1:30 PM (5.5 paid hours) - Use to top up part-timers
+- **short_close**: 3:00 PM - 8:30 PM (5.5 paid hours) - Use to top up part-timers
+
+**IMPORTANT**: Use short shifts to get part-time employees closer to their maxWeeklyHours!
 
 ## Daily Coverage Requirements (EVERY DAY, 7 days)
 - Openers Required: ${settings.openersRequired ?? 2}
@@ -110,11 +115,13 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 }).join('\n') : 'None'}
 
 ## SCHEDULING RULES
-1. Each shift is 8 PAID hours (8.5 clock hours minus 30-min unpaid lunch)
-2. **MAXIMIZE each employee's hours** - Schedule as close to their maxWeeklyHours as possible
-3. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32) MUST GET EXACTLY 5 SHIFTS = 40 paid hours** - This is critical!
-4. Part-time employees (maxWeeklyHours < 32): Calculate shifts needed = Math.floor(maxWeeklyHours / 8)
-   - Example: maxWeeklyHours 29 = 3 shifts (24 hours), maxWeeklyHours 24 = 3 shifts
+1. Full shifts = 8 PAID hours, Short shifts = 5.5 PAID hours
+2. **MAXIMIZE each employee's hours** - Get as close to their maxWeeklyHours as possible!
+3. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32) MUST GET EXACTLY 5 FULL SHIFTS = 40 paid hours**
+4. **PART-TIME EMPLOYEES: Maximize their hours using a mix of full and short shifts**
+   - Example: maxWeeklyHours 29 → 3 full shifts (24h) + 1 short shift (5.5h) = 29.5h (cap at 29)
+   - Example: maxWeeklyHours 24 → 3 full shifts = 24h
+   - Example: maxWeeklyHours 20 → 2 full shifts (16h) + 1 short shift (4h remaining, but 5.5h shift would exceed, so just 2 full = 16h, or 1 full + 2 short = 19h)
 5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
 6. An employee can only work ONE shift per day (no doubles)
 7. Never exceed an employee's maxWeeklyHours
@@ -137,8 +144,10 @@ Respond with a JSON object:
 }
 
 ## IMPORTANT RULES
-1. **FULL-TIME (maxWeeklyHours >= 32) = EXACTLY 5 SHIFTS** - No exceptions! 5 days x 8 hours = 40 hours
-2. **PART-TIME = Math.floor(maxWeeklyHours / 8) shifts** - Example: 29 max hours = 3 shifts (24 hours)
+1. **FULL-TIME (maxWeeklyHours >= 32) = EXACTLY 5 FULL SHIFTS = 40 hours** - No exceptions!
+2. **PART-TIME: Use full shifts + short shifts to get as close to maxWeeklyHours as possible**
+   - If remaining hours >= 5.5, add a short shift
+   - Never exceed maxWeeklyHours
 3. Never exceed an employee's maxWeeklyHours
 4. **Minimum 2 days off per employee** - No exceptions
 5. Never schedule an employee on a day they have approved time off
@@ -178,6 +187,8 @@ Respond with a JSON object:
       mid2: { startHour: 10, startMin: 0, endHour: 18, endMin: 30 },
       mid3: { startHour: 11, startMin: 0, endHour: 19, endMin: 30 },
       closer: { startHour: 12, startMin: 0, endHour: 20, endMin: 30 },
+      short_open: { startHour: 8, startMin: 0, endHour: 13, endMin: 30 },
+      short_close: { startHour: 15, startMin: 0, endHour: 20, endMin: 30 },
     };
 
     const createdShifts = [];
