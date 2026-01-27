@@ -275,6 +275,7 @@ export async function registerRoutes(
 
       const FULL_SHIFT_HOURS = 8; // 8.5 clock hours - 0.5 unpaid lunch = 8 paid hours
       const SHORT_SHIFT_HOURS = 5.5; // 5.5 clock hours - NO lunch deduction (less than 6 hours)
+      const GAP_SHIFT_HOURS = 5; // 5 clock hours = 5 paid hours (under 6h, no lunch deduction)
       
       // ========== EMPLOYEE STATE TRACKING ==========
       const employeeState: Record<number, {
@@ -334,7 +335,6 @@ export async function registerRoutes(
       };
       
       // Check if employee can work a 5-hour gap shift (for filling remaining hours)
-      // Uses GAP_SHIFT_HOURS constant defined in shift time section (5 clock hours = 5 paid hours)
       const canWorkGapShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
         if (!emp.isActive) return false;
@@ -481,8 +481,6 @@ export async function registerRoutes(
       console.log(`[Scheduler] Managers: ${managers.length}, Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
 
       // ========== SHIFT TIME DEFINITIONS ==========
-      const GAP_SHIFT_HOURS = 5; // 5 clock hours = 5 paid hours (under 6h, no lunch deduction)
-      
       const getShiftTimes = (day: Date) => {
         const dayOfWeek = day.getDay(); // 0 = Sunday
         const isSunday = dayOfWeek === 0;
