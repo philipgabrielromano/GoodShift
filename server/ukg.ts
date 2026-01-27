@@ -59,15 +59,7 @@ class UKGClient {
   }
 
   private getODataBaseUrl(): string {
-    if (this.baseUrl.includes("ulticlock.com")) {
-      return this.baseUrl;
-    }
-    const match = this.baseUrl.match(/https?:\/\/([^.]+)/);
-    if (match) {
-      const prefix = match[1].replace("service", "k");
-      return `https://${prefix}.ulticlock.com/UtmOdataServices/api`;
-    }
-    return this.baseUrl.replace("ultipro.com", "ulticlock.com") + "/UtmOdataServices/api";
+    return this.baseUrl;
   }
 
   private async apiRequest<T>(endpoint: string, method = "GET"): Promise<T | null> {
