@@ -97,7 +97,7 @@ class UKGClient {
     };
   }
 
-  private async apiRequest<T>(endpoint: string, method = "GET", timeoutMs = 30000): Promise<T | null> {
+  private async apiRequest<T>(endpoint: string, method = "GET", timeoutMs = 60000): Promise<T | null> {
     const url = `${this.baseUrl}${endpoint}`;
     console.log(`UKG: ${method} ${url}`);
 
@@ -242,7 +242,8 @@ class UKGClient {
 
     const employees: UKGProEmployee[] = rawEmployees.map(emp => {
       const jobTitle = this.jobCache.get(emp.JobId) || "Staff";
-      const location = this.locationCache.get(emp.LocationId) || "";
+      // Use location name from cache, or fall back to LocationId number if lookup fails
+      const location = this.locationCache.get(emp.LocationId) || (emp.LocationId ? `Location ${emp.LocationId}` : "");
       const employmentType = emp.PayCate === "1" ? "Full-Time" : "Part-Time";
       const isActive = emp.Active === "A";
 
