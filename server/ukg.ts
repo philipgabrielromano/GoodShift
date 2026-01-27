@@ -61,6 +61,12 @@ class UKGClient {
     return headers;
   }
 
+  private lastError: string | null = null;
+
+  getLastError(): string | null {
+    return this.lastError;
+  }
+
   private async request<T>(endpoint: string, method = "GET", body?: object): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     console.log(`UKG API Request: ${method} ${url}`);
@@ -73,9 +79,11 @@ class UKGClient {
 
     if (!response.ok) {
       const errorText = await response.text();
+      this.lastError = `${response.status} ${response.statusText}: ${errorText}`;
       console.error(`UKG API error: ${response.status} ${response.statusText}`, errorText);
       throw new Error(`UKG API error: ${response.status} ${response.statusText}`);
     }
+    this.lastError = null;
 
     return response.json();
   }

@@ -46,17 +46,29 @@ export default function Settings() {
     enabled: ukgStatus?.configured,
   });
 
+  const [ukgApiError, setUkgApiError] = useState<string | null>(null);
+
   const syncUkg = useMutation({
     mutationFn: async (storeId?: string) => {
       const res = await apiRequest("POST", "/api/ukg/sync", { storeId });
       return res.json();
     },
-    onSuccess: (data: { imported: number; updated: number; errors: number }) => {
+    onSuccess: (data: { imported: number; updated: number; errors: number; apiError?: string | null }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
-      toast({ 
-        title: "UKG Sync Complete", 
-        description: `Imported: ${data.imported}, Updated: ${data.updated}, Errors: ${data.errors}` 
-      });
+      if (data.apiError) {
+        setUkgApiError(data.apiError);
+        toast({ 
+          variant: "destructive",
+          title: "UKG API Error", 
+          description: "See error details below" 
+        });
+      } else {
+        setUkgApiError(null);
+        toast({ 
+          title: "UKG Sync Complete", 
+          description: `Imported: ${data.imported}, Updated: ${data.updated}, Errors: ${data.errors}` 
+        });
+      }
     },
     onError: () => {
       toast({ variant: "destructive", title: "Sync Failed", description: "Could not sync with UKG" });
@@ -293,6 +305,13 @@ export default function Settings() {
                 <RefreshCw className={`w-4 h-4 mr-2 ${syncUkg.isPending ? "animate-spin" : ""}`} />
                 {syncUkg.isPending ? "Syncing..." : "Sync Employees from UKG"}
               </Button>
+
+              {ukgApiError && (
+                <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                  <p className="text-sm font-medium text-destructive">UKG API Error:</p>
+                  <p className="text-xs text-destructive/80 mt-1 font-mono break-all">{ukgApiError}</p>
+                </div>
+              )}
             </div>
           )}
 

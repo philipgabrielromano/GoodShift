@@ -344,13 +344,18 @@ export async function registerRoutes(
   app.post(api.ukg.sync.path, async (req, res) => {
     try {
       if (!ukgClient.isConfigured()) {
-        return res.status(400).json({ message: "UKG is not configured" });
+        return res.status(400).json({ message: "UKG is not configured", apiError: null });
       }
 
       const { storeId } = api.ukg.sync.input.parse(req.body);
       const ukgEmployees = storeId 
         ? await ukgClient.getEmployeesByLocation(storeId)
         : await ukgClient.getAllEmployees();
+
+      const apiError = ukgClient.getLastError();
+      if (apiError) {
+        return res.json({ imported: 0, updated: 0, errors: 0, apiError });
+      }
 
       let imported = 0;
       let updated = 0;
@@ -376,7 +381,7 @@ export async function registerRoutes(
         }
       }
 
-      res.json({ imported, updated, errors });
+      res.json({ imported, updated, errors, apiError: null });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
