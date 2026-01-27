@@ -44,6 +44,13 @@ function getJobPriority(jobTitle: string): number {
   return JOB_PRIORITY[jobTitle] ?? 99;
 }
 
+// Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
+function calculatePaidHours(startTime: Date, endTime: Date): number {
+  const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+  // If 6+ hours, subtract 0.5 hours for unpaid lunch
+  return clockHours >= 6 ? clockHours - 0.5 : clockHours;
+}
+
 // Compute start of week in EST timezone (Sunday = 0)
 function getESTWeekStart(date: Date): Date {
   const zonedDate = toZonedTime(date, TIMEZONE);
@@ -394,13 +401,13 @@ export default function Schedule() {
                   const todayEST = toZonedTime(new Date(), TIMEZONE);
                   const dayEST = toZonedTime(day, TIMEZONE);
                   const isToday = isSameDay(todayEST, dayEST);
-                  // Calculate daily hours
+                  // Calculate daily paid hours (subtract lunch for 6+ hour shifts)
                   const dayHours = shifts?.reduce((sum, shift) => {
                     const shiftStartEST = toZonedTime(shift.startTime, TIMEZONE);
                     if (isSameDay(shiftStartEST, dayEST)) {
                       const startTime = new Date(shift.startTime);
                       const endTime = new Date(shift.endTime);
-                      return sum + (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+                      return sum + calculatePaidHours(startTime, endTime);
                     }
                     return sum;
                   }, 0) || 0;
@@ -457,13 +464,12 @@ export default function Schedule() {
                     </button>
                     
                     {!isCollapsed && (groupEmployees || []).map(emp => {
-                      // Calculate total hours for this employee
+                      // Calculate total paid hours for this employee (subtract lunch for 6+ hour shifts)
                       const empShifts = shifts?.filter(s => s.employeeId === emp.id) || [];
                       const totalHours = empShifts.reduce((sum, shift) => {
                         const startTime = new Date(shift.startTime);
                         const endTime = new Date(shift.endTime);
-                        const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-                        return sum + hours;
+                        return sum + calculatePaidHours(startTime, endTime);
                       }, 0);
                       const isFT = (emp.maxWeeklyHours || 40) >= 32;
                       const isMaxed = totalHours >= (emp.maxWeeklyHours || 40);

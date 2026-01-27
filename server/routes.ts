@@ -323,8 +323,8 @@ export async function registerRoutes(
         managerCodes.includes(emp.jobTitle) && emp.isActive
       );
       
-      // Shift durations (8.5 hours for opener/closer)
-      const SHIFT_HOURS = 8.5;
+      // Shift durations (8.5 hours clock time - 0.5 unpaid lunch = 8 paid hours)
+      const SHIFT_HOURS = 8;
       
       // Track days worked per employee (for 2 days off requirement)
       const employeeDaysWorked: Record<number, number> = {};

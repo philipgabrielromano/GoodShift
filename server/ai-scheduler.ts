@@ -69,12 +69,14 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 **USE AS MANY HOURS AS POSSIBLE** - Target: ${targetHours} hours (Budget: ${totalAvailableHours} hours available)
 **SCHEDULE EVERY EMPLOYEE** - You have ${activeEmployees.length} employees. Each should get shifts up to their max hours.
 
-## Shift Types (all shifts are 8.5 hours)
-- **Opener**: 8:00 AM - 4:30 PM
-- **Mid-Shift 1**: 9:00 AM - 5:30 PM  
-- **Mid-Shift 2**: 10:00 AM - 6:30 PM
-- **Mid-Shift 3**: 11:00 AM - 7:30 PM
-- **Closer**: 12:00 PM - 8:30 PM
+## Shift Types (all shifts are 8.5 clock hours, but 8 PAID hours due to 30-min unpaid lunch)
+- **Opener**: 8:00 AM - 4:30 PM (8 paid hours)
+- **Mid-Shift 1**: 9:00 AM - 5:30 PM (8 paid hours)
+- **Mid-Shift 2**: 10:00 AM - 6:30 PM (8 paid hours)
+- **Mid-Shift 3**: 11:00 AM - 7:30 PM (8 paid hours)
+- **Closer**: 12:00 PM - 8:30 PM (8 paid hours)
+
+**IMPORTANT**: All hour calculations should use 8 PAID hours per shift (not 8.5)
 
 ## Daily Coverage Requirements (EVERY DAY, 7 days)
 - Openers Required: ${settings.openersRequired ?? 2}
@@ -106,10 +108,10 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 }).join('\n') : 'None'}
 
 ## SCHEDULING RULES
-1. Each shift is 8.5 hours
+1. Each shift is 8 PAID hours (8.5 clock hours minus 30-min unpaid lunch)
 2. **MAXIMIZE each employee's hours** - Schedule as close to their maxWeeklyHours as possible
-3. Full-time employees (maxWeeklyHours >= 32): Schedule up to 5 shifts to approach their max hours
-4. Part-time employees (maxWeeklyHours < 32): Schedule 3-4 shifts to approach their max hours (e.g., 29h = 3 shifts = 25.5h)
+3. Full-time employees (maxWeeklyHours >= 32): Schedule 5 shifts = 40 paid hours
+4. Part-time employees (maxWeeklyHours < 32): Schedule 3-4 shifts (24-32 paid hours)
 5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
 6. An employee can only work ONE shift per day (no doubles)
 7. Never exceed an employee's maxWeeklyHours
