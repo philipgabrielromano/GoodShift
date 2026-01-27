@@ -20,7 +20,7 @@ export default function Settings() {
   const { toast } = useToast();
 
   const [weeklyLimit, setWeeklyLimit] = useState<number | undefined>(undefined);
-  const [newRole, setNewRole] = useState({ jobTitle: "", requiredWeeklyHours: 40 });
+  const [newRole, setNewRole] = useState({ jobTitle: "", requiredWeeklyHours: 40, color: "#3b82f6" });
   const [selectedStore, setSelectedStore] = useState<string>("");
 
   const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string } | null; ssoConfigured: boolean }>({
@@ -94,7 +94,7 @@ export default function Settings() {
     e.preventDefault();
     try {
       await createRole.mutateAsync(newRole);
-      setNewRole({ jobTitle: "", requiredWeeklyHours: 40 });
+      setNewRole({ jobTitle: "", requiredWeeklyHours: 40, color: "#3b82f6" });
       toast({ title: "Role requirement added" });
     } catch (err) {
       toast({ variant: "destructive", title: "Error", description: "Failed to add role requirement" });
@@ -149,38 +149,54 @@ export default function Settings() {
             <CardDescription>Minimum coverage needed for each job title.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <form onSubmit={handleAddRole} className="flex gap-2 items-end">
-              <div className="space-y-2 flex-1">
+            <form onSubmit={handleAddRole} className="flex gap-2 items-end flex-wrap">
+              <div className="space-y-2 flex-1 min-w-[120px]">
                 <Label>Job Title</Label>
                 <Input 
                   placeholder="e.g. Chef" 
                   value={newRole.jobTitle}
                   onChange={e => setNewRole({...newRole, jobTitle: e.target.value})}
                   required
+                  data-testid="input-role-title"
                 />
               </div>
-              <div className="space-y-2 w-32">
+              <div className="space-y-2 w-24">
                 <Label>Min Hours</Label>
                 <Input 
                   type="number" 
                   value={newRole.requiredWeeklyHours}
                   onChange={e => setNewRole({...newRole, requiredWeeklyHours: parseInt(e.target.value)})}
                   required
+                  data-testid="input-role-hours"
                 />
               </div>
-              <Button type="submit" disabled={createRole.isPending}>
+              <div className="space-y-2 w-16">
+                <Label>Color</Label>
+                <Input 
+                  type="color" 
+                  value={newRole.color}
+                  onChange={e => setNewRole({...newRole, color: e.target.value})}
+                  className="h-9 p-1 cursor-pointer"
+                  data-testid="input-role-color"
+                />
+              </div>
+              <Button type="submit" disabled={createRole.isPending} data-testid="button-add-role">
                 <Plus className="w-4 h-4" />
               </Button>
             </form>
 
             <div className="space-y-2">
               {roles?.map(role => (
-                <div key={role.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border">
-                  <div>
+                <div key={role.id} className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg border" data-testid={`row-role-${role.id}`}>
+                  <div 
+                    className="w-6 h-6 rounded-md flex-shrink-0" 
+                    style={{ backgroundColor: role.color || "#3b82f6" }}
+                  />
+                  <div className="flex-1">
                     <p className="font-semibold">{role.jobTitle}</p>
                     <p className="text-sm text-muted-foreground">Min {role.requiredWeeklyHours}h / week</p>
                   </div>
-                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteRole(role.id)}>
+                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteRole(role.id)} data-testid={`button-delete-role-${role.id}`}>
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>

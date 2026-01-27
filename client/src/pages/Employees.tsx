@@ -1,7 +1,8 @@
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee } from "@/hooks/use-employees";
+import { useRoleRequirements } from "@/hooks/use-settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { Plus, Search, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
@@ -12,10 +13,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import type { Employee, InsertEmployee } from "@shared/routes";
+import type { Employee, InsertEmployee, RoleRequirement } from "@shared/schema";
 
 export default function Employees() {
   const { data: employees, isLoading } = useEmployees();
+  const { data: roles } = useRoleRequirements();
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -67,6 +69,7 @@ export default function Employees() {
               <EmployeeRow 
                 key={employee.id} 
                 employee={employee} 
+                roles={roles || []}
                 onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
               />
             ))}
@@ -88,7 +91,7 @@ export default function Employees() {
   );
 }
 
-function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
+function EmployeeRow({ employee, roles, onEdit }: { employee: Employee; roles: RoleRequirement[]; onEdit: () => void }) {
   const deleteEmployee = useDeleteEmployee();
   const { toast } = useToast();
 
@@ -99,12 +102,14 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
     }
   };
 
+  const roleColor = roles.find(r => r.jobTitle.toLowerCase() === employee.jobTitle.toLowerCase())?.color || employee.color;
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_100px_100px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
       <div className="flex items-center gap-3">
         <div 
           className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0" 
-          style={{ backgroundColor: employee.color }}
+          style={{ backgroundColor: roleColor }}
         >
           {employee.name.substring(0, 2).toUpperCase()}
         </div>

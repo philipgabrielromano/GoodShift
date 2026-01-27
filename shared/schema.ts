@@ -39,6 +39,7 @@ export const roleRequirements = pgTable("role_requirements", {
   id: serial("id").primaryKey(),
   jobTitle: text("job_title").notNull().unique(), // e.g., "Chef"
   requiredWeeklyHours: integer("required_weekly_hours").notNull(),
+  color: text("color").notNull().default("#3b82f6"), // Color for this job title
 });
 
 export const globalSettings = pgTable("global_settings", {
