@@ -25,7 +25,8 @@ class UKGClient {
   private baseUrl: string;
   private username: string;
   private password: string;
-  private apiKey: string;
+  private customerApiKey: string;
+  private userApiKey: string;
   private cachedLocations: UKGLocation[] | null = null;
 
   constructor() {
@@ -39,20 +40,25 @@ class UKGClient {
     this.baseUrl = url;
     this.username = process.env.UKG_USERNAME || "";
     this.password = process.env.UKG_PASSWORD || "";
-    this.apiKey = process.env.UKG_API_KEY || "";
+    this.customerApiKey = process.env.UKG_API_KEY || "";
+    this.userApiKey = process.env.UKG_USER_API_KEY || "";
   }
 
   isConfigured(): boolean {
-    return !!(this.baseUrl && this.username && this.password && this.apiKey);
+    return !!(this.baseUrl && this.username && this.password && this.customerApiKey);
   }
 
   private getAuthHeaders(): Record<string, string> {
     const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
-    return {
+    const headers: Record<string, string> = {
       "Authorization": `Basic ${basicAuth}`,
-      "Us-Customer-Api-Key": this.apiKey,
+      "Us-Customer-Api-Key": this.customerApiKey,
       "Content-Type": "application/json",
     };
+    if (this.userApiKey) {
+      headers["Us-User-Api-Key"] = this.userApiKey;
+    }
+    return headers;
   }
 
   private async request<T>(endpoint: string, method = "GET", body?: object): Promise<T> {
