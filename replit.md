@@ -162,6 +162,7 @@ Real-time validation checks for:
 - Total weekly hours limit
 - Time-off conflicts
 - Manager coverage requirements
+- **Clopening detection**: Warns when an employee works a closing shift (ending 7:30pm+) followed by an opening shift (starting 8-9am) the next day
 
 ### User Administration
 Role-based access control with three user roles:
@@ -177,9 +178,19 @@ Only employees with specific retail job codes are scheduleable:
 - DONDOOR - Donor Greeter  
 - CASHSLS - Cashier
 - DONPRI - Donation Pricing Associate
-- STRSUPER - Store Manager
+- STSUPER - Store Manager
 - STASSTSP - Assistant Manager
 - STLDWKR - Team Lead
+
+Job codes are automatically translated to human-readable titles in the UI using the `getJobTitle()` utility function.
+
+### Part-Time Scheduling Flexibility
+Part-time employees (less than 32 max hours) can work up to 5 days per week with flexible shift lengths:
+- Full shifts: 8 paid hours (8.5 clock hours with 30-min unpaid lunch)
+- Short shifts: 5.5 paid hours (no lunch break, under 6 hours)
+- Gap shifts: 5 paid hours (no lunch break, used to fill remaining hours)
+
+The scheduler intelligently picks the best combination of shift types to maximize hours while staying within max weekly hours limits.
 
 ### Labor Allocation
 Configurable percentages for distributing store hours:
