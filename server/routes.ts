@@ -605,8 +605,8 @@ export async function registerRoutes(
         const remaining = getRemainingHours(emp);
         const state = employeeState[emp.id];
         
-        // If employee has between 3-7 hours remaining, they can fit a short shift
-        if (remaining >= 3 && remaining < FULL_SHIFT_HOURS && state.daysWorked < 5) {
+        // Only add short shift if they have at least 5.5 hours remaining (don't exceed max)
+        if (remaining >= SHORT_SHIFT_HOURS && remaining < FULL_SHIFT_HOURS && state.daysWorked < 5) {
           // Find a day they can work
           for (const dayIndex of [6, 5, 0, 1, 2, 3, 4]) { // Priority order
             if (state.daysWorkedOn.has(dayIndex)) continue;
