@@ -104,6 +104,7 @@ export const timeClockEntries = pgTable("time_clock_entries", {
   totalHours: integer("total_hours").notNull().default(0), // Total hours in minutes
   locationId: integer("location_id"), // UKG location ID
   jobId: integer("job_id"), // UKG job ID
+  paycodeId: integer("paycode_id").notNull().default(0), // 2 = PAL (Paid Annual Leave / PTO)
   syncedAt: timestamp("synced_at").defaultNow(), // When this record was last synced
 }, (table) => ({
   employeeDateIdx: uniqueIndex("time_clock_employee_date_idx").on(table.ukgEmployeeId, table.workDate),

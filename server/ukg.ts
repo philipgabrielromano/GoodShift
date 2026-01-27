@@ -65,6 +65,7 @@ interface UKGTimeRecord {
   LocationId: number;
   JobId: number;
   Status: number;
+  PaycodeId: number; // 2 = PAL (Paid Annual Leave / PTO)
 }
 
 export interface TimeClockEntry {
@@ -77,6 +78,7 @@ export interface TimeClockEntry {
   totalHours: number;
   locationId: number;
   jobId: number;
+  paycodeId: number; // 2 = PAL (Paid Annual Leave / PTO)
 }
 
 class UKGClient {
@@ -391,6 +393,7 @@ class UKGClient {
           totalHours: (record.RegHr || 0) + overtimeTotal,
           locationId: record.LocationId,
           jobId: record.JobId,
+          paycodeId: record.PaycodeId || 0, // 2 = PAL (Paid Annual Leave / PTO)
         };
       });
 

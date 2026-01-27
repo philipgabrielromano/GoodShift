@@ -341,6 +341,7 @@ export class DatabaseStorage implements IStorage {
               totalHours: entry.totalHours,
               locationId: entry.locationId,
               jobId: entry.jobId,
+              paycodeId: entry.paycodeId,
               syncedAt: new Date(),
             },
           });
