@@ -231,6 +231,14 @@ class UKGClient {
     
     const rawEmployees = await this.fetchAllPaginated<UKGODataEmployee>("Employee");
     console.log(`UKG: Total employees fetched: ${rawEmployees.length}`);
+    
+    // Debug: Log first 3 raw employee records to see available fields
+    if (rawEmployees.length > 0) {
+      console.log("UKG DEBUG: Sample raw employee records:");
+      rawEmployees.slice(0, 3).forEach((emp, i) => {
+        console.log(`UKG DEBUG Employee ${i + 1}:`, JSON.stringify(emp, null, 2));
+      });
+    }
 
     const employees: UKGProEmployee[] = rawEmployees.map(emp => {
       const jobTitle = this.jobCache.get(emp.JobId) || "Staff";
