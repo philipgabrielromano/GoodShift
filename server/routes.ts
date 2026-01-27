@@ -346,9 +346,12 @@ export async function registerRoutes(
         return employeeDaysWorked[empId] < 5;
       };
 
-      // Day-by-day generation
-      for (let i = 0; i < 7; i++) {
-        const currentDayMs = startDate.getTime() + i * 24 * 60 * 60 * 1000;
+      // Day-by-day generation - prioritize Friday (5) and Saturday (6) first
+      // Order: Sat, Fri, Sun, Mon, Tue, Wed, Thu
+      const dayOrder = [6, 5, 0, 1, 2, 3, 4];
+      
+      for (const dayIndex of dayOrder) {
+        const currentDayMs = startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000;
         const currentDay = new Date(currentDayMs);
 
         // 1. Manager Coverage (opening and closing shifts)
