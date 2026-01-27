@@ -697,60 +697,65 @@ export default function Schedule() {
             </CardContent>
           </Card>
           
-          {/* Location Hours Panel */}
-          {userLocations.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <MapPin className="w-5 h-5 text-primary" />
-                  Store Hours Budget
-                </CardTitle>
-                <CardDescription>Weekly hours by location</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {userLocations.map(location => {
-                  const used = locationHoursUsed[location.name] || 0;
-                  const limit = location.weeklyHoursLimit;
-                  const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-                  const isOverBudget = used > limit;
-                  
-                  return (
-                    <div key={location.id} className="space-y-2" data-testid={`location-hours-${location.id}`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium truncate">{location.name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className={cn(
-                            "text-sm font-mono",
-                            isOverBudget ? "text-destructive font-bold" : "text-muted-foreground"
-                          )}>
-                            {used.toFixed(1)} / {limit}
-                          </span>
-                          {isOverBudget && (
-                            <Badge variant="destructive" className="text-xs">
-                              Over
-                            </Badge>
-                          )}
+          {/* Location Hours Panel - shows only selected location or user's locations */}
+          {(() => {
+            // Filter locations based on selection
+            const displayLocations = selectedLocation === "all" 
+              ? userLocations 
+              : userLocations.filter(l => l.name === selectedLocation);
+            
+            if (displayLocations.length === 0) return null;
+            
+            return (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <MapPin className="w-5 h-5 text-primary" />
+                    Store Hours Budget
+                  </CardTitle>
+                  <CardDescription>
+                    {selectedLocation === "all" ? "Weekly hours by location" : `Weekly hours for ${selectedLocation}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {displayLocations.map(location => {
+                    const used = locationHoursUsed[location.name] || 0;
+                    const limit = location.weeklyHoursLimit;
+                    const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+                    const isOverBudget = used > limit;
+                    
+                    return (
+                      <div key={location.id} className="space-y-2" data-testid={`location-hours-${location.id}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium truncate">{location.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "text-sm font-mono",
+                              isOverBudget ? "text-destructive font-bold" : "text-muted-foreground"
+                            )}>
+                              {used.toFixed(1)} / {limit}
+                            </span>
+                            {isOverBudget && (
+                              <Badge variant="destructive" className="text-xs">
+                                Over
+                              </Badge>
+                            )}
+                          </div>
                         </div>
+                        <Progress 
+                          value={percentage} 
+                          className={cn(
+                            "h-2",
+                            isOverBudget && "[&>[data-state=complete]]:bg-destructive [&>div]:bg-destructive"
+                          )}
+                        />
                       </div>
-                      <Progress 
-                        value={percentage} 
-                        className={cn(
-                          "h-2",
-                          isOverBudget && "[&>[data-state=complete]]:bg-destructive [&>div]:bg-destructive"
-                        )}
-                      />
-                    </div>
-                  );
-                })}
-                
-                {userLocations.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-2">
-                    No locations assigned
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            );
+          })()}
           
           <div className="bg-card rounded border p-6 shadow-sm">
             <h3 className="font-bold text-lg mb-4">Quick Stats</h3>
