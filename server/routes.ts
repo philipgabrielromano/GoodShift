@@ -539,8 +539,15 @@ export async function registerRoutes(
     try {
       const { weekStart } = api.schedule.generate.input.parse(req.body);
       
+      // Get user's location filter
+      const user = (req.session as any)?.user;
+      let locationIds: string[] | undefined;
+      if (user && user.locationIds && user.locationIds.length > 0) {
+        locationIds = user.locationIds;
+      }
+      
       const { generateAISchedule } = await import("./ai-scheduler");
-      const result = await generateAISchedule(weekStart);
+      const result = await generateAISchedule(weekStart, locationIds);
       
       res.status(201).json({
         shifts: result.shifts,

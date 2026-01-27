@@ -29,15 +29,31 @@ interface AIScheduleResponse {
   warnings: string[];
 }
 
-export async function generateAISchedule(weekStart: string): Promise<{ shifts: any[]; reasoning: string; warnings: string[] }> {
+export async function generateAISchedule(weekStart: string, userLocationIds?: string[]): Promise<{ shifts: any[]; reasoning: string; warnings: string[] }> {
   const startDate = new Date(weekStart);
   
-  const employees = await storage.getEmployees();
+  let employees = await storage.getEmployees();
   const settings = await storage.getGlobalSettings();
   const timeOff = await storage.getTimeOffRequests();
   const locations = await storage.getLocations();
 
-  const activeLocations = locations.filter(l => l.isActive);
+  // Filter by user's assigned locations if provided
+  let activeLocations = locations.filter(l => l.isActive);
+  if (userLocationIds && userLocationIds.length > 0) {
+    // Get location names for user's location IDs
+    const userLocationNames = locations
+      .filter(loc => userLocationIds.includes(String(loc.id)))
+      .map(loc => loc.name);
+    
+    // Filter employees by location
+    employees = employees.filter(emp => 
+      emp.location && userLocationNames.includes(emp.location)
+    );
+    
+    // Also filter locations for hours calculation
+    activeLocations = activeLocations.filter(loc => userLocationIds.includes(String(loc.id)));
+  }
+
   const totalAvailableHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
 
   const activeEmployees = employees.filter(e => e.isActive);

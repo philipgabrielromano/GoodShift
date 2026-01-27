@@ -147,7 +147,7 @@ export default function Schedule() {
     const newEndUTC = fromZonedTime(newEnd, TIMEZONE);
     
     try {
-      await apiRequest("PATCH", `/api/shifts/${shift.id}`, {
+      await apiRequest("PUT", `/api/shifts/${shift.id}`, {
         employeeId: targetEmployeeId,
         startTime: newStartUTC.toISOString(),
         endTime: newEndUTC.toISOString(),
