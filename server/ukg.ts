@@ -25,7 +25,6 @@ class UKGClient {
   private baseUrl: string;
   private username: string;
   private password: string;
-  private customerApiKey: string;
   private cachedLocations: UKGLocation[] | null = null;
   private lastError: string | null = null;
 
@@ -37,17 +36,13 @@ class UKGClient {
     if (url.endsWith("/")) {
       url = url.slice(0, -1);
     }
-    if (url.includes("/services")) {
-      url = url.split("/services")[0];
-    }
     this.baseUrl = url;
     this.username = process.env.UKG_USERNAME || "";
     this.password = process.env.UKG_PASSWORD || "";
-    this.customerApiKey = process.env.UKG_API_KEY || "";
   }
 
   isConfigured(): boolean {
-    return !!(this.baseUrl && this.username && this.password && this.customerApiKey);
+    return !!(this.baseUrl && this.username && this.password);
   }
 
   getLastError(): string | null {
@@ -56,32 +51,40 @@ class UKGClient {
 
   private getAuthHeaders(): Record<string, string> {
     const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
-    const userApiKey = process.env.UKG_USER_API_KEY || "";
-    const headers: Record<string, string> = {
+    return {
       "Authorization": `Basic ${basicAuth}`,
-      "Us-Customer-Api-Key": this.customerApiKey,
       "Content-Type": "application/json",
+      "Accept": "application/json",
     };
-    if (userApiKey) {
-      headers["Api-Key"] = userApiKey;
-    }
-    return headers;
   }
 
-  private async apiRequest<T>(endpoint: string, method = "GET", body?: object): Promise<T | null> {
-    const url = `${this.baseUrl}${endpoint}`;
+  private getODataBaseUrl(): string {
+    if (this.baseUrl.includes("ulticlock.com")) {
+      return this.baseUrl;
+    }
+    const match = this.baseUrl.match(/https?:\/\/([^.]+)/);
+    if (match) {
+      const prefix = match[1].replace("service", "k");
+      return `https://${prefix}.ulticlock.com/UtmOdataServices/api`;
+    }
+    return this.baseUrl.replace("ultipro.com", "ulticlock.com") + "/UtmOdataServices/api";
+  }
+
+  private async apiRequest<T>(endpoint: string, method = "GET"): Promise<T | null> {
+    const baseUrl = this.getODataBaseUrl();
+    const url = `${baseUrl}${endpoint}`;
     console.log(`UKG: ${method} ${url}`);
+    console.log(`UKG: Headers (masked): Authorization: Basic ***`);
 
     try {
       const response = await fetch(url, {
         method,
         headers: this.getAuthHeaders(),
-        body: body ? JSON.stringify(body) : undefined,
       });
 
       const responseText = await response.text();
       console.log("UKG: API response status:", response.status);
-      console.log("UKG: API response:", responseText.slice(0, 1000));
+      console.log("UKG: API response:", responseText.slice(0, 1500));
 
       if (!response.ok) {
         this.lastError = `API error (${response.status}): ${responseText.slice(0, 300)}`;
@@ -89,7 +92,7 @@ class UKGClient {
       }
 
       if (!responseText.trim()) {
-        return [] as unknown as T;
+        return { value: [] } as unknown as T;
       }
 
       try {
@@ -104,6 +107,24 @@ class UKGClient {
       console.error("UKG API error:", message);
       return null;
     }
+  }
+
+  async discoverEndpoints(): Promise<string[]> {
+    console.log("UKG: Discovering available OData endpoints...");
+    
+    interface ODataMetadata {
+      value?: Array<{ name?: string; url?: string }>;
+    }
+    
+    const result = await this.apiRequest<ODataMetadata>("");
+    
+    if (result?.value) {
+      const endpoints = result.value.map(e => e.name || e.url || "").filter(Boolean);
+      console.log("UKG: Available endpoints:", endpoints);
+      return endpoints;
+    }
+    
+    return [];
   }
 
   async getLocations(): Promise<UKGLocation[]> {
@@ -155,87 +176,112 @@ class UKGClient {
   }
 
   async getAllEmployees(): Promise<UKGProEmployee[]> {
-    console.log("UKG: Fetching employees via REST API with Basic Auth");
+    console.log("UKG: Fetching employees via OData API");
     
-    interface EmployeeLookupResult {
-      employeeId?: string;
-      employeeNumber?: string;
-      firstName?: string;
-      lastName?: string;
-      jobTitle?: string;
-      primaryWorkLocation?: string;
-      employmentStatus?: string;
-      scheduledHours?: number;
+    const endpoints = await this.discoverEndpoints();
+    console.log("UKG: Discovered endpoints:", endpoints);
+    
+    const employeeEndpoints = ["Employee", "Employees", "Person", "Persons", "Worker", "Workers"];
+    const matchingEndpoint = endpoints.find(e => 
+      employeeEndpoints.some(ep => e.toLowerCase().includes(ep.toLowerCase()))
+    );
+    
+    interface ODataResponse {
+      value?: Array<Record<string, unknown>>;
     }
 
-    interface PersonnelResult {
-      content?: EmployeeLookupResult[];
-      results?: EmployeeLookupResult[];
-    }
-
-    const result = await this.apiRequest<PersonnelResult | EmployeeLookupResult[]>("/personnel/v1/employees");
-    
-    if (!result) {
-      console.log("UKG: /personnel/v1/employees failed, trying alternative endpoints...");
+    if (matchingEndpoint) {
+      console.log(`UKG: Found employee endpoint: ${matchingEndpoint}`);
+      const result = await this.apiRequest<ODataResponse>(`/${matchingEndpoint}?$top=100`);
       
-      const altResult = await this.apiRequest<PersonnelResult | EmployeeLookupResult[]>("/personnel/v1/employee-employment-details");
-      
-      if (!altResult) {
-        const lookupResult = await this.apiRequest<EmployeeLookupResult[]>("/personnel/v1/employee-lookup", "POST", {
-          employeeIdentifiers: []
-        });
-        
-        if (!lookupResult) {
-          return [];
-        }
-        
-        return this.parseEmployeeResults(lookupResult);
+      if (result?.value) {
+        return this.parseODataEmployees(result.value);
       }
-      
-      return this.parseEmployeeResults(altResult);
     }
 
-    return this.parseEmployeeResults(result);
+    console.log("UKG: No dedicated employee endpoint, trying Time data to extract employees...");
+    const timeResult = await this.apiRequest<ODataResponse>("/Time?$top=100");
+    
+    if (timeResult?.value) {
+      return this.extractEmployeesFromTimeData(timeResult.value);
+    }
+
+    const otherEndpoints = endpoints.filter(e => !e.toLowerCase().includes("time"));
+    for (const endpoint of otherEndpoints.slice(0, 3)) {
+      console.log(`UKG: Trying endpoint: ${endpoint}`);
+      const result = await this.apiRequest<ODataResponse>(`/${endpoint}?$top=10`);
+      if (result?.value && result.value.length > 0) {
+        console.log(`UKG: Sample data from ${endpoint}:`, JSON.stringify(result.value[0]).slice(0, 500));
+      }
+    }
+
+    return [];
   }
 
-  private parseEmployeeResults(result: unknown): UKGProEmployee[] {
+  private parseODataEmployees(data: Record<string, unknown>[]): UKGProEmployee[] {
     const employees: UKGProEmployee[] = [];
     
-    let items: unknown[] = [];
-    if (Array.isArray(result)) {
-      items = result;
-    } else if (result && typeof result === 'object') {
-      const r = result as Record<string, unknown>;
-      if (Array.isArray(r.content)) {
-        items = r.content;
-      } else if (Array.isArray(r.results)) {
-        items = r.results;
+    for (const item of data) {
+      const firstName = String(item.FirstName || item.firstName || item.first_name || "");
+      const lastName = String(item.LastName || item.lastName || item.last_name || "");
+      
+      if (firstName || lastName) {
+        employees.push({
+          employeeId: String(item.EmployeeId || item.employeeId || item.employee_id || item.Id || item.id || ""),
+          firstName,
+          lastName,
+          jobTitle: String(item.JobTitle || item.jobTitle || item.Position || item.position || "Staff"),
+          workLocationCode: String(item.LocationCode || item.locationCode || item.Location || ""),
+          workLocationDescription: String(item.LocationName || item.locationName || ""),
+          employmentStatus: String(item.Status || item.status || item.EmploymentStatus || "Active"),
+          scheduledHours: Number(item.ScheduledHours || item.scheduledHours || 40),
+        });
       }
     }
     
-    for (const item of items) {
-      if (item && typeof item === 'object') {
-        const emp = item as Record<string, unknown>;
-        const firstName = String(emp.firstName || emp.FirstName || "");
-        const lastName = String(emp.lastName || emp.LastName || "");
+    console.log(`UKG: Parsed ${employees.length} employees from OData`);
+    return employees;
+  }
+
+  private extractEmployeesFromTimeData(timeData: Record<string, unknown>[]): UKGProEmployee[] {
+    const employeeMap = new Map<string, UKGProEmployee>();
+    
+    for (const item of timeData) {
+      const employeeId = String(item.EmployeeId || item.employeeId || item.employee_id || item.EmpId || "");
+      const employeeName = String(item.EmployeeName || item.employeeName || item.employee_name || item.EmpName || "");
+      
+      if (employeeId && !employeeMap.has(employeeId)) {
+        const nameParts = employeeName.split(/[,\s]+/).filter(Boolean);
+        let firstName = "";
+        let lastName = "";
         
-        if (firstName || lastName) {
-          employees.push({
-            employeeId: String(emp.employeeId || emp.employeeNumber || emp.EmployeeId || ""),
-            firstName,
-            lastName,
-            jobTitle: String(emp.jobTitle || emp.JobTitle || "Staff"),
-            workLocationCode: String(emp.primaryWorkLocation || emp.workLocationCode || ""),
-            workLocationDescription: String(emp.workLocationDescription || ""),
-            employmentStatus: String(emp.employmentStatus || emp.EmploymentStatus || "Active"),
-            scheduledHours: Number(emp.scheduledHours || emp.ScheduledHours || 40),
-          });
+        if (nameParts.length >= 2) {
+          if (employeeName.includes(",")) {
+            lastName = nameParts[0];
+            firstName = nameParts.slice(1).join(" ");
+          } else {
+            firstName = nameParts[0];
+            lastName = nameParts.slice(1).join(" ");
+          }
+        } else if (nameParts.length === 1) {
+          firstName = nameParts[0];
         }
+        
+        employeeMap.set(employeeId, {
+          employeeId,
+          firstName,
+          lastName,
+          jobTitle: String(item.JobTitle || item.jobTitle || item.Position || "Staff"),
+          workLocationCode: String(item.LocationCode || item.locationCode || item.Location || ""),
+          workLocationDescription: String(item.LocationName || item.locationName || ""),
+          employmentStatus: "Active",
+          scheduledHours: 40,
+        });
       }
     }
-
-    this.lastError = null;
-    console.log(`UKG: Parsed ${employees.length} employees`);
+    
+    const employees = Array.from(employeeMap.values());
+    console.log(`UKG: Extracted ${employees.length} unique employees from time data`);
     return employees;
   }
 
