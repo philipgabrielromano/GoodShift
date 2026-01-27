@@ -67,6 +67,30 @@ function calculatePaidHours(startTime: Date, endTime: Date): number {
   return clockHours >= 6 ? clockHours - 0.5 : clockHours;
 }
 
+// Calculate effective work hours (excluding all breaks and lunches)
+// For production calculations - hours actually worked without breaks
+function calculateEffectiveHours(startTime: Date, endTime: Date): number {
+  const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+  const paidHours = clockHours >= 6 ? clockHours - 0.5 : clockHours; // Subtract unpaid lunch
+  
+  // Now calculate effective hours based on paid hours:
+  // 8+ hours: 7 hours effective (2x15min breaks + 30min lunch = 1 hour total break time)
+  // 6-7.99 hours: paid - 0.25 (one 15-min break, lunch already subtracted)
+  // 5-5.99 hours: paid - 0.25 (one 15-min break)
+  // Less than 5 hours: no breaks
+  if (paidHours >= 8) {
+    return 7; // 8h paid - 2x15min breaks = 7h effective
+  } else if (paidHours >= 6) {
+    return paidHours - 0.25; // Subtract one 15-min break
+  } else if (paidHours >= 5) {
+    return paidHours - 0.25; // Subtract one 15-min break
+  }
+  return paidHours; // No breaks for under 5 hours
+}
+
+// Production rate: 60 pieces per effective hour
+const PIECES_PER_EFFECTIVE_HOUR = 60;
+
 // Compute start of week in EST timezone (Sunday = 0)
 function getESTWeekStart(date: Date): Date {
   const zonedDate = toZonedTime(date, TIMEZONE);
@@ -441,6 +465,33 @@ export default function Schedule() {
                     }
                     return sum;
                   }, 0) || 0;
+                  
+                  // Calculate estimated production for pricers (APPROC and DONPRI)
+                  const dayShifts = shifts?.filter(s => {
+                    const shiftDateStr = formatInTimeZone(s.startTime, TIMEZONE, "yyyy-MM-dd");
+                    return shiftDateStr === dayDateStr;
+                  }) || [];
+                  
+                  // Get apparel pricer production (APPROC)
+                  const apparelPricerShifts = dayShifts.filter(s => {
+                    const emp = employees?.find(e => e.id === s.employeeId);
+                    return emp?.jobTitle === 'APPROC';
+                  });
+                  const apparelEffectiveHours = apparelPricerShifts.reduce((sum, shift) => {
+                    return sum + calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
+                  }, 0);
+                  const apparelProduction = Math.round(apparelEffectiveHours * PIECES_PER_EFFECTIVE_HOUR);
+                  
+                  // Get donation pricer production (DONPRI)
+                  const donationPricerShifts = dayShifts.filter(s => {
+                    const emp = employees?.find(e => e.id === s.employeeId);
+                    return emp?.jobTitle === 'DONPRI';
+                  });
+                  const donationEffectiveHours = donationPricerShifts.reduce((sum, shift) => {
+                    return sum + calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
+                  }, 0);
+                  const donationProduction = Math.round(donationEffectiveHours * PIECES_PER_EFFECTIVE_HOUR);
+                  
                   return (
                     <div key={day.toString()} className="p-2 text-center border-r">
                       <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
@@ -453,6 +504,21 @@ export default function Schedule() {
                       <div className="text-xs font-medium text-muted-foreground mt-1" data-testid={`text-daily-hours-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
                         {dayHours.toFixed(1)}h
                       </div>
+                      {/* Estimated Production */}
+                      {(apparelProduction > 0 || donationProduction > 0) && (
+                        <div className="mt-1 space-y-0.5 text-[10px]" data-testid={`production-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
+                          {apparelProduction > 0 && (
+                            <div className="text-lime-600 dark:text-lime-400" title="Apparel Pricer Production">
+                              AP: {apparelProduction.toLocaleString()}
+                            </div>
+                          )}
+                          {donationProduction > 0 && (
+                            <div className="text-orange-600 dark:text-orange-400" title="Donation Pricer Production">
+                              DP: {donationProduction.toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
