@@ -310,6 +310,17 @@ export async function registerRoutes(
         return true;
       };
       
+      // Check if employee can work a short 5.5-hour shift
+      const canWorkShortShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
+        const state = employeeState[emp.id];
+        if (!emp.isActive) return false;
+        if (isOnTimeOff(emp.id, day)) return false;
+        if (state.hoursScheduled + SHORT_SHIFT_HOURS > emp.maxWeeklyHours) return false;
+        if (state.daysWorked >= 5) return false;
+        if (state.daysWorkedOn.has(dayIndex)) return false;
+        return true;
+      };
+      
       // Check if employee can work ANY shift (including shorter shifts to fill remaining hours)
       const canWorkAnyShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
@@ -321,9 +332,47 @@ export async function registerRoutes(
         return true;
       };
       
+      // Is this employee a part-timer? (less than 32 max hours)
+      const isPartTime = (emp: typeof employees[0]) => emp.maxWeeklyHours < 32;
+      
       // Get remaining hours an employee can work
       const getRemainingHours = (emp: typeof employees[0]) => {
         return emp.maxWeeklyHours - employeeState[emp.id].hoursScheduled;
+      };
+      
+      // Calculate best shift type for part-timer to maximize hours
+      // For 29 max hours: 5 short shifts (27.5h) > 3 full shifts (24h)
+      const getBestShiftForPartTimer = (emp: typeof employees[0], day: Date, dayIndex: number, shifts: ReturnType<typeof getShiftTimes>) => {
+        const remaining = getRemainingHours(emp);
+        const state = employeeState[emp.id];
+        const daysLeft = 5 - state.daysWorked;
+        
+        // Calculate what's achievable with remaining days
+        const maxWithFullShifts = Math.min(Math.floor(remaining / FULL_SHIFT_HOURS), daysLeft) * FULL_SHIFT_HOURS;
+        const maxWithShortShifts = Math.min(Math.floor(remaining / SHORT_SHIFT_HOURS), daysLeft) * SHORT_SHIFT_HOURS;
+        
+        // Use short shifts if they get more hours overall
+        const preferShort = maxWithShortShifts > maxWithFullShifts;
+        
+        // Get appropriate shift based on role
+        if (preferShort && canWorkShortShift(emp, day, dayIndex)) {
+          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            return shifts.shortMorning;
+          } else if (emp.jobTitle === 'DONDOOR') {
+            return shifts.shortEvening;
+          } else {
+            return shifts.shortMid;
+          }
+        } else if (canWorkFullShift(emp, day, dayIndex)) {
+          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            return shifts.opener;
+          } else if (emp.jobTitle === 'DONDOOR') {
+            return shifts.closer;
+          } else {
+            return shifts.mid10;
+          }
+        }
+        return null;
       };
       
       // Priority score: lower = should schedule first (employees needing more hours)
@@ -481,6 +530,7 @@ export async function registerRoutes(
 
       // ========== PHASE 2: FILL REMAINING CAPACITY (Priority days first) ==========
       // Now fill additional shifts, prioritizing Sat/Fri
+      // Part-timers get flexible shift selection (full or short based on what maximizes hours)
       for (const dayIndex of dayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const shifts = getShiftTimes(currentDay);
@@ -490,9 +540,9 @@ export async function registerRoutes(
         const baseAdditionalShifts = 4; // Base additional staff per day
         const additionalTarget = Math.ceil(baseAdditionalShifts * multiplier);
 
-        // Get all available employees who haven't maxed out and can work today
+        // Get all available employees who can work any shift today
         const allAvailable = [...donationPricers, ...cashiers]
-          .filter(e => canWorkFullShift(e, currentDay, dayIndex))
+          .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
           .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
 
         // Distribute across shift types
@@ -501,20 +551,25 @@ export async function registerRoutes(
 
         for (const emp of allAvailable) {
           if (assigned >= additionalTarget) break;
-          if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
-
-          // Pick shift based on job type
-          let shift;
-          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
-            // Pricers get early shifts
-            shift = assigned % 2 === 0 ? shifts.opener : shifts.early9;
-          } else {
-            // Others rotate through mid/close
-            shift = shiftRotation[assigned % shiftRotation.length];
+          
+          // Part-timers: use flexible shift selection
+          if (isPartTime(emp)) {
+            const bestShift = getBestShiftForPartTimer(emp, currentDay, dayIndex, shifts);
+            if (bestShift) {
+              await scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
+              assigned++;
+            }
+          } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
+            // Full-timers: use full shifts only
+            let shift;
+            if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+              shift = assigned % 2 === 0 ? shifts.opener : shifts.early9;
+            } else {
+              shift = shiftRotation[assigned % shiftRotation.length];
+            }
+            await scheduleShift(emp, shift.start, shift.end, dayIndex);
+            assigned++;
           }
-
-          await scheduleShift(emp, shift.start, shift.end, dayIndex);
-          assigned++;
         }
       }
 
@@ -550,6 +605,7 @@ export async function registerRoutes(
 
       // ========== PHASE 3: MAXIMIZE EMPLOYEE HOURS ==========
       // Fill each employee to their max hours (ignore budget constraints)
+      // Part-timers get flexible shift selection to maximize their hours
       
       // Priority order for filling: Sat, Fri, then others
       const fillOrder = [6, 5, 0, 1, 2, 3, 4];
@@ -567,28 +623,40 @@ export async function registerRoutes(
           const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
           const shifts = getShiftTimes(currentDay);
 
-          // Find employees who can still work and haven't hit their max
+          // Find employees who can still work (either full or short shifts)
           const underScheduled = [...managers, ...donorGreeters, ...donationPricers, ...cashiers]
-            .filter(e => canWorkFullShift(e, currentDay, dayIndex))
+            .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
             .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
 
           for (const emp of underScheduled) {
-            if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
-            
-            let shift;
-            if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
-              shift = shifts.opener; // Early shifts for pricers
-            } else if (emp.jobTitle === 'DONDOOR') {
-              shift = shifts.closer; // Greeters on closer
-            } else if (managerCodes.includes(emp.jobTitle)) {
-              // Managers should only work opener or closer for coverage
-              shift = Math.random() > 0.5 ? shifts.opener : shifts.closer;
-            } else {
-              shift = shifts.mid10; // Cashiers on mid shifts
+            // Managers always get full shifts (opener or closer only)
+            if (managerCodes.includes(emp.jobTitle)) {
+              if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
+              const shift = Math.random() > 0.5 ? shifts.opener : shifts.closer;
+              await scheduleShift(emp, shift.start, shift.end, dayIndex);
+              madeProgress = true;
+            } 
+            // Part-timers get flexible shift selection
+            else if (isPartTime(emp)) {
+              const bestShift = getBestShiftForPartTimer(emp, currentDay, dayIndex, shifts);
+              if (bestShift) {
+                await scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
+                madeProgress = true;
+              }
             }
-
-            await scheduleShift(emp, shift.start, shift.end, dayIndex);
-            madeProgress = true;
+            // Full-timers get full shifts only
+            else if (canWorkFullShift(emp, currentDay, dayIndex)) {
+              let shift;
+              if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+                shift = shifts.opener;
+              } else if (emp.jobTitle === 'DONDOOR') {
+                shift = shifts.closer;
+              } else {
+                shift = shifts.mid10;
+              }
+              await scheduleShift(emp, shift.start, shift.end, dayIndex);
+              madeProgress = true;
+            }
           }
         }
       }
