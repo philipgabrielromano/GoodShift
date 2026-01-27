@@ -61,6 +61,7 @@ Database tables:
 - `global_settings` - Application-wide configuration (hours limits, timezone, labor allocation)
 - `users` - User accounts with roles (admin/manager/viewer) and location access control
 - `locations` - Store locations with weekly hours allocation limits
+- `time_clock_entries` - Historical time punch data from UKG (employee hours worked)
 
 ### Shared Code Architecture
 The `shared/` directory contains code used by both frontend and backend:
@@ -110,7 +111,9 @@ The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OD
 - `UKG_AUTH_HEADER` - Pre-encoded Basic auth header for API authentication
 
 **Features**:
-- Automatic daily sync with UKG (runs on server startup and every 24 hours)
+- Automatic daily employee sync with UKG (runs on server startup and every 24 hours)
+- Automatic time clock data sync (runs on startup and every 4 hours)
+- Historical time clock data from 2026-01-01 downloaded on initial sync
 - Full pagination support for large employee datasets (handles 11,000+ employees)
 - Job title lookup from UKG Job table (maps JobId to job names)
 - Location lookup from UKG Location table (maps LocationId to location names)
