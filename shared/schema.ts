@@ -205,6 +205,20 @@ export type ShiftPattern = {
   endMinute: number;
 };
 
+// === PUBLISHED SCHEDULES ===
+
+// Track which weeks have been published for viewing by standard users
+export const publishedSchedules = pgTable("published_schedules", {
+  id: serial("id").primaryKey(),
+  weekStart: date("week_start").notNull().unique(), // Start of week (Sunday) in yyyy-MM-dd format
+  publishedBy: integer("published_by"), // User ID who published it
+  publishedAt: timestamp("published_at").defaultNow(),
+});
+
+export const insertPublishedScheduleSchema = createInsertSchema(publishedSchedules).omit({ id: true, publishedAt: true });
+export type PublishedSchedule = typeof publishedSchedules.$inferSelect;
+export type InsertPublishedSchedule = z.infer<typeof insertPublishedScheduleSchema>;
+
 // === CHAT TABLES FOR AI INTEGRATION ===
 
 import { sql } from "drizzle-orm";
