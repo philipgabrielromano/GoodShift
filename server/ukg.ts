@@ -263,7 +263,7 @@ class UKGClient {
         location,
         employmentType,
         isActive,
-        scheduledHours: employmentType === "Full-Time" ? 40 : 25,
+        scheduledHours: employmentType === "Full-Time" ? 40 : 29,
       };
     });
 
