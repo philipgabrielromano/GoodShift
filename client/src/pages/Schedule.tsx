@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
-import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate } from "date-fns";
+import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, UserCircle, Wand2, MapPin, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Wand2, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -59,6 +59,87 @@ export default function Schedule() {
   const { data: locations, isLoading: locLoading } = useLocations();
 
   const [isGenerating, setIsGenerating] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [draggedShift, setDraggedShift] = useState<Shift | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ empId: number; dayKey: string } | null>(null);
+  
+  const toggleGroupCollapse = (jobTitle: string) => {
+    setCollapsedGroups(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(jobTitle)) {
+        newSet.delete(jobTitle);
+      } else {
+        newSet.add(jobTitle);
+      }
+      return newSet;
+    });
+  };
+  
+  // Handle drag and drop
+  const handleDragStart = (e: React.DragEvent, shift: Shift) => {
+    e.dataTransfer.setData("text/plain", JSON.stringify(shift));
+    e.dataTransfer.effectAllowed = "move";
+    setDraggedShift(shift);
+  };
+  
+  const handleDragEnd = () => {
+    setDraggedShift(null);
+    setDropTarget(null);
+  };
+  
+  const handleDragOver = (e: React.DragEvent, empId: number, dayKey: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDropTarget({ empId, dayKey });
+  };
+  
+  const handleDragLeave = () => {
+    setDropTarget(null);
+  };
+  
+  const handleDrop = async (e: React.DragEvent, targetEmployeeId: number, targetDate: Date) => {
+    e.preventDefault();
+    if (!draggedShift) return;
+    
+    const shift = draggedShift;
+    
+    // Convert original times to timezone-aware dates to get correct wall-clock times
+    const originalStartTZ = toZonedTime(new Date(shift.startTime), TIMEZONE);
+    const originalEndTZ = toZonedTime(new Date(shift.endTime), TIMEZONE);
+    
+    // Calculate shift duration in minutes (handles overnight shifts)
+    const durationMinutes = differenceInMinutes(originalEndTZ, originalStartTZ);
+    
+    // Get wall-clock start time (hours and minutes in local timezone)
+    const startHours = originalStartTZ.getHours();
+    const startMinutes = originalStartTZ.getMinutes();
+    
+    // Create new start time on target day with same wall-clock time
+    const targetDateInTZ = toZonedTime(targetDate, TIMEZONE);
+    const newStart = setMinutes(setHours(targetDateInTZ, startHours), startMinutes);
+    
+    // Add duration to get correct end time (handles overnight shifts)
+    const newEnd = addMinutes(newStart, durationMinutes);
+    
+    // Convert back to UTC for storage
+    const newStartUTC = fromZonedTime(newStart, TIMEZONE);
+    const newEndUTC = fromZonedTime(newEnd, TIMEZONE);
+    
+    try {
+      await apiRequest("PATCH", `/api/shifts/${shift.id}`, {
+        employeeId: targetEmployeeId,
+        startTime: newStartUTC.toISOString(),
+        endTime: newEndUTC.toISOString(),
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Shift Moved", description: "Shift has been moved successfully." });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to move shift." });
+    }
+    
+    setDraggedShift(null);
+    setDropTarget(null);
+  };
   
   // Calculate scheduled hours per location for the current week
   const locationHoursUsed = useMemo(() => {
@@ -213,68 +294,103 @@ export default function Schedule() {
                   acc[emp.jobTitle].push(emp);
                   return acc;
                 }, {} as Record<string, NonNullable<typeof employees>>)
-              ).map(([jobTitle, groupEmployees]) => (
-                <div key={jobTitle} className="border-b last:border-b-0">
-                  <div className="bg-muted/10 px-4 py-2 font-bold text-xs uppercase tracking-wider text-muted-foreground border-b">
-                    {jobTitle}s
-                  </div>
-                  {(groupEmployees || []).map(emp => (
-                    <div key={emp.id} className="grid grid-cols-8 border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
-                      <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
-                        <div 
-                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-                          style={{ backgroundColor: emp.color }}
-                        >
-                          {emp.name.substring(0, 2).toUpperCase()}
-                        </div>
-                        <div className="overflow-hidden">
-                          <p className="font-semibold truncate text-sm">{emp.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{emp.jobTitle}</p>
-                        </div>
+              ).map(([jobTitle, groupEmployees]) => {
+                const isCollapsed = collapsedGroups.has(jobTitle);
+                const groupShiftCount = shifts?.filter(s => 
+                  groupEmployees.some(e => e.id === s.employeeId)
+                ).length || 0;
+                
+                return (
+                  <div key={jobTitle} className="border-b last:border-b-0">
+                    <button
+                      onClick={() => toggleGroupCollapse(jobTitle)}
+                      className="w-full bg-muted/20 px-4 py-2 font-bold text-xs uppercase tracking-wider text-muted-foreground border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      data-testid={`button-toggle-group-${jobTitle}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {isCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        <span>{jobTitle}</span>
+                        <Badge variant="secondary" className="ml-2">{groupEmployees.length}</Badge>
                       </div>
-                      
-                      {weekDays.map(day => {
-                        // Compare dates in EST timezone
-                        const dayEST = toZonedTime(day, TIMEZONE);
-                        const dayShifts = shifts?.filter(s => {
-                          const shiftStartEST = toZonedTime(s.startTime, TIMEZONE);
-                          return s.employeeId === emp.id && isSameDay(shiftStartEST, dayEST);
-                        });
-
-                        return (
-                          <div key={day.toString()} className="p-2 border-r last:border-r-0 min-h-[100px] relative">
-                            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                className="w-full h-full pointer-events-auto rounded-none opacity-0 hover:opacity-10 hover:bg-black"
-                                onClick={() => handleAddShift(day, emp.id)}
-                              />
-                            </div>
-
-                            <div className="space-y-2 relative z-10 pointer-events-none">
-                              {dayShifts?.map(shift => (
-                                <div 
-                                  key={shift.id}
-                                  onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                                  className="pointer-events-auto cursor-pointer p-2 rounded text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-sm transition-all text-white"
-                                  style={{ backgroundColor: emp.color }}
-                                >
-                                  <div className="flex justify-between items-center">
-                                    <span>{formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm")}</span>
-                                    <span className="opacity-70">-</span>
-                                    <span>{formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm")}</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
+                      {groupShiftCount > 0 && (
+                        <Badge variant="outline">{groupShiftCount} shifts</Badge>
+                      )}
+                    </button>
+                    
+                    {!isCollapsed && (groupEmployees || []).map(emp => (
+                      <div key={emp.id} className="grid grid-cols-8 border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
+                        <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
+                          <div 
+                            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                            style={{ backgroundColor: emp.color }}
+                          >
+                            {emp.name.substring(0, 2).toUpperCase()}
                           </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              ))}
+                          <div className="overflow-hidden">
+                            <p className="font-semibold truncate text-sm">{emp.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{emp.jobTitle}</p>
+                          </div>
+                        </div>
+                        
+                        {weekDays.map(day => {
+                          const dayEST = toZonedTime(day, TIMEZONE);
+                          const dayKey = day.toISOString();
+                          const dayShifts = shifts?.filter(s => {
+                            const shiftStartEST = toZonedTime(s.startTime, TIMEZONE);
+                            return s.employeeId === emp.id && isSameDay(shiftStartEST, dayEST);
+                          });
+                          
+                          const isDropTarget = dropTarget?.empId === emp.id && dropTarget?.dayKey === dayKey;
+
+                          return (
+                            <div 
+                              key={dayKey} 
+                              className={cn(
+                                "p-2 border-r last:border-r-0 min-h-[100px] relative transition-colors",
+                                isDropTarget && "bg-primary/10 ring-2 ring-primary/30 ring-inset"
+                              )}
+                              onDragOver={(e) => handleDragOver(e, emp.id, dayKey)}
+                              onDragLeave={handleDragLeave}
+                              onDrop={(e) => handleDrop(e, emp.id, day)}
+                            >
+                              <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  className="w-full h-full pointer-events-auto rounded-none opacity-0 hover:opacity-10 hover:bg-black"
+                                  onClick={() => handleAddShift(day, emp.id)}
+                                />
+                              </div>
+
+                              <div className="space-y-2 relative z-10">
+                                {dayShifts?.map(shift => (
+                                  <div 
+                                    key={shift.id}
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(e, shift)}
+                                    onDragEnd={handleDragEnd}
+                                    onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
+                                    className="cursor-grab active:cursor-grabbing p-2 rounded text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
+                                    style={{ backgroundColor: emp.color }}
+                                    data-testid={`shift-${shift.id}`}
+                                  >
+                                    <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                    <div className="flex justify-between items-center flex-1">
+                                      <span>{formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm")}</span>
+                                      <span className="opacity-70">-</span>
+                                      <span>{formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm")}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
