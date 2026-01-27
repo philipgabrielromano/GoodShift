@@ -354,21 +354,13 @@ export async function registerRoutes(
       };
       
       // Calculate best shift type for part-timer to maximize hours
-      // FLEXIBLE STRATEGY: Part-timers can work up to 5 days with shifts of 5+ hours
-      // The scheduler picks the best shift type based on remaining hours:
-      // - If remaining >= 8 and enough days left: use full shift (8h)
-      // - If remaining >= 5.5: use short shift (5.5h)  
-      // - If remaining >= 5: use gap shift (5h)
-      // This allows combinations like: 5x5.8h, 4x7h+1x5h, 3x8h+1x5h, etc.
+      // OPTIMAL STRATEGY: Calculate what shift combination maximizes total hours
+      // Then use that to guide each day's decision
       const getBestShiftForPartTimer = (emp: typeof employees[0], day: Date, dayIndex: number, shifts: ReturnType<typeof getShiftTimes>) => {
         const remaining = getRemainingHours(emp);
         const state = employeeState[emp.id];
         const maxDays = getMaxDays(emp);
         const daysRemaining = maxDays - state.daysWorked;
-        
-        // Calculate optimal shift length based on remaining hours and days
-        // If we have N days left and X hours remaining, average shift = X/N
-        const avgHoursPerRemainingDay = daysRemaining > 0 ? remaining / daysRemaining : remaining;
         
         // Helper to get appropriate shift time based on job
         const getFullShift = () => {
@@ -389,26 +381,69 @@ export async function registerRoutes(
           else return shifts.gapMid;
         };
         
-        // Strategy: Prefer shorter shifts if spreading across more days makes sense
-        // But still allow full shifts if that works better for the remaining hours
-        
-        // If average needed per day is < 6h and we have 3+ days left, prefer shorter shifts
-        // This allows 5 days x ~5.8h schedules
-        if (avgHoursPerRemainingDay < 6 && daysRemaining >= 3) {
-          if (remaining >= 5.5 && canWorkShortShift(emp, day, dayIndex)) {
-            return getShortShift();
+        // OPTIMAL SHIFT CALCULATION
+        // Find the best combination of full (8h), short (5.5h), and gap (5h) shifts
+        // that maximizes hours while respecting days limit
+        const calculateOptimalPlan = (hours: number, days: number) => {
+          let bestPlan = { full: 0, short: 0, gap: 0, total: 0 };
+          
+          // Try all combinations of full shifts (0 to maxFull)
+          const maxFull = Math.min(days, Math.floor(hours / FULL_SHIFT_HOURS));
+          
+          for (let fullCount = 0; fullCount <= maxFull; fullCount++) {
+            const hoursAfterFull = hours - (fullCount * FULL_SHIFT_HOURS);
+            const daysAfterFull = days - fullCount;
+            
+            // Try all combinations of short shifts with remaining days
+            const maxShort = Math.min(daysAfterFull, Math.floor(hoursAfterFull / SHORT_SHIFT_HOURS));
+            
+            for (let shortCount = 0; shortCount <= maxShort; shortCount++) {
+              const hoursAfterShort = hoursAfterFull - (shortCount * SHORT_SHIFT_HOURS);
+              const daysAfterShort = daysAfterFull - shortCount;
+              
+              // Use gap shifts for remainder if possible
+              const maxGap = Math.min(daysAfterShort, Math.floor(hoursAfterShort / GAP_SHIFT_HOURS));
+              const gapCount = maxGap;
+              
+              const total = (fullCount * FULL_SHIFT_HOURS) + 
+                           (shortCount * SHORT_SHIFT_HOURS) + 
+                           (gapCount * GAP_SHIFT_HOURS);
+              
+              if (total > bestPlan.total && total <= hours) {
+                bestPlan = { full: fullCount, short: shortCount, gap: gapCount, total };
+              }
+            }
           }
-          if (remaining >= 5 && canWorkGapShift(emp, day, dayIndex)) {
-            return getGapShift();
-          }
-        }
+          
+          return bestPlan;
+        };
         
-        // If we need a full shift worth (avg >= 6h or we have less than 3 days), try full
-        if (avgHoursPerRemainingDay >= 6 && canWorkFullShift(emp, day, dayIndex)) {
+        const optimalPlan = calculateOptimalPlan(remaining, daysRemaining);
+        
+        // Based on optimal plan, decide what shift to use NOW
+        // Priority: If we still need full shifts in the plan, use full shift
+        // Then short shifts, then gap shifts
+        
+        const fullsStillNeeded = optimalPlan.full;
+        const shortsStillNeeded = optimalPlan.short;
+        const gapsStillNeeded = optimalPlan.gap;
+        
+        // Use full shift if plan calls for it and we can
+        if (fullsStillNeeded > 0 && canWorkFullShift(emp, day, dayIndex)) {
           return getFullShift();
         }
         
-        // Remaining is between 5-8h, pick best fit
+        // Use short shift if plan calls for it and we can
+        if (shortsStillNeeded > 0 && canWorkShortShift(emp, day, dayIndex)) {
+          return getShortShift();
+        }
+        
+        // Use gap shift if plan calls for it and we can
+        if (gapsStillNeeded > 0 && canWorkGapShift(emp, day, dayIndex)) {
+          return getGapShift();
+        }
+        
+        // Fallback: try any available shift type in order of efficiency
         if (remaining >= FULL_SHIFT_HOURS && canWorkFullShift(emp, day, dayIndex)) {
           return getFullShift();
         }
@@ -417,25 +452,8 @@ export async function registerRoutes(
           return getShortShift();
         }
         
-        // For 5-5.5h remaining, use gap shift
-        if (remaining >= 5 && canWorkGapShift(emp, day, dayIndex)) {
+        if (remaining >= GAP_SHIFT_HOURS && canWorkGapShift(emp, day, dayIndex)) {
           return getGapShift();
-        }
-        
-        // Last resort: try short shift even if slightly over
-        if (canWorkShortShift(emp, day, dayIndex)) {
-          return getShortShift();
-        }
-        
-        // Fallback to full shift if nothing else works and they can work it
-        if (canWorkFullShift(emp, day, dayIndex)) {
-          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
-            return shifts.opener;
-          } else if (emp.jobTitle === 'DONDOOR') {
-            return shifts.closer;
-          } else {
-            return shifts.mid10;
-          }
         }
         
         return null;
