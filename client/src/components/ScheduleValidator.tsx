@@ -3,10 +3,10 @@ import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
-import { isSameDay, differenceInHours, startOfWeek, endOfWeek, parseISO } from "date-fns";
+import { isSameDay, differenceInHours, startOfWeek, endOfWeek, parseISO, addDays, format } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useMemo } from "react";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 
 interface Issue {
   type: "error" | "warning";
@@ -162,12 +162,12 @@ export function ScheduleValidator() {
           {issues.map((issue, idx) => (
             <div 
               key={idx} 
-              className={clsx(
+              className={cn(
                 "p-3 rounded-lg text-sm border flex items-start gap-3",
                 issue.type === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-orange-50 border-orange-200 text-orange-800"
               )}
             >
-               <div className={clsx("w-2 h-2 rounded-full mt-1.5 shrink-0", issue.type === "error" ? "bg-red-500" : "bg-orange-500")} />
+               <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", issue.type === "error" ? "bg-red-500" : "bg-orange-500")} />
                {issue.message}
             </div>
           ))}

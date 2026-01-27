@@ -1,0 +1,79 @@
+# ShiftMaster - Employee Scheduling Application
+
+## Overview
+
+ShiftMaster is a full-stack employee scheduling and workforce management application. It enables managers to create and manage employee shifts, handle time-off requests, configure role-based staffing requirements, and validate schedules against business rules. The application features a weekly calendar view for shift visualization, employee management, and configurable global settings.
+
+## User Preferences
+
+Preferred communication style: Simple, everyday language.
+
+## System Architecture
+
+### Frontend Architecture
+- **Framework**: React 18 with TypeScript
+- **Routing**: Wouter (lightweight React router)
+- **State Management**: TanStack React Query for server state caching and synchronization
+- **Styling**: Tailwind CSS with CSS variables for theming
+- **UI Components**: shadcn/ui component library (Radix UI primitives with custom styling)
+- **Build Tool**: Vite for development and production builds
+
+The frontend follows a page-based structure with shared components. Custom hooks in `client/src/hooks/` encapsulate all API interactions and provide type-safe data fetching using the shared route contracts.
+
+### Backend Architecture
+- **Framework**: Express.js 5 running on Node.js
+- **Language**: TypeScript with ES modules
+- **API Design**: RESTful endpoints defined in `server/routes.ts`
+- **Database Access**: Drizzle ORM with PostgreSQL
+
+The server uses a storage abstraction layer (`server/storage.ts`) that implements the `IStorage` interface, making it possible to swap database implementations. Routes are registered centrally and use Zod schemas from the shared module for input validation.
+
+### Data Storage
+- **Database**: PostgreSQL
+- **ORM**: Drizzle ORM with type-safe schema definitions
+- **Schema Location**: `shared/schema.ts` contains all table definitions
+- **Migrations**: Drizzle Kit manages schema migrations (output to `./migrations`)
+
+Database tables:
+- `employees` - Staff members with job titles, max hours, and status
+- `shifts` - Scheduled work periods with start/end timestamps
+- `time_off_requests` - Employee vacation/leave requests with approval status
+- `role_requirements` - Minimum weekly hours required per job title
+- `global_settings` - Application-wide configuration (hours limits, manager schedules)
+
+### Shared Code Architecture
+The `shared/` directory contains code used by both frontend and backend:
+- `schema.ts` - Drizzle table definitions and Zod insert schemas
+- `routes.ts` - API contract definitions with paths, methods, and response schemas
+
+This approach ensures type safety across the full stack and eliminates API contract drift.
+
+### Build System
+- Development: Vite dev server with HMR, proxied through Express
+- Production: 
+  - Frontend built with Vite to `dist/public`
+  - Backend bundled with esbuild to `dist/index.cjs`
+  - Select dependencies are bundled to reduce cold start times
+
+## External Dependencies
+
+### Database
+- **PostgreSQL**: Primary data store, connection via `DATABASE_URL` environment variable
+- **Connection Pooling**: Uses `pg` Pool for connection management
+
+### UI Framework Dependencies
+- **Radix UI**: Accessible component primitives (dialogs, dropdowns, tooltips, etc.)
+- **Embla Carousel**: Carousel/slider functionality
+- **react-day-picker**: Calendar date selection
+- **cmdk**: Command palette component
+- **vaul**: Drawer component
+
+### Utility Libraries
+- **date-fns**: Date manipulation and formatting
+- **Zod**: Runtime type validation for API inputs/outputs
+- **drizzle-zod**: Generates Zod schemas from Drizzle table definitions
+- **class-variance-authority**: Component variant styling
+- **clsx/tailwind-merge**: Conditional CSS class composition
+
+### Development Tools
+- **Replit Plugins**: Runtime error overlay, cartographer, dev banner (development only)
