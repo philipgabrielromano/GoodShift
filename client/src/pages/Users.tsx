@@ -153,7 +153,7 @@ export default function Users() {
               {users?.map(user => (
                 <div 
                   key={user.id} 
-                  className="flex items-center justify-between gap-4 py-4 hover-elevate px-2 rounded-lg"
+                  className="flex items-center justify-between gap-4 py-4 hover-elevate px-2 rounded"
                   data-testid={`row-user-${user.id}`}
                 >
                   <div className="flex-1 min-w-0">

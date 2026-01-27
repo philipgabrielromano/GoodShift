@@ -48,7 +48,7 @@ export function Navigation() {
       <aside className="hidden lg:flex flex-col w-64 h-screen border-r bg-card fixed left-0 top-0 z-50">
         <div className="p-6 border-b">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-xl">
+            <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-xl">
               G
             </div>
             <h1 className="text-xl font-bold font-display tracking-tight">GoodShift</h1>
@@ -60,7 +60,7 @@ export function Navigation() {
             <Link key={item.href} href={item.href}>
               <div 
                 className={clsx(
-                  "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer group",
+                  "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer group",
                   location === item.href 
                     ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -74,7 +74,7 @@ export function Navigation() {
         </nav>
 
         <div className="p-4 border-t">
-          <div className="bg-muted/50 rounded-xl p-4">
+          <div className="bg-muted/50 rounded p-4">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Current User</p>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-purple-600"></div>
@@ -90,7 +90,7 @@ export function Navigation() {
       {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-card/80 backdrop-blur-md z-50 flex items-center px-4 justify-between">
         <div className="flex items-center gap-2">
-           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-lg">
+           <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-lg">
               G
             </div>
             <h1 className="text-lg font-bold font-display">GoodShift</h1>
@@ -105,7 +105,7 @@ export function Navigation() {
           <SheetContent side="left" className="w-64 p-0">
              <div className="p-6 border-b">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-xl">
+                <div className="w-8 h-8 rounded bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-xl">
                   G
                 </div>
                 <h1 className="text-xl font-bold font-display">GoodShift</h1>
@@ -117,7 +117,7 @@ export function Navigation() {
                   <div 
                     onClick={() => setMobileOpen(false)}
                     className={clsx(
-                      "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 cursor-pointer",
+                      "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
                       location === item.href 
                         ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"

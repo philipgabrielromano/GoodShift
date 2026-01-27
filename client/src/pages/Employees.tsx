@@ -40,7 +40,7 @@ export default function Employees() {
         </Button>
       </div>
 
-      <div className="flex items-center gap-4 bg-card p-2 rounded-xl border shadow-sm max-w-md">
+      <div className="flex items-center gap-4 bg-card p-2 rounded border shadow-sm max-w-md">
         <Search className="w-5 h-5 text-muted-foreground ml-2" />
         <Input 
           placeholder="Search by name or title..." 
@@ -51,11 +51,11 @@ export default function Employees() {
       </div>
 
       {isLoading ? (
-        <div className="bg-card rounded-xl border shadow-sm">
+        <div className="bg-card rounded border shadow-sm">
           {[1,2,3,4].map(i => <div key={i} className="h-16 bg-muted/20 animate-pulse border-b last:border-b-0" />)}
         </div>
       ) : (
-        <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
+        <div className="bg-card rounded border shadow-sm overflow-hidden">
           <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_120px_100px_100px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
             <div>Name</div>
             <div>Email</div>

@@ -163,7 +163,7 @@ export function ScheduleValidator() {
             <div 
               key={idx} 
               className={cn(
-                "p-3 rounded-lg text-sm border flex items-start gap-3",
+                "p-3 rounded text-sm border flex items-start gap-3",
                 issue.type === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-orange-50 border-orange-200 text-orange-800"
               )}
             >

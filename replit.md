@@ -8,6 +8,25 @@ GoodShift is a full-stack employee scheduling and workforce management applicati
 
 Preferred communication style: Simple, everyday language.
 
+### Brand Colors
+**Core Colors:**
+- Blue (#00539F) - Primary brand color
+- Black (#212721) - Text/foreground
+- Gray (#52585A) - Muted text
+- White (#FFFFFF) - Backgrounds
+
+**Accent Colors:**
+- #4F87C6 - Light blue
+- #7CC1E8 - Sky blue
+- #E9992F - Orange
+- #FFD600 - Yellow
+- #B2D235 - Lime green
+- #4FBC86 - Teal (accent)
+- #A95678 - Pink
+- #DF4E51 - Red (destructive)
+
+**Design Style:** Squared corners (minimal border radius), clean professional look.
+
 ## System Architecture
 
 ### Frontend Architecture

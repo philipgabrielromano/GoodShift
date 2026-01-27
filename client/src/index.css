@@ -8,36 +8,47 @@
   --font-sans: 'Lato', sans-serif;
   --font-display: 'Outfit', sans-serif;
 
-  /* Clean Professional Palette - Blue #00539F base with vivid accents */
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
+  /* Brand Color Palette */
+  /* Core: Blue #00539F, Black #212721, Gray #52585A, White #FFFFFF */
+  /* Accents: #4F87C6, #7CC1E8, #E9992F, #FFD600, #B2D235, #4FBC86, #A95678, #DF4E51 */
+  
+  --background: 0 0% 98%;
+  --foreground: 130 9% 14%; /* Black #212721 */
   
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
+  --card-foreground: 130 9% 14%;
   
   --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
+  --popover-foreground: 130 9% 14%;
   
-  --primary: 209 100% 31%;
-  --primary-foreground: 210 40% 98%;
+  --primary: 209 100% 31%; /* Blue #00539F */
+  --primary-foreground: 0 0% 100%;
   
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
+  --secondary: 195 5% 94%; /* Light gray based on #52585A */
+  --secondary-foreground: 130 9% 14%;
   
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
+  --muted: 195 5% 94%;
+  --muted-foreground: 195 5% 34%; /* Gray #52585A */
   
-  --accent: 262 83% 58%;
-  --accent-foreground: 210 40% 98%;
+  --accent: 154 48% 52%; /* Teal #4FBC86 */
+  --accent-foreground: 0 0% 100%;
   
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 359 70% 59%; /* Red #DF4E51 */
+  --destructive-foreground: 0 0% 100%;
   
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
+  --border: 195 5% 85%;
+  --input: 195 5% 85%;
   --ring: 209 100% 31%;
   
-  --radius: 0.75rem;
+  /* Squared corners */
+  --radius: 0.125rem;
+  
+  /* Chart colors using brand palette */
+  --chart-1: 209 100% 31%; /* Blue #00539F */
+  --chart-2: 154 48% 52%; /* Teal #4FBC86 */
+  --chart-3: 36 82% 51%; /* Orange #E9992F */
+  --chart-4: 211 50% 55%; /* Light Blue #4F87C6 */
+  --chart-5: 73 64% 52%; /* Lime #B2D235 */
 }
 
 @layer base {
@@ -71,5 +82,5 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/20 rounded-full hover:bg-muted-foreground/40 transition-colors;
+  @apply bg-muted-foreground/20 hover:bg-muted-foreground/40 transition-colors;
 }

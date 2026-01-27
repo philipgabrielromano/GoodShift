@@ -133,7 +133,7 @@ export default function Schedule() {
       <Skeleton className="h-12 w-64" />
       <div className="grid grid-cols-8 gap-4">
         {Array.from({ length: 16 }).map((_, i) => (
-          <Skeleton key={i} className="h-32 w-full rounded-xl" />
+          <Skeleton key={i} className="h-32 w-full rounded" />
         ))}
       </div>
     </div>;
@@ -149,7 +149,7 @@ export default function Schedule() {
           </p>
         </div>
         
-        <div className="flex items-center gap-2 bg-card border p-1 rounded-lg shadow-sm">
+        <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
           <Button variant="ghost" size="icon" onClick={handlePrevWeek}>
             <ChevronLeft className="w-5 h-5" />
           </Button>
@@ -180,7 +180,7 @@ export default function Schedule() {
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
         {/* Main Schedule Grid */}
-        <div className="xl:col-span-3 bg-card rounded-2xl border shadow-sm overflow-hidden">
+        <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <div className="min-w-[800px]">
               {/* Header Row */}
@@ -257,7 +257,7 @@ export default function Schedule() {
                                 <div 
                                   key={shift.id}
                                   onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                                  className="pointer-events-auto cursor-pointer p-2 rounded-lg text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-sm transition-all text-white"
+                                  className="pointer-events-auto cursor-pointer p-2 rounded text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-sm transition-all text-white"
                                   style={{ backgroundColor: emp.color }}
                                 >
                                   <div className="flex justify-between items-center">
@@ -338,7 +338,7 @@ export default function Schedule() {
             </Card>
           )}
           
-          <div className="bg-card rounded-2xl border p-6 shadow-sm">
+          <div className="bg-card rounded border p-6 shadow-sm">
             <h3 className="font-bold text-lg mb-4">Quick Stats</h3>
             <div className="space-y-4">
               <div className="flex justify-between items-center">

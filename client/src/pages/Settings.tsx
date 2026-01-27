@@ -284,7 +284,7 @@ export default function Settings() {
 
             <div className="space-y-2">
               {roles?.map(role => (
-                <div key={role.id} className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg border" data-testid={`row-role-${role.id}`}>
+                <div key={role.id} className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded border" data-testid={`row-role-${role.id}`}>
                   <div 
                     className="w-6 h-6 rounded-md flex-shrink-0" 
                     style={{ backgroundColor: role.color || "#3b82f6" }}
@@ -333,7 +333,7 @@ export default function Settings() {
           </div>
 
           {authStatus?.ssoConfigured && authStatus.isAuthenticated && authStatus.user && (
-            <div className="p-3 bg-muted/30 rounded-lg border space-y-1">
+            <div className="p-3 bg-muted/30 rounded border space-y-1">
               <p className="font-medium">{authStatus.user.name}</p>
               <p className="text-sm text-muted-foreground">{authStatus.user.email}</p>
             </div>
@@ -420,7 +420,7 @@ export default function Settings() {
               </Button>
 
               {ukgApiError && (
-                <div className="p-3 bg-destructive/10 border border-destructive/30 rounded-lg">
+                <div className="p-3 bg-destructive/10 border border-destructive/30 rounded">
                   <p className="text-sm font-medium text-destructive">UKG API Error:</p>
                   <p className="text-xs text-destructive/80 mt-1 font-mono break-all">{ukgApiError}</p>
                 </div>

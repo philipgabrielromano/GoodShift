@@ -33,7 +33,7 @@ export default function TimeOffRequests() {
         {isLoading ? (
           <div>Loading...</div>
         ) : requests?.length === 0 ? (
-          <div className="p-12 text-center text-muted-foreground bg-muted/20 rounded-2xl border border-dashed">
+          <div className="p-12 text-center text-muted-foreground bg-muted/20 rounded border border-dashed">
             <Calendar className="w-12 h-12 mx-auto mb-4 opacity-20" />
             <p>No pending requests found.</p>
           </div>
@@ -41,7 +41,7 @@ export default function TimeOffRequests() {
           requests?.map(req => {
             const emp = getEmployee(req.employeeId);
             return (
-              <div key={req.id} className="bg-card p-6 rounded-xl border shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div key={req.id} className="bg-card p-6 rounded border shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex items-start gap-4">
                   <div 
                     className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold"
@@ -77,7 +77,7 @@ export default function TimeOffRequests() {
                       </Button>
                     </>
                   ) : (
-                    <div className={`px-4 py-2 rounded-lg font-medium text-sm capitalize ${
+                    <div className={`px-4 py-2 rounded font-medium text-sm capitalize ${
                       req.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                     }`}>
                       {req.status}
