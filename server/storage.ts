@@ -314,26 +314,23 @@ export class DatabaseStorage implements IStorage {
     for (let i = 0; i < entries.length; i += batchSize) {
       const batch = entries.slice(i, i + batchSize);
       
+      // Use onConflictDoUpdate for efficient upserts with unique constraint
       for (const entry of batch) {
-        // Check if entry exists for this employee/date
-        const [existing] = await db.select().from(timeClockEntries)
-          .where(and(
-            eq(timeClockEntries.ukgEmployeeId, entry.ukgEmployeeId),
-            eq(timeClockEntries.workDate, entry.workDate)
-          ));
-        
-        if (existing) {
-          // Update existing entry
-          await db.update(timeClockEntries)
-            .set({
-              ...entry,
+        await db.insert(timeClockEntries)
+          .values(entry)
+          .onConflictDoUpdate({
+            target: [timeClockEntries.ukgEmployeeId, timeClockEntries.workDate],
+            set: {
+              clockIn: entry.clockIn,
+              clockOut: entry.clockOut,
+              regularHours: entry.regularHours,
+              overtimeHours: entry.overtimeHours,
+              totalHours: entry.totalHours,
+              locationId: entry.locationId,
+              jobId: entry.jobId,
               syncedAt: new Date(),
-            })
-            .where(eq(timeClockEntries.id, existing.id));
-        } else {
-          // Insert new entry
-          await db.insert(timeClockEntries).values(entry);
-        }
+            },
+          });
         upserted++;
       }
     }

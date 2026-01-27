@@ -1090,25 +1090,40 @@ export async function registerRoutes(
     res.json({ entities: results, error });
   });
 
-  // Get time clock data for a date range
+  // Get time clock data for a date range (from stored data)
   app.get(api.ukg.timeclock.path, requireAuth, async (req, res) => {
-    if (!ukgClient.isConfigured()) {
-      return res.json({ entries: [], error: "UKG is not configured" });
-    }
-
     const { startDate, endDate } = req.query;
     
     if (!startDate || !endDate) {
       return res.json({ entries: [], error: "startDate and endDate query parameters are required" });
     }
 
-    const entries = await ukgClient.getTimeClockData(
-      String(startDate),
-      String(endDate)
-    );
+    try {
+      // Get time clock data from database
+      const storedEntries = await storage.getTimeClockEntries(
+        String(startDate),
+        String(endDate)
+      );
 
-    const error = ukgClient.getLastError();
-    res.json({ entries, error });
+      // Convert stored entries to the format expected by the frontend
+      // Database stores hours as minutes, convert back to hours
+      const entries = storedEntries.map(entry => ({
+        employeeId: entry.ukgEmployeeId,
+        date: entry.workDate,
+        clockIn: entry.clockIn || "",
+        clockOut: entry.clockOut || "",
+        regularHours: (entry.regularHours || 0) / 60,
+        overtimeHours: (entry.overtimeHours || 0) / 60,
+        totalHours: (entry.totalHours || 0) / 60,
+        locationId: entry.locationId,
+        jobId: entry.jobId,
+      }));
+
+      res.json({ entries, error: null });
+    } catch (err) {
+      console.error("Error fetching time clock data:", err);
+      res.json({ entries: [], error: "Failed to fetch time clock data" });
+    }
   });
 
   // === Users ===

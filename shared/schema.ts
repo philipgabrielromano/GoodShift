@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, date } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -104,7 +104,9 @@ export const timeClockEntries = pgTable("time_clock_entries", {
   locationId: integer("location_id"), // UKG location ID
   jobId: integer("job_id"), // UKG job ID
   syncedAt: timestamp("synced_at").defaultNow(), // When this record was last synced
-});
+}, (table) => ({
+  employeeDateIdx: uniqueIndex("time_clock_employee_date_idx").on(table.ukgEmployeeId, table.workDate),
+}));
 
 // === RELATIONS ===
 
