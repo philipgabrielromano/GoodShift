@@ -1421,6 +1421,50 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === Weather Forecast ===
+  // Cache weather data for 1 hour to avoid excessive API calls
+  let weatherCache: { data: any; timestamp: number } | null = null;
+  const WEATHER_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+  app.get("/api/weather/forecast", async (req, res) => {
+    try {
+      // Check cache first
+      if (weatherCache && (Date.now() - weatherCache.timestamp) < WEATHER_CACHE_DURATION) {
+        return res.json(weatherCache.data);
+      }
+
+      // Default coordinates for store region (can be made configurable later)
+      // Using coordinates for typical store location area
+      const latitude = req.query.lat || "39.7456";
+      const longitude = req.query.lon || "-75.5466";
+      
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&temperature_unit=fahrenheit&timezone=America/New_York&forecast_days=14`;
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Weather API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Transform data into a more usable format
+      const forecast = data.daily.time.map((date: string, i: number) => ({
+        date,
+        highTemp: Math.round(data.daily.temperature_2m_max[i]),
+        lowTemp: Math.round(data.daily.temperature_2m_min[i]),
+        precipitationChance: data.daily.precipitation_probability_max[i]
+      }));
+      
+      // Cache the result
+      weatherCache = { data: forecast, timestamp: Date.now() };
+      
+      res.json(forecast);
+    } catch (error) {
+      console.error("Weather API error:", error);
+      res.status(500).json({ message: "Failed to fetch weather data" });
+    }
+  });
+
   // === SEED DATA ===
   await seedDatabase();
 
