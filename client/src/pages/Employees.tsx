@@ -55,12 +55,12 @@ export default function Employees() {
         </div>
       ) : (
         <div className="bg-card rounded border shadow-sm overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_120px_120px_100px_100px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
+          <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_minmax(120px,1fr)_120px_120px_80px_80px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
             <div>Name</div>
             <div>Email</div>
             <div>Job Title</div>
             <div>Location</div>
-            <div>Max Hours</div>
+            <div>Hours</div>
             <div>Status</div>
             <div></div>
           </div>
@@ -102,15 +102,15 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_120px_100px_100px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
-      <div className="flex items-center gap-3">
+    <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_minmax(120px,1fr)_120px_120px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
+      <div className="flex items-center gap-3 min-w-0">
         <div 
           className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0" 
           style={{ backgroundColor: employee.color }}
         >
           {employee.name.substring(0, 2).toUpperCase()}
         </div>
-        <span className="font-medium truncate">{employee.name}</span>
+        <span className="font-medium">{employee.name}</span>
       </div>
       <div className="text-sm text-muted-foreground truncate">{employee.email}</div>
       <div className="text-sm truncate">{employee.jobTitle}</div>
