@@ -684,123 +684,15 @@ export default function Schedule() {
         </div>
         
         <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
-          <Button variant="ghost" size="icon" onClick={handlePrevWeek}>
+          <Button variant="ghost" size="icon" onClick={handlePrevWeek} data-testid="button-prev-week">
             <ChevronLeft className="w-5 h-5" />
           </Button>
           <div className="px-4 font-medium min-w-[120px] text-center">
             {formatInTimeZone(currentDate, TIMEZONE, "MMMM yyyy")}
           </div>
-          <Button variant="ghost" size="icon" onClick={handleNextWeek}>
+          <Button variant="ghost" size="icon" onClick={handleNextWeek} data-testid="button-next-week">
             <ChevronRight className="w-5 h-5" />
           </Button>
-        </div>
-
-        <div className="flex gap-3 flex-wrap">
-          <Button 
-            variant="outline" 
-            onClick={handleClearSchedule} 
-            disabled={isClearing}
-            className="border-destructive/50 hover:border-destructive text-destructive hover:bg-destructive/10"
-            data-testid="button-clear-schedule"
-          >
-            <Trash2 className={cn("w-4 h-4 mr-2", isClearing && "animate-pulse")} />
-            {isClearing ? "Clearing..." : "Clear Week"}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleManualGenerate} 
-            disabled={isManualGenerating || isAIGenerating}
-            className="border-primary/50 hover:border-primary"
-            data-testid="button-generate-schedule"
-          >
-            <CalendarClock className={cn("w-4 h-4 mr-2", isManualGenerating && "animate-spin")} />
-            {isManualGenerating ? "Generating..." : "Generate Schedule"}
-          </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleCopyToNextWeek} 
-            disabled={isCopying}
-            data-testid="button-copy-to-next-week"
-          >
-            <Copy className={cn("w-4 h-4 mr-2", isCopying && "animate-pulse")} />
-            {isCopying ? "Copying..." : "Copy to Next Week"}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" data-testid="button-templates">
-                <FileDown className="w-4 h-4 mr-2" />
-                Templates
-                <ChevronDown className="w-4 h-4 ml-2" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem 
-                onClick={() => setSaveTemplateDialogOpen(true)}
-                data-testid="menuitem-save-template"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Save Current Week as Template
-              </DropdownMenuItem>
-              {templates.length > 0 && (
-                <>
-                  <DropdownMenuSeparator />
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                    Apply Template
-                  </div>
-                  {templates.map((template) => (
-                    <DropdownMenuItem
-                      key={template.id}
-                      onClick={() => handleApplyTemplate(template.id, template.name)}
-                      data-testid={`menuitem-apply-template-${template.id}`}
-                    >
-                      <FileDown className="w-4 h-4 mr-2" />
-                      {template.name}
-                    </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                    Delete Template
-                  </div>
-                  {templates.map((template) => (
-                    <DropdownMenuItem
-                      key={`delete-${template.id}`}
-                      onClick={() => handleDeleteTemplate(template.id, template.name)}
-                      className="text-destructive focus:text-destructive"
-                      data-testid={`menuitem-delete-template-${template.id}`}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete "{template.name}"
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          
-          {/* Publish/Unpublish Button - managers and admins only */}
-          {(userRole === "admin" || userRole === "manager") && (
-            isSchedulePublished ? (
-              <Button
-                variant="outline"
-                onClick={handleUnpublishSchedule}
-                disabled={isPublishing}
-                data-testid="button-unpublish-schedule"
-              >
-                <EyeOff className="w-4 h-4 mr-2" />
-                {isPublishing ? "Unpublishing..." : "Unpublish"}
-              </Button>
-            ) : (
-              <Button
-                onClick={handlePublishSchedule}
-                disabled={isPublishing}
-                className="bg-primary"
-                data-testid="button-publish-schedule"
-              >
-                <Send className="w-4 h-4 mr-2" />
-                {isPublishing ? "Publishing..." : "Publish Schedule"}
-              </Button>
-            )
-          )}
         </div>
       </div>
 
@@ -816,7 +708,129 @@ export default function Schedule() {
       )}
 
       {canViewSchedule && (
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
+      <div className="flex gap-6">
+        {/* Left Controls Sidebar - managers and admins only */}
+        {(userRole === "admin" || userRole === "manager") && (
+          <div className="w-48 shrink-0 space-y-3" data-testid="controls-sidebar">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Schedule Actions
+            </div>
+            
+            {/* Publish/Unpublish Button */}
+            {isSchedulePublished ? (
+              <Button
+                variant="outline"
+                onClick={handleUnpublishSchedule}
+                disabled={isPublishing}
+                className="w-full justify-start"
+                data-testid="button-unpublish-schedule"
+              >
+                <EyeOff className="w-4 h-4 mr-2" />
+                {isPublishing ? "Unpublishing..." : "Unpublish"}
+              </Button>
+            ) : (
+              <Button
+                onClick={handlePublishSchedule}
+                disabled={isPublishing}
+                className="w-full justify-start bg-primary"
+                data-testid="button-publish-schedule"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {isPublishing ? "Publishing..." : "Publish"}
+              </Button>
+            )}
+            
+            <Button 
+              variant="outline" 
+              onClick={handleManualGenerate} 
+              disabled={isManualGenerating || isAIGenerating}
+              className="w-full justify-start border-primary/50 hover:border-primary"
+              data-testid="button-generate-schedule"
+            >
+              <CalendarClock className={cn("w-4 h-4 mr-2", isManualGenerating && "animate-spin")} />
+              {isManualGenerating ? "Generating..." : "Generate"}
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              onClick={handleCopyToNextWeek} 
+              disabled={isCopying}
+              className="w-full justify-start"
+              data-testid="button-copy-to-next-week"
+            >
+              <Copy className={cn("w-4 h-4 mr-2", isCopying && "animate-pulse")} />
+              {isCopying ? "Copying..." : "Copy to Next"}
+            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-full justify-start" data-testid="button-templates">
+                  <FileDown className="w-4 h-4 mr-2" />
+                  Templates
+                  <ChevronDown className="w-4 h-4 ml-auto" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuItem 
+                  onClick={() => setSaveTemplateDialogOpen(true)}
+                  data-testid="menuitem-save-template"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Current Week as Template
+                </DropdownMenuItem>
+                {templates.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Apply Template
+                    </div>
+                    {templates.map((template) => (
+                      <DropdownMenuItem
+                        key={template.id}
+                        onClick={() => handleApplyTemplate(template.id, template.name)}
+                        data-testid={`menuitem-apply-template-${template.id}`}
+                      >
+                        <FileDown className="w-4 h-4 mr-2" />
+                        {template.name}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Delete Template
+                    </div>
+                    {templates.map((template) => (
+                      <DropdownMenuItem
+                        key={`delete-${template.id}`}
+                        onClick={() => handleDeleteTemplate(template.id, template.name)}
+                        className="text-destructive focus:text-destructive"
+                        data-testid={`menuitem-delete-template-${template.id}`}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete "{template.name}"
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            
+            <div className="pt-2 border-t">
+              <Button 
+                variant="outline" 
+                onClick={handleClearSchedule} 
+                disabled={isClearing}
+                className="w-full justify-start border-destructive/50 hover:border-destructive text-destructive hover:bg-destructive/10"
+                data-testid="button-clear-schedule"
+              >
+                <Trash2 className={cn("w-4 h-4 mr-2", isClearing && "animate-pulse")} />
+                {isClearing ? "Clearing..." : "Clear Week"}
+              </Button>
+            </div>
+          </div>
+        )}
+        
+        {/* Main Content Area */}
+        <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-6">
         {/* Main Schedule Grid */}
         <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden relative">
           {/* Generation Loading Overlay - positioned at top */}
@@ -1184,6 +1198,7 @@ export default function Schedule() {
             </Card>
           )}
         </div>
+      </div>
       </div>
       )}
 
