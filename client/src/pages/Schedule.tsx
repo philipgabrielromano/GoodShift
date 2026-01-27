@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown } from "lucide-react";
 import { cn, getJobTitle } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -17,7 +17,9 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Shift } from "@shared/schema";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import type { Shift, ScheduleTemplate } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -324,6 +326,77 @@ export default function Schedule() {
   const [isManualGenerating, setIsManualGenerating] = useState(false);
   const [aiReasoning, setAIReasoning] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDescription, setTemplateDescription] = useState("");
+
+  // Fetch schedule templates
+  const { data: templates = [] } = useQuery<ScheduleTemplate[]>({
+    queryKey: ["/api/schedule-templates"],
+  });
+
+  const handleCopyToNextWeek = async () => {
+    setIsCopying(true);
+    try {
+      const response = await apiRequest("POST", "/api/schedule/copy-to-next-week", { weekStart: weekStart.toISOString() });
+      const result = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Schedule Copied", description: result.message });
+    } catch (error: any) {
+      const message = error?.message || "Could not copy schedule.";
+      toast({ variant: "destructive", title: "Copy Failed", description: message });
+    } finally {
+      setIsCopying(false);
+    }
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!templateName.trim()) {
+      toast({ variant: "destructive", title: "Name Required", description: "Please enter a template name." });
+      return;
+    }
+    setIsSavingTemplate(true);
+    try {
+      await apiRequest("POST", "/api/schedule-templates", {
+        name: templateName,
+        description: templateDescription || null,
+        weekStart: weekStart.toISOString(),
+        createdBy: authStatus?.user?.id || null,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      toast({ title: "Template Saved", description: `Template "${templateName}" saved successfully.` });
+      setSaveTemplateDialogOpen(false);
+      setTemplateName("");
+      setTemplateDescription("");
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Save Failed", description: error?.message || "Could not save template." });
+    } finally {
+      setIsSavingTemplate(false);
+    }
+  };
+
+  const handleApplyTemplate = async (templateId: number, templateName: string) => {
+    try {
+      const response = await apiRequest("POST", `/api/schedule-templates/${templateId}/apply`, { weekStart: weekStart.toISOString() });
+      const result = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ title: "Template Applied", description: `Applied "${templateName}": ${result.message}` });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Apply Failed", description: error?.message || "Could not apply template." });
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: number, templateName: string) => {
+    try {
+      await apiRequest("DELETE", `/api/schedule-templates/${templateId}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
+      toast({ title: "Template Deleted", description: `Template "${templateName}" deleted.` });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Delete Failed", description: "Could not delete template." });
+    }
+  };
 
   const handleManualGenerate = async () => {
     setIsManualGenerating(true);
@@ -557,7 +630,7 @@ export default function Schedule() {
           </Button>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <Button 
             variant="outline" 
             onClick={handleClearSchedule} 
@@ -578,6 +651,66 @@ export default function Schedule() {
             <CalendarClock className={cn("w-4 h-4 mr-2", isManualGenerating && "animate-spin")} />
             {isManualGenerating ? "Generating..." : "Generate Schedule"}
           </Button>
+          <Button 
+            variant="outline" 
+            onClick={handleCopyToNextWeek} 
+            disabled={isCopying}
+            data-testid="button-copy-to-next-week"
+          >
+            <Copy className={cn("w-4 h-4 mr-2", isCopying && "animate-pulse")} />
+            {isCopying ? "Copying..." : "Copy to Next Week"}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" data-testid="button-templates">
+                <FileDown className="w-4 h-4 mr-2" />
+                Templates
+                <ChevronDown className="w-4 h-4 ml-2" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem 
+                onClick={() => setSaveTemplateDialogOpen(true)}
+                data-testid="menuitem-save-template"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Save Current Week as Template
+              </DropdownMenuItem>
+              {templates.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                    Apply Template
+                  </div>
+                  {templates.map((template) => (
+                    <DropdownMenuItem
+                      key={template.id}
+                      onClick={() => handleApplyTemplate(template.id, template.name)}
+                      data-testid={`menuitem-apply-template-${template.id}`}
+                    >
+                      <FileDown className="w-4 h-4 mr-2" />
+                      {template.name}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                    Delete Template
+                  </div>
+                  {templates.map((template) => (
+                    <DropdownMenuItem
+                      key={`delete-${template.id}`}
+                      onClick={() => handleDeleteTemplate(template.id, template.name)}
+                      className="text-destructive focus:text-destructive"
+                      data-testid={`menuitem-delete-template-${template.id}`}
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete "{template.name}"
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {/* AI Generate button hidden - infrastructure kept for future use */}
           <Button onClick={() => handleAddShift(new Date())} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all" data-testid="button-add-shift">
             <Plus className="w-4 h-4 mr-2" />
@@ -942,6 +1075,47 @@ export default function Schedule() {
         defaultDate={selectedDate}
         defaultEmployeeId={selectedEmpId}
       />
+
+      <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Schedule as Template</DialogTitle>
+            <DialogDescription>
+              Save this week's schedule as a reusable template that can be applied to future weeks.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="template-name">Template Name</Label>
+              <Input
+                id="template-name"
+                placeholder="e.g., Standard Week, Holiday Week"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                data-testid="input-template-name"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-description">Description (optional)</Label>
+              <Input
+                id="template-description"
+                placeholder="Brief description of this template"
+                value={templateDescription}
+                onChange={(e) => setTemplateDescription(e.target.value)}
+                data-testid="input-template-description"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveTemplateDialogOpen(false)} data-testid="button-cancel-template">
+              Cancel
+            </Button>
+            <Button onClick={handleSaveTemplate} disabled={isSavingTemplate} data-testid="button-save-template">
+              {isSavingTemplate ? "Saving..." : "Save Template"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

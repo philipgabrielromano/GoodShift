@@ -62,6 +62,7 @@ Database tables:
 - `users` - User accounts with roles (admin/manager/viewer) and location access control
 - `locations` - Store locations with weekly hours allocation limits
 - `time_clock_entries` - Historical time punch data from UKG (employee hours worked)
+- `schedule_templates` - Reusable weekly schedule patterns for quick schedule creation
 
 ### Shared Code Architecture
 The `shared/` directory contains code used by both frontend and backend:
@@ -193,6 +194,15 @@ Part-time employees (less than 32 max hours) can work up to 5 days per week with
 The scheduler intelligently picks the best combination of shift types to maximize hours while staying within max weekly hours limits.
 
 Each employee has a **Preferred Days/Week** setting (4 or 5) that managers can configure in the employee profile. The scheduler will respect this setting, allowing some employees to work fewer days with longer shifts while others spread hours across more days.
+
+### Schedule Templates & Copy
+Managers can save and reuse schedule patterns:
+- **Copy to Next Week**: Duplicates all shifts from the current week to the following week
+- **Save as Template**: Saves the current week's schedule as a named template (stores shift patterns by day of week and time)
+- **Apply Template**: Loads a saved template and creates shifts for any target week
+- **Delete Template**: Removes saved templates that are no longer needed
+
+Templates store shift patterns (employee, day of week, start/end times) rather than absolute dates, making them reusable across different weeks.
 
 ### Labor Allocation
 Configurable percentages for distributing store hours:

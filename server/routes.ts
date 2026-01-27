@@ -161,12 +161,22 @@ export async function registerRoutes(
 
   // === Schedule Copy & Templates ===
   
+  // Helper to validate date string
+  const isValidDate = (dateStr: string): boolean => {
+    const d = new Date(dateStr);
+    return !isNaN(d.getTime());
+  };
+  
   // Copy current week's schedule to the next week
-  app.post("/api/schedule/copy-to-next-week", async (req, res) => {
+  app.post("/api/schedule/copy-to-next-week", requireAuth, async (req, res) => {
     try {
       const { weekStart } = req.body;
       if (!weekStart) {
         return res.status(400).json({ message: "weekStart is required" });
+      }
+      
+      if (!isValidDate(weekStart)) {
+        return res.status(400).json({ message: "Invalid weekStart date" });
       }
       
       const currentWeekStart = new Date(weekStart);
@@ -197,17 +207,21 @@ export async function registerRoutes(
   });
   
   // Get all schedule templates
-  app.get("/api/schedule-templates", async (req, res) => {
+  app.get("/api/schedule-templates", requireAuth, async (req, res) => {
     const templates = await storage.getScheduleTemplates();
     res.json(templates);
   });
   
   // Save current week as a template
-  app.post("/api/schedule-templates", async (req, res) => {
+  app.post("/api/schedule-templates", requireAuth, async (req, res) => {
     try {
       const { name, description, weekStart, createdBy } = req.body;
       if (!name || !weekStart) {
         return res.status(400).json({ message: "name and weekStart are required" });
+      }
+      
+      if (!isValidDate(weekStart)) {
+        return res.status(400).json({ message: "Invalid weekStart date" });
       }
       
       const currentWeekStart = new Date(weekStart);
@@ -251,7 +265,7 @@ export async function registerRoutes(
   });
   
   // Apply a template to a week
-  app.post("/api/schedule-templates/:id/apply", async (req, res) => {
+  app.post("/api/schedule-templates/:id/apply", requireAuth, async (req, res) => {
     try {
       const templateId = Number(req.params.id);
       const { weekStart } = req.body;
@@ -260,12 +274,22 @@ export async function registerRoutes(
         return res.status(400).json({ message: "weekStart is required" });
       }
       
+      if (!isValidDate(weekStart)) {
+        return res.status(400).json({ message: "Invalid weekStart date" });
+      }
+      
       const template = await storage.getScheduleTemplate(templateId);
       if (!template) {
         return res.status(404).json({ message: "Template not found" });
       }
       
-      const patterns = JSON.parse(template.shiftPatterns);
+      let patterns;
+      try {
+        patterns = JSON.parse(template.shiftPatterns);
+      } catch {
+        return res.status(500).json({ message: "Template data is corrupted" });
+      }
+      
       const targetWeekStart = new Date(weekStart);
       
       // Convert patterns back to shifts
@@ -298,7 +322,7 @@ export async function registerRoutes(
   });
   
   // Delete a template
-  app.delete("/api/schedule-templates/:id", async (req, res) => {
+  app.delete("/api/schedule-templates/:id", requireAuth, async (req, res) => {
     await storage.deleteScheduleTemplate(Number(req.params.id));
     res.status(204).send();
   });
