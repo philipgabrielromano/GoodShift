@@ -457,6 +457,13 @@ export async function registerRoutes(
         const openersRequired = settings.openersRequired ?? 2;
         const closersRequired = settings.closersRequired ?? 2;
         
+        // Define mid-shift times (9-5:30, 10-6:30, 11-7:30)
+        const midShifts = [
+          { start: createESTTime(currentDay, 9, 0), end: createESTTime(currentDay, 17, 30) },
+          { start: createESTTime(currentDay, 10, 0), end: createESTTime(currentDay, 18, 30) },
+          { start: createESTTime(currentDay, 11, 0), end: createESTTime(currentDay, 19, 30) }
+        ];
+        
         // Calculate daily targets per category
         for (const category of laborCategories) {
           const dailyTarget = category.weeklyHours / 7;
@@ -470,6 +477,8 @@ export async function registerRoutes(
           let assignedToday = 0;
           let openersAssigned = 0;
           let closersAssigned = 0;
+          let midShiftIndex = 0;
+          let midShiftsAssigned = 0;
           
           for (const emp of categoryEmployees) {
             // Enforce weekly allocation limit for this category
@@ -478,20 +487,29 @@ export async function registerRoutes(
             if (isOnTimeOff(emp.id, currentDay)) continue;
             if (employeeHours[emp.id] + SHIFT_HOURS > emp.maxWeeklyHours) continue;
             
-            // Alternate between opener and closer shifts
+            // Rotate through opener, mid-shifts, and closer
             let shiftStart, shiftEnd;
             if (openersAssigned < openersRequired) {
               shiftStart = morningStart;
               shiftEnd = morningEnd;
               openersAssigned++;
+            } else if (midShiftsAssigned < 3) {
+              // Assign mid-shifts (rotate through the 3 options)
+              const midShift = midShifts[midShiftIndex % 3];
+              shiftStart = midShift.start;
+              shiftEnd = midShift.end;
+              midShiftIndex++;
+              midShiftsAssigned++;
             } else if (closersAssigned < closersRequired) {
               shiftStart = eveningStart;
               shiftEnd = eveningEnd;
               closersAssigned++;
             } else {
-              // Default to opener if both met
-              shiftStart = morningStart;
-              shiftEnd = morningEnd;
+              // Continue rotating mid-shifts after all required positions filled
+              const midShift = midShifts[midShiftIndex % 3];
+              shiftStart = midShift.start;
+              shiftEnd = midShift.end;
+              midShiftIndex++;
             }
             
             const shift = await storage.createShift({ 

@@ -180,6 +180,26 @@ export function ScheduleValidator() {
           message: `${dayLabel}: Missing closing donor greeter`
         });
       }
+      
+      // Check for mid-shift coverage (9-5:30, 10-6:30, 11-7:30)
+      const midShiftTimes = [
+        { start: "09:00", end: "17:30" },
+        { start: "10:00", end: "18:30" },
+        { start: "11:00", end: "19:30" }
+      ];
+      
+      const midShiftsScheduled = dayShifts.filter(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return midShiftTimes.some(mid => startStr === mid.start && endStr === mid.end);
+      });
+      
+      if (midShiftsScheduled.length === 0) {
+        newIssues.push({
+          type: "warning",
+          message: `${dayLabel}: No mid-shifts scheduled (9-5:30, 10-6:30, 11-7:30)`
+        });
+      }
     });
 
     // Check 5: Time off conflicts
