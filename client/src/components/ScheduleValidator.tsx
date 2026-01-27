@@ -146,6 +146,40 @@ export function ScheduleValidator() {
           message: `${dayLabel}: Need ${managersRequired} closing manager(s), have ${closingManagers}`
         });
       }
+      
+      // Check donor greeter coverage (one opening, one closing)
+      const donorGreeterShifts = dayShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp?.jobTitle === 'DONDOOR';
+      });
+      
+      const openingGreeter = donorGreeterShifts.some(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerMorningStart || "08:00") && 
+               endStr === (settings.managerMorningEnd || "16:30");
+      });
+      
+      const closingGreeter = donorGreeterShifts.some(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerEveningStart || "12:00") && 
+               endStr === (settings.managerEveningEnd || "20:30");
+      });
+      
+      if (!openingGreeter) {
+        newIssues.push({
+          type: "error",
+          message: `${dayLabel}: Missing opening donor greeter`
+        });
+      }
+      
+      if (!closingGreeter) {
+        newIssues.push({
+          type: "error",
+          message: `${dayLabel}: Missing closing donor greeter`
+        });
+      }
     });
 
     // Check 5: Time off conflicts

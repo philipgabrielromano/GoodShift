@@ -388,7 +388,72 @@ export async function registerRoutes(
           assignedEveningManagers.push(mgr.id);
         }
 
-        // 2. Staff Coverage based on labor allocation
+        // 2. Mandatory Donor Greeter Coverage (one opening, one closing)
+        const donorGreeters = employees.filter(emp => 
+          emp.jobTitle === 'DONDOOR' && emp.isActive
+        );
+        const donorGreetingCategory = laborCategories.find(c => c.name === 'Donor Greeting');
+        
+        let openingGreeterId: number | null = null;
+        let closingGreeterAssigned = false;
+        
+        // Assign opening donor greeter
+        for (const greeter of donorGreeters) {
+          if (openingGreeterId !== null) break;
+          if (isOnTimeOff(greeter.id, currentDay)) continue;
+          if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
+          // Skip allocation cap for mandatory coverage
+          
+          const shift = await storage.createShift({ 
+            employeeId: greeter.id, 
+            startTime: morningStart, 
+            endTime: morningEnd 
+          });
+          generatedShifts.push(shift);
+          employeeHours[greeter.id] += SHIFT_HOURS;
+          if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
+          openingGreeterId = greeter.id;
+        }
+        
+        // Assign closing donor greeter (prefer different employee than opening)
+        // First pass: try to find a different employee
+        for (const greeter of donorGreeters) {
+          if (closingGreeterAssigned) break;
+          if (greeter.id === openingGreeterId) continue; // Skip opening greeter first
+          if (isOnTimeOff(greeter.id, currentDay)) continue;
+          if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
+          
+          const shift = await storage.createShift({ 
+            employeeId: greeter.id, 
+            startTime: eveningStart, 
+            endTime: eveningEnd 
+          });
+          generatedShifts.push(shift);
+          employeeHours[greeter.id] += SHIFT_HOURS;
+          if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
+          closingGreeterAssigned = true;
+        }
+        
+        // Second pass: if no closing greeter yet, allow opening greeter to also close
+        if (!closingGreeterAssigned) {
+          for (const greeter of donorGreeters) {
+            if (closingGreeterAssigned) break;
+            if (isOnTimeOff(greeter.id, currentDay)) continue;
+            if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
+            
+            const shift = await storage.createShift({ 
+              employeeId: greeter.id, 
+              startTime: eveningStart, 
+              endTime: eveningEnd 
+            });
+            generatedShifts.push(shift);
+            employeeHours[greeter.id] += SHIFT_HOURS;
+            if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
+            closingGreeterAssigned = true;
+          }
+        }
+
+        // 3. Staff Coverage based on labor allocation
         const openersRequired = settings.openersRequired ?? 2;
         const closersRequired = settings.closersRequired ?? 2;
         
