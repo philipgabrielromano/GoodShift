@@ -160,6 +160,45 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === PAL (Paid Annual Leave) Entries ===
+  // Get PAL entries from UKG time clock data (paycodeId = 2) for a date range
+  app.get("/api/pal-entries", async (req, res) => {
+    try {
+      const startDate = req.query.start as string;
+      const endDate = req.query.end as string;
+      
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "start and end query parameters are required" });
+      }
+      
+      // Get PAL entries from storage
+      const palEntries = await storage.getPALEntries(startDate, endDate);
+      
+      // Get employee data to map UKG IDs to employee records
+      const employees = await storage.getEmployees();
+      const employeeByUkgId = new Map(
+        employees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
+      );
+      
+      // Enrich PAL entries with employee info
+      const enrichedEntries = palEntries.map(entry => {
+        const employee = employeeByUkgId.get(entry.ukgEmployeeId);
+        return {
+          ...entry,
+          employeeId: employee?.id || null,
+          employeeName: employee?.name || "Unknown",
+          // Convert total hours from minutes to hours
+          hoursDecimal: entry.totalHours / 60,
+        };
+      });
+      
+      res.json(enrichedEntries);
+    } catch (error) {
+      console.error("Error fetching PAL entries:", error);
+      res.status(500).json({ message: "Failed to fetch PAL entries" });
+    }
+  });
+
   // === Schedule Copy & Templates ===
   
   // Helper to validate date string

@@ -317,6 +317,16 @@ export class DatabaseStorage implements IStorage {
       ));
   }
 
+  // Get PAL (Paid Annual Leave) entries - paycodeId = 2
+  async getPALEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]> {
+    return await db.select().from(timeClockEntries)
+      .where(and(
+        gte(timeClockEntries.workDate, startDate),
+        lte(timeClockEntries.workDate, endDate),
+        eq(timeClockEntries.paycodeId, 2)
+      ));
+  }
+
   async upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number> {
     if (entries.length === 0) return 0;
 
