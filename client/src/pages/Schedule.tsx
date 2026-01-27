@@ -350,16 +350,7 @@ export default function Schedule() {
             <CalendarClock className={cn("w-4 h-4 mr-2", isManualGenerating && "animate-spin")} />
             {isManualGenerating ? "Generating..." : "Generate Schedule"}
           </Button>
-          <Button 
-            variant="outline" 
-            onClick={handleAIGenerate} 
-            disabled={isAIGenerating || isManualGenerating}
-            className="border-accent/50 hover:border-accent bg-accent/10 hover:bg-accent/20"
-            data-testid="button-ai-generate"
-          >
-            <Sparkles className={cn("w-4 h-4 mr-2", isAIGenerating && "animate-pulse")} />
-            {isAIGenerating ? "AI Thinking..." : "AI Generate"}
-          </Button>
+          {/* AI Generate button hidden - infrastructure kept for future use */}
           <Button onClick={() => handleAddShift(new Date())} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all" data-testid="button-add-shift">
             <Plus className="w-4 h-4 mr-2" />
             Add Shift
