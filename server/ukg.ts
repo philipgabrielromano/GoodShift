@@ -56,11 +56,16 @@ class UKGClient {
 
   private getAuthHeaders(): Record<string, string> {
     const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
-    return {
+    const userApiKey = process.env.UKG_USER_API_KEY || "";
+    const headers: Record<string, string> = {
       "Authorization": `Basic ${basicAuth}`,
       "Us-Customer-Api-Key": this.customerApiKey,
       "Content-Type": "application/json",
     };
+    if (userApiKey) {
+      headers["Api-Key"] = userApiKey;
+    }
+    return headers;
   }
 
   private async apiRequest<T>(endpoint: string, method = "GET", body?: object): Promise<T | null> {
