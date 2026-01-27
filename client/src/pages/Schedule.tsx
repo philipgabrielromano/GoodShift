@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock } from "lucide-react";
-import goodwillLogo from "@/assets/goodwill-logo.png";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -419,10 +418,6 @@ export default function Schedule() {
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
-      <div className="flex flex-col items-center mb-6">
-        <img src={goodwillLogo} alt="Goodwill" className="h-16 w-auto" data-testid="img-goodwill-logo" />
-        <h2 className="text-2xl font-bold text-foreground mt-2" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-goodshift-title">GoodShift</h2>
-      </div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div>

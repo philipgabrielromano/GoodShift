@@ -513,9 +513,11 @@ export async function registerRoutes(
       // ========== PHASE 1: MANDATORY COVERAGE (All 7 days) ==========
       // First pass: ensure every day has minimum required coverage
       // IMPORTANT: Prefer full-timers for coverage positions to maximize part-timer flexibility
-      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      // Process days in priority order: Saturday and Friday first to ensure weekend leadership coverage
+      for (const dayIndex of dayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const shifts = getShiftTimes(currentDay);
+        const isSaturday = dayIndex === 6;
 
         // Helper to sort employees: full-timers first, then by priority, then by ID (for determinism)
         const sortFullTimersFirst = (a: typeof employees[0], b: typeof employees[0]) => {
@@ -531,12 +533,16 @@ export async function registerRoutes(
           return a.id - b.id;
         };
 
+        // On Saturdays, schedule more managers (at least 2 per shift if available)
+        const saturdayManagerBonus = isSaturday ? 1 : 0;
+        const managersToSchedule = managersRequired + saturdayManagerBonus;
+
         // 1a. Morning Manager - sort by priority (who needs hours most)
         const availableManagers = managers
           .filter(m => canWorkFullShift(m, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
-        for (let i = 0; i < managersRequired && i < availableManagers.length; i++) {
+        for (let i = 0; i < managersToSchedule && i < availableManagers.length; i++) {
           scheduleShift(availableManagers[i], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
@@ -545,7 +551,7 @@ export async function registerRoutes(
           .filter(m => canWorkFullShift(m, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
-        for (let i = 0; i < managersRequired && i < eveningManagers.length; i++) {
+        for (let i = 0; i < managersToSchedule && i < eveningManagers.length; i++) {
           scheduleShift(eveningManagers[i], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 

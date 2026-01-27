@@ -46,14 +46,16 @@ export function Navigation() {
     <>
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-64 h-screen border-r bg-card fixed left-0 top-0 z-50">
-        <div className="p-4 border-b">
-          <img src={goodwillLogo} alt="Goodwill" className="h-10 w-auto" />
+        <div className="p-4 border-b flex flex-col items-center">
+          <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-sidebar" />
+          <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-sidebar">GoodShift</span>
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
           {navItems.map((item) => (
             <Link key={item.href} href={item.href}>
               <div 
+                data-testid={`link-nav-${item.label.toLowerCase()}`}
                 className={clsx(
                   "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer group",
                   location === item.href 
@@ -93,14 +95,16 @@ export function Navigation() {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-64 p-0">
-            <div className="p-4 border-b">
-              <img src={goodwillLogo} alt="Goodwill" className="h-10 w-auto" />
+            <div className="p-4 border-b flex flex-col items-center">
+              <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-mobile" />
+              <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-mobile">GoodShift</span>
             </div>
             <nav className="flex-1 p-4 space-y-2">
               {navItems.map((item) => (
                 <Link key={item.href} href={item.href}>
                   <div 
                     onClick={() => setMobileOpen(false)}
+                    data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}
                     className={clsx(
                       "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
                       location === item.href 

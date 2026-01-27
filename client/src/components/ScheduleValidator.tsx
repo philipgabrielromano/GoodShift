@@ -214,11 +214,11 @@ export function ScheduleValidator() {
                endStr === (settings.managerMorningEnd || "16:30");
       });
       
+      // Cashier closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
       const closingCashier = cashierShifts.some(s => {
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
-        return startStr === (settings.managerEveningStart || "12:00") && 
-               endStr === (settings.managerEveningEnd || "20:30");
+        return startStr === closerStartTime && endStr === closerEndTime;
       });
       
       if (!openingCashier) {
