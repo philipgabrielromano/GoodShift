@@ -9,7 +9,7 @@ import {
   users, type User, type InsertUser,
   locations, type Location, type InsertLocation
 } from "@shared/schema";
-import { eq, and, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -24,8 +24,10 @@ export interface IStorage {
   // Shifts
   getShifts(start?: Date, end?: Date, employeeId?: number): Promise<Shift[]>;
   createShift(shift: InsertShift): Promise<Shift>;
+  createShiftsBatch(shiftsData: InsertShift[]): Promise<Shift[]>;
   updateShift(id: number, shift: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
+  deleteShiftsByDateRange(start: Date, end: Date): Promise<number>;
 
   // Time Off
   getTimeOffRequests(): Promise<TimeOffRequest[]>;
@@ -115,6 +117,12 @@ export class DatabaseStorage implements IStorage {
     return newShift;
   }
 
+  async createShiftsBatch(shiftsData: InsertShift[]): Promise<Shift[]> {
+    if (shiftsData.length === 0) return [];
+    const newShifts = await db.insert(shifts).values(shiftsData).returning();
+    return newShifts;
+  }
+
   async updateShift(id: number, shift: Partial<InsertShift>): Promise<Shift> {
     const [updated] = await db.update(shifts).set(shift).where(eq(shifts.id, id)).returning();
     return updated;
@@ -122,6 +130,13 @@ export class DatabaseStorage implements IStorage {
 
   async deleteShift(id: number): Promise<void> {
     await db.delete(shifts).where(eq(shifts.id, id));
+  }
+
+  async deleteShiftsByDateRange(start: Date, end: Date): Promise<number> {
+    const result = await db.delete(shifts)
+      .where(and(gte(shifts.startTime, start), lte(shifts.startTime, end)))
+      .returning({ id: shifts.id });
+    return result.length;
   }
 
   // Time Off

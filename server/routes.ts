@@ -264,15 +264,15 @@ export async function registerRoutes(
       const timeOff = await storage.getTimeOffRequests();
       const locations = await storage.getLocations();
 
-      // Clear existing shifts for the week
+      // Clear existing shifts for the week (batch delete for performance)
       const weekEndMs = startDate.getTime() + 7 * 24 * 60 * 60 * 1000;
       const weekEndDate = new Date(weekEndMs);
-      const existingShifts = await storage.getShifts(startDate, weekEndDate);
-      for (const shift of existingShifts) {
-        await storage.deleteShift(shift.id);
-      }
+      const deletedCount = await storage.deleteShiftsByDateRange(startDate, weekEndDate);
+      console.log(`[Scheduler] Cleared ${deletedCount} existing shifts`);
+      
+      // Collect shifts in memory first, then batch insert at the end for performance
+      const pendingShifts: { employeeId: number; startTime: Date; endTime: Date }[] = [];
 
-      const generatedShifts: any[] = [];
       const FULL_SHIFT_HOURS = 8; // 8.5 clock hours - 0.5 unpaid lunch = 8 paid hours
       const SHORT_SHIFT_HOURS = 5.5; // 5.5 clock hours - NO lunch deduction (less than 6 hours)
       
@@ -395,18 +395,18 @@ export async function registerRoutes(
         return clockHours >= 6 ? clockHours - 0.5 : clockHours;
       };
 
-      const scheduleShift = async (emp: typeof employees[0], startTime: Date, endTime: Date, dayIndex: number) => {
+      const scheduleShift = (emp: typeof employees[0], startTime: Date, endTime: Date, dayIndex: number) => {
         const paidHours = calculateShiftPaidHours(startTime, endTime);
-        const shift = await storage.createShift({ 
+        // Collect shift data in memory (will batch insert at the end)
+        pendingShifts.push({ 
           employeeId: emp.id, 
           startTime, 
           endTime 
         });
-        generatedShifts.push(shift);
         employeeState[emp.id].hoursScheduled += paidHours;
         employeeState[emp.id].daysWorked++;
         employeeState[emp.id].daysWorkedOn.add(dayIndex);
-        return { shift, paidHours };
+        return { paidHours };
       };
 
       // ========== CATEGORIZE EMPLOYEES ==========
@@ -465,7 +465,7 @@ export async function registerRoutes(
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const shifts = getShiftTimes(currentDay);
 
-        // Helper to sort employees: full-timers first, then by priority
+        // Helper to sort employees: full-timers first, then by priority, then by ID (for determinism)
         const sortFullTimersFirst = (a: typeof employees[0], b: typeof employees[0]) => {
           // Full-timers (>= 32h) should come before part-timers
           const aIsFullTime = a.maxWeeklyHours >= 32;
@@ -473,7 +473,10 @@ export async function registerRoutes(
           if (aIsFullTime && !bIsFullTime) return -1;
           if (!aIsFullTime && bIsFullTime) return 1;
           // If same type, sort by priority
-          return getEmployeePriority(a) - getEmployeePriority(b);
+          const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
+          if (priorityDiff !== 0) return priorityDiff;
+          // Tie-breaker: sort by employee ID for deterministic results
+          return a.id - b.id;
         };
 
         // 1a. Morning Manager - sort by priority (who needs hours most)
@@ -482,7 +485,7 @@ export async function registerRoutes(
           .sort(sortFullTimersFirst);
         
         for (let i = 0; i < managersRequired && i < availableManagers.length; i++) {
-          await scheduleShift(availableManagers[i], shifts.opener.start, shifts.opener.end, dayIndex);
+          scheduleShift(availableManagers[i], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
         // 1b. Evening Manager (different from morning)
@@ -491,7 +494,7 @@ export async function registerRoutes(
           .sort(sortFullTimersFirst);
         
         for (let i = 0; i < managersRequired && i < eveningManagers.length; i++) {
-          await scheduleShift(eveningManagers[i], shifts.closer.start, shifts.closer.end, dayIndex);
+          scheduleShift(eveningManagers[i], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
         // 1c. Opening Donor Greeter - prefer full-timers
@@ -500,7 +503,7 @@ export async function registerRoutes(
           .sort(sortFullTimersFirst);
         
         if (availableGreeters.length > 0) {
-          await scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
+          scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
         // 1d. Closing Donor Greeter - prefer full-timers
@@ -509,7 +512,7 @@ export async function registerRoutes(
           .sort(sortFullTimersFirst);
         
         if (closingGreeters.length > 0) {
-          await scheduleShift(closingGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
+          scheduleShift(closingGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
         // 1e. Opening cashiers - prefer full-timers
@@ -518,7 +521,7 @@ export async function registerRoutes(
           .sort(sortFullTimersFirst);
         
         for (let i = 0; i < openersRequired && i < availableCashiers.length; i++) {
-          await scheduleShift(availableCashiers[i], shifts.opener.start, shifts.opener.end, dayIndex);
+          scheduleShift(availableCashiers[i], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
         // 1f. Closing cashiers - prefer full-timers
@@ -527,7 +530,7 @@ export async function registerRoutes(
           .sort(sortFullTimersFirst);
         
         for (let i = 0; i < closersRequired && i < closingCashiers.length; i++) {
-          await scheduleShift(closingCashiers[i], shifts.closer.start, shifts.closer.end, dayIndex);
+          scheduleShift(closingCashiers[i], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
         // 1g. Donation Pricers - use short morning shifts for part-timers, full for full-timers
@@ -542,15 +545,15 @@ export async function registerRoutes(
           const pricer = availablePricers[i];
           // Part-timers (<=29h) get short morning shifts to maximize their weekly hours
           if (pricer.maxWeeklyHours <= 29 && canWorkShortShift(pricer, currentDay, dayIndex)) {
-            await scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+            scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
           } else if (canWorkFullShift(pricer, currentDay, dayIndex)) {
             const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
-            await scheduleShift(pricer, shift.start, shift.end, dayIndex);
+            scheduleShift(pricer, shift.start, shift.end, dayIndex);
           }
         }
       }
 
-      console.log(`[Scheduler] After Phase 1: ${generatedShifts.length} shifts scheduled`);
+      console.log(`[Scheduler] After Phase 1: ${pendingShifts.length} shifts scheduled`);
 
       // ========== PHASE 2: FILL REMAINING CAPACITY (Priority days first) ==========
       // Now fill additional shifts, prioritizing Sat/Fri
@@ -565,9 +568,13 @@ export async function registerRoutes(
         const additionalTarget = Math.ceil(baseAdditionalShifts * multiplier);
 
         // Get all available employees who can work any shift today
+        // Sort by priority with employee ID as tie-breaker for determinism
         const allAvailable = [...donationPricers, ...cashiers]
           .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort((a, b) => {
+            const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
+            return priorityDiff !== 0 ? priorityDiff : a.id - b.id;
+          });
 
         // Distribute across shift types
         const shiftRotation = [shifts.early9, shifts.mid10, shifts.mid11, shifts.closer];
@@ -580,7 +587,7 @@ export async function registerRoutes(
           if (isPartTime(emp)) {
             const bestShift = getBestShiftForPartTimer(emp, currentDay, dayIndex, shifts);
             if (bestShift) {
-              await scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
+              scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
               assigned++;
             }
           } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
@@ -591,13 +598,13 @@ export async function registerRoutes(
             } else {
               shift = shiftRotation[assigned % shiftRotation.length];
             }
-            await scheduleShift(emp, shift.start, shift.end, dayIndex);
+            scheduleShift(emp, shift.start, shift.end, dayIndex);
             assigned++;
           }
         }
       }
 
-      console.log(`[Scheduler] After Phase 2: ${generatedShifts.length} shifts scheduled`);
+      console.log(`[Scheduler] After Phase 2: ${pendingShifts.length} shifts scheduled`);
 
       // ========== CALCULATE BUDGET (DISABLED - Maximize employee hours instead) ==========
       // const activeLocations = locations.filter(l => l.isActive);
@@ -608,20 +615,20 @@ export async function registerRoutes(
       const totalEmployeeCapacity = employees.reduce((sum, e) => sum + (e.maxWeeklyHours || 40), 0);
       console.log(`[Scheduler] Total employee capacity: ${totalEmployeeCapacity} hours from ${employees.length} employees`);
       
-      // Calculate current total scheduled hours using actual shift times
+      // Calculate current total scheduled hours using pending shift times
       const getTotalScheduledHours = () => {
-        return generatedShifts.reduce((sum, shift) => {
-          return sum + calculateShiftPaidHours(new Date(shift.startTime), new Date(shift.endTime));
+        return pendingShifts.reduce((sum, shift) => {
+          return sum + calculateShiftPaidHours(shift.startTime, shift.endTime);
         }, 0);
       };
       
-      // Calculate hours per day using actual shift times
+      // Calculate hours per day using pending shift times
       const getHoursPerDay = () => {
         const dayHours: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-        for (const shift of generatedShifts) {
+        for (const shift of pendingShifts) {
           const shiftDate = new Date(shift.startTime);
           const dayOfWeek = shiftDate.getDay();
-          const paidHours = calculateShiftPaidHours(new Date(shift.startTime), new Date(shift.endTime));
+          const paidHours = calculateShiftPaidHours(shift.startTime, shift.endTime);
           dayHours[dayOfWeek] += paidHours;
         }
         return dayHours;
@@ -648,23 +655,28 @@ export async function registerRoutes(
           const shifts = getShiftTimes(currentDay);
 
           // Find employees who can still work (either full or short shifts)
+          // Sort by priority with employee ID as tie-breaker for determinism
           const underScheduled = [...managers, ...donorGreeters, ...donationPricers, ...cashiers]
             .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
-            .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+            .sort((a, b) => {
+              const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
+              return priorityDiff !== 0 ? priorityDiff : a.id - b.id;
+            });
 
           for (const emp of underScheduled) {
             // Managers always get full shifts (opener or closer only)
             if (managerCodes.includes(emp.jobTitle)) {
               if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
-              const shift = Math.random() > 0.5 ? shifts.opener : shifts.closer;
-              await scheduleShift(emp, shift.start, shift.end, dayIndex);
+              // Deterministic: alternate based on employee ID to ensure consistent results
+              const shift = (emp.id % 2 === 0) ? shifts.opener : shifts.closer;
+              scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
             } 
             // Part-timers get flexible shift selection
             else if (isPartTime(emp)) {
               const bestShift = getBestShiftForPartTimer(emp, currentDay, dayIndex, shifts);
               if (bestShift) {
-                await scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
+                scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
                 madeProgress = true;
               }
             }
@@ -678,14 +690,14 @@ export async function registerRoutes(
               } else {
                 shift = shifts.mid10;
               }
-              await scheduleShift(emp, shift.start, shift.end, dayIndex);
+              scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
             }
           }
         }
       }
 
-      console.log(`[Scheduler] After Phase 3: ${generatedShifts.length} shifts, ${getTotalScheduledHours()} hours`);
+      console.log(`[Scheduler] After Phase 3: ${pendingShifts.length} shifts, ${getTotalScheduledHours()} hours`);
 
       // ========== PHASE 4: FILL REMAINING HOURS WITH SHORT SHIFTS ==========
       // For part-time employees (29 hrs max) who have 3 full shifts (24 hrs),
@@ -718,7 +730,7 @@ export async function registerRoutes(
               shortShift = shifts.shortMid; // Mid-day short for others
             }
             
-            await scheduleShift(emp, shortShift.start, shortShift.end, dayIndex);
+            scheduleShift(emp, shortShift.start, shortShift.end, dayIndex);
             break; // Only add one short shift per employee
           }
         }
@@ -742,8 +754,13 @@ export async function registerRoutes(
         console.log(`  ${pt.name}: ${pt.scheduled}h / ${pt.maxHours}h max (${pt.daysWorked} days, gap: ${pt.gap.toFixed(1)}h)`);
       });
 
-      console.log(`[Scheduler] COMPLETE: ${generatedShifts.length} shifts, ${getTotalScheduledHours()} total hours`);
-      res.status(201).json(generatedShifts);
+      // ========== BATCH INSERT ALL SHIFTS ==========
+      // This is much faster than individual inserts (single DB round-trip vs 100+ individual calls)
+      console.log(`[Scheduler] Batch inserting ${pendingShifts.length} shifts...`);
+      const insertedShifts = await storage.createShiftsBatch(pendingShifts);
+      
+      console.log(`[Scheduler] COMPLETE: ${insertedShifts.length} shifts, ${getTotalScheduledHours()} total hours`);
+      res.status(201).json(insertedShifts);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
@@ -792,13 +809,8 @@ export async function registerRoutes(
       const startDate = new Date(weekStart);
       const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       
-      const existingShifts = await storage.getShifts(startDate, endDate);
-      let deletedCount = 0;
-      
-      for (const shift of existingShifts) {
-        await storage.deleteShift(shift.id);
-        deletedCount++;
-      }
+      // Use batch delete for performance (single DB query instead of N queries)
+      const deletedCount = await storage.deleteShiftsByDateRange(startDate, endDate);
       
       res.json({ message: `Cleared ${deletedCount} shifts`, deletedCount });
     } catch (err) {
