@@ -52,11 +52,11 @@ export async function registerRoutes(
       );
     }
     
-    // Filter by location for managers
+    // Filter by location for users with assigned locations (applies to all roles including admin)
     // user.locationIds contains location IDs (as strings), but emp.location contains location NAMES
     // We need to look up the location names from the IDs
     const user = (req.session as any)?.user;
-    if (user && user.role === "manager" && user.locationIds && user.locationIds.length > 0) {
+    if (user && user.locationIds && user.locationIds.length > 0) {
       const allLocations = await storage.getLocations();
       const userLocationNames = allLocations
         .filter(loc => user.locationIds.includes(String(loc.id)))
