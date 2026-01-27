@@ -9,7 +9,8 @@ import {
   users, type User, type InsertUser,
   locations, type Location, type InsertLocation,
   timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry,
-  scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate
+  scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate,
+  publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -73,6 +74,11 @@ export interface IStorage {
   getScheduleTemplate(id: number): Promise<ScheduleTemplate | undefined>;
   createScheduleTemplate(template: InsertScheduleTemplate): Promise<ScheduleTemplate>;
   deleteScheduleTemplate(id: number): Promise<void>;
+
+  // Published Schedules
+  isSchedulePublished(weekStart: string): Promise<boolean>;
+  publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule>;
+  unpublishSchedule(weekStart: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -370,6 +376,28 @@ export class DatabaseStorage implements IStorage {
 
   async deleteScheduleTemplate(id: number): Promise<void> {
     await db.delete(scheduleTemplates).where(eq(scheduleTemplates.id, id));
+  }
+
+  // Published Schedules
+  async isSchedulePublished(weekStart: string): Promise<boolean> {
+    const [published] = await db.select().from(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+    return !!published;
+  }
+
+  async publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule> {
+    // Upsert - insert or update if exists
+    const existing = await this.isSchedulePublished(weekStart);
+    if (existing) {
+      // Already published, return existing
+      const [published] = await db.select().from(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+      return published;
+    }
+    const [newPublished] = await db.insert(publishedSchedules).values({ weekStart, publishedBy }).returning();
+    return newPublished;
+  }
+
+  async unpublishSchedule(weekStart: string): Promise<void> {
+    await db.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
   }
 }
 

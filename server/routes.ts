@@ -1421,6 +1421,64 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === Published Schedules ===
+  // Check if a week's schedule is published
+  app.get("/api/schedule/published/:weekStart", async (req, res) => {
+    try {
+      const weekStart = req.params.weekStart as string;
+      if (!isValidDate(weekStart)) {
+        return res.status(400).json({ message: "Invalid weekStart date" });
+      }
+      const isPublished = await storage.isSchedulePublished(weekStart);
+      res.json({ weekStart, isPublished });
+    } catch (error) {
+      console.error("Error checking schedule publish status:", error);
+      res.status(500).json({ message: "Failed to check schedule status" });
+    }
+  });
+
+  // Publish a week's schedule (managers and admins only)
+  app.post("/api/schedule/publish", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can publish schedules" });
+      }
+      
+      const { weekStart } = req.body;
+      if (!weekStart || !isValidDate(weekStart)) {
+        return res.status(400).json({ message: "Invalid weekStart date" });
+      }
+      
+      const published = await storage.publishSchedule(weekStart, user.id);
+      res.json({ message: "Schedule published", published });
+    } catch (error) {
+      console.error("Error publishing schedule:", error);
+      res.status(500).json({ message: "Failed to publish schedule" });
+    }
+  });
+
+  // Unpublish a week's schedule (managers and admins only)
+  app.delete("/api/schedule/publish/:weekStart", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can unpublish schedules" });
+      }
+      
+      const weekStart = req.params.weekStart as string;
+      if (!isValidDate(weekStart)) {
+        return res.status(400).json({ message: "Invalid weekStart date" });
+      }
+      
+      await storage.unpublishSchedule(weekStart);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error unpublishing schedule:", error);
+      res.status(500).json({ message: "Failed to unpublish schedule" });
+    }
+  });
+
   // === Weather Forecast ===
   // Cache weather data for 1 hour to avoid excessive API calls
   let weatherCache: { data: any; timestamp: number } | null = null;
