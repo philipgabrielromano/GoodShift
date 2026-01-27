@@ -267,7 +267,7 @@ export async function registerRoutes(
 
       const generatedShifts: any[] = [];
       const FULL_SHIFT_HOURS = 8; // 8.5 clock hours - 0.5 unpaid lunch = 8 paid hours
-      const SHORT_SHIFT_HOURS = 5; // 5.5 clock hours - 0.5 unpaid lunch = 5 paid hours
+      const SHORT_SHIFT_HOURS = 5.5; // 5.5 clock hours - NO lunch deduction (less than 6 hours)
       
       // ========== EMPLOYEE STATE TRACKING ==========
       const employeeState: Record<number, {
@@ -352,6 +352,9 @@ export async function registerRoutes(
       const donorGreeters = employees.filter(emp => emp.jobTitle === 'DONDOOR' && emp.isActive);
       const donationPricers = employees.filter(emp => ['DONPRI', 'APPROC'].includes(emp.jobTitle) && emp.isActive);
       const cashiers = employees.filter(emp => emp.jobTitle === 'CASHSLS' && emp.isActive);
+      
+      console.log(`[Scheduler] Total employees: ${employees.length}`);
+      console.log(`[Scheduler] Managers: ${managers.length}, Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
 
       // ========== SHIFT TIME DEFINITIONS ==========
       const getShiftTimes = (day: Date) => ({
@@ -454,6 +457,8 @@ export async function registerRoutes(
         }
       }
 
+      console.log(`[Scheduler] After Phase 1: ${generatedShifts.length} shifts scheduled`);
+
       // ========== PHASE 2: FILL REMAINING CAPACITY (Priority days first) ==========
       // Now fill additional shifts, prioritizing Sat/Fri
       for (const dayIndex of dayOrder) {
@@ -493,9 +498,12 @@ export async function registerRoutes(
         }
       }
 
+      console.log(`[Scheduler] After Phase 2: ${generatedShifts.length} shifts scheduled`);
+
       // ========== CALCULATE BUDGET ==========
       const activeLocations = locations.filter(l => l.isActive);
       const totalBudgetHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
+      console.log(`[Scheduler] Budget: ${totalBudgetHours} hours from ${activeLocations.length} active locations`);
       
       // Calculate current total scheduled hours using actual shift times
       const getTotalScheduledHours = () => {
@@ -558,6 +566,8 @@ export async function registerRoutes(
           await scheduleShift(emp, shift.start, shift.end, dayIndex);
         }
       }
+
+      console.log(`[Scheduler] After Phase 3: ${generatedShifts.length} shifts, ${getTotalScheduledHours()} hours, remaining budget: ${remainingBudget()}`);
 
       // ========== PHASE 4: VALIDATION & ADJUSTMENT ==========
       const dayHours = getHoursPerDay();
@@ -675,6 +685,7 @@ export async function registerRoutes(
         }
       }
 
+      console.log(`[Scheduler] COMPLETE: ${generatedShifts.length} shifts, ${getTotalScheduledHours()} total hours`);
       res.status(201).json(generatedShifts);
     } catch (err) {
       if (err instanceof z.ZodError) {
