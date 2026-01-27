@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock } from "lucide-react";
@@ -133,6 +133,31 @@ export default function Schedule() {
   const [dropTarget, setDropTarget] = useState<{ empId: number; dayKey: string } | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   
+  // Determine if user is admin
+  const isAdmin = authStatus?.user?.role === "admin";
+  
+  // For non-admins, default to their first assigned location
+  // Get the user's accessible locations
+  const userLocationIds = authStatus?.user?.locationIds || [];
+  const userLocations = useMemo(() => {
+    if (!locations) return [];
+    if (isAdmin) {
+      return locations.filter(l => l.isActive);
+    }
+    // Non-admins only see their assigned locations
+    return locations.filter(l => 
+      l.isActive && userLocationIds.includes(String(l.id))
+    );
+  }, [locations, isAdmin, userLocationIds]);
+  
+  // Set default location for non-admins when data loads
+  useEffect(() => {
+    if (!isAdmin && userLocations.length > 0 && selectedLocation === "all") {
+      // Default to first assigned location for non-admins
+      setSelectedLocation(userLocations[0].name);
+    }
+  }, [isAdmin, userLocations, selectedLocation]);
+  
   const toggleGroupCollapse = (jobTitle: string) => {
     setCollapsedGroups(prev => {
       const newSet = new Set(prev);
@@ -227,23 +252,7 @@ export default function Schedule() {
     return hours;
   }, [shifts, employees]);
   
-  // Get user's assigned locations (managers see only their locations, admins see all)
-  const userLocations = useMemo(() => {
-    if (!locations) return [];
-    const user = authStatus?.user;
-    if (!user) return [];
-    
-    if (user.role === "admin") {
-      return locations.filter(l => l.isActive);
-    }
-    
-    if (user.locationIds && user.locationIds.length > 0) {
-      // locationIds contains location IDs as strings, compare with location.id
-      return locations.filter(l => l.isActive && user.locationIds!.includes(String(l.id)));
-    }
-    
-    return [];
-  }, [locations, authStatus]);
+  // Note: userLocations is defined earlier in the component
 
   const handleAutoGenerate = async () => {
     setIsGenerating(true);
@@ -364,18 +373,28 @@ export default function Schedule() {
               Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))} • {formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}
             </p>
           </div>
-          <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-            <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
-              <MapPin className="w-4 h-4 mr-2 text-muted-foreground" />
-              <SelectValue placeholder="All Locations" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Locations</SelectItem>
-              {(locations || []).filter(l => l.isActive).map(loc => (
-                <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Location dropdown: Admins can switch between all locations, others see their assigned location */}
+          {isAdmin ? (
+            <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+              <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
+                <MapPin className="w-4 h-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="All Locations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Locations</SelectItem>
+                {(locations || []).filter(l => l.isActive).map(loc => (
+                  <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 border rounded-md bg-muted/30">
+              <MapPin className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium" data-testid="text-assigned-location">
+                {selectedLocation !== "all" ? selectedLocation : userLocations[0]?.name || "No location assigned"}
+              </span>
+            </div>
+          )}
         </div>
         
         <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
