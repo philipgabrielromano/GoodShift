@@ -394,14 +394,27 @@ export default function Schedule() {
                   const todayEST = toZonedTime(new Date(), TIMEZONE);
                   const dayEST = toZonedTime(day, TIMEZONE);
                   const isToday = isSameDay(todayEST, dayEST);
+                  // Calculate daily hours
+                  const dayHours = shifts?.reduce((sum, shift) => {
+                    const shiftStartEST = toZonedTime(shift.startTime, TIMEZONE);
+                    if (isSameDay(shiftStartEST, dayEST)) {
+                      const startTime = new Date(shift.startTime);
+                      const endTime = new Date(shift.endTime);
+                      return sum + (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+                    }
+                    return sum;
+                  }, 0) || 0;
                   return (
-                    <div key={day.toString()} className="p-3 text-center border-r">
+                    <div key={day.toString()} className="p-2 text-center border-r">
                       <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
                       <div className={cn(
-                        "text-xs mt-1 w-8 h-8 flex items-center justify-center rounded-full mx-auto",
+                        "text-xs w-7 h-7 flex items-center justify-center rounded-full mx-auto",
                         isToday ? "bg-primary text-primary-foreground font-bold" : "text-muted-foreground"
                       )}>
                         {formatInTimeZone(day, TIMEZONE, "d")}
+                      </div>
+                      <div className="text-xs font-medium text-muted-foreground mt-1" data-testid={`text-daily-hours-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
+                        {dayHours.toFixed(1)}h
                       </div>
                     </div>
                   );

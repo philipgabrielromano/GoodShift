@@ -325,6 +325,10 @@ export async function registerRoutes(
       
       // Shift durations (8.5 hours for opener/closer)
       const SHIFT_HOURS = 8.5;
+      
+      // Track days worked per employee (for 2 days off requirement)
+      const employeeDaysWorked: Record<number, number> = {};
+      employees.forEach(emp => { employeeDaysWorked[emp.id] = 0; });
 
       // Helper to check if employee is on approved time off
       const isOnTimeOff = (empId: number, day: Date) => {
@@ -334,6 +338,12 @@ export async function registerRoutes(
           new Date(to.startDate) <= day && 
           new Date(to.endDate) >= day
         );
+      };
+      
+      // Helper to check if employee can work (has capacity for 2 days off)
+      const canWorkMoreDays = (empId: number) => {
+        // Max 5 days worked = minimum 2 days off
+        return employeeDaysWorked[empId] < 5;
       };
 
       // Day-by-day generation
@@ -355,11 +365,15 @@ export async function registerRoutes(
         const assignedMorningManagers: number[] = [];
         const assignedEveningManagers: number[] = [];
         
+        // Track who worked today to increment days counter once per day
+        const workedToday = new Set<number>();
+        
         // Assign morning managers
         for (const mgr of managers) {
           if (assignedMorningManagers.length >= managersRequired) break;
           if (isOnTimeOff(mgr.id, currentDay)) continue;
           if (employeeHours[mgr.id] + SHIFT_HOURS > mgr.maxWeeklyHours) continue;
+          if (!canWorkMoreDays(mgr.id)) continue; // 2 days off requirement
           
           const shift = await storage.createShift({ 
             employeeId: mgr.id, 
@@ -369,6 +383,7 @@ export async function registerRoutes(
           generatedShifts.push(shift);
           employeeHours[mgr.id] += SHIFT_HOURS;
           assignedMorningManagers.push(mgr.id);
+          workedToday.add(mgr.id);
         }
         
         // Assign evening managers (different from morning)
@@ -377,6 +392,7 @@ export async function registerRoutes(
           if (assignedMorningManagers.includes(mgr.id)) continue; // Not same as morning
           if (isOnTimeOff(mgr.id, currentDay)) continue;
           if (employeeHours[mgr.id] + SHIFT_HOURS > mgr.maxWeeklyHours) continue;
+          if (!canWorkMoreDays(mgr.id)) continue; // 2 days off requirement
           
           const shift = await storage.createShift({ 
             employeeId: mgr.id, 
@@ -386,6 +402,7 @@ export async function registerRoutes(
           generatedShifts.push(shift);
           employeeHours[mgr.id] += SHIFT_HOURS;
           assignedEveningManagers.push(mgr.id);
+          workedToday.add(mgr.id);
         }
 
         // 2. Mandatory Donor Greeter Coverage (one opening, one closing)
@@ -402,7 +419,7 @@ export async function registerRoutes(
           if (openingGreeterId !== null) break;
           if (isOnTimeOff(greeter.id, currentDay)) continue;
           if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
-          // Skip allocation cap for mandatory coverage
+          if (!canWorkMoreDays(greeter.id)) continue; // 2 days off requirement
           
           const shift = await storage.createShift({ 
             employeeId: greeter.id, 
@@ -413,6 +430,7 @@ export async function registerRoutes(
           employeeHours[greeter.id] += SHIFT_HOURS;
           if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
           openingGreeterId = greeter.id;
+          workedToday.add(greeter.id);
         }
         
         // Assign closing donor greeter (prefer different employee than opening)
@@ -422,6 +440,7 @@ export async function registerRoutes(
           if (greeter.id === openingGreeterId) continue; // Skip opening greeter first
           if (isOnTimeOff(greeter.id, currentDay)) continue;
           if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
+          if (!canWorkMoreDays(greeter.id)) continue; // 2 days off requirement
           
           const shift = await storage.createShift({ 
             employeeId: greeter.id, 
@@ -432,6 +451,7 @@ export async function registerRoutes(
           employeeHours[greeter.id] += SHIFT_HOURS;
           if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
           closingGreeterAssigned = true;
+          workedToday.add(greeter.id);
         }
         
         // Second pass: if no closing greeter yet, allow opening greeter to also close
@@ -440,6 +460,7 @@ export async function registerRoutes(
             if (closingGreeterAssigned) break;
             if (isOnTimeOff(greeter.id, currentDay)) continue;
             if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
+            if (!canWorkMoreDays(greeter.id)) continue; // 2 days off requirement
             
             const shift = await storage.createShift({ 
               employeeId: greeter.id, 
@@ -450,6 +471,7 @@ export async function registerRoutes(
             employeeHours[greeter.id] += SHIFT_HOURS;
             if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
             closingGreeterAssigned = true;
+            workedToday.add(greeter.id);
           }
         }
 
@@ -486,6 +508,7 @@ export async function registerRoutes(
             if (assignedToday >= remainingForToday) break;
             if (isOnTimeOff(emp.id, currentDay)) continue;
             if (employeeHours[emp.id] + SHIFT_HOURS > emp.maxWeeklyHours) continue;
+            if (!canWorkMoreDays(emp.id)) continue; // 2 days off requirement
             
             // Rotate through opener, mid-shifts, and closer
             let shiftStart, shiftEnd;
@@ -521,8 +544,14 @@ export async function registerRoutes(
             employeeHours[emp.id] += SHIFT_HOURS;
             category.assignedHours += SHIFT_HOURS;
             assignedToday += SHIFT_HOURS;
+            workedToday.add(emp.id);
           }
         }
+        
+        // Increment days worked for each employee who worked today
+        Array.from(workedToday).forEach(empId => {
+          employeeDaysWorked[empId]++;
+        });
       }
 
       res.status(201).json(generatedShifts);
