@@ -66,6 +66,7 @@ export interface IStorage {
 
   // Time Clock Entries
   getTimeClockEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
+  getPALEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
   getLastTimeClockSyncDate(): Promise<string | null>;
 

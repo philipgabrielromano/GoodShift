@@ -122,6 +122,7 @@ The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OD
 - Active/Terminated status tracking (Active: A=active, I=terminated)
 - Only syncs active employees to database (terminated employees are skipped)
 - Uses UKG unique ID (Id field) for employee matching to prevent duplicates
+- PAL (Paid Annual Leave) integration: Time entries with PaycodeId=2 are displayed as black "PAL" blocks in the schedule and counted toward employee/store hours totals
 
 **Data Fields Synced**:
 - Name (FirstName + LastName)

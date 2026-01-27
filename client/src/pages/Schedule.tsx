@@ -158,6 +158,44 @@ export default function Schedule() {
     retry: 1, // Only retry once
   });
 
+  // PAL (Paid Annual Leave) entries from UKG time clock data
+  interface PALEntry {
+    id: number;
+    ukgEmployeeId: string;
+    workDate: string;
+    totalHours: number; // In minutes
+    hoursDecimal: number; // In hours
+    employeeId: number | null;
+    employeeName: string;
+  }
+  
+  const { data: palEntries } = useQuery<PALEntry[]>({
+    queryKey: ["/api/pal-entries", weekStartStr, weekEndStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/pal-entries?start=${weekStartStr}&end=${weekEndStr}`, {
+        credentials: "include",
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  
+  // Create a lookup map for PAL entries by employee ID and date
+  const palByEmpDate = useMemo(() => {
+    const map = new Map<string, PALEntry>();
+    if (!palEntries) return map;
+    
+    for (const entry of palEntries) {
+      if (entry.employeeId) {
+        // Key is "employeeId-date"
+        const key = `${entry.employeeId}-${entry.workDate}`;
+        map.set(key, entry);
+      }
+    }
+    return map;
+  }, [palEntries]);
+
   // Weather forecast data
   interface WeatherForecast {
     date: string;
@@ -328,11 +366,12 @@ export default function Schedule() {
     setDropTarget(null);
   };
   
-  // Calculate scheduled hours per location for the current week
+  // Calculate scheduled hours per location for the current week (including PAL)
   const locationHoursUsed = useMemo(() => {
     const hours: Record<string, number> = {};
     if (!shifts || !employees) return hours;
     
+    // Add shift hours
     shifts.forEach(shift => {
       const employee = employees.find(e => e.id === shift.employeeId);
       if (employee?.location) {
@@ -341,8 +380,18 @@ export default function Schedule() {
       }
     });
     
+    // Add PAL hours
+    if (palEntries) {
+      palEntries.forEach(palEntry => {
+        const employee = employees.find(e => e.id === palEntry.employeeId);
+        if (employee?.location) {
+          hours[employee.location] = (hours[employee.location] || 0) + palEntry.hoursDecimal;
+        }
+      });
+    }
+    
     return hours;
-  }, [shifts, employees]);
+  }, [shifts, employees, palEntries]);
   
   // Note: userLocations is defined earlier in the component
 
@@ -1008,11 +1057,24 @@ export default function Schedule() {
                     {!isCollapsed && (groupEmployees || []).map(emp => {
                       // Calculate total paid hours for this employee (subtract lunch for 6+ hour shifts)
                       const empShifts = shifts?.filter(s => s.employeeId === emp.id) || [];
-                      const totalHours = empShifts.reduce((sum, shift) => {
+                      const shiftHours = empShifts.reduce((sum, shift) => {
                         const startTime = new Date(shift.startTime);
                         const endTime = new Date(shift.endTime);
                         return sum + calculatePaidHours(startTime, endTime);
                       }, 0);
+                      
+                      // Add PAL hours for this employee (check each day in the week)
+                      let palHoursForEmp = 0;
+                      weekDays.forEach(day => {
+                        const dateStr = format(day, "yyyy-MM-dd");
+                        const palKey = `${emp.id}-${dateStr}`;
+                        const palEntry = palByEmpDate.get(palKey);
+                        if (palEntry) {
+                          palHoursForEmp += palEntry.hoursDecimal;
+                        }
+                      });
+                      
+                      const totalHours = shiftHours + palHoursForEmp;
                       const isFT = (emp.maxWeeklyHours || 40) >= 32;
                       const isMaxed = totalHours >= (emp.maxWeeklyHours || 40);
                       
@@ -1098,6 +1160,29 @@ export default function Schedule() {
                                     </div>
                                   );
                                 })}
+                                
+                                {/* PAL (Paid Annual Leave) block - shows when employee has PAL on this day */}
+                                {(() => {
+                                  const dateStr = format(day, "yyyy-MM-dd");
+                                  const palKey = `${emp.id}-${dateStr}`;
+                                  const palEntry = palByEmpDate.get(palKey);
+                                  
+                                  if (palEntry) {
+                                    return (
+                                      <div 
+                                        className="p-1.5 rounded text-[10px] font-bold text-white flex items-center justify-center"
+                                        style={{ backgroundColor: "#000000" }}
+                                        data-testid={`pal-${emp.id}-${dateStr}`}
+                                      >
+                                        <div className="flex flex-col leading-tight items-center">
+                                          <span>PAL</span>
+                                          <span className="text-[9px] opacity-80">{palEntry.hoursDecimal.toFixed(1)}h</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </div>
                             </div>
                           );
