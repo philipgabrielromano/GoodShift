@@ -183,22 +183,28 @@ class UKGClient {
 
     console.log("UKG: Loading jobs and locations lookup tables...");
 
-    const [jobs, locations] = await Promise.all([
-      this.fetchAllPaginated<UKGJob>("Job"),
-      this.fetchAllPaginated<UKGLocation>("Location"),
-    ]);
+    // Fetch locations FIRST (sequentially, not in parallel) to avoid rate limiting
+    console.log("UKG: Fetching locations first...");
+    const locations = await this.fetchAllPaginated<UKGLocation>("Location");
+    
+    for (const location of locations) {
+      const name = location.Name || location.Description || location.Code || `Location ${location.Id}`;
+      this.locationCache.set(location.Id, name);
+    }
+    console.log(`UKG: Loaded ${this.locationCache.size} locations`);
+
+    // Small delay before fetching jobs
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Then fetch jobs
+    console.log("UKG: Fetching jobs...");
+    const jobs = await this.fetchAllPaginated<UKGJob>("Job");
 
     for (const job of jobs) {
       const name = job.Name || job.Description || job.Code || `Job ${job.Id}`;
       this.jobCache.set(job.Id, name);
     }
     console.log(`UKG: Loaded ${this.jobCache.size} jobs`);
-
-    for (const location of locations) {
-      const name = location.Name || location.Description || location.Code || `Location ${location.Id}`;
-      this.locationCache.set(location.Id, name);
-    }
-    console.log(`UKG: Loaded ${this.locationCache.size} locations`);
   }
 
   async getLocations(): Promise<UKGLocationInfo[]> {
