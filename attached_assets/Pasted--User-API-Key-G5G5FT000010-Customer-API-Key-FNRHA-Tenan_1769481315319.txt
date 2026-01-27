@@ -1,0 +1,51 @@
+
+User API Key
+G5G5FT000010
+Customer API Key
+FNRHA
+Tenant ID
+86654e49-eabf-4f74-8cde-57e720b682d1
+Business Intelligence web service endpoint
+https://service4.ultipro.com/services/BIDataService
+Business Intelligence report streaming endpoint
+https://service4.ultipro.com/services/BiStreamingService
+Login service endpoint
+https://service4.ultipro.com/services/LoginService
+Employee contacts service endpoint
+https://service4.ultipro.com/services/EmployeeContacts
+Employee person service endpoint
+https://service4.ultipro.com/services/EmployeePerson
+Employee address service endpoint
+https://service4.ultipro.com/services/EmployeeAddress
+Employee job service endpoint
+https://service4.ultipro.com/services/EmployeeJob
+Employee compensation service endpoint
+https://service4.ultipro.com/services/EmployeeCompensation
+Employee new hire service endpoint
+https://service4.ultipro.com/services/EmployeeNewHire
+Employee pay statement service endpoint
+https://service4.ultipro.com/services/EmployeePayStatement
+Employee new hire global service endpoint
+https://service4.ultipro.com/services/EmployeeGlobalNewHire
+Employee new hire Canada service endpoint
+https://service4.ultipro.com/services/EmployeeCanadianNewHire
+Development Opportunity web service endpoint
+https://service4.ultipro.com/services/DevelopmentOpportunity
+Development Opportunity Session web service endpoint
+https://service4.ultipro.com/services/DevelopmentOpportunitySession
+Development Opportunity Participation web service endpoint
+https://service4.ultipro.com/services/DevelopmentOpportunityParticipation
+Employee User Defined Fields web service endpoint
+https://service4.ultipro.com/services/EmployeeUserDefinedFields
+Employee Employment Information web service endpoint
+https://service4.ultipro.com/services/EmployeeEmploymentInformation
+Employee Phone Information web service endpoint
+https://service4.ultipro.com/services/EmployeePhoneInformation
+Employee Termination web service endpoint
+https://service4.ultipro.com/services/EmployeeTermination
+Employee Pending Hires web service endpoint
+https://service4.ultipro.com/services/employeehire/v1/pendinghires
+Third Party Pay web service endpoint
+https://service4.ultipro.com/services/payroll/v1/thirdpartypay
+Federated SSO web service endpoint
+https://service4.ultipro.com/services/employeessouser

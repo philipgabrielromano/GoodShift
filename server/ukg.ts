@@ -1,4 +1,5 @@
 import { InsertEmployee } from "@shared/schema";
+import * as soap from "soap";
 
 interface UKGProEmployee {
   employeeId: string;
@@ -28,6 +29,8 @@ class UKGClient {
   private customerApiKey: string;
   private userApiKey: string;
   private cachedLocations: UKGLocation[] | null = null;
+  private lastError: string | null = null;
+  private authToken: string | null = null;
 
   constructor() {
     let url = process.env.UKG_API_URL || "";
@@ -48,44 +51,64 @@ class UKGClient {
     return !!(this.baseUrl && this.username && this.password && this.customerApiKey);
   }
 
-  private getAuthHeaders(): Record<string, string> {
-    const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
-    const headers: Record<string, string> = {
-      "Authorization": `Basic ${basicAuth}`,
-      "Us-Customer-Api-Key": this.customerApiKey,
-      "Content-Type": "application/json",
-    };
-    if (this.userApiKey) {
-      headers["Us-User-Api-Key"] = this.userApiKey;
-    }
-    return headers;
-  }
-
-  private lastError: string | null = null;
-
   getLastError(): string | null {
     return this.lastError;
   }
 
-  private async request<T>(endpoint: string, method = "GET", body?: object): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    console.log(`UKG API Request: ${method} ${url}`);
-    
-    const response = await fetch(url, {
-      method,
-      headers: this.getAuthHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    });
+  private getSoapSecurityHeader(): string {
+    return `
+      <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+        <wsse:UsernameToken>
+          <wsse:Username>${this.username}</wsse:Username>
+          <wsse:Password>${this.password}</wsse:Password>
+        </wsse:UsernameToken>
+      </wsse:Security>
+    `;
+  }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      this.lastError = `${response.status} ${response.statusText}: ${errorText}`;
-      console.error(`UKG API error: ${response.status} ${response.statusText}`, errorText);
-      throw new Error(`UKG API error: ${response.status} ${response.statusText}`);
+  private getServiceEndpoint(serviceName: string): string {
+    return `${this.baseUrl}/services/${serviceName}`;
+  }
+
+  private getWsdlUrl(serviceName: string): string {
+    return `${this.getServiceEndpoint(serviceName)}?wsdl`;
+  }
+
+  async authenticate(): Promise<boolean> {
+    try {
+      const wsdlUrl = this.getWsdlUrl("LoginService");
+      console.log(`UKG: Authenticating via ${wsdlUrl}`);
+      
+      const client = await soap.createClientAsync(wsdlUrl);
+      
+      client.addSoapHeader(this.getSoapSecurityHeader());
+      client.addHttpHeader("Us-Customer-Api-Key", this.customerApiKey);
+      if (this.userApiKey) {
+        client.addHttpHeader("Api-Key", this.userApiKey);
+      }
+
+      const [result] = await client.AuthenticateAsync({
+        UserName: this.username,
+        Password: this.password,
+        ClientAccessKey: this.customerApiKey,
+        UserAccessKey: this.userApiKey,
+      });
+
+      if (result?.Token) {
+        this.authToken = result.Token;
+        this.lastError = null;
+        console.log("UKG: Authentication successful");
+        return true;
+      } else {
+        this.lastError = "Authentication returned no token";
+        return false;
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = `Login failed: ${message}`;
+      console.error("UKG Authentication error:", message);
+      return false;
     }
-    this.lastError = null;
-
-    return response.json();
   }
 
   async getLocations(): Promise<UKGLocation[]> {
@@ -138,38 +161,62 @@ class UKGClient {
 
   async getAllEmployees(): Promise<UKGProEmployee[]> {
     try {
-      const allEmployees: UKGProEmployee[] = [];
-      let page = 1;
-      const perPage = 100;
-      let hasMore = true;
+      console.log("UKG: Fetching employees via SOAP");
+      
+      const wsdlUrl = this.getWsdlUrl("EmployeePerson");
+      console.log(`UKG: WSDL URL: ${wsdlUrl}`);
+      
+      const client = await soap.createClientAsync(wsdlUrl);
+      
+      client.addSoapHeader(this.getSoapSecurityHeader());
+      client.addHttpHeader("Us-Customer-Api-Key", this.customerApiKey);
+      if (this.userApiKey) {
+        client.addHttpHeader("Api-Key", this.userApiKey);
+      }
 
-      while (hasMore) {
-        const data = await this.request<UKGProEmployee[] | { content?: UKGProEmployee[] }>(
-          `/personnel/v1/employee-employment-details?page=${page}&per_page=${perPage}`
+      let result: unknown[];
+      try {
+        [result] = await client.FindPeopleAsync({
+          query: "",
+        });
+      } catch (soapError: unknown) {
+        const operations = Object.keys(client).filter(k => 
+          !k.startsWith("_") && typeof (client as Record<string, unknown>)[k] === "function"
         );
+        console.log("UKG: Available SOAP operations:", operations.slice(0, 20));
         
-        let employees: UKGProEmployee[];
-        if (Array.isArray(data)) {
-          employees = data;
-        } else if (data.content) {
-          employees = data.content;
-        } else {
-          employees = [];
-        }
+        const methods = client.describe();
+        console.log("UKG: Service description:", JSON.stringify(methods, null, 2).slice(0, 1000));
+        
+        const errMsg = soapError instanceof Error ? soapError.message : String(soapError);
+        this.lastError = `SOAP error: ${errMsg}. Available operations: ${operations.slice(0, 10).join(", ")}`;
+        throw soapError;
+      }
 
-        allEmployees.push(...employees);
-        
-        if (employees.length < perPage) {
-          hasMore = false;
-        } else {
-          page++;
+      console.log("UKG: Raw result:", JSON.stringify(result).slice(0, 500));
+      
+      const employees: UKGProEmployee[] = [];
+      if (Array.isArray(result)) {
+        for (const person of result) {
+          employees.push({
+            employeeId: person.EmployeeId || person.employeeId || "",
+            firstName: person.FirstName || person.firstName || "",
+            lastName: person.LastName || person.lastName || "",
+            jobTitle: person.JobTitle || person.jobTitle || "Staff",
+            employmentStatus: person.EmploymentStatus || person.employmentStatus || "Active",
+          });
         }
       }
 
-      console.log(`UKG: Fetched ${allEmployees.length} employees`);
-      return allEmployees;
-    } catch (error) {
-      console.error("Failed to fetch employees from UKG:", error);
+      this.lastError = null;
+      console.log(`UKG: Fetched ${employees.length} employees`);
+      return employees;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!this.lastError) {
+        this.lastError = `Failed to fetch employees: ${message}`;
+      }
+      console.error("Failed to fetch employees from UKG:", message);
       return [];
     }
   }
@@ -191,6 +238,7 @@ class UKGClient {
 
   clearCache(): void {
     this.cachedLocations = null;
+    this.authToken = null;
   }
 }
 
