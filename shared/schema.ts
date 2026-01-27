@@ -178,6 +178,33 @@ export type InsertTimeClockEntry = z.infer<typeof insertTimeClockEntrySchema>;
 // Complex Types for UI
 export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };
 
+// === SCHEDULE TEMPLATES ===
+
+// Schedule templates store reusable weekly shift patterns
+export const scheduleTemplates = pgTable("schedule_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdBy: integer("created_by"), // User ID who created it
+  createdAt: timestamp("created_at").defaultNow(),
+  // Store shift patterns as JSON: [{employeeId, dayOfWeek, startHour, startMinute, endHour, endMinute}]
+  shiftPatterns: text("shift_patterns").notNull(), // JSON string
+});
+
+export const insertScheduleTemplateSchema = createInsertSchema(scheduleTemplates).omit({ id: true, createdAt: true });
+export type ScheduleTemplate = typeof scheduleTemplates.$inferSelect;
+export type InsertScheduleTemplate = z.infer<typeof insertScheduleTemplateSchema>;
+
+// Shift pattern type for template storage
+export type ShiftPattern = {
+  employeeId: number;
+  dayOfWeek: number; // 0 = Sunday, 1 = Monday, etc.
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+};
+
 // === CHAT TABLES FOR AI INTEGRATION ===
 
 import { sql } from "drizzle-orm";
