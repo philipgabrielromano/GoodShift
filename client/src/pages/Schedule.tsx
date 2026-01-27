@@ -335,7 +335,21 @@ export default function Schedule() {
 
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
         {/* Main Schedule Grid */}
-        <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden">
+        <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden relative">
+          {/* AI Generation Loading Overlay */}
+          {isAIGenerating && (
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-4" data-testid="overlay-ai-generating">
+              <div className="relative">
+                <div className="w-16 h-16 border-4 border-primary/30 rounded-full"></div>
+                <div className="absolute inset-0 w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <div className="text-center space-y-2">
+                <p className="text-lg font-semibold text-foreground">Generating Schedule</p>
+                <p className="text-sm text-muted-foreground animate-pulse">AI is analyzing employee availability, coverage requirements, and labor allocation...</p>
+              </div>
+            </div>
+          )}
+          
           <div className="overflow-x-auto">
             <div className="min-w-[800px]">
               {/* Header Row */}
