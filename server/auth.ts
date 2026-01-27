@@ -65,10 +65,9 @@ export function setupAuth(app: Express) {
   );
 
   app.get("/api/auth/status", (req, res) => {
-    // TEMPORARILY BYPASSING AUTH FOR TESTING
     res.json({
-      isAuthenticated: true,
-      user: req.session?.user || { id: 1, name: "Test Admin", email: "admin@test.com", role: "admin", locationIds: null },
+      isAuthenticated: req.session?.isAuthenticated || false,
+      user: req.session?.user || null,
       ssoConfigured: isMicrosoftSsoConfigured(),
     });
   });
