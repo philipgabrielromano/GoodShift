@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -211,8 +211,25 @@ export default function Schedule() {
   };
 
   const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [isManualGenerating, setIsManualGenerating] = useState(false);
   const [aiReasoning, setAIReasoning] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
+
+  const handleManualGenerate = async () => {
+    setIsManualGenerating(true);
+    try {
+      await apiRequest("POST", "/api/schedule/generate", { weekStart: weekStart.toISOString() });
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      toast({ 
+        title: "Schedule Generated", 
+        description: "Standard schedule created based on coverage rules."
+      });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Generation Failed", description: "Could not generate schedule." });
+    } finally {
+      setIsManualGenerating(false);
+    }
+  };
 
   const handleAIGenerate = async () => {
     setIsAIGenerating(true);
@@ -318,8 +335,18 @@ export default function Schedule() {
           </Button>
           <Button 
             variant="outline" 
+            onClick={handleManualGenerate} 
+            disabled={isManualGenerating || isAIGenerating}
+            className="border-primary/50 hover:border-primary"
+            data-testid="button-generate-schedule"
+          >
+            <CalendarClock className={cn("w-4 h-4 mr-2", isManualGenerating && "animate-spin")} />
+            {isManualGenerating ? "Generating..." : "Generate Schedule"}
+          </Button>
+          <Button 
+            variant="outline" 
             onClick={handleAIGenerate} 
-            disabled={isAIGenerating}
+            disabled={isAIGenerating || isManualGenerating}
             className="border-accent/50 hover:border-accent bg-accent/10 hover:bg-accent/20"
             data-testid="button-ai-generate"
           >
@@ -336,16 +363,22 @@ export default function Schedule() {
       <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
         {/* Main Schedule Grid */}
         <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden relative">
-          {/* AI Generation Loading Overlay */}
-          {isAIGenerating && (
-            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-4" data-testid="overlay-ai-generating">
+          {/* Generation Loading Overlay */}
+          {(isAIGenerating || isManualGenerating) && (
+            <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center gap-4" data-testid="overlay-generating">
               <div className="relative">
                 <div className="w-16 h-16 border-4 border-primary/30 rounded-full"></div>
                 <div className="absolute inset-0 w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
               </div>
               <div className="text-center space-y-2">
-                <p className="text-lg font-semibold text-foreground">Generating Schedule</p>
-                <p className="text-sm text-muted-foreground animate-pulse">AI is analyzing employee availability, coverage requirements, and labor allocation...</p>
+                <p className="text-lg font-semibold text-foreground">
+                  {isAIGenerating ? "AI Generating Schedule" : "Generating Schedule"}
+                </p>
+                <p className="text-sm text-muted-foreground animate-pulse">
+                  {isAIGenerating 
+                    ? "AI is analyzing employee availability, coverage requirements, and labor allocation..." 
+                    : "Creating schedule based on coverage rules and employee constraints..."}
+                </p>
               </div>
             </div>
           )}
