@@ -497,16 +497,21 @@ export async function registerRoutes(
       const activeLocations = locations.filter(l => l.isActive);
       const totalBudgetHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
       
-      // Calculate current total scheduled hours
-      const getTotalScheduledHours = () => generatedShifts.length * FULL_SHIFT_HOURS;
+      // Calculate current total scheduled hours using actual shift times
+      const getTotalScheduledHours = () => {
+        return generatedShifts.reduce((sum, shift) => {
+          return sum + calculateShiftPaidHours(new Date(shift.startTime), new Date(shift.endTime));
+        }, 0);
+      };
       
-      // Calculate hours per day
+      // Calculate hours per day using actual shift times
       const getHoursPerDay = () => {
         const dayHours: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
         for (const shift of generatedShifts) {
           const shiftDate = new Date(shift.startTime);
           const dayOfWeek = shiftDate.getDay();
-          dayHours[dayOfWeek] += FULL_SHIFT_HOURS;
+          const paidHours = calculateShiftPaidHours(new Date(shift.startTime), new Date(shift.endTime));
+          dayHours[dayOfWeek] += paidHours;
         }
         return dayHours;
       };
@@ -539,13 +544,15 @@ export async function registerRoutes(
           
           let shift;
           if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
-            shift = shifts.opener;
+            shift = shifts.opener; // Early shifts for pricers
           } else if (emp.jobTitle === 'DONDOOR') {
-            shift = shifts.closer;
+            shift = shifts.closer; // Greeters on closer
           } else if (managerCodes.includes(emp.jobTitle)) {
-            shift = shifts.mid11;
+            // Managers should only work opener or closer for coverage
+            // Alternate between opener and closer based on what's needed
+            shift = Math.random() > 0.5 ? shifts.opener : shifts.closer;
           } else {
-            shift = shifts.mid10;
+            shift = shifts.mid10; // Cashiers on mid shifts
           }
 
           await scheduleShift(emp, shift.start, shift.end, dayIndex);
@@ -631,7 +638,8 @@ export async function registerRoutes(
       // ========== PHASE 5: FILL REMAINING HOURS WITH SHORT SHIFTS ==========
       // For part-time employees (29 hrs max) who have 3 full shifts (24 hrs),
       // add a short 5-hour shift to reach their max
-      const allRetailEmployees = [...managers, ...donorGreeters, ...donationPricers, ...cashiers];
+      // Note: Managers are excluded - they should only work full opener/closer shifts for coverage
+      const allRetailEmployees = [...donorGreeters, ...donationPricers, ...cashiers];
       
       for (const emp of allRetailEmployees) {
         const remaining = getRemainingHours(emp);
