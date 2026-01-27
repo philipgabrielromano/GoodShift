@@ -23,9 +23,9 @@ export function Navigation() {
         <div className="p-6 border-b">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-xl">
-              S
+              G
             </div>
-            <h1 className="text-xl font-bold font-display tracking-tight">ShiftMaster</h1>
+            <h1 className="text-xl font-bold font-display tracking-tight">GoodShift</h1>
           </div>
         </div>
         
@@ -65,9 +65,9 @@ export function Navigation() {
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-card/80 backdrop-blur-md z-50 flex items-center px-4 justify-between">
         <div className="flex items-center gap-2">
            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-lg">
-              S
+              G
             </div>
-            <h1 className="text-lg font-bold font-display">ShiftMaster</h1>
+            <h1 className="text-lg font-bold font-display">GoodShift</h1>
         </div>
         
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -80,9 +80,9 @@ export function Navigation() {
              <div className="p-6 border-b">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold font-display text-xl">
-                  S
+                  G
                 </div>
-                <h1 className="text-xl font-bold font-display">ShiftMaster</h1>
+                <h1 className="text-xl font-bold font-display">GoodShift</h1>
               </div>
             </div>
             <nav className="flex-1 p-4 space-y-2">

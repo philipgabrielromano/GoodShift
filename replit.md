@@ -1,8 +1,8 @@
-# ShiftMaster - Employee Scheduling Application
+# GoodShift - Employee Scheduling Application
 
 ## Overview
 
-ShiftMaster is a full-stack employee scheduling and workforce management application. It enables managers to create and manage employee shifts, handle time-off requests, configure role-based staffing requirements, and validate schedules against business rules. The application features a weekly calendar view for shift visualization, employee management, and configurable global settings.
+GoodShift is a full-stack employee scheduling and workforce management application. It enables managers to create and manage employee shifts, handle time-off requests, configure role-based staffing requirements, and validate schedules against business rules. The application features a weekly calendar view for shift visualization, employee management, and configurable global settings.
 
 ## User Preferences
 
