@@ -54,8 +54,10 @@ class UKGClient {
     let authHeader: string;
     
     if (preEncodedAuth) {
+      console.log("UKG: Using pre-encoded auth header from UKG_AUTH_HEADER");
       authHeader = preEncodedAuth.startsWith("Basic ") ? preEncodedAuth : `Basic ${preEncodedAuth}`;
     } else {
+      console.log("UKG: Using username/password for auth (UKG_AUTH_HEADER not set)");
       const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
       authHeader = `Basic ${basicAuth}`;
     }
