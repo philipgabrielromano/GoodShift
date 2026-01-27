@@ -132,7 +132,13 @@ export class DatabaseStorage implements IStorage {
     const [settings] = await db.select().from(globalSettings);
     if (!settings) {
       // Create default if not exists
-      const [newSettings] = await db.insert(globalSettings).values({ totalWeeklyHoursLimit: 1000 }).returning();
+      const [newSettings] = await db.insert(globalSettings).values({ 
+        totalWeeklyHoursLimit: 1000,
+        managerMorningStart: "08:00",
+        managerMorningEnd: "16:30",
+        managerEveningStart: "12:00",
+        managerEveningEnd: "20:30"
+      }).returning();
       return newSettings;
     }
     return settings;

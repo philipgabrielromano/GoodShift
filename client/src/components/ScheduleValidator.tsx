@@ -24,6 +24,10 @@ export function ScheduleValidator() {
   const { data: settings } = useGlobalSettings();
   const { data: timeOff } = useTimeOffRequests();
 
+  const weekDays = useMemo(() => {
+    return Array.from({ length: 7 }).map((_, i) => addDays(parseISO(start), i));
+  }, [start]);
+
   const issues = useMemo(() => {
     if (!employees || !shifts || !roles || !settings || !timeOff) return [];
     
@@ -69,7 +73,45 @@ export function ScheduleValidator() {
       }
     });
 
-    // Check 4: Time off conflicts
+    // Check 4: Manager Coverage
+    weekDays.forEach(day => {
+      const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
+      const managerShifts = dayShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp?.jobTitle === "Manager";
+      });
+
+      // Morning shift: 08:00 - 16:30
+      // Evening shift: 12:00 - 20:30
+      const hasMorningManager = managerShifts.some(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerMorningStart || "08:00") && 
+               endStr === (settings.managerMorningEnd || "16:30");
+      });
+
+      const hasEveningManager = managerShifts.some(s => {
+        const startStr = format(s.startTime, "HH:mm");
+        const endStr = format(s.endTime, "HH:mm");
+        return startStr === (settings.managerEveningStart || "12:00") && 
+               endStr === (settings.managerEveningEnd || "20:30");
+      });
+
+      if (!hasMorningManager) {
+        newIssues.push({
+          type: "error",
+          message: `Missing Morning Manager on ${format(day, "EEEE, MMM d")}`
+        });
+      }
+      if (!hasEveningManager) {
+        newIssues.push({
+          type: "error",
+          message: `Missing Evening Manager on ${format(day, "EEEE, MMM d")}`
+        });
+      }
+    });
+
+    // Check 5: Time off conflicts
     shifts.forEach(shift => {
       const emp = employees.find(e => e.id === shift.employeeId);
       if (!emp) return;

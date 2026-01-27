@@ -208,6 +208,7 @@ async function seedDatabase() {
     await storage.createRoleRequirement({ jobTitle: "Chef", requiredWeeklyHours: 40 });
     await storage.createRoleRequirement({ jobTitle: "Waiter", requiredWeeklyHours: 80 });
     await storage.createRoleRequirement({ jobTitle: "Bartender", requiredWeeklyHours: 40 });
+    await storage.createRoleRequirement({ jobTitle: "Manager", requiredWeeklyHours: 40 });
 
     // Create Employees
     const chef = await storage.createEmployee({ 
@@ -216,6 +217,22 @@ async function seedDatabase() {
       jobTitle: "Chef", 
       maxWeeklyHours: 50,
       color: "#ef4444" // Red
+    });
+
+    const manager1 = await storage.createEmployee({ 
+      name: "Tony Soprano", 
+      email: "tony@management.com", 
+      jobTitle: "Manager", 
+      maxWeeklyHours: 45,
+      color: "#8b5cf6" // Purple
+    });
+
+    const manager2 = await storage.createEmployee({ 
+      name: "Carmela Soprano", 
+      email: "carmela@management.com", 
+      jobTitle: "Manager", 
+      maxWeeklyHours: 45,
+      color: "#d946ef" // Pink
     });
 
     const waiter1 = await storage.createEmployee({ 

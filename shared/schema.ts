@@ -10,7 +10,7 @@ export const employees = pgTable("employees", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull(),
-  jobTitle: text("job_title").notNull(), // e.g., "Chef", "Waiter"
+  jobTitle: text("job_title").notNull(), // e.g., "Chef", "Waiter", "Manager"
   maxWeeklyHours: integer("max_weekly_hours").notNull().default(40),
   color: text("color").notNull().default("#3b82f6"), // For UI visualization
   isActive: boolean("is_active").notNull().default(true),
@@ -41,6 +41,10 @@ export const roleRequirements = pgTable("role_requirements", {
 export const globalSettings = pgTable("global_settings", {
   id: serial("id").primaryKey(),
   totalWeeklyHoursLimit: integer("total_weekly_hours_limit").notNull().default(1000),
+  managerMorningStart: text("manager_morning_start").notNull().default("08:00"),
+  managerMorningEnd: text("manager_morning_end").notNull().default("16:30"),
+  managerEveningStart: text("manager_evening_start").notNull().default("12:00"),
+  managerEveningEnd: text("manager_evening_end").notNull().default("20:30"),
 });
 
 // === RELATIONS ===

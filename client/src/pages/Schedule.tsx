@@ -107,57 +107,70 @@ export default function Schedule() {
                 ))}
               </div>
 
-              {/* Employee Rows */}
-              {employees?.map(emp => (
-                <div key={emp.id} className="grid grid-cols-8 border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
-                  <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
-                    <div 
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
-                      style={{ backgroundColor: emp.color }}
-                    >
-                      {emp.name.substring(0, 2).toUpperCase()}
-                    </div>
-                    <div className="overflow-hidden">
-                      <p className="font-semibold truncate text-sm">{emp.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{emp.jobTitle}</p>
-                    </div>
+              {/* Grouped Employee Rows */}
+              {Object.entries(
+                (employees || []).reduce((acc, emp) => {
+                  if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
+                  acc[emp.jobTitle].push(emp);
+                  return acc;
+                }, {} as Record<string, typeof employees>)
+              ).map(([jobTitle, groupEmployees]) => (
+                <div key={jobTitle} className="border-b last:border-b-0">
+                  <div className="bg-muted/10 px-4 py-2 font-bold text-xs uppercase tracking-wider text-muted-foreground border-b">
+                    {jobTitle}s
                   </div>
-                  
-                  {weekDays.map(day => {
-                    const dayShifts = shifts?.filter(s => 
-                      s.employeeId === emp.id && isSameDay(s.startTime, day)
-                    );
-
-                    return (
-                      <div key={day.toString()} className="p-2 border-r last:border-r-0 min-h-[100px] relative">
-                        <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="w-full h-full pointer-events-auto rounded-none opacity-0 hover:opacity-10 hover:bg-black"
-                            onClick={() => handleAddShift(day, emp.id)}
-                          />
+                  {groupEmployees.map(emp => (
+                    <div key={emp.id} className="grid grid-cols-8 border-b last:border-b-0 hover:bg-muted/10 transition-colors group">
+                      <div className="p-4 border-r sticky left-0 bg-card group-hover:bg-muted/10 z-10 flex items-center gap-3">
+                        <div 
+                          className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm"
+                          style={{ backgroundColor: emp.color }}
+                        >
+                          {emp.name.substring(0, 2).toUpperCase()}
                         </div>
-
-                        <div className="space-y-2 relative z-10 pointer-events-none">
-                          {dayShifts?.map(shift => (
-                            <div 
-                              key={shift.id}
-                              onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                              className="pointer-events-auto cursor-pointer p-2 rounded-lg text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-sm transition-all text-white"
-                              style={{ backgroundColor: emp.color }}
-                            >
-                              <div className="flex justify-between items-center">
-                                <span>{format(shift.startTime, "HH:mm")}</span>
-                                <span className="opacity-70">-</span>
-                                <span>{format(shift.endTime, "HH:mm")}</span>
-                              </div>
-                            </div>
-                          ))}
+                        <div className="overflow-hidden">
+                          <p className="font-semibold truncate text-sm">{emp.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{emp.jobTitle}</p>
                         </div>
                       </div>
-                    );
-                  })}
+                      
+                      {weekDays.map(day => {
+                        const dayShifts = shifts?.filter(s => 
+                          s.employeeId === emp.id && isSameDay(s.startTime, day)
+                        );
+
+                        return (
+                          <div key={day.toString()} className="p-2 border-r last:border-r-0 min-h-[100px] relative">
+                            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="w-full h-full pointer-events-auto rounded-none opacity-0 hover:opacity-10 hover:bg-black"
+                                onClick={() => handleAddShift(day, emp.id)}
+                              />
+                            </div>
+
+                            <div className="space-y-2 relative z-10 pointer-events-none">
+                              {dayShifts?.map(shift => (
+                                <div 
+                                  key={shift.id}
+                                  onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
+                                  className="pointer-events-auto cursor-pointer p-2 rounded-lg text-xs font-medium border border-transparent hover:border-black/10 hover:shadow-sm transition-all text-white"
+                                  style={{ backgroundColor: emp.color }}
+                                >
+                                  <div className="flex justify-between items-center">
+                                    <span>{format(shift.startTime, "HH:mm")}</span>
+                                    <span className="opacity-70">-</span>
+                                    <span>{format(shift.endTime, "HH:mm")}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
