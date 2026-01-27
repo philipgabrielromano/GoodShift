@@ -150,13 +150,38 @@ export function setupAuth(app: Express) {
             // Create new user - first user is admin, rest are viewers
             const existingUsers = await storage.getUsers();
             const role = existingUsers.length === 0 ? "admin" : "viewer";
+            
+            // Try to auto-assign location based on matching employee record
+            let locationIds: string[] = [];
+            const matchingEmployee = await storage.getEmployeeByEmail(email);
+            if (matchingEmployee?.location) {
+              const location = await storage.getLocationByName(matchingEmployee.location);
+              if (location) {
+                locationIds = [String(location.id)];
+              }
+            }
+            
             user = await storage.createUser({
               email,
               name,
               microsoftId,
               role,
+              locationIds,
               isActive: true,
             });
+          }
+        }
+        
+        // If user has no locations assigned, try to auto-assign from employee record
+        if (!user.locationIds || user.locationIds.length === 0) {
+          const matchingEmployee = await storage.getEmployeeByEmail(user.email);
+          if (matchingEmployee?.location) {
+            const location = await storage.getLocationByName(matchingEmployee.location);
+            if (location) {
+              user = await storage.updateUser(user.id, { 
+                locationIds: [String(location.id)] 
+              });
+            }
           }
         }
 

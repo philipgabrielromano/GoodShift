@@ -169,9 +169,12 @@ export default function Users() {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                    {user.role === "manager" && user.locationIds && user.locationIds.length > 0 && (
+                    {user.locationIds && user.locationIds.length > 0 && (
                       <p className="text-xs text-muted-foreground mt-1">
-                        Locations: {user.locationIds.join(", ")}
+                        Locations: {user.locationIds.map(id => {
+                          const store = ukgStores?.find(s => s.id === id);
+                          return store?.name || id;
+                        }).join(", ")}
                       </p>
                     )}
                   </div>
@@ -247,33 +250,34 @@ export default function Users() {
               </p>
             </div>
 
-            {formData.role === "manager" && (
-              <div className="space-y-2">
-                <Label>Assigned Locations</Label>
-                <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
-                  {ukgStores?.map(store => (
-                    <label 
-                      key={store.id} 
-                      className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={(formData.locationIds || []).includes(store.id)}
-                        onChange={() => toggleLocationId(store.id)}
-                        className="rounded"
-                      />
-                      <span className="text-sm">{store.name} ({store.code})</span>
-                    </label>
-                  ))}
-                  {(!ukgStores || ukgStores.length === 0) && (
-                    <p className="text-sm text-muted-foreground p-2">No locations available</p>
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Managers will only see employees from their assigned locations.
-                </p>
+            <div className="space-y-2">
+              <Label>Assigned Locations</Label>
+              <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
+                {ukgStores?.map(store => (
+                  <label 
+                    key={store.id} 
+                    className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={(formData.locationIds || []).includes(store.id)}
+                      onChange={() => toggleLocationId(store.id)}
+                      className="rounded"
+                      data-testid={`checkbox-location-${store.id}`}
+                    />
+                    <span className="text-sm">{store.name}</span>
+                  </label>
+                ))}
+                {(!ukgStores || ukgStores.length === 0) && (
+                  <p className="text-sm text-muted-foreground p-2">No locations available</p>
+                )}
               </div>
-            )}
+              <p className="text-xs text-muted-foreground">
+                {formData.role === "manager" 
+                  ? "Managers will only see employees from their assigned locations."
+                  : "Users are automatically assigned locations based on their employee record."}
+              </p>
+            </div>
 
             <div className="flex items-center gap-2">
               <input
