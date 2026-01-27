@@ -66,7 +66,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   const prompt = `You are an expert retail store scheduler. Generate a FULL weekly schedule that MAXIMIZES hour usage.
 
 ## CRITICAL GOAL
-**USE AS MANY HOURS AS POSSIBLE** - Target: ${targetHours} hours (Budget: ${totalAvailableHours} hours available)
+**MAXIMIZE EACH EMPLOYEE'S HOURS** - Schedule every employee as close to their maxWeeklyHours as possible
 **SCHEDULE EVERY EMPLOYEE** - You have ${activeEmployees.length} employees. Each should get shifts up to their max hours.
 
 ## Shift Types (all shifts are 8.5 clock hours, but 8 PAID hours due to 30-min unpaid lunch)

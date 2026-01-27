@@ -59,13 +59,13 @@ export function ScheduleValidator() {
       }
     });
 
-    // Check 2: Total weekly limit
-    if (totalWeeklyHours > settings.totalWeeklyHoursLimit) {
-      newIssues.push({
-        type: "error",
-        message: `Total scheduled hours (${totalWeeklyHours}) exceeds limit (${settings.totalWeeklyHoursLimit})`
-      });
-    }
+    // Check 2: Total weekly limit - DISABLED (user wants max hours per employee instead)
+    // if (totalWeeklyHours > settings.totalWeeklyHoursLimit) {
+    //   newIssues.push({
+    //     type: "error",
+    //     message: `Total scheduled hours (${totalWeeklyHours}) exceeds limit (${settings.totalWeeklyHoursLimit})`
+    //   });
+    // }
 
     // Check 3: Role requirements
     roles.forEach(role => {
