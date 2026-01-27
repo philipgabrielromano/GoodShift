@@ -17,6 +17,15 @@ function createESTTime(baseDate: Date, hours: number, minutes: number = 0): Date
   return fromZonedTime(zonedDate, TIMEZONE);
 }
 
+// Middleware to require authentication (uses session user like rest of codebase)
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const user = (req.session as any)?.user;
+  if (!user) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+  next();
+}
+
 // Middleware to require admin role
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const user = (req.session as any)?.user;
@@ -44,10 +53,17 @@ export async function registerRoutes(
     }
     
     // Filter by location for managers
+    // user.locationIds contains location IDs (as strings), but emp.location contains location NAMES
+    // We need to look up the location names from the IDs
     const user = (req.session as any)?.user;
     if (user && user.role === "manager" && user.locationIds && user.locationIds.length > 0) {
+      const allLocations = await storage.getLocations();
+      const userLocationNames = allLocations
+        .filter(loc => user.locationIds.includes(String(loc.id)))
+        .map(loc => loc.name);
+      
       employees = employees.filter(emp => 
-        emp.location && user.locationIds.includes(emp.location)
+        emp.location && userLocationNames.includes(emp.location)
       );
     }
     
@@ -475,12 +491,14 @@ export async function registerRoutes(
     res.json(RETAIL_JOB_CODES);
   });
 
-  // === Locations (Admin only) ===
-  app.get(api.locations.list.path, async (req, res) => {
+  // === Locations ===
+  // List locations is accessible by authenticated users (managers need it for scheduling)
+  app.get(api.locations.list.path, requireAuth, async (req, res) => {
     const locations = await storage.getLocations();
     res.json(locations);
   });
 
+  // Get single location requires admin
   app.get(api.locations.get.path, requireAdmin, async (req, res) => {
     const location = await storage.getLocation(Number(req.params.id));
     if (!location) return res.status(404).json({ message: "Location not found" });

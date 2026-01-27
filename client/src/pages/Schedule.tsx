@@ -1,17 +1,28 @@
 import { useState, useMemo } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, UserCircle, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, UserCircle, Wand2, MapPin, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
+import { useLocations } from "@/hooks/use-locations";
 import { ShiftDialog } from "@/components/ShiftDialog";
 import { ScheduleValidator } from "@/components/ScheduleValidator";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import type { Shift } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
+
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string; locationIds: string[] | null } | null;
+  ssoConfigured: boolean;
+}
 
 const TIMEZONE = "America/New_York";
 
@@ -26,6 +37,11 @@ export default function Schedule() {
   const { toast } = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   
+  // Get auth status for location-based filtering
+  const { data: authStatus } = useQuery<AuthStatus>({
+    queryKey: ["/api/auth/status"],
+  });
+  
   // Calculate week boundaries in EST
   const weekStart = useMemo(() => getESTWeekStart(currentDate), [currentDate]);
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
@@ -38,8 +54,45 @@ export default function Schedule() {
   
   // Only fetch employees with retail job codes for scheduling
   const { data: employees, isLoading: empLoading } = useEmployees({ retailOnly: true });
+  
+  // Get locations for hours tracking
+  const { data: locations, isLoading: locLoading } = useLocations();
 
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Calculate scheduled hours per location for the current week
+  const locationHoursUsed = useMemo(() => {
+    const hours: Record<string, number> = {};
+    if (!shifts || !employees) return hours;
+    
+    shifts.forEach(shift => {
+      const employee = employees.find(e => e.id === shift.employeeId);
+      if (employee?.location) {
+        const duration = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
+        hours[employee.location] = (hours[employee.location] || 0) + duration;
+      }
+    });
+    
+    return hours;
+  }, [shifts, employees]);
+  
+  // Get user's assigned locations (managers see only their locations, admins see all)
+  const userLocations = useMemo(() => {
+    if (!locations) return [];
+    const user = authStatus?.user;
+    if (!user) return [];
+    
+    if (user.role === "admin") {
+      return locations.filter(l => l.isActive);
+    }
+    
+    if (user.locationIds && user.locationIds.length > 0) {
+      // locationIds contains location IDs as strings, compare with location.id
+      return locations.filter(l => l.isActive && user.locationIds!.includes(String(l.id)));
+    }
+    
+    return [];
+  }, [locations, authStatus]);
 
   const handleAutoGenerate = async () => {
     setIsGenerating(true);
@@ -75,7 +128,7 @@ export default function Schedule() {
     setDialogOpen(true);
   };
 
-  if (shiftsLoading || empLoading) {
+  if (shiftsLoading || empLoading || locLoading) {
     return <div className="p-8 space-y-4">
       <Skeleton className="h-12 w-64" />
       <div className="grid grid-cols-8 gap-4">
@@ -229,6 +282,61 @@ export default function Schedule() {
         {/* Sidebar */}
         <div className="space-y-6">
           <ScheduleValidator />
+          
+          {/* Location Hours Panel */}
+          {userLocations.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <MapPin className="w-5 h-5 text-primary" />
+                  Store Hours Budget
+                </CardTitle>
+                <CardDescription>Weekly hours by location</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {userLocations.map(location => {
+                  const used = locationHoursUsed[location.name] || 0;
+                  const limit = location.weeklyHoursLimit;
+                  const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+                  const isOverBudget = used > limit;
+                  
+                  return (
+                    <div key={location.id} className="space-y-2" data-testid={`location-hours-${location.id}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium truncate">{location.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "text-sm font-mono",
+                            isOverBudget ? "text-destructive font-bold" : "text-muted-foreground"
+                          )}>
+                            {used.toFixed(1)} / {limit}
+                          </span>
+                          {isOverBudget && (
+                            <Badge variant="destructive" className="text-xs">
+                              Over
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <Progress 
+                        value={percentage} 
+                        className={cn(
+                          "h-2",
+                          isOverBudget && "[&>[data-state=complete]]:bg-destructive [&>div]:bg-destructive"
+                        )}
+                      />
+                    </div>
+                  );
+                })}
+                
+                {userLocations.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-2">
+                    No locations assigned
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
           
           <div className="bg-card rounded-2xl border p-6 shadow-sm">
             <h3 className="font-bold text-lg mb-4">Quick Stats</h3>

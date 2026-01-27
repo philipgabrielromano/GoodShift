@@ -41,6 +41,7 @@ Database tables:
 - `role_requirements` - Minimum weekly hours required per job title with color coding
 - `global_settings` - Application-wide configuration (hours limits, timezone, labor allocation)
 - `users` - User accounts with roles (admin/manager/viewer) and location access control
+- `locations` - Store locations with weekly hours allocation limits
 
 ### Shared Code Architecture
 The `shared/` directory contains code used by both frontend and backend:
@@ -168,6 +169,25 @@ These percentages must total 100% and are used by the scheduler to allocate hour
 
 ### Timezone Handling
 All scheduling is done in Eastern Time (America/New_York). The application uses date-fns-tz for timezone-aware date handling.
+
+### Location Management
+Admins can manage store locations with weekly hours budgets:
+- Create/edit/delete store locations
+- Set weekly hours allocation per store
+- Track active/inactive location status
+
+The Schedule page shows location-specific hours tracking:
+- Managers see only their assigned locations' hours budget
+- Admins see all active locations
+- Progress bars show used vs. allocated hours
+- Over-budget warnings displayed when exceeded
+
+Location data flow:
+- `users.locationIds` stores array of location IDs (as strings like "1", "2")
+- `employees.location` stores location NAME from UKG sync (e.g., "Store A")
+- `locations.id` is the numeric identifier, `locations.name` is the location name
+- Manager filtering: userLocationIds -> lookup location names -> filter employees by name
+- Hours calculation: match employee location names to location records, aggregate by location
 
 ### Business Context
 This application is designed for retail thrift store scheduling, with the ability to:
