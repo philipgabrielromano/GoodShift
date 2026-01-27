@@ -402,9 +402,11 @@ export default function Schedule() {
                   const dayEST = toZonedTime(day, TIMEZONE);
                   const isToday = isSameDay(todayEST, dayEST);
                   // Calculate daily paid hours (subtract lunch for 6+ hour shifts)
+                  // Compare using formatted date strings to avoid timezone issues
+                  const dayDateStr = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
                   const dayHours = shifts?.reduce((sum, shift) => {
-                    const shiftStartEST = toZonedTime(shift.startTime, TIMEZONE);
-                    if (isSameDay(shiftStartEST, dayEST)) {
+                    const shiftDateStr = formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd");
+                    if (shiftDateStr === dayDateStr) {
                       const startTime = new Date(shift.startTime);
                       const endTime = new Date(shift.endTime);
                       return sum + calculatePaidHours(startTime, endTime);
