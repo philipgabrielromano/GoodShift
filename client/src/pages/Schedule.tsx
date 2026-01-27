@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff } from "lucide-react";
-import { cn, getJobTitle } from "@/lib/utils";
+import { cn, getJobTitle, isHoliday } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -907,8 +907,14 @@ export default function Schedule() {
                   const dateKey = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
                   const weather = weatherByDate.get(dateKey);
                   
+                  // Check if this day is a holiday
+                  const holidayName = isHoliday(dayEST);
+                  
                   return (
-                    <div key={day.toString()} className="p-2 text-center border-r">
+                    <div key={day.toString()} className={cn(
+                      "p-2 text-center border-r",
+                      holidayName && "bg-destructive/10"
+                    )}>
                       <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
                       <div className={cn(
                         "text-xs w-7 h-7 flex items-center justify-center rounded-full mx-auto",
@@ -916,6 +922,12 @@ export default function Schedule() {
                       )}>
                         {formatInTimeZone(day, TIMEZONE, "d")}
                       </div>
+                      {/* Holiday indicator */}
+                      {holidayName && (
+                        <div className="mt-1 text-[10px] font-semibold text-destructive" data-testid={`holiday-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
+                          CLOSED - {holidayName}
+                        </div>
+                      )}
                       {/* Weather forecast */}
                       {weather && (
                         <div className="mt-1 flex flex-col items-center gap-0.5" data-testid={`weather-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>

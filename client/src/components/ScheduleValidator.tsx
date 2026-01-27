@@ -7,7 +7,7 @@ import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, format, differenc
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
-import { cn, getJobTitle } from "@/lib/utils";
+import { cn, getJobTitle, isHoliday } from "@/lib/utils";
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
 function calculatePaidHours(startTime: Date, endTime: Date): number {
@@ -108,6 +108,10 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     const managersRequired = settings.managersRequired ?? 1;
     
     weekDays.forEach(day => {
+      // Skip coverage checks on holidays - store is closed
+      const holidayName = isHoliday(day);
+      if (holidayName) return;
+      
       const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
       const isSunday = day.getDay() === 0;
       
@@ -412,6 +416,20 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
         newIssues.push({
           type: "warning",
           message: `${manager.name} (${getJobTitle(manager.jobTitle)}) has ${closingCount} closing shifts this week (max 3 recommended)`
+        });
+      }
+    });
+
+    // Check 9: Holiday shifts (store is closed on Easter, Thanksgiving, Christmas)
+    shifts.forEach(shift => {
+      const shiftDate = new Date(shift.startTime);
+      const holidayName = isHoliday(shiftDate);
+      if (holidayName) {
+        const emp = employees.find(e => e.id === shift.employeeId);
+        const empName = emp?.name || "Unknown";
+        newIssues.push({
+          type: "error",
+          message: `${empName} is scheduled on ${holidayName} (store is closed)`
         });
       }
     });

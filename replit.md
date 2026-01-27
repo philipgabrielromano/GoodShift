@@ -230,6 +230,18 @@ The schedule page displays weather forecasts in each day's header:
 - Cached for 1 hour to minimize API calls
 - 14-day forecast available
 
+### Holidays
+The store is closed on three holidays each year:
+- **Easter** (calculated dynamically - varies each year)
+- **Thanksgiving** (4th Thursday of November)
+- **Christmas** (December 25th)
+
+Holiday features:
+- Schedule page shows "CLOSED" indicator on holiday dates with red highlighting
+- Scheduler automatically skips holidays when generating schedules
+- Validation shows errors if any shifts are scheduled on holidays
+- AI scheduler is informed of holidays and instructed not to schedule anyone
+
 ### Timezone Handling
 All scheduling is done in Eastern Time (America/New_York). The application uses date-fns-tz for timezone-aware date handling.
 

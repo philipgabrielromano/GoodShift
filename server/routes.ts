@@ -7,6 +7,7 @@ import { z } from "zod";
 import { ukgClient } from "./ukg";
 import { RETAIL_JOB_CODES } from "@shared/schema";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { isHoliday } from "./holidays";
 
 const TIMEZONE = "America/New_York";
 
@@ -712,12 +713,20 @@ export async function registerRoutes(
         0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0 // Weekdays - baseline
       };
 
-      // ========== PHASE 1: MANDATORY COVERAGE (All 7 days) ==========
+      // ========== PHASE 1: MANDATORY COVERAGE (All 7 days except holidays) ==========
       // First pass: ensure every day has minimum required coverage
       // IMPORTANT: Prefer full-timers for coverage positions to maximize part-timer flexibility
       // Process days in priority order: Saturday and Friday first to ensure weekend leadership coverage
       for (const dayIndex of dayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        
+        // Skip holidays - store is closed on Easter, Thanksgiving, Christmas
+        const holidayName = isHoliday(currentDay);
+        if (holidayName) {
+          console.log(`[Scheduler] Skipping ${holidayName} - store is closed`);
+          continue;
+        }
+        
         const shifts = getShiftTimes(currentDay);
         const isSaturday = dayIndex === 6;
 
@@ -839,6 +848,10 @@ export async function registerRoutes(
           if (additionalAssigned[dayIndex] >= additionalTargets[dayIndex]) continue;
           
           const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          
+          // Skip holidays
+          if (isHoliday(currentDay)) continue;
+          
           const shifts = getShiftTimes(currentDay);
           
           // Get all available employees who can work any shift today
@@ -929,6 +942,10 @@ export async function registerRoutes(
         // Process each day in sequence (round-robin across all 7 days)
         for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
           const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          
+          // Skip holidays
+          if (isHoliday(currentDay)) continue;
+          
           const shifts = getShiftTimes(currentDay);
 
           // Find employees who can still work (either full or short shifts)

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { storage } from "./storage";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { isHoliday, getHolidaysInRange } from "./holidays";
 
 const TIMEZONE = "America/New_York";
 
@@ -119,6 +120,17 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
   return `- ${emp?.name || 'Unknown'} (ID: ${t.employeeId}): ${t.startDate} to ${t.endDate}`;
 }).join('\n') : 'None'}
 
+## HOLIDAYS (STORE IS CLOSED - DO NOT SCHEDULE ANYONE)
+${(() => {
+  const weekEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const holidays = getHolidaysInRange(startDate, weekEnd);
+  if (holidays.length === 0) return 'None this week';
+  return holidays.map(h => {
+    const dayIndex = Math.floor((h.date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+    return `- Day ${dayIndex} (${h.name}): STORE CLOSED - Do NOT schedule anyone`;
+  }).join('\n');
+})()}
+
 ## SCHEDULING RULES
 1. Full shifts = 8 PAID hours, Short shifts = 5.5 PAID hours, Gap shifts = 5 PAID hours
 2. **MAXIMIZE each employee's hours** - Get as close to their maxWeeklyHours as possible!
@@ -134,8 +146,9 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 7. An employee can only work ONE shift per day (no doubles)
 8. Never exceed an employee's maxWeeklyHours
 9. Never schedule someone on approved time off days
-10. Generate shifts for ALL 7 days (Sunday=0 through Saturday=6)
-11. STSUPER (Store Manager) counts as manager coverage for opener/closer requirements
+10. **NEVER schedule ANYONE on holidays** - Store is closed on Easter, Thanksgiving, and Christmas
+11. Generate shifts for ALL 7 days EXCEPT holidays (Sunday=0 through Saturday=6)
+12. STSUPER (Store Manager) counts as manager coverage for opener/closer requirements
 
 ## OUTPUT FORMAT
 
