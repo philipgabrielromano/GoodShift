@@ -1,18 +1,98 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+
+import { pgTable, text, serial, integer, boolean, timestamp, date } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+// === TABLE DEFINITIONS ===
+
+export const employees = pgTable("employees", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  jobTitle: text("job_title").notNull(), // e.g., "Chef", "Waiter"
+  maxWeeklyHours: integer("max_weekly_hours").notNull().default(40),
+  color: text("color").notNull().default("#3b82f6"), // For UI visualization
+  isActive: boolean("is_active").notNull().default(true),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+export const timeOffRequests = pgTable("time_off_requests", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  startDate: date("start_date").notNull(),
+  endDate: date("end_date").notNull(),
+  reason: text("reason"),
+  status: text("status").notNull().default("pending"), // pending, approved, rejected
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export const shifts = pgTable("shifts", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time").notNull(),
+});
+
+export const roleRequirements = pgTable("role_requirements", {
+  id: serial("id").primaryKey(),
+  jobTitle: text("job_title").notNull().unique(), // e.g., "Chef"
+  requiredWeeklyHours: integer("required_weekly_hours").notNull(),
+});
+
+export const globalSettings = pgTable("global_settings", {
+  id: serial("id").primaryKey(),
+  totalWeeklyHoursLimit: integer("total_weekly_hours_limit").notNull().default(1000),
+});
+
+// === RELATIONS ===
+
+export const employeesRelations = relations(employees, ({ many }) => ({
+  shifts: many(shifts),
+  timeOffRequests: many(timeOffRequests),
+}));
+
+export const shiftsRelations = relations(shifts, ({ one }) => ({
+  employee: one(employees, {
+    fields: [shifts.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const timeOffRequestsRelations = relations(timeOffRequests, ({ one }) => ({
+  employee: one(employees, {
+    fields: [timeOffRequests.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+// === BASE SCHEMAS ===
+
+export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
+export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true });
+export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true });
+export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).omit({ id: true });
+export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
+
+// === EXPLICIT API CONTRACT TYPES ===
+
+// Employee Types
+export type Employee = typeof employees.$inferSelect;
+export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
+
+// Time Off Types
+export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
+export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
+
+// Shift Types
+export type Shift = typeof shifts.$inferSelect;
+export type InsertShift = z.infer<typeof insertShiftSchema>;
+
+// Role Requirement Types
+export type RoleRequirement = typeof roleRequirements.$inferSelect;
+export type InsertRoleRequirement = z.infer<typeof insertRoleRequirementSchema>;
+
+// Global Settings Types
+export type GlobalSettings = typeof globalSettings.$inferSelect;
+export type InsertGlobalSettings = z.infer<typeof insertGlobalSettingsSchema>;
+
+// Complex Types for UI
+export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };

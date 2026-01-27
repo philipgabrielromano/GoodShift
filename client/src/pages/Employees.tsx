@@ -1,0 +1,259 @@
+import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee } from "@/hooks/use-employees";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { useState } from "react";
+import { Plus, Search, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
+import type { Employee, InsertEmployee } from "@shared/routes";
+
+export default function Employees() {
+  const { data: employees, isLoading } = useEmployees();
+  const [search, setSearch] = useState("");
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+
+  const filteredEmployees = employees?.filter(e => 
+    e.name.toLowerCase().includes(search.toLowerCase()) || 
+    e.jobTitle.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold font-display">Employees</h1>
+          <p className="text-muted-foreground mt-1">Manage your team members and roles.</p>
+        </div>
+        <Button onClick={() => { setEditingEmployee(null); setIsDialogOpen(true); }} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all">
+          <Plus className="w-4 h-4 mr-2" />
+          Add Employee
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-4 bg-card p-2 rounded-xl border shadow-sm max-w-md">
+        <Search className="w-5 h-5 text-muted-foreground ml-2" />
+        <Input 
+          placeholder="Search by name or title..." 
+          className="border-0 shadow-none focus-visible:ring-0 bg-transparent"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {[1,2,3,4].map(i => <div key={i} className="h-48 bg-muted/20 animate-pulse rounded-2xl" />)}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {filteredEmployees?.map(employee => (
+            <EmployeeCard 
+              key={employee.id} 
+              employee={employee} 
+              onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
+            />
+          ))}
+        </div>
+      )}
+
+      <EmployeeDialog 
+        open={isDialogOpen} 
+        onOpenChange={setIsDialogOpen} 
+        employee={editingEmployee}
+      />
+    </div>
+  );
+}
+
+function EmployeeCard({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
+  const deleteEmployee = useDeleteEmployee();
+  const { toast } = useToast();
+
+  const handleDelete = async () => {
+    if (confirm("Are you sure? This will delete all shifts for this employee.")) {
+      await deleteEmployee.mutateAsync(employee.id);
+      toast({ title: "Employee deleted" });
+    }
+  };
+
+  return (
+    <div className="bg-card rounded-2xl p-6 border shadow-sm hover:shadow-lg transition-all duration-300 group relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: employee.color }} />
+      
+      <div className="flex justify-between items-start mb-4">
+        <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-md" style={{ backgroundColor: employee.color }}>
+          {employee.name.substring(0, 2).toUpperCase()}
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="text-muted-foreground">
+              <MoreHorizontal className="w-5 h-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil className="w-4 h-4 mr-2" /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleDelete}>
+              <Trash2 className="w-4 h-4 mr-2" /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      
+      <h3 className="text-lg font-bold truncate">{employee.name}</h3>
+      <p className="text-muted-foreground text-sm font-medium mb-4">{employee.jobTitle}</p>
+      
+      <div className="space-y-2 pt-4 border-t text-sm">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Max Hours</span>
+          <span className="font-semibold">{employee.maxWeeklyHours}h / week</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Status</span>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${employee.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+            {employee.isActive ? "Active" : "Inactive"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpenChange: (v: boolean) => void; employee: Employee | null }) {
+  const createEmployee = useCreateEmployee();
+  const updateEmployee = useUpdateEmployee();
+  const { toast } = useToast();
+
+  const [formData, setFormData] = useState<Partial<InsertEmployee>>({
+    name: "",
+    email: "",
+    jobTitle: "",
+    maxWeeklyHours: 40,
+    color: "#3b82f6",
+    isActive: true
+  });
+
+  // Reset form when dialog opens/closes or employee changes
+  useState(() => {
+    if (employee) {
+      setFormData(employee);
+    } else {
+      setFormData({
+        name: "",
+        email: "",
+        jobTitle: "",
+        maxWeeklyHours: 40,
+        color: "#3b82f6",
+        isActive: true
+      });
+    }
+  });
+
+  // Need useEffect to update state when prop changes
+  if (open && employee && formData.id !== employee.id) {
+     setFormData(employee);
+  }
+  if (open && !employee && formData.id) {
+    setFormData({
+      name: "",
+      email: "",
+      jobTitle: "",
+      maxWeeklyHours: 40,
+      color: "#3b82f6",
+      isActive: true
+    });
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (employee) {
+        await updateEmployee.mutateAsync({ id: employee.id, ...formData });
+        toast({ title: "Updated", description: "Employee details updated." });
+      } else {
+        await createEmployee.mutateAsync(formData as InsertEmployee);
+        toast({ title: "Created", description: "New employee added." });
+      }
+      onOpenChange(false);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Error", description: "Operation failed." });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{employee ? "Edit Employee" : "New Employee"}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-4">
+          <div className="space-y-2">
+            <Label>Full Name</Label>
+            <Input 
+              required 
+              value={formData.name} 
+              onChange={e => setFormData({...formData, name: e.target.value})} 
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Email</Label>
+            <Input 
+              type="email" 
+              required 
+              value={formData.email} 
+              onChange={e => setFormData({...formData, email: e.target.value})} 
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Job Title</Label>
+              <Input 
+                required 
+                value={formData.jobTitle} 
+                onChange={e => setFormData({...formData, jobTitle: e.target.value})} 
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Max Hours/Week</Label>
+              <Input 
+                type="number" 
+                required 
+                value={formData.maxWeeklyHours} 
+                onChange={e => setFormData({...formData, maxWeeklyHours: parseInt(e.target.value)})} 
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Color Tag</Label>
+            <div className="flex gap-2">
+              <Input 
+                type="color" 
+                value={formData.color} 
+                onChange={e => setFormData({...formData, color: e.target.value})} 
+                className="w-12 h-10 p-1"
+              />
+              <Input 
+                value={formData.color} 
+                onChange={e => setFormData({...formData, color: e.target.value})} 
+                className="flex-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit">{employee ? "Save Changes" : "Create Employee"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
