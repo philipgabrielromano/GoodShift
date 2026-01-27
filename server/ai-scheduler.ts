@@ -112,8 +112,9 @@ ${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
 ## SCHEDULING RULES
 1. Each shift is 8 PAID hours (8.5 clock hours minus 30-min unpaid lunch)
 2. **MAXIMIZE each employee's hours** - Schedule as close to their maxWeeklyHours as possible
-3. Full-time employees (maxWeeklyHours >= 32): Schedule 5 shifts = 40 paid hours
-4. Part-time employees (maxWeeklyHours < 32): Schedule 3-4 shifts (24-32 paid hours)
+3. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32) MUST GET EXACTLY 5 SHIFTS = 40 paid hours** - This is critical!
+4. Part-time employees (maxWeeklyHours < 32): Calculate shifts needed = Math.floor(maxWeeklyHours / 8)
+   - Example: maxWeeklyHours 29 = 3 shifts (24 hours), maxWeeklyHours 24 = 3 shifts
 5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
 6. An employee can only work ONE shift per day (no doubles)
 7. Never exceed an employee's maxWeeklyHours
@@ -136,16 +137,16 @@ Respond with a JSON object:
 }
 
 ## IMPORTANT RULES
-1. **MAXIMIZE hours for EVERY employee** - Get as close to maxWeeklyHours as possible
-2. Never exceed an employee's maxWeeklyHours
-3. **Minimum 2 days off per employee** - No exceptions
-4. Never schedule an employee on a day they have approved time off
-5. STSUPER (Store Manager) counts as manager for opening/closing coverage
-6. Prioritize manager coverage (one manager opening, one closing each day)
-7. Ensure donor greeter coverage (one opening, one closing each day)
-8. Respect labor allocation percentages when possible
-9. An employee should not work both opener AND closer on the same day
-10. Prefer giving employees consistent shift times when possible`;
+1. **FULL-TIME (maxWeeklyHours >= 32) = EXACTLY 5 SHIFTS** - No exceptions! 5 days x 8 hours = 40 hours
+2. **PART-TIME = Math.floor(maxWeeklyHours / 8) shifts** - Example: 29 max hours = 3 shifts (24 hours)
+3. Never exceed an employee's maxWeeklyHours
+4. **Minimum 2 days off per employee** - No exceptions
+5. Never schedule an employee on a day they have approved time off
+6. STSUPER (Store Manager) counts as manager for opening/closing coverage
+7. Prioritize manager coverage (one manager opening, one closing each day)
+8. Ensure donor greeter coverage (one opening, one closing each day)
+9. Ensure cashier coverage (one opening, one closing each day)
+10. An employee should not work both opener AND closer on the same day`;
 
   try {
     const response = await openai.chat.completions.create({
