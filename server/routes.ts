@@ -462,14 +462,26 @@ export async function registerRoutes(
 
       // ========== PHASE 1: MANDATORY COVERAGE (All 7 days) ==========
       // First pass: ensure every day has minimum required coverage
+      // IMPORTANT: Prefer full-timers for coverage positions to maximize part-timer flexibility
       for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const shifts = getShiftTimes(currentDay);
 
+        // Helper to sort employees: full-timers first, then by priority
+        const sortFullTimersFirst = (a: typeof employees[0], b: typeof employees[0]) => {
+          // Full-timers (>= 32h) should come before part-timers
+          const aIsFullTime = a.maxWeeklyHours >= 32;
+          const bIsFullTime = b.maxWeeklyHours >= 32;
+          if (aIsFullTime && !bIsFullTime) return -1;
+          if (!aIsFullTime && bIsFullTime) return 1;
+          // If same type, sort by priority
+          return getEmployeePriority(a) - getEmployeePriority(b);
+        };
+
         // 1a. Morning Manager - sort by priority (who needs hours most)
         const availableManagers = managers
           .filter(m => canWorkFullShift(m, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort(sortFullTimersFirst);
         
         for (let i = 0; i < managersRequired && i < availableManagers.length; i++) {
           await scheduleShift(availableManagers[i], shifts.opener.start, shifts.opener.end, dayIndex);
@@ -478,58 +490,65 @@ export async function registerRoutes(
         // 1b. Evening Manager (different from morning)
         const eveningManagers = managers
           .filter(m => canWorkFullShift(m, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort(sortFullTimersFirst);
         
         for (let i = 0; i < managersRequired && i < eveningManagers.length; i++) {
           await scheduleShift(eveningManagers[i], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
-        // 1c. Opening Donor Greeter
+        // 1c. Opening Donor Greeter - prefer full-timers
         const availableGreeters = donorGreeters
           .filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort(sortFullTimersFirst);
         
         if (availableGreeters.length > 0) {
           await scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
-        // 1d. Closing Donor Greeter (prefer different from opener)
+        // 1d. Closing Donor Greeter - prefer full-timers
         const closingGreeters = donorGreeters
           .filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort(sortFullTimersFirst);
         
         if (closingGreeters.length > 0) {
           await scheduleShift(closingGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
-        // 1e. Opening cashiers
+        // 1e. Opening cashiers - prefer full-timers
         const availableCashiers = cashiers
           .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort(sortFullTimersFirst);
         
         for (let i = 0; i < openersRequired && i < availableCashiers.length; i++) {
           await scheduleShift(availableCashiers[i], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
-        // 1f. Closing cashiers
+        // 1f. Closing cashiers - prefer full-timers
         const closingCashiers = cashiers
           .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .sort(sortFullTimersFirst);
         
         for (let i = 0; i < closersRequired && i < closingCashiers.length; i++) {
           await scheduleShift(closingCashiers[i], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
-        // 1g. Donation Pricers on early shifts (8am or 9am)
+        // 1g. Donation Pricers - use short morning shifts for part-timers, full for full-timers
+        // Pricers don't need to be there all day, just early morning for pricing
         const availablePricers = donationPricers
-          .filter(p => canWorkFullShift(p, currentDay, dayIndex))
-          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          .filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
+          .sort(sortFullTimersFirst);
         
         // Schedule at least 2 pricers per day on early shifts
         const minPricers = Math.min(2, availablePricers.length);
         for (let i = 0; i < minPricers; i++) {
-          const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
-          await scheduleShift(availablePricers[i], shift.start, shift.end, dayIndex);
+          const pricer = availablePricers[i];
+          // Part-timers (<=29h) get short morning shifts to maximize their weekly hours
+          if (pricer.maxWeeklyHours <= 29 && canWorkShortShift(pricer, currentDay, dayIndex)) {
+            await scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+          } else if (canWorkFullShift(pricer, currentDay, dayIndex)) {
+            const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
+            await scheduleShift(pricer, shift.start, shift.end, dayIndex);
+          }
         }
       }
 
@@ -706,6 +725,24 @@ export async function registerRoutes(
           }
         }
       }
+
+      // Debug: Log part-timer hours allocation
+      const partTimerSummary = employees
+        .filter(e => e.maxWeeklyHours <= 29 && e.isActive)
+        .map(e => ({
+          name: e.name,
+          maxHours: e.maxWeeklyHours,
+          scheduled: employeeState[e.id].hoursScheduled,
+          daysWorked: employeeState[e.id].daysWorked,
+          gap: e.maxWeeklyHours - employeeState[e.id].hoursScheduled
+        }))
+        .filter(e => e.scheduled > 0) // Only show those with shifts
+        .sort((a, b) => b.gap - a.gap); // Sort by largest gap first
+      
+      console.log(`[Scheduler] Part-timer summary (showing top 10 with gaps):`);
+      partTimerSummary.slice(0, 10).forEach(pt => {
+        console.log(`  ${pt.name}: ${pt.scheduled}h / ${pt.maxHours}h max (${pt.daysWorked} days, gap: ${pt.gap.toFixed(1)}h)`);
+      });
 
       console.log(`[Scheduler] COMPLETE: ${generatedShifts.length} shifts, ${getTotalScheduledHours()} total hours`);
       res.status(201).json(generatedShifts);
