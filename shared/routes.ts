@@ -215,6 +215,7 @@ export const api = {
       path: '/api/schedule/generate',
       input: z.object({
         weekStart: z.string(),
+        location: z.string().optional(),
       }),
       responses: {
         201: z.array(z.custom<typeof shifts.$inferSelect>()),

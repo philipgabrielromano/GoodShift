@@ -227,11 +227,17 @@ export default function Schedule() {
   const handleManualGenerate = async () => {
     setIsManualGenerating(true);
     try {
-      await apiRequest("POST", "/api/schedule/generate", { weekStart: weekStart.toISOString() });
+      const payload: { weekStart: string; location?: string } = { weekStart: weekStart.toISOString() };
+      if (selectedLocation !== "all") {
+        payload.location = selectedLocation;
+      }
+      await apiRequest("POST", "/api/schedule/generate", payload);
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({ 
         title: "Schedule Generated", 
-        description: "Standard schedule created based on coverage rules."
+        description: selectedLocation === "all" 
+          ? "Standard schedule created based on coverage rules."
+          : `Schedule created for ${selectedLocation}.`
       });
     } catch (error) {
       toast({ variant: "destructive", title: "Generation Failed", description: "Could not generate schedule." });

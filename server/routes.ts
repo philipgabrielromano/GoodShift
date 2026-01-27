@@ -250,10 +250,17 @@ export async function registerRoutes(
 
   app.post(api.schedule.generate.path, async (req, res) => {
     try {
-      const { weekStart } = api.schedule.generate.input.parse(req.body);
+      const { weekStart, location } = api.schedule.generate.input.parse(req.body);
       const startDate = new Date(weekStart);
       
-      const employees = await storage.getEmployees();
+      const allEmployees = await storage.getEmployees();
+      // Filter employees by location if specified
+      const employees = location 
+        ? allEmployees.filter(e => e.location === location)
+        : allEmployees;
+      
+      console.log(`[Scheduler] Location filter: ${location || 'none'}, Employees: ${employees.length} of ${allEmployees.length}`);
+      
       const settings = await storage.getGlobalSettings();
       const timeOff = await storage.getTimeOffRequests();
       const locations = await storage.getLocations();
