@@ -3,10 +3,16 @@ import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
-import { isSameDay, differenceInHours, startOfWeek, endOfWeek, parseISO, addDays, format } from "date-fns";
+import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, format } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+
+// Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
+function calculatePaidHours(startTime: Date, endTime: Date): number {
+  const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+  return clockHours >= 6 ? clockHours - 0.5 : clockHours;
+}
 
 interface Issue {
   type: "error" | "warning";
@@ -37,14 +43,18 @@ export function ScheduleValidator() {
     // Check 1: Employee max hours
     employees.forEach(emp => {
       const empShifts = shifts.filter(s => s.employeeId === emp.id);
-      const hours = empShifts.reduce((acc, s) => acc + differenceInHours(s.endTime, s.startTime), 0);
+      const hours = empShifts.reduce((acc, s) => {
+        const start = new Date(s.startTime);
+        const end = new Date(s.endTime);
+        return acc + calculatePaidHours(start, end);
+      }, 0);
       
       totalWeeklyHours += hours;
       
       if (hours > emp.maxWeeklyHours) {
         newIssues.push({
           type: "error",
-          message: `${emp.name} is scheduled for ${hours}h (Max: ${emp.maxWeeklyHours}h)`
+          message: `${emp.name} is scheduled for ${hours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
         });
       }
     });
@@ -63,12 +73,16 @@ export function ScheduleValidator() {
       const roleIds = roleEmployees.map(e => e.id);
       
       const roleShifts = shifts.filter(s => roleIds.includes(s.employeeId));
-      const roleHours = roleShifts.reduce((acc, s) => acc + differenceInHours(s.endTime, s.startTime), 0);
+      const roleHours = roleShifts.reduce((acc, s) => {
+        const start = new Date(s.startTime);
+        const end = new Date(s.endTime);
+        return acc + calculatePaidHours(start, end);
+      }, 0);
 
       if (roleHours < role.requiredWeeklyHours) {
         newIssues.push({
           type: "warning",
-          message: `${role.jobTitle} coverage is ${roleHours}h (Required: ${role.requiredWeeklyHours}h)`
+          message: `${role.jobTitle} coverage is ${roleHours.toFixed(1)}h (Required: ${role.requiredWeeklyHours}h)`
         });
       }
     });
