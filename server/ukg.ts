@@ -50,9 +50,18 @@ class UKGClient {
   }
 
   private getAuthHeaders(): Record<string, string> {
-    const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
+    const preEncodedAuth = process.env.UKG_AUTH_HEADER;
+    let authHeader: string;
+    
+    if (preEncodedAuth) {
+      authHeader = preEncodedAuth.startsWith("Basic ") ? preEncodedAuth : `Basic ${preEncodedAuth}`;
+    } else {
+      const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
+      authHeader = `Basic ${basicAuth}`;
+    }
+    
     return {
-      "Authorization": `Basic ${basicAuth}`,
+      "Authorization": authHeader,
       "Content-Type": "application/json",
       "Accept": "application/json",
     };
