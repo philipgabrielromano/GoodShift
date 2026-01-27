@@ -29,6 +29,20 @@ interface AuthStatus {
 
 const TIMEZONE = "America/New_York";
 
+// Job title priority order for schedule display
+const JOB_PRIORITY: Record<string, number> = {
+  "STASSTSP": 1,
+  "STLDWKR": 2,
+  "CASHSLS": 3,
+  "APPROC": 4,
+  "DONPRI": 5,
+  "DONDOOR": 6,
+};
+
+function getJobPriority(jobTitle: string): number {
+  return JOB_PRIORITY[jobTitle] ?? 99;
+}
+
 // Compute start of week in EST timezone (Sunday = 0)
 function getESTWeekStart(date: Date): Date {
   const zonedDate = toZonedTime(date, TIMEZONE);
@@ -329,14 +343,16 @@ export default function Schedule() {
                 })}
               </div>
 
-              {/* Grouped Employee Rows */}
+              {/* Grouped Employee Rows - sorted by job priority */}
               {Object.entries(
                 (employees || []).reduce((acc, emp) => {
                   if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
                   acc[emp.jobTitle].push(emp);
                   return acc;
                 }, {} as Record<string, NonNullable<typeof employees>>)
-              ).map(([jobTitle, groupEmployees]) => {
+              )
+              .sort(([a], [b]) => getJobPriority(a) - getJobPriority(b))
+              .map(([jobTitle, groupEmployees]) => {
                 const isCollapsed = collapsedGroups.has(jobTitle);
                 const groupShiftCount = shifts?.filter(s => 
                   groupEmployees.some(e => e.id === s.employeeId)
