@@ -53,12 +53,12 @@ export default function Employees() {
         </div>
       ) : (
         <div className="bg-card rounded border shadow-sm overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_minmax(120px,1fr)_120px_120px_80px_80px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
+          <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_80px_80px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
             <div>Name</div>
-            <div>Email</div>
             <div>Job Title</div>
             <div>Location</div>
             <div>Hours</div>
+            <div>Days/Wk</div>
             <div>Status</div>
             <div></div>
           </div>
@@ -90,7 +90,9 @@ export default function Employees() {
 
 function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
   const deleteEmployee = useDeleteEmployee();
+  const updateEmployee = useUpdateEmployee();
   const { toast } = useToast();
+  const isPartTime = (employee.maxWeeklyHours || 40) < 32;
 
   const handleDelete = async () => {
     if (confirm("Are you sure? This will delete all shifts for this employee.")) {
@@ -99,8 +101,17 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
     }
   };
 
+  const handleDaysChange = async (value: string) => {
+    try {
+      await updateEmployee.mutateAsync({ id: employee.id, preferredDaysPerWeek: parseInt(value) });
+      toast({ title: "Updated", description: "Preferred days updated." });
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update." });
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_minmax(120px,1fr)_120px_120px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
+    <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
       <div className="flex items-center gap-3 min-w-0">
         <div 
           className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0" 
@@ -110,7 +121,6 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
         </div>
         <span className="font-medium">{employee.name}</span>
       </div>
-      <div className="text-sm text-muted-foreground truncate">{employee.email}</div>
       <div className="text-sm truncate">{getJobTitle(employee.jobTitle)}</div>
       <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
         {employee.location ? (
@@ -123,6 +133,24 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
         )}
       </div>
       <div className="text-sm">{employee.maxWeeklyHours}h</div>
+      <div className="text-sm">
+        {isPartTime ? (
+          <Select 
+            value={String(employee.preferredDaysPerWeek || 5)} 
+            onValueChange={handleDaysChange}
+          >
+            <SelectTrigger className="h-7 w-16 text-xs" data-testid={`select-days-${employee.id}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="4">4</SelectItem>
+              <SelectItem value="5">5</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </div>
       <div>
         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${employee.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'}`}>
           {employee.isActive ? "Active" : "Inactive"}
@@ -242,32 +270,15 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Preferred Days/Week</Label>
-              <Select 
-                value={String(formData.preferredDaysPerWeek || 5)} 
-                onValueChange={v => setFormData({...formData, preferredDaysPerWeek: parseInt(v)})}
-              >
-                <SelectTrigger data-testid="select-preferred-days">
-                  <SelectValue placeholder="Select days" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="4">4 days</SelectItem>
-                  <SelectItem value="5">5 days</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Color Tag</Label>
-              <div className="flex gap-2">
-                <Input 
-                  type="color" 
-                  value={formData.color} 
-                  onChange={e => setFormData({...formData, color: e.target.value})} 
-                  className="w-12 h-10 p-1"
-                />
-              </div>
+          <div className="space-y-2">
+            <Label>Color Tag</Label>
+            <div className="flex gap-2">
+              <Input 
+                type="color" 
+                value={formData.color} 
+                onChange={e => setFormData({...formData, color: e.target.value})} 
+                className="w-12 h-10 p-1"
+              />
             </div>
           </div>
           <DialogFooter>
