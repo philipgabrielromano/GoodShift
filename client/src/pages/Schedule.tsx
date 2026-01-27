@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, getJobTitle } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -720,7 +720,7 @@ export default function Schedule() {
                     >
                       <div className="flex items-center gap-2">
                         {isCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        <span>{jobTitle}</span>
+                        <span>{getJobTitle(jobTitle)}</span>
                         <Badge variant="secondary" className="ml-2">{groupEmployees.length}</Badge>
                       </div>
                       {groupShiftCount > 0 && (
