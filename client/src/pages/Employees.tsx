@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useState, useEffect } from "react";
-import { Plus, Search, MoreHorizontal, Pencil, Trash2, MapPin } from "lucide-react";
+import { Search, MoreHorizontal, Pencil, Trash2, MapPin } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,12 +31,8 @@ export default function Employees() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold font-display">Employees</h1>
-          <p className="text-muted-foreground mt-1">Manage your team members and roles.</p>
+          <p className="text-muted-foreground mt-1">Employees are imported automatically from UKG.</p>
         </div>
-        <Button onClick={() => { setEditingEmployee(null); setIsDialogOpen(true); }} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Employee
-        </Button>
       </div>
 
       <div className="flex items-center gap-4 bg-card p-2 rounded border shadow-sm max-w-md">
