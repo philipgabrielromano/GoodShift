@@ -313,7 +313,7 @@ export async function registerRoutes(
     let connected = false;
     if (configured) {
       try {
-        await ukgClient.getStores();
+        await ukgClient.getAllEmployees();
         connected = true;
       } catch {
         connected = false;
@@ -326,8 +326,8 @@ export async function registerRoutes(
     if (!ukgClient.isConfigured()) {
       return res.json([]);
     }
-    const stores = await ukgClient.getStores();
-    res.json(stores);
+    const locations = await ukgClient.getLocations();
+    res.json(locations);
   });
 
   app.get(api.ukg.employees.path, async (req, res) => {
@@ -336,7 +336,7 @@ export async function registerRoutes(
     }
     const storeId = req.query.storeId as string | undefined;
     const employees = storeId 
-      ? await ukgClient.getEmployeesByStore(storeId)
+      ? await ukgClient.getEmployeesByLocation(storeId)
       : await ukgClient.getAllEmployees();
     res.json(employees);
   });
@@ -349,7 +349,7 @@ export async function registerRoutes(
 
       const { storeId } = api.ukg.sync.input.parse(req.body);
       const ukgEmployees = storeId 
-        ? await ukgClient.getEmployeesByStore(storeId)
+        ? await ukgClient.getEmployeesByLocation(storeId)
         : await ukgClient.getAllEmployees();
 
       let imported = 0;

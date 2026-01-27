@@ -1,16 +1,21 @@
 import { InsertEmployee } from "@shared/schema";
 
-interface UKGEmployee {
-  id: string;
+interface UKGProEmployee {
+  employeeId: string;
   firstName: string;
   lastName: string;
-  jobTitle: string;
-  maxHoursPerWeek?: number;
-  storeId?: string;
-  status: "active" | "inactive";
+  jobTitle?: string;
+  workLocationCode?: string;
+  workLocationDescription?: string;
+  orgLevel1Code?: string;
+  orgLevel1Description?: string;
+  orgLevel2Code?: string;
+  orgLevel2Description?: string;
+  employmentStatus?: string;
+  scheduledHours?: number;
 }
 
-interface UKGStore {
+interface UKGLocation {
   id: string;
   name: string;
   code: string;
@@ -21,6 +26,7 @@ class UKGClient {
   private username: string;
   private password: string;
   private apiKey: string;
+  private cachedLocations: UKGLocation[] | null = null;
 
   constructor() {
     this.baseUrl = process.env.UKG_API_URL || "";
@@ -37,40 +43,87 @@ class UKGClient {
     const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
     return {
       "Authorization": `Basic ${basicAuth}`,
-      "Api-Key": this.apiKey,
+      "US-Customer-Api-Key": this.apiKey,
       "Content-Type": "application/json",
     };
   }
 
   private async request<T>(endpoint: string, method = "GET", body?: object): Promise<T> {
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+    const url = `${this.baseUrl}${endpoint}`;
+    console.log(`UKG API Request: ${method} ${url}`);
+    
+    const response = await fetch(url, {
       method,
       headers: this.getAuthHeaders(),
       body: body ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`UKG API error: ${response.status} ${response.statusText}`, errorText);
       throw new Error(`UKG API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
   }
 
-  async getStores(): Promise<UKGStore[]> {
+  async getLocations(): Promise<UKGLocation[]> {
+    if (this.cachedLocations) {
+      return this.cachedLocations;
+    }
+
     try {
-      const data = await this.request<{ stores: UKGStore[] }>("/personnel/v1/org-levels");
-      return data.stores || [];
+      const employees = await this.getAllEmployees();
+      
+      const locationMap = new Map<string, UKGLocation>();
+      
+      for (const emp of employees) {
+        if (emp.workLocationCode && emp.workLocationDescription) {
+          locationMap.set(emp.workLocationCode, {
+            id: emp.workLocationCode,
+            code: emp.workLocationCode,
+            name: emp.workLocationDescription,
+          });
+        }
+        if (emp.orgLevel1Code && emp.orgLevel1Description && !locationMap.has(emp.orgLevel1Code)) {
+          locationMap.set(emp.orgLevel1Code, {
+            id: emp.orgLevel1Code,
+            code: emp.orgLevel1Code,
+            name: emp.orgLevel1Description,
+          });
+        }
+      }
+
+      this.cachedLocations = Array.from(locationMap.values());
+      return this.cachedLocations;
     } catch (error) {
-      console.error("Failed to fetch stores from UKG:", error);
+      console.error("Failed to fetch locations from UKG:", error);
       return [];
     }
   }
 
-  async getEmployeesByStore(storeId: string): Promise<UKGEmployee[]> {
+  async getEmployeesByLocation(locationCode: string): Promise<UKGProEmployee[]> {
     try {
-      const data = await this.request<{ employees: UKGEmployee[] }>(
-        `/personnel/v1/employees?storeId=${storeId}&status=active`
+      const allEmployees = await this.getAllEmployees();
+      return allEmployees.filter(emp => 
+        emp.workLocationCode === locationCode || 
+        emp.orgLevel1Code === locationCode
       );
+    } catch (error) {
+      console.error("Failed to fetch employees by location from UKG:", error);
+      return [];
+    }
+  }
+
+  async getAllEmployees(): Promise<UKGProEmployee[]> {
+    try {
+      const data = await this.request<UKGProEmployee[] | { employees?: UKGProEmployee[] }>(
+        "/personnel/v1/employees"
+      );
+      
+      if (Array.isArray(data)) {
+        return data;
+      }
       return data.employees || [];
     } catch (error) {
       console.error("Failed to fetch employees from UKG:", error);
@@ -78,28 +131,25 @@ class UKGClient {
     }
   }
 
-  async getAllEmployees(): Promise<UKGEmployee[]> {
-    try {
-      const data = await this.request<{ employees: UKGEmployee[] }>(
-        "/personnel/v1/employees?status=active"
-      );
-      return data.employees || [];
-    } catch (error) {
-      console.error("Failed to fetch employees from UKG:", error);
-      return [];
-    }
-  }
-
-  convertToAppEmployee(ukgEmployee: UKGEmployee): InsertEmployee {
+  convertToAppEmployee(ukgEmployee: UKGProEmployee): InsertEmployee {
+    const firstName = ukgEmployee.firstName || "";
+    const lastName = ukgEmployee.lastName || "";
+    
     return {
-      name: `${ukgEmployee.firstName} ${ukgEmployee.lastName}`,
-      email: `${ukgEmployee.firstName.toLowerCase()}.${ukgEmployee.lastName.toLowerCase()}@store.com`,
+      name: `${firstName} ${lastName}`.trim() || "Unknown",
+      email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@store.com`.replace(/\s+/g, ""),
       jobTitle: ukgEmployee.jobTitle || "Staff",
-      maxWeeklyHours: ukgEmployee.maxHoursPerWeek || 40,
-      isActive: ukgEmployee.status === "active",
+      maxWeeklyHours: ukgEmployee.scheduledHours || 40,
+      isActive: ukgEmployee.employmentStatus?.toLowerCase() === "active" || 
+                ukgEmployee.employmentStatus?.toLowerCase() === "a" ||
+                !ukgEmployee.employmentStatus,
     };
+  }
+
+  clearCache(): void {
+    this.cachedLocations = null;
   }
 }
 
 export const ukgClient = new UKGClient();
-export type { UKGEmployee, UKGStore };
+export type { UKGProEmployee, UKGLocation };
