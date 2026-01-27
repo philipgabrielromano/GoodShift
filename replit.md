@@ -212,6 +212,14 @@ Configurable percentages for distributing store hours:
 
 These percentages must total 100% and are used by the scheduler to allocate hours appropriately.
 
+### Weather Forecasts
+The schedule page displays weather forecasts in each day's header:
+- High/low temperatures (in Fahrenheit)
+- Precipitation probability percentage
+- Data sourced from Open-Meteo API (free, no API key required)
+- Cached for 1 hour to minimize API calls
+- 14-day forecast available
+
 ### Timezone Handling
 All scheduling is done in Eastern Time (America/New_York). The application uses date-fns-tz for timezone-aware date handling.
 
