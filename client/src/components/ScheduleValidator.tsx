@@ -112,9 +112,11 @@ export function ScheduleValidator() {
       });
       
       // Count managers on opening and closing shifts (must match full shift times)
+      // Manager job codes: STSUPER (Store Manager), STASSTSP (Assistant Manager), STLDWKR (Team Lead)
+      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
       const managerShifts = dayShifts.filter(s => {
         const emp = employees.find(e => e.id === s.employeeId);
-        return emp?.jobTitle?.toLowerCase().includes("manager");
+        return emp && managerCodes.includes(emp.jobTitle);
       });
       
       const openingManagers = managerShifts.filter(s => {
