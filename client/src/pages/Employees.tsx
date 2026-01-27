@@ -49,18 +49,33 @@ export default function Employees() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {[1,2,3,4].map(i => <div key={i} className="h-48 bg-muted/20 animate-pulse rounded-2xl" />)}
+        <div className="bg-card rounded-xl border shadow-sm">
+          {[1,2,3,4].map(i => <div key={i} className="h-16 bg-muted/20 animate-pulse border-b last:border-b-0" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredEmployees?.map(employee => (
-            <EmployeeCard 
-              key={employee.id} 
-              employee={employee} 
-              onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
-            />
-          ))}
+        <div className="bg-card rounded-xl border shadow-sm overflow-hidden">
+          <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_120px_100px_100px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
+            <div>Name</div>
+            <div>Email</div>
+            <div>Job Title</div>
+            <div>Max Hours</div>
+            <div>Status</div>
+            <div></div>
+          </div>
+          <div className="divide-y">
+            {filteredEmployees?.map(employee => (
+              <EmployeeRow 
+                key={employee.id} 
+                employee={employee} 
+                onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
+              />
+            ))}
+          </div>
+          {filteredEmployees?.length === 0 && (
+            <div className="px-6 py-12 text-center text-muted-foreground">
+              No employees found
+            </div>
+          )}
         </div>
       )}
 
@@ -73,7 +88,7 @@ export default function Employees() {
   );
 }
 
-function EmployeeCard({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
+function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
   const deleteEmployee = useDeleteEmployee();
   const { toast } = useToast();
 
@@ -85,44 +100,40 @@ function EmployeeCard({ employee, onEdit }: { employee: Employee; onEdit: () => 
   };
 
   return (
-    <div className="bg-card rounded-2xl p-6 border shadow-sm hover:shadow-lg transition-all duration-300 group relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-full h-1" style={{ backgroundColor: employee.color }} />
-      
-      <div className="flex justify-between items-start mb-4">
-        <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-bold text-white shadow-md" style={{ backgroundColor: employee.color }}>
+    <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_100px_100px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
+      <div className="flex items-center gap-3">
+        <div 
+          className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0" 
+          style={{ backgroundColor: employee.color }}
+        >
           {employee.name.substring(0, 2).toUpperCase()}
         </div>
+        <span className="font-medium truncate">{employee.name}</span>
+      </div>
+      <div className="text-sm text-muted-foreground truncate">{employee.email}</div>
+      <div className="text-sm truncate">{employee.jobTitle}</div>
+      <div className="text-sm">{employee.maxWeeklyHours}h</div>
+      <div>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${employee.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400'}`}>
+          {employee.isActive ? "Active" : "Inactive"}
+        </span>
+      </div>
+      <div className="flex justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="text-muted-foreground">
-              <MoreHorizontal className="w-5 h-5" />
+            <Button variant="ghost" size="icon" className="text-muted-foreground" data-testid={`button-employee-menu-${employee.id}`}>
+              <MoreHorizontal className="w-4 h-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onEdit}>
+            <DropdownMenuItem onClick={onEdit} data-testid={`button-edit-employee-${employee.id}`}>
               <Pencil className="w-4 h-4 mr-2" /> Edit
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleDelete}>
+            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleDelete} data-testid={`button-delete-employee-${employee.id}`}>
               <Trash2 className="w-4 h-4 mr-2" /> Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
-      
-      <h3 className="text-lg font-bold truncate">{employee.name}</h3>
-      <p className="text-muted-foreground text-sm font-medium mb-4">{employee.jobTitle}</p>
-      
-      <div className="space-y-2 pt-4 border-t text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Max Hours</span>
-          <span className="font-semibold">{employee.maxWeeklyHours}h / week</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Status</span>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${employee.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-            {employee.isActive ? "Active" : "Inactive"}
-          </span>
-        </div>
       </div>
     </div>
   );
