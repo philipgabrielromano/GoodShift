@@ -90,7 +90,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 - Donor Greeting (DONDOOR): ${settings.donorGreetingPercent ?? 25}%
 
 ## Manager Job Codes
-- STRSUPER (Store Manager)
+- STSUPER (Store Manager)
 - STASSTSP (Assistant Manager)
 - STLDWKR (Team Lead)
 

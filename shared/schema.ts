@@ -66,7 +66,7 @@ export const RETAIL_JOB_CODES = [
   "DONDOOR",   // Donor Greeter
   "CASHSLS",   // Cashier
   "DONPRI",    // Donation Pricing Associate
-  "STRSUPER",  // Store Manager
+  "STSUPER",   // Store Manager (was STRSUPER - corrected to match UKG)
   "STASSTSP",  // Assistant Manager
   "STLDWKR",   // Team Lead
 ] as const;
