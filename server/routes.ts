@@ -463,12 +463,34 @@ export async function registerRoutes(
         }
       }
 
-      // ========== PHASE 3: FILL EMPLOYEES TO MAX HOURS ==========
-      // Final pass: for any employee not at max hours, try to add more days
-      // Process in reverse day order so we fill lower-priority days
-      const reverseDayOrder = [4, 3, 2, 1, 0, 5, 6]; // Thu, Wed, Tue, Mon, Sun, Fri, Sat
+      // ========== CALCULATE BUDGET ==========
+      const activeLocations = locations.filter(l => l.isActive);
+      const totalBudgetHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
       
-      for (const dayIndex of reverseDayOrder) {
+      // Calculate current total scheduled hours
+      const getTotalScheduledHours = () => generatedShifts.length * SHIFT_HOURS;
+      
+      // Calculate hours per day
+      const getHoursPerDay = () => {
+        const dayHours: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+        for (const shift of generatedShifts) {
+          const shiftDate = new Date(shift.startTime);
+          const dayOfWeek = shiftDate.getDay();
+          dayHours[dayOfWeek] += SHIFT_HOURS;
+        }
+        return dayHours;
+      };
+
+      // ========== PHASE 3: FILL TO BUDGET (Priority days first) ==========
+      // Fill remaining budget capacity, prioritizing Sat/Fri
+      const remainingBudget = () => totalBudgetHours - getTotalScheduledHours();
+      
+      // Priority order for filling: Sat, Fri, then others
+      const fillOrder = [6, 5, 0, 1, 2, 3, 4];
+      
+      for (const dayIndex of fillOrder) {
+        if (remainingBudget() < SHIFT_HOURS) break; // Stop if budget exhausted
+        
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const shifts = getShiftTimes(currentDay);
 
@@ -477,26 +499,102 @@ export async function registerRoutes(
           .filter(e => {
             const state = employeeState[e.id];
             return canWorkDay(e, currentDay, dayIndex) && 
-                   state.hoursScheduled < e.maxWeeklyHours - SHIFT_HOURS + 1; // Room for another shift
+                   state.hoursScheduled < e.maxWeeklyHours - SHIFT_HOURS + 1;
           })
           .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
 
         for (const emp of underScheduled) {
+          if (remainingBudget() < SHIFT_HOURS) break;
           if (!canWorkDay(emp, currentDay, dayIndex)) continue;
           
-          // Assign appropriate shift based on role
           let shift;
           if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
-            shift = shifts.opener; // Early shift for pricers
+            shift = shifts.opener;
           } else if (emp.jobTitle === 'DONDOOR') {
-            shift = shifts.closer; // Greeters on either shift
+            shift = shifts.closer;
           } else if (managerCodes.includes(emp.jobTitle)) {
-            shift = shifts.mid11; // Managers on flexible mid shift
+            shift = shifts.mid11;
           } else {
-            shift = shifts.mid10; // Cashiers mid-day
+            shift = shifts.mid10;
           }
 
           await scheduleShift(emp, shift.start, shift.end, dayIndex);
+        }
+      }
+
+      // ========== PHASE 4: VALIDATION & ADJUSTMENT ==========
+      const dayHours = getHoursPerDay();
+      const satHours = dayHours[6];
+      const friHours = dayHours[5];
+      const weekdayAvg = (dayHours[0] + dayHours[1] + dayHours[2] + dayHours[3] + dayHours[4]) / 5;
+      
+      // Validation: Sat/Fri should have at least as many hours as weekday average
+      const satFriTarget = Math.ceil(weekdayAvg * 1.2); // 20% more than average
+      
+      // If Sat or Fri are below target and we have budget, try to add more
+      const priorityDaysNeedMore = (satHours < satFriTarget || friHours < satFriTarget) && remainingBudget() >= SHIFT_HOURS;
+      
+      if (priorityDaysNeedMore) {
+        // Try to add more shifts to Sat/Fri specifically
+        for (const dayIndex of [6, 5]) {
+          if (remainingBudget() < SHIFT_HOURS) break;
+          
+          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          const shifts = getShiftTimes(currentDay);
+          
+          const available = [...donationPricers, ...cashiers]
+            .filter(e => canWorkDay(e, currentDay, dayIndex))
+            .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+          
+          for (const emp of available) {
+            if (remainingBudget() < SHIFT_HOURS) break;
+            if (!canWorkDay(emp, currentDay, dayIndex)) continue;
+            
+            const shift = ['DONPRI', 'APPROC'].includes(emp.jobTitle) ? shifts.opener : shifts.mid10;
+            await scheduleShift(emp, shift.start, shift.end, dayIndex);
+          }
+        }
+      }
+      
+      // If we're over budget, we need to remove shifts from lowest-priority days
+      const overBudget = getTotalScheduledHours() - totalBudgetHours;
+      if (overBudget > 0) {
+        const shiftsToRemove = Math.ceil(overBudget / SHIFT_HOURS);
+        // Remove from lowest priority days first (Thu, Wed, Tue, Mon, Sun)
+        const removalOrder = [4, 3, 2, 1, 0]; // Avoid removing from Sat/Fri
+        
+        let removed = 0;
+        for (const dayIndex of removalOrder) {
+          if (removed >= shiftsToRemove) break;
+          
+          // Find shifts on this day that aren't mandatory (managers/greeters)
+          const dayShifts = generatedShifts.filter(s => {
+            const shiftDate = new Date(s.startTime);
+            return shiftDate.getDay() === dayIndex;
+          });
+          
+          // Remove non-essential shifts (not managers, not single coverage)
+          for (const shift of dayShifts.reverse()) {
+            if (removed >= shiftsToRemove) break;
+            
+            const emp = employees.find(e => e.id === shift.employeeId);
+            if (!emp) continue;
+            
+            // Don't remove managers or greeters (mandatory coverage)
+            if (managerCodes.includes(emp.jobTitle) || emp.jobTitle === 'DONDOOR') continue;
+            
+            // Remove the shift
+            await storage.deleteShift(shift.id);
+            const idx = generatedShifts.indexOf(shift);
+            if (idx > -1) generatedShifts.splice(idx, 1);
+            
+            // Update employee state
+            employeeState[emp.id].hoursScheduled -= SHIFT_HOURS;
+            employeeState[emp.id].daysWorked--;
+            employeeState[emp.id].daysWorkedOn.delete(dayIndex);
+            
+            removed++;
+          }
         }
       }
 
