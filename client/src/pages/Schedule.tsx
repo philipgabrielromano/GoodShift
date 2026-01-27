@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, Wand2, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Wand2, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -195,6 +195,30 @@ export default function Schedule() {
     }
   };
 
+  const [isAIGenerating, setIsAIGenerating] = useState(false);
+  const [aiReasoning, setAIReasoning] = useState<string | null>(null);
+
+  const handleAIGenerate = async () => {
+    setIsAIGenerating(true);
+    setAIReasoning(null);
+    try {
+      const response = await apiRequest("POST", "/api/schedule/generate-ai", { weekStart: weekStart.toISOString() });
+      const result = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      setAIReasoning(result.reasoning);
+      toast({ 
+        title: "AI Schedule Generated", 
+        description: result.warnings?.length > 0 
+          ? `Generated with ${result.warnings.length} warning(s)` 
+          : "AI optimized schedule created successfully."
+      });
+    } catch (error) {
+      toast({ variant: "destructive", title: "AI Generation Failed", description: "Could not generate AI schedule. Try the standard scheduler." });
+    } finally {
+      setIsAIGenerating(false);
+    }
+  };
+
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedShift, setSelectedShift] = useState<Shift | undefined>(undefined);
@@ -253,13 +277,24 @@ export default function Schedule() {
           <Button 
             variant="outline" 
             onClick={handleAutoGenerate} 
-            disabled={isGenerating}
+            disabled={isGenerating || isAIGenerating}
             className="border-primary/20 hover:border-primary/50"
+            data-testid="button-auto-generate"
           >
             <Wand2 className={cn("w-4 h-4 mr-2", isGenerating && "animate-spin")} />
             {isGenerating ? "Generating..." : "Auto-Generate"}
           </Button>
-          <Button onClick={() => handleAddShift(new Date())} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all">
+          <Button 
+            variant="outline" 
+            onClick={handleAIGenerate} 
+            disabled={isGenerating || isAIGenerating}
+            className="border-accent/50 hover:border-accent bg-accent/10 hover:bg-accent/20"
+            data-testid="button-ai-generate"
+          >
+            <Sparkles className={cn("w-4 h-4 mr-2", isAIGenerating && "animate-pulse")} />
+            {isAIGenerating ? "AI Thinking..." : "AI Generate"}
+          </Button>
+          <Button onClick={() => handleAddShift(new Date())} className="bg-primary shadow-lg shadow-primary/25 hover:shadow-xl hover:-translate-y-0.5 transition-all" data-testid="button-add-shift">
             <Plus className="w-4 h-4 mr-2" />
             Add Shift
           </Button>
@@ -405,6 +440,30 @@ export default function Schedule() {
         {/* Sidebar */}
         <div className="space-y-6">
           <ScheduleValidator />
+          
+          {/* AI Reasoning Display */}
+          {aiReasoning && (
+            <Card className="border-accent/30 bg-accent/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-accent" />
+                  AI Schedule Reasoning
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">{aiReasoning}</p>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="mt-2 text-xs"
+                  onClick={() => setAIReasoning(null)}
+                  data-testid="button-dismiss-reasoning"
+                >
+                  Dismiss
+                </Button>
+              </CardContent>
+            </Card>
+          )}
           
           {/* Staffing Requirements Panel */}
           <Card>

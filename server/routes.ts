@@ -534,6 +534,32 @@ export async function registerRoutes(
     }
   });
 
+  // AI-Powered Schedule Generation
+  app.post("/api/schedule/generate-ai", async (req, res) => {
+    try {
+      const { weekStart } = api.schedule.generate.input.parse(req.body);
+      
+      const { generateAISchedule } = await import("./ai-scheduler");
+      const result = await generateAISchedule(weekStart);
+      
+      res.status(201).json({
+        shifts: result.shifts,
+        reasoning: result.reasoning,
+        warnings: result.warnings,
+        aiGenerated: true,
+      });
+    } catch (err) {
+      console.error("AI Schedule generation error:", err);
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      res.status(500).json({ 
+        message: "Failed to generate AI schedule. Try the standard scheduler instead.",
+        error: err instanceof Error ? err.message : "Unknown error"
+      });
+    }
+  });
+
   // === UKG INTEGRATION ===
   app.get(api.ukg.status.path, async (req, res) => {
     const configured = ukgClient.isConfigured();
