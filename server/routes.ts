@@ -250,7 +250,6 @@ export async function registerRoutes(
   app.post(api.schedule.generate.path, async (req, res) => {
     try {
       const { weekStart } = api.schedule.generate.input.parse(req.body);
-      // Normalize weekStart to EST timezone
       const startDate = new Date(weekStart);
       
       const employees = await storage.getEmployees();
@@ -258,7 +257,7 @@ export async function registerRoutes(
       const timeOff = await storage.getTimeOffRequests();
       const locations = await storage.getLocations();
 
-      // Clear existing shifts for the week (7 days from start)
+      // Clear existing shifts for the week
       const weekEndMs = startDate.getTime() + 7 * 24 * 60 * 60 * 1000;
       const weekEndDate = new Date(weekEndMs);
       const existingShifts = await storage.getShifts(startDate, weekEndDate);
@@ -266,71 +265,21 @@ export async function registerRoutes(
         await storage.deleteShift(shift.id);
       }
 
-      const generatedShifts = [];
+      const generatedShifts: any[] = [];
+      const SHIFT_HOURS = 8; // 8.5 clock hours - 0.5 unpaid lunch = 8 paid hours
       
-      // Calculate total available hours from all active locations
-      const activeLocations = locations.filter(l => l.isActive);
-      const totalAvailableHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
+      // ========== EMPLOYEE STATE TRACKING ==========
+      const employeeState: Record<number, {
+        hoursScheduled: number;
+        daysWorked: number;
+        daysWorkedOn: Set<number>; // Track which day indices they work
+      }> = {};
       
-      // Get labor allocation percentages from settings
-      const cashieringPercent = settings.cashieringPercent ?? 40;
-      const donationPricingPercent = settings.donationPricingPercent ?? 35;
-      const donorGreetingPercent = settings.donorGreetingPercent ?? 25;
-      
-      // Validate percentages sum to 100 (normalize if not)
-      const totalPercent = cashieringPercent + donationPricingPercent + donorGreetingPercent;
-      const normalizedCashiering = totalPercent > 0 ? cashieringPercent / totalPercent : 0.4;
-      const normalizedDonationPricing = totalPercent > 0 ? donationPricingPercent / totalPercent : 0.35;
-      const normalizedDonorGreeting = totalPercent > 0 ? donorGreetingPercent / totalPercent : 0.25;
-      
-      // Calculate weekly hours per labor category based on percentages
-      const cashieringHours = Math.floor(totalAvailableHours * normalizedCashiering);
-      const donationPricingHours = Math.floor(totalAvailableHours * normalizedDonationPricing);
-      const donorGreetingHours = Math.floor(totalAvailableHours * normalizedDonorGreeting);
-      
-      // Map labor categories to job codes
-      // Cashiering: CASHSLS
-      // Donation Pricing: DONPRI, APPROC
-      // Donor Greeting: DONDOOR
-      const laborCategories = [
-        { 
-          name: 'Cashiering', 
-          jobCodes: ['CASHSLS'], 
-          weeklyHours: cashieringHours,
-          assignedHours: 0
-        },
-        { 
-          name: 'Donation Pricing', 
-          jobCodes: ['DONPRI', 'APPROC'], 
-          weeklyHours: donationPricingHours,
-          assignedHours: 0
-        },
-        { 
-          name: 'Donor Greeting', 
-          jobCodes: ['DONDOOR'], 
-          weeklyHours: donorGreetingHours,
-          assignedHours: 0
-        }
-      ];
-      
-      // Group employees by job code and track their weekly hours
-      const employeeHours: Record<number, number> = {};
-      employees.forEach(emp => { employeeHours[emp.id] = 0; });
-      
-      // Manager job codes for coverage (STSUPER = Store Manager)
-      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
-      const managers = employees.filter(emp => 
-        managerCodes.includes(emp.jobTitle) && emp.isActive
-      );
-      
-      // Shift durations (8.5 hours clock time - 0.5 unpaid lunch = 8 paid hours)
-      const SHIFT_HOURS = 8;
-      
-      // Track days worked per employee (for 2 days off requirement)
-      const employeeDaysWorked: Record<number, number> = {};
-      employees.forEach(emp => { employeeDaysWorked[emp.id] = 0; });
+      employees.forEach(emp => {
+        employeeState[emp.id] = { hoursScheduled: 0, daysWorked: 0, daysWorkedOn: new Set() };
+      });
 
-      // Helper to check if employee is on approved time off
+      // ========== HELPER FUNCTIONS ==========
       const isOnTimeOff = (empId: number, day: Date) => {
         return timeOff.some(to => 
           to.employeeId === empId && 
@@ -340,290 +289,215 @@ export async function registerRoutes(
         );
       };
       
-      // Helper to check if employee can work (has capacity for 2 days off)
-      const canWorkMoreDays = (empId: number) => {
-        // Max 5 days worked = minimum 2 days off
-        return employeeDaysWorked[empId] < 5;
-      };
-
-      // Day-by-day generation - prioritize Friday (5) and Saturday (6) first
-      // Order: Sat, Fri, Sun, Mon, Tue, Wed, Thu
-      const dayOrder = [6, 5, 0, 1, 2, 3, 4];
-      
-      // Calculate target staff per day based on priority
-      // Priority days (Sat/Fri) get more coverage, but ALL days get minimum coverage
-      const totalRetailStaff = employees.filter(emp => 
-        ['CASHSLS', 'DONPRI', 'APPROC', 'DONDOOR', 'STSUPER', 'STASSTSP', 'STLDWKR'].includes(emp.jobTitle) && emp.isActive
-      ).length;
-      
-      // Each employee works ~5 days, so total shifts available = totalStaff * 5
-      // Distribute: Sat/Fri get 18% each, other days get 13% each
-      const dayWeights: Record<number, number> = {
-        6: 0.18, // Saturday - highest
-        5: 0.18, // Friday - highest
-        0: 0.13, // Sunday
-        1: 0.13, // Monday
-        2: 0.13, // Tuesday
-        3: 0.13, // Wednesday
-        4: 0.12  // Thursday
+      const canWorkDay = (emp: typeof employees[0], day: Date, dayIndex: number) => {
+        const state = employeeState[emp.id];
+        if (!emp.isActive) return false;
+        if (isOnTimeOff(emp.id, day)) return false;
+        if (state.hoursScheduled + SHIFT_HOURS > emp.maxWeeklyHours) return false;
+        if (state.daysWorked >= 5) return false; // Max 5 days = minimum 2 days off
+        if (state.daysWorkedOn.has(dayIndex)) return false; // Already working this day
+        return true;
       };
       
-      for (const dayIndex of dayOrder) {
-        const currentDayMs = startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000;
-        const currentDay = new Date(currentDayMs);
-        
-        // Calculate target staff for this day (minimum 3 per role type)
-        const dayWeight = dayWeights[dayIndex] || 0.13;
-        const targetStaffCount = Math.max(6, Math.ceil(totalRetailStaff * dayWeight));
+      // Priority score: lower = should schedule first (employees needing more hours)
+      const getEmployeePriority = (emp: typeof employees[0]) => {
+        const state = employeeState[emp.id];
+        const hoursRemaining = emp.maxWeeklyHours - state.hoursScheduled;
+        const daysRemaining = 5 - state.daysWorked;
+        // Prioritize: more hours remaining, fewer days already worked
+        return -(hoursRemaining * 10 + daysRemaining);
+      };
 
-        // 1. Manager Coverage (opening and closing shifts)
-        const managersRequired = settings.managersRequired ?? 1;
-        
-        // Opening shift (08:00 - 16:30 EST)
-        const morningStart = createESTTime(currentDay, 8, 0);
-        const morningEnd = createESTTime(currentDay, 16, 30);
-        
-        // Closing shift (12:00 - 20:30 EST)
-        const eveningStart = createESTTime(currentDay, 12, 0);
-        const eveningEnd = createESTTime(currentDay, 20, 30);
-        
-        const assignedMorningManagers: number[] = [];
-        const assignedEveningManagers: number[] = [];
-        
-        // Track who worked today to increment days counter once per day
-        const workedToday = new Set<number>();
-        
-        // Assign morning managers
-        for (const mgr of managers) {
-          if (assignedMorningManagers.length >= managersRequired) break;
-          if (isOnTimeOff(mgr.id, currentDay)) continue;
-          if (employeeHours[mgr.id] + SHIFT_HOURS > mgr.maxWeeklyHours) continue;
-          if (!canWorkMoreDays(mgr.id)) continue; // 2 days off requirement
-          
-          const shift = await storage.createShift({ 
-            employeeId: mgr.id, 
-            startTime: morningStart, 
-            endTime: morningEnd 
-          });
-          generatedShifts.push(shift);
-          employeeHours[mgr.id] += SHIFT_HOURS;
-          assignedMorningManagers.push(mgr.id);
-          workedToday.add(mgr.id);
-        }
-        
-        // Assign evening managers (different from morning)
-        for (const mgr of managers) {
-          if (assignedEveningManagers.length >= managersRequired) break;
-          if (assignedMorningManagers.includes(mgr.id)) continue; // Not same as morning
-          if (isOnTimeOff(mgr.id, currentDay)) continue;
-          if (employeeHours[mgr.id] + SHIFT_HOURS > mgr.maxWeeklyHours) continue;
-          if (!canWorkMoreDays(mgr.id)) continue; // 2 days off requirement
-          
-          const shift = await storage.createShift({ 
-            employeeId: mgr.id, 
-            startTime: eveningStart, 
-            endTime: eveningEnd 
-          });
-          generatedShifts.push(shift);
-          employeeHours[mgr.id] += SHIFT_HOURS;
-          assignedEveningManagers.push(mgr.id);
-          workedToday.add(mgr.id);
-        }
-
-        // 2. Mandatory Donor Greeter Coverage (one opening, one closing)
-        const donorGreeters = employees.filter(emp => 
-          emp.jobTitle === 'DONDOOR' && emp.isActive
-        );
-        const donorGreetingCategory = laborCategories.find(c => c.name === 'Donor Greeting');
-        
-        let openingGreeterId: number | null = null;
-        let closingGreeterAssigned = false;
-        
-        // Assign opening donor greeter
-        for (const greeter of donorGreeters) {
-          if (openingGreeterId !== null) break;
-          if (isOnTimeOff(greeter.id, currentDay)) continue;
-          if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
-          if (!canWorkMoreDays(greeter.id)) continue; // 2 days off requirement
-          
-          const shift = await storage.createShift({ 
-            employeeId: greeter.id, 
-            startTime: morningStart, 
-            endTime: morningEnd 
-          });
-          generatedShifts.push(shift);
-          employeeHours[greeter.id] += SHIFT_HOURS;
-          if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
-          openingGreeterId = greeter.id;
-          workedToday.add(greeter.id);
-        }
-        
-        // Assign closing donor greeter (prefer different employee than opening)
-        // First pass: try to find a different employee
-        for (const greeter of donorGreeters) {
-          if (closingGreeterAssigned) break;
-          if (greeter.id === openingGreeterId) continue; // Skip opening greeter first
-          if (isOnTimeOff(greeter.id, currentDay)) continue;
-          if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
-          if (!canWorkMoreDays(greeter.id)) continue; // 2 days off requirement
-          
-          const shift = await storage.createShift({ 
-            employeeId: greeter.id, 
-            startTime: eveningStart, 
-            endTime: eveningEnd 
-          });
-          generatedShifts.push(shift);
-          employeeHours[greeter.id] += SHIFT_HOURS;
-          if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
-          closingGreeterAssigned = true;
-          workedToday.add(greeter.id);
-        }
-        
-        // Second pass: if no closing greeter yet, allow opening greeter to also close
-        if (!closingGreeterAssigned) {
-          for (const greeter of donorGreeters) {
-            if (closingGreeterAssigned) break;
-            if (isOnTimeOff(greeter.id, currentDay)) continue;
-            if (employeeHours[greeter.id] + SHIFT_HOURS > greeter.maxWeeklyHours) continue;
-            if (!canWorkMoreDays(greeter.id)) continue; // 2 days off requirement
-            
-            const shift = await storage.createShift({ 
-              employeeId: greeter.id, 
-              startTime: eveningStart, 
-              endTime: eveningEnd 
-            });
-            generatedShifts.push(shift);
-            employeeHours[greeter.id] += SHIFT_HOURS;
-            if (donorGreetingCategory) donorGreetingCategory.assignedHours += SHIFT_HOURS;
-            closingGreeterAssigned = true;
-            workedToday.add(greeter.id);
-          }
-        }
-
-        // 3. Staff Coverage - Schedule ALL active retail employees
-        const openersRequired = settings.openersRequired ?? 2;
-        const closersRequired = settings.closersRequired ?? 2;
-        
-        // Define all shift times - early shifts for DONPRI/APPROC
-        const earlyShift = { start: morningStart, end: morningEnd }; // 8:00-16:30
-        const earlyMidShift = { start: createESTTime(currentDay, 9, 0), end: createESTTime(currentDay, 17, 30) }; // 9:00-17:30
-        const midShifts = [
-          { start: createESTTime(currentDay, 10, 0), end: createESTTime(currentDay, 18, 30) },
-          { start: createESTTime(currentDay, 11, 0), end: createESTTime(currentDay, 19, 30) }
-        ];
-        const closerShift = { start: eveningStart, end: eveningEnd }; // 12:00-20:30
-        
-        // Get ALL active retail employees (not just by category)
-        const retailJobCodes = ['CASHSLS', 'DONPRI', 'APPROC', 'DONDOOR'];
-        const retailEmployees = employees.filter(emp => 
-          retailJobCodes.includes(emp.jobTitle) && emp.isActive
-        );
-        
-        // Separate employees by job type for shift assignment
-        const donationPricers = retailEmployees.filter(emp => 
-          ['DONPRI', 'APPROC'].includes(emp.jobTitle) && !workedToday.has(emp.id)
-        );
-        const cashiers = retailEmployees.filter(emp => 
-          emp.jobTitle === 'CASHSLS' && !workedToday.has(emp.id)
-        );
-        const otherStaff = retailEmployees.filter(emp => 
-          !['DONPRI', 'APPROC', 'CASHSLS'].includes(emp.jobTitle) && !workedToday.has(emp.id)
-        );
-        
-        // Helper to check if employee can work today
-        const canWorkToday = (emp: typeof retailEmployees[0]) => {
-          if (workedToday.has(emp.id)) return false;
-          if (isOnTimeOff(emp.id, currentDay)) return false;
-          if (employeeHours[emp.id] + SHIFT_HOURS > emp.maxWeeklyHours) return false;
-          if (!canWorkMoreDays(emp.id)) return false;
-          return true;
-        };
-        
-        // Track total scheduled for this day to not exceed target
-        let dailyScheduledCount = workedToday.size;
-        const shouldStopScheduling = () => dailyScheduledCount >= targetStaffCount;
-        
-        // 1. Schedule DONPRI/APPROC on early shifts (8am or 9am)
-        let earlyAssigned = 0;
-        for (const emp of [...donationPricers].sort(() => Math.random() - 0.5)) {
-          if (shouldStopScheduling()) break;
-          if (!canWorkToday(emp)) continue;
-          
-          const shift = earlyAssigned % 2 === 0 ? earlyShift : earlyMidShift;
-          const created = await storage.createShift({ 
-            employeeId: emp.id, 
-            startTime: shift.start, 
-            endTime: shift.end 
-          });
-          generatedShifts.push(created);
-          employeeHours[emp.id] += SHIFT_HOURS;
-          workedToday.add(emp.id);
-          dailyScheduledCount++;
-          earlyAssigned++;
-        }
-        
-        // 2. Schedule cashiers across all shift types
-        let cashierIndex = 0;
-        let openersAssigned = 0;
-        let closersAssigned = 0;
-        
-        for (const emp of [...cashiers].sort(() => Math.random() - 0.5)) {
-          if (shouldStopScheduling()) break;
-          if (!canWorkToday(emp)) continue;
-          
-          let shiftStart, shiftEnd;
-          if (openersAssigned < openersRequired) {
-            shiftStart = earlyShift.start;
-            shiftEnd = earlyShift.end;
-            openersAssigned++;
-          } else if (closersAssigned < closersRequired) {
-            shiftStart = closerShift.start;
-            shiftEnd = closerShift.end;
-            closersAssigned++;
-          } else {
-            const midIdx = cashierIndex % midShifts.length;
-            shiftStart = midShifts[midIdx].start;
-            shiftEnd = midShifts[midIdx].end;
-            cashierIndex++;
-          }
-          
-          const created = await storage.createShift({ 
-            employeeId: emp.id, 
-            startTime: shiftStart, 
-            endTime: shiftEnd 
-          });
-          generatedShifts.push(created);
-          employeeHours[emp.id] += SHIFT_HOURS;
-          workedToday.add(emp.id);
-          dailyScheduledCount++;
-        }
-        
-        // 3. Schedule remaining staff on mid/closing shifts
-        let otherIndex = 0;
-        for (const emp of [...otherStaff].sort(() => Math.random() - 0.5)) {
-          if (shouldStopScheduling()) break;
-          if (!canWorkToday(emp)) continue;
-          
-          const allRemaining = [...midShifts, closerShift];
-          const idx = otherIndex % allRemaining.length;
-          const shift = allRemaining[idx];
-          otherIndex++;
-          
-          const created = await storage.createShift({ 
-            employeeId: emp.id, 
-            startTime: shift.start, 
-            endTime: shift.end 
-          });
-          generatedShifts.push(created);
-          employeeHours[emp.id] += SHIFT_HOURS;
-          dailyScheduledCount++;
-          workedToday.add(emp.id);
-        }
-        
-        // Increment days worked for each employee who worked today
-        Array.from(workedToday).forEach(empId => {
-          employeeDaysWorked[empId]++;
+      const scheduleShift = async (emp: typeof employees[0], startTime: Date, endTime: Date, dayIndex: number) => {
+        const shift = await storage.createShift({ 
+          employeeId: emp.id, 
+          startTime, 
+          endTime 
         });
+        generatedShifts.push(shift);
+        employeeState[emp.id].hoursScheduled += SHIFT_HOURS;
+        employeeState[emp.id].daysWorked++;
+        employeeState[emp.id].daysWorkedOn.add(dayIndex);
+        return shift;
+      };
+
+      // ========== CATEGORIZE EMPLOYEES ==========
+      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
+      const managers = employees.filter(emp => managerCodes.includes(emp.jobTitle) && emp.isActive);
+      const donorGreeters = employees.filter(emp => emp.jobTitle === 'DONDOOR' && emp.isActive);
+      const donationPricers = employees.filter(emp => ['DONPRI', 'APPROC'].includes(emp.jobTitle) && emp.isActive);
+      const cashiers = employees.filter(emp => emp.jobTitle === 'CASHSLS' && emp.isActive);
+
+      // ========== SHIFT TIME DEFINITIONS ==========
+      const getShiftTimes = (day: Date) => ({
+        opener: { start: createESTTime(day, 8, 0), end: createESTTime(day, 16, 30) },
+        early9: { start: createESTTime(day, 9, 0), end: createESTTime(day, 17, 30) },
+        mid10: { start: createESTTime(day, 10, 0), end: createESTTime(day, 18, 30) },
+        mid11: { start: createESTTime(day, 11, 0), end: createESTTime(day, 19, 30) },
+        closer: { start: createESTTime(day, 12, 0), end: createESTTime(day, 20, 30) }
+      });
+
+      // ========== DAILY COVERAGE REQUIREMENTS ==========
+      const managersRequired = settings.managersRequired ?? 1;
+      const openersRequired = settings.openersRequired ?? 2;
+      const closersRequired = settings.closersRequired ?? 2;
+
+      // Day weights: Sat/Fri get more staff, but all days get coverage
+      // Process in order: Sat, Fri, then Sun-Thu to fill priority days first
+      const dayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat, Fri, Sun, Mon, Tue, Wed, Thu
+      const dayMultiplier: Record<number, number> = {
+        6: 1.3, // Saturday - 30% more staff
+        5: 1.3, // Friday - 30% more staff  
+        0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0 // Weekdays - baseline
+      };
+
+      // ========== PHASE 1: MANDATORY COVERAGE (All 7 days) ==========
+      // First pass: ensure every day has minimum required coverage
+      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const shifts = getShiftTimes(currentDay);
+
+        // 1a. Morning Manager - sort by priority (who needs hours most)
+        const availableManagers = managers
+          .filter(m => canWorkDay(m, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        for (let i = 0; i < managersRequired && i < availableManagers.length; i++) {
+          await scheduleShift(availableManagers[i], shifts.opener.start, shifts.opener.end, dayIndex);
+        }
+
+        // 1b. Evening Manager (different from morning)
+        const eveningManagers = managers
+          .filter(m => canWorkDay(m, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        for (let i = 0; i < managersRequired && i < eveningManagers.length; i++) {
+          await scheduleShift(eveningManagers[i], shifts.closer.start, shifts.closer.end, dayIndex);
+        }
+
+        // 1c. Opening Donor Greeter
+        const availableGreeters = donorGreeters
+          .filter(g => canWorkDay(g, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        if (availableGreeters.length > 0) {
+          await scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
+        }
+
+        // 1d. Closing Donor Greeter (prefer different from opener)
+        const closingGreeters = donorGreeters
+          .filter(g => canWorkDay(g, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        if (closingGreeters.length > 0) {
+          await scheduleShift(closingGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
+        }
+
+        // 1e. Opening cashiers
+        const availableCashiers = cashiers
+          .filter(c => canWorkDay(c, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        for (let i = 0; i < openersRequired && i < availableCashiers.length; i++) {
+          await scheduleShift(availableCashiers[i], shifts.opener.start, shifts.opener.end, dayIndex);
+        }
+
+        // 1f. Closing cashiers
+        const closingCashiers = cashiers
+          .filter(c => canWorkDay(c, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        for (let i = 0; i < closersRequired && i < closingCashiers.length; i++) {
+          await scheduleShift(closingCashiers[i], shifts.closer.start, shifts.closer.end, dayIndex);
+        }
+
+        // 1g. Donation Pricers on early shifts (8am or 9am)
+        const availablePricers = donationPricers
+          .filter(p => canWorkDay(p, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+        
+        // Schedule at least 2 pricers per day on early shifts
+        const minPricers = Math.min(2, availablePricers.length);
+        for (let i = 0; i < minPricers; i++) {
+          const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
+          await scheduleShift(availablePricers[i], shift.start, shift.end, dayIndex);
+        }
+      }
+
+      // ========== PHASE 2: FILL REMAINING CAPACITY (Priority days first) ==========
+      // Now fill additional shifts, prioritizing Sat/Fri
+      for (const dayIndex of dayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const shifts = getShiftTimes(currentDay);
+        const multiplier = dayMultiplier[dayIndex] || 1.0;
+
+        // Calculate how many more shifts we can add based on day priority
+        const baseAdditionalShifts = 4; // Base additional staff per day
+        const additionalTarget = Math.ceil(baseAdditionalShifts * multiplier);
+
+        // Get all available employees who haven't maxed out and can work today
+        const allAvailable = [...donationPricers, ...cashiers]
+          .filter(e => canWorkDay(e, currentDay, dayIndex))
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+
+        // Distribute across shift types
+        const shiftRotation = [shifts.early9, shifts.mid10, shifts.mid11, shifts.closer];
+        let assigned = 0;
+
+        for (const emp of allAvailable) {
+          if (assigned >= additionalTarget) break;
+          if (!canWorkDay(emp, currentDay, dayIndex)) continue;
+
+          // Pick shift based on job type
+          let shift;
+          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            // Pricers get early shifts
+            shift = assigned % 2 === 0 ? shifts.opener : shifts.early9;
+          } else {
+            // Others rotate through mid/close
+            shift = shiftRotation[assigned % shiftRotation.length];
+          }
+
+          await scheduleShift(emp, shift.start, shift.end, dayIndex);
+          assigned++;
+        }
+      }
+
+      // ========== PHASE 3: FILL EMPLOYEES TO MAX HOURS ==========
+      // Final pass: for any employee not at max hours, try to add more days
+      // Process in reverse day order so we fill lower-priority days
+      const reverseDayOrder = [4, 3, 2, 1, 0, 5, 6]; // Thu, Wed, Tue, Mon, Sun, Fri, Sat
+      
+      for (const dayIndex of reverseDayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const shifts = getShiftTimes(currentDay);
+
+        // Find employees who can still work and haven't hit their max
+        const underScheduled = [...managers, ...donorGreeters, ...donationPricers, ...cashiers]
+          .filter(e => {
+            const state = employeeState[e.id];
+            return canWorkDay(e, currentDay, dayIndex) && 
+                   state.hoursScheduled < e.maxWeeklyHours - SHIFT_HOURS + 1; // Room for another shift
+          })
+          .sort((a, b) => getEmployeePriority(a) - getEmployeePriority(b));
+
+        for (const emp of underScheduled) {
+          if (!canWorkDay(emp, currentDay, dayIndex)) continue;
+          
+          // Assign appropriate shift based on role
+          let shift;
+          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            shift = shifts.opener; // Early shift for pricers
+          } else if (emp.jobTitle === 'DONDOOR') {
+            shift = shifts.closer; // Greeters on either shift
+          } else if (managerCodes.includes(emp.jobTitle)) {
+            shift = shifts.mid11; // Managers on flexible mid shift
+          } else {
+            shift = shifts.mid10; // Cashiers mid-day
+          }
+
+          await scheduleShift(emp, shift.start, shift.end, dayIndex);
+        }
       }
 
       res.status(201).json(generatedShifts);
