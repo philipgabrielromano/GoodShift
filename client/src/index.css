@@ -1,14 +1,14 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-sans: 'Inter', sans-serif;
+  --font-sans: 'Lato', sans-serif;
   --font-display: 'Outfit', sans-serif;
 
-  /* Clean Professional Palette - Blue/Slate base with vivid accents */
+  /* Clean Professional Palette - Blue #00539F base with vivid accents */
   --background: 210 40% 98%;
   --foreground: 222 47% 11%;
   
@@ -18,7 +18,7 @@
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
   
-  --primary: 221 83% 53%;
+  --primary: 209 100% 31%;
   --primary-foreground: 210 40% 98%;
   
   --secondary: 210 40% 96%;
@@ -35,7 +35,7 @@
   
   --border: 214 32% 91%;
   --input: 214 32% 91%;
-  --ring: 221 83% 53%;
+  --ring: 209 100% 31%;
   
   --radius: 0.75rem;
 }
