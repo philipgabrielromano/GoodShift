@@ -124,14 +124,36 @@ class UKGClient {
 
   async getAllEmployees(): Promise<UKGProEmployee[]> {
     try {
-      const data = await this.request<UKGProEmployee[] | { employees?: UKGProEmployee[] }>(
-        "/personnel/v1/employees"
-      );
-      
-      if (Array.isArray(data)) {
-        return data;
+      const allEmployees: UKGProEmployee[] = [];
+      let page = 1;
+      const perPage = 100;
+      let hasMore = true;
+
+      while (hasMore) {
+        const data = await this.request<UKGProEmployee[] | { content?: UKGProEmployee[] }>(
+          `/personnel/v1/employee-employment-details?page=${page}&per_page=${perPage}`
+        );
+        
+        let employees: UKGProEmployee[];
+        if (Array.isArray(data)) {
+          employees = data;
+        } else if (data.content) {
+          employees = data.content;
+        } else {
+          employees = [];
+        }
+
+        allEmployees.push(...employees);
+        
+        if (employees.length < perPage) {
+          hasMore = false;
+        } else {
+          page++;
+        }
       }
-      return data.employees || [];
+
+      console.log(`UKG: Fetched ${allEmployees.length} employees`);
+      return allEmployees;
     } catch (error) {
       console.error("Failed to fetch employees from UKG:", error);
       return [];
