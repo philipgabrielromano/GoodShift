@@ -46,7 +46,8 @@ async function syncEmployeesFromUKG(): Promise<void> {
           locationsSeen.add(appEmployee.location);
         }
         
-        const existingByUkgId = await storage.getEmployeeByUkgId(String(ukgEmp.ukgId));
+        // Use employeeId (EmpId string like "000950588-Q2VBU") for matching, not ukgId
+        const existingByUkgId = await storage.getEmployeeByUkgId(ukgEmp.employeeId);
         
         if (existingByUkgId) {
           await storage.updateEmployee(existingByUkgId.id, appEmployee);
