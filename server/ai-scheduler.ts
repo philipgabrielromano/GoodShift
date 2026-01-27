@@ -71,6 +71,7 @@ export async function generateAISchedule(weekStart: string): Promise<{ shifts: a
 ### Manager Job Codes
 - STRSUPER (Store Manager)
 - STASSTSP (Assistant Manager)
+- STLDWKR (Team Lead)
 
 ### Total Weekly Hours Budget: ${totalAvailableHours} hours
 
