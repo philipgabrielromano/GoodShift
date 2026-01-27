@@ -847,32 +847,6 @@ export default function Schedule() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} />
-          
-          {/* AI Reasoning Display */}
-          {aiReasoning && (
-            <Card className="border-accent/30 bg-accent/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-accent" />
-                  AI Schedule Reasoning
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{aiReasoning}</p>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="mt-2 text-xs"
-                  onClick={() => setAIReasoning(null)}
-                  data-testid="button-dismiss-reasoning"
-                >
-                  Dismiss
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-          
           {/* Location Hours Panel - shows only selected location or user's locations */}
           {(() => {
             // Filter locations based on selection
@@ -933,23 +907,31 @@ export default function Schedule() {
             );
           })()}
           
-          <div className="bg-card rounded border p-6 shadow-sm">
-            <h3 className="font-bold text-lg mb-4">Quick Stats</h3>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground text-sm">Total Shifts</span>
-                <span className="font-mono font-bold">{shifts?.length || 0}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-muted-foreground text-sm">Active Employees</span>
-                <span className="font-mono font-bold">{employees?.length || 0}</span>
-              </div>
-              <div className="h-px bg-border my-2" />
-              <div className="text-xs text-muted-foreground leading-relaxed">
-                Changes are automatically saved. Warnings will appear above if constraints are violated.
-              </div>
-            </div>
-          </div>
+          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} />
+          
+          {/* AI Reasoning Display */}
+          {aiReasoning && (
+            <Card className="border-accent/30 bg-accent/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-accent" />
+                  AI Schedule Reasoning
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">{aiReasoning}</p>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="mt-2 text-xs"
+                  onClick={() => setAIReasoning(null)}
+                  data-testid="button-dismiss-reasoning"
+                >
+                  Dismiss
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
