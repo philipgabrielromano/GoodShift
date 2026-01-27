@@ -159,6 +159,150 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === Schedule Copy & Templates ===
+  
+  // Copy current week's schedule to the next week
+  app.post("/api/schedule/copy-to-next-week", async (req, res) => {
+    try {
+      const { weekStart } = req.body;
+      if (!weekStart) {
+        return res.status(400).json({ message: "weekStart is required" });
+      }
+      
+      const currentWeekStart = new Date(weekStart);
+      const currentWeekEnd = new Date(currentWeekStart);
+      currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
+      currentWeekEnd.setHours(23, 59, 59, 999);
+      
+      // Get all shifts from current week
+      const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
+      
+      if (shifts.length === 0) {
+        return res.status(400).json({ message: "No shifts to copy in the current week" });
+      }
+      
+      // Create new shifts for next week (add 7 days)
+      const newShifts = shifts.map(shift => ({
+        employeeId: shift.employeeId,
+        startTime: new Date(new Date(shift.startTime).getTime() + 7 * 24 * 60 * 60 * 1000),
+        endTime: new Date(new Date(shift.endTime).getTime() + 7 * 24 * 60 * 60 * 1000),
+      }));
+      
+      const created = await storage.createShiftsBatch(newShifts);
+      res.json({ message: `Copied ${created.length} shifts to next week`, count: created.length });
+    } catch (err) {
+      console.error("Error copying schedule:", err);
+      res.status(500).json({ message: "Failed to copy schedule" });
+    }
+  });
+  
+  // Get all schedule templates
+  app.get("/api/schedule-templates", async (req, res) => {
+    const templates = await storage.getScheduleTemplates();
+    res.json(templates);
+  });
+  
+  // Save current week as a template
+  app.post("/api/schedule-templates", async (req, res) => {
+    try {
+      const { name, description, weekStart, createdBy } = req.body;
+      if (!name || !weekStart) {
+        return res.status(400).json({ message: "name and weekStart are required" });
+      }
+      
+      const currentWeekStart = new Date(weekStart);
+      const currentWeekEnd = new Date(currentWeekStart);
+      currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
+      currentWeekEnd.setHours(23, 59, 59, 999);
+      
+      // Get all shifts from current week
+      const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
+      
+      if (shifts.length === 0) {
+        return res.status(400).json({ message: "No shifts to save as template" });
+      }
+      
+      // Convert shifts to patterns (day of week + times)
+      const patterns = shifts.map(shift => {
+        const startTime = new Date(shift.startTime);
+        const endTime = new Date(shift.endTime);
+        return {
+          employeeId: shift.employeeId,
+          dayOfWeek: startTime.getDay(), // 0-6
+          startHour: startTime.getHours(),
+          startMinute: startTime.getMinutes(),
+          endHour: endTime.getHours(),
+          endMinute: endTime.getMinutes(),
+        };
+      });
+      
+      const template = await storage.createScheduleTemplate({
+        name,
+        description: description || null,
+        createdBy: createdBy || null,
+        shiftPatterns: JSON.stringify(patterns),
+      });
+      
+      res.status(201).json(template);
+    } catch (err) {
+      console.error("Error creating template:", err);
+      res.status(500).json({ message: "Failed to create template" });
+    }
+  });
+  
+  // Apply a template to a week
+  app.post("/api/schedule-templates/:id/apply", async (req, res) => {
+    try {
+      const templateId = Number(req.params.id);
+      const { weekStart } = req.body;
+      
+      if (!weekStart) {
+        return res.status(400).json({ message: "weekStart is required" });
+      }
+      
+      const template = await storage.getScheduleTemplate(templateId);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      const patterns = JSON.parse(template.shiftPatterns);
+      const targetWeekStart = new Date(weekStart);
+      
+      // Convert patterns back to shifts
+      const newShifts = patterns.map((pattern: any) => {
+        // Calculate the actual date for this day of week
+        const shiftDate = new Date(targetWeekStart);
+        const currentDay = shiftDate.getDay();
+        const daysToAdd = pattern.dayOfWeek - currentDay;
+        shiftDate.setDate(shiftDate.getDate() + daysToAdd);
+        
+        const startTime = new Date(shiftDate);
+        startTime.setHours(pattern.startHour, pattern.startMinute, 0, 0);
+        
+        const endTime = new Date(shiftDate);
+        endTime.setHours(pattern.endHour, pattern.endMinute, 0, 0);
+        
+        return {
+          employeeId: pattern.employeeId,
+          startTime,
+          endTime,
+        };
+      });
+      
+      const created = await storage.createShiftsBatch(newShifts);
+      res.json({ message: `Applied template with ${created.length} shifts`, count: created.length });
+    } catch (err) {
+      console.error("Error applying template:", err);
+      res.status(500).json({ message: "Failed to apply template" });
+    }
+  });
+  
+  // Delete a template
+  app.delete("/api/schedule-templates/:id", async (req, res) => {
+    await storage.deleteScheduleTemplate(Number(req.params.id));
+    res.status(204).send();
+  });
+
   // === Time Off Requests ===
   app.get(api.timeOffRequests.list.path, async (req, res) => {
     const requests = await storage.getTimeOffRequests();

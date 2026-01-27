@@ -8,7 +8,8 @@ import {
   globalSettings, type GlobalSettings, type InsertGlobalSettings,
   users, type User, type InsertUser,
   locations, type Location, type InsertLocation,
-  timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry
+  timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry,
+  scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -66,6 +67,12 @@ export interface IStorage {
   getTimeClockEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
   getLastTimeClockSyncDate(): Promise<string | null>;
+
+  // Schedule Templates
+  getScheduleTemplates(): Promise<ScheduleTemplate[]>;
+  getScheduleTemplate(id: number): Promise<ScheduleTemplate | undefined>;
+  createScheduleTemplate(template: InsertScheduleTemplate): Promise<ScheduleTemplate>;
+  deleteScheduleTemplate(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -344,6 +351,25 @@ export class DatabaseStorage implements IStorage {
       .orderBy(timeClockEntries.workDate)
       .limit(1);
     return latest?.workDate || null;
+  }
+
+  // Schedule Templates
+  async getScheduleTemplates(): Promise<ScheduleTemplate[]> {
+    return await db.select().from(scheduleTemplates);
+  }
+
+  async getScheduleTemplate(id: number): Promise<ScheduleTemplate | undefined> {
+    const [template] = await db.select().from(scheduleTemplates).where(eq(scheduleTemplates.id, id));
+    return template;
+  }
+
+  async createScheduleTemplate(template: InsertScheduleTemplate): Promise<ScheduleTemplate> {
+    const [newTemplate] = await db.insert(scheduleTemplates).values(template).returning();
+    return newTemplate;
+  }
+
+  async deleteScheduleTemplate(id: number): Promise<void> {
+    await db.delete(scheduleTemplates).where(eq(scheduleTemplates.id, id));
   }
 }
 
