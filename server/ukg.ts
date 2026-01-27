@@ -50,7 +50,7 @@ class UKGClient {
     const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
     return {
       "Authorization": `Basic ${basicAuth}`,
-      "US-Customer-Api-Key": this.apiKey,
+      "Us-Customer-Api-Key": this.apiKey,
       "Content-Type": "application/json",
     };
   }
