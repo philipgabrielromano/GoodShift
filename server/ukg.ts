@@ -47,6 +47,38 @@ interface UKGLocationInfo {
   code: string;
 }
 
+interface UKGTimeRecord {
+  Id: number;
+  EmpId: string;
+  WorkDate: string;
+  In: string;
+  Out: string;
+  InOrg: string;
+  OutOrg: string;
+  RegHr: number;
+  Overt1: number;
+  Overt2: number;
+  Overt3: number;
+  Overt4: number;
+  Overt5: number;
+  PaygroupId: number;
+  LocationId: number;
+  JobId: number;
+  Status: number;
+}
+
+export interface TimeClockEntry {
+  employeeId: string;
+  date: string;
+  clockIn: string;
+  clockOut: string;
+  regularHours: number;
+  overtimeHours: number;
+  totalHours: number;
+  locationId: number;
+  jobId: number;
+}
+
 class UKGClient {
   private baseUrl: string;
   private username: string;
@@ -291,7 +323,7 @@ class UKGClient {
       isActive: ukgEmployee.isActive,
       location: ukgEmployee.location || null,
       employmentType: ukgEmployee.employmentType || null,
-      ukgEmployeeId: String(ukgEmployee.ukgId),
+      ukgEmployeeId: ukgEmployee.employeeId, // Use EmpId (string) for time clock matching
     };
   }
 
@@ -299,6 +331,91 @@ class UKGClient {
     this.cachedLocations = null;
     this.jobCache.clear();
     this.locationCache.clear();
+  }
+
+  // Fetch time clock data for a date range
+  async getTimeClockData(startDate: string, endDate: string, locationId?: number): Promise<TimeClockEntry[]> {
+    if (!this.isConfigured()) {
+      this.lastError = "UKG API not configured";
+      return [];
+    }
+
+    console.log(`UKG: Fetching time clock data from ${startDate} to ${endDate}`);
+
+    try {
+      // Build OData filter for date range
+      // OData requires date format without quotes for Edm.Date type
+      let filter = `WorkDate ge ${startDate} and WorkDate le ${endDate}`;
+      if (locationId) {
+        filter += ` and LocationId eq ${locationId}`;
+      }
+
+      const allRecords: UKGTimeRecord[] = [];
+      const pageSize = 500;
+      let skip = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        interface ODataResponse {
+          value?: UKGTimeRecord[];
+        }
+
+        const endpoint = `/Time?$filter=${encodeURIComponent(filter)}&$top=${pageSize}&$skip=${skip}`;
+        const result = await this.apiRequest<ODataResponse>(endpoint);
+
+        if (!result?.value || result.value.length === 0) {
+          hasMore = false;
+        } else {
+          allRecords.push(...result.value);
+          console.log(`UKG: Fetched ${result.value.length} time records (total: ${allRecords.length})`);
+          
+          if (result.value.length < pageSize) {
+            hasMore = false;
+          } else {
+            skip += pageSize;
+          }
+        }
+      }
+
+      // Convert to TimeClockEntry format
+      const entries: TimeClockEntry[] = allRecords.map(record => {
+        const overtimeTotal = (record.Overt1 || 0) + (record.Overt2 || 0) + 
+                              (record.Overt3 || 0) + (record.Overt4 || 0) + (record.Overt5 || 0);
+        return {
+          employeeId: record.EmpId,
+          date: record.WorkDate,
+          clockIn: record.In || record.InOrg || "",
+          clockOut: record.Out || record.OutOrg || "",
+          regularHours: record.RegHr || 0,
+          overtimeHours: overtimeTotal,
+          totalHours: (record.RegHr || 0) + overtimeTotal,
+          locationId: record.LocationId,
+          jobId: record.JobId,
+        };
+      });
+
+      console.log(`UKG: Processed ${entries.length} time clock entries`);
+      return entries;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.lastError = `Time clock fetch error: ${message}`;
+      console.error("UKG Time clock error:", message);
+      return [];
+    }
+  }
+
+  // Get time clock data grouped by employee for easy lookup
+  async getTimeClockByEmployee(startDate: string, endDate: string): Promise<Map<string, TimeClockEntry[]>> {
+    const entries = await this.getTimeClockData(startDate, endDate);
+    const byEmployee = new Map<string, TimeClockEntry[]>();
+
+    for (const entry of entries) {
+      const existing = byEmployee.get(entry.employeeId) || [];
+      existing.push(entry);
+      byEmployee.set(entry.employeeId, existing);
+    }
+
+    return byEmployee;
   }
 
   // Discover available OData entities/tables

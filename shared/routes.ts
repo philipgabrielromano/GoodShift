@@ -322,6 +322,26 @@ export const api = {
         }),
       },
     },
+    timeclock: {
+      method: 'GET' as const,
+      path: '/api/ukg/timeclock',
+      responses: {
+        200: z.object({
+          entries: z.array(z.object({
+            employeeId: z.string(),
+            date: z.string(),
+            clockIn: z.string(),
+            clockOut: z.string(),
+            regularHours: z.number(),
+            overtimeHours: z.number(),
+            totalHours: z.number(),
+            locationId: z.number(),
+            jobId: z.number(),
+          })),
+          error: z.string().nullable(),
+        }),
+      },
+    },
   },
   users: {
     list: {

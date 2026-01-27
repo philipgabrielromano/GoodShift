@@ -127,6 +127,59 @@ export default function Schedule() {
   const { data: settings } = useGlobalSettings();
   const updateSettings = useUpdateGlobalSettings();
 
+  // Fetch time clock data for the current week
+  const weekStartStr = format(weekStart, "yyyy-MM-dd");
+  const weekEndStr = format(addDays(weekStart, 6), "yyyy-MM-dd");
+  
+  interface TimeClockEntry {
+    employeeId: string;
+    date: string;
+    clockIn: string;
+    clockOut: string;
+    regularHours: number;
+    overtimeHours: number;
+    totalHours: number;
+  }
+  
+  const { data: timeClockData, isLoading: timeClockLoading } = useQuery<{ entries: TimeClockEntry[]; error: string | null }>({
+    queryKey: ["/api/ukg/timeclock", weekStartStr, weekEndStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/ukg/timeclock?startDate=${weekStartStr}&endDate=${weekEndStr}`, {
+        credentials: "include", // Include auth cookies
+      });
+      if (!res.ok) {
+        return { entries: [], error: "Failed to fetch time clock data" };
+      }
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
+    retry: 1, // Only retry once
+  });
+
+  // Create a lookup map for time clock entries by employee UKG ID and date
+  const timeClockByEmpDate = useMemo(() => {
+    const map = new Map<string, TimeClockEntry>();
+    if (!timeClockData?.entries) return map;
+    
+    for (const entry of timeClockData.entries) {
+      // Key is "employeeId-date"
+      const key = `${entry.employeeId}-${entry.date}`;
+      // Aggregate hours if multiple entries for same day
+      const existing = map.get(key);
+      if (existing) {
+        map.set(key, {
+          ...existing,
+          regularHours: existing.regularHours + entry.regularHours,
+          overtimeHours: existing.overtimeHours + entry.overtimeHours,
+          totalHours: existing.totalHours + entry.totalHours,
+        });
+      } else {
+        map.set(key, entry);
+      }
+    }
+    return map;
+  }, [timeClockData]);
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [draggedShift, setDraggedShift] = useState<Shift | null>(null);
@@ -642,24 +695,37 @@ export default function Schedule() {
                               </div>
 
                               <div className="space-y-1 relative z-10">
-                                {dayShifts?.map(shift => (
-                                  <div 
-                                    key={shift.id}
-                                    draggable
-                                    onDragStart={(e) => handleDragStart(e, shift)}
-                                    onDragEnd={handleDragEnd}
-                                    onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                                    className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
-                                    style={{ backgroundColor: getJobColor(emp.jobTitle) }}
-                                    data-testid={`shift-${shift.id}`}
-                                  >
-                                    <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                    <div className="flex flex-col leading-tight">
-                                      <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
-                                      <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
+                                {dayShifts?.map(shift => {
+                                  // Look up actual hours worked from time clock data
+                                  const shiftDate = formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd");
+                                  const ukgId = emp.ukgEmployeeId;
+                                  const timeClockKey = ukgId ? `${ukgId}-${shiftDate}` : null;
+                                  const actualHours = timeClockKey ? timeClockByEmpDate.get(timeClockKey) : null;
+                                  
+                                  return (
+                                    <div 
+                                      key={shift.id}
+                                      draggable
+                                      onDragStart={(e) => handleDragStart(e, shift)}
+                                      onDragEnd={handleDragEnd}
+                                      onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
+                                      className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
+                                      style={{ backgroundColor: getJobColor(emp.jobTitle) }}
+                                      data-testid={`shift-${shift.id}`}
+                                    >
+                                      <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                      <div className="flex flex-col leading-tight">
+                                        <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
+                                        <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
+                                        {actualHours && (
+                                          <span className="text-[9px] opacity-80 mt-0.5 border-t border-white/30 pt-0.5">
+                                            Worked: {actualHours.totalHours.toFixed(1)}h
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
                           );

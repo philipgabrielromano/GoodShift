@@ -1084,6 +1084,27 @@ export async function registerRoutes(
     res.json({ entities: results, error });
   });
 
+  // Get time clock data for a date range
+  app.get(api.ukg.timeclock.path, requireAuth, async (req, res) => {
+    if (!ukgClient.isConfigured()) {
+      return res.json({ entries: [], error: "UKG is not configured" });
+    }
+
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.json({ entries: [], error: "startDate and endDate query parameters are required" });
+    }
+
+    const entries = await ukgClient.getTimeClockData(
+      String(startDate),
+      String(endDate)
+    );
+
+    const error = ukgClient.getLastError();
+    res.json({ entries, error });
+  });
+
   // === Users ===
   app.get(api.users.list.path, requireAdmin, async (req, res) => {
     const users = await storage.getUsers();
