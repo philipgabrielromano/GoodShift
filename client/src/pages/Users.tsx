@@ -1,4 +1,5 @@
 import { useUsers, useCreateUser, useUpdateUser, useDeleteUser, useCurrentUser } from "@/hooks/use-users";
+import { useLocations } from "@/hooks/use-locations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -16,7 +17,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { User, InsertUser } from "@shared/schema";
-import { useQuery } from "@tanstack/react-query";
 
 export default function Users() {
   const { data: currentUser } = useCurrentUser();
@@ -36,9 +36,7 @@ export default function Users() {
     isActive: true,
   });
 
-  const { data: ukgStores } = useQuery<{ id: string; name: string; code: string }[]>({
-    queryKey: ["/api/ukg/stores"],
-  });
+  const { data: locations } = useLocations();
 
   const isAdmin = currentUser?.user?.role === "admin";
 
@@ -172,8 +170,8 @@ export default function Users() {
                     {user.locationIds && user.locationIds.length > 0 && (
                       <p className="text-xs text-muted-foreground mt-1">
                         Locations: {user.locationIds.map(id => {
-                          const store = ukgStores?.find(s => s.id === id);
-                          return store?.name || id;
+                          const loc = locations?.find(l => String(l.id) === id);
+                          return loc?.name || id;
                         }).join(", ")}
                       </p>
                     )}
@@ -253,22 +251,22 @@ export default function Users() {
             <div className="space-y-2">
               <Label>Assigned Locations</Label>
               <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
-                {ukgStores?.map(store => (
+                {locations?.map(loc => (
                   <label 
-                    key={store.id} 
+                    key={loc.id} 
                     className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
                   >
                     <input
                       type="checkbox"
-                      checked={(formData.locationIds || []).includes(store.id)}
-                      onChange={() => toggleLocationId(store.id)}
+                      checked={(formData.locationIds || []).includes(String(loc.id))}
+                      onChange={() => toggleLocationId(String(loc.id))}
                       className="rounded"
-                      data-testid={`checkbox-location-${store.id}`}
+                      data-testid={`checkbox-location-${loc.id}`}
                     />
-                    <span className="text-sm">{store.name}</span>
+                    <span className="text-sm">{loc.name}</span>
                   </label>
                 ))}
-                {(!ukgStores || ukgStores.length === 0) && (
+                {(!locations || locations.length === 0) && (
                   <p className="text-sm text-muted-foreground p-2">No locations available</p>
                 )}
               </div>
