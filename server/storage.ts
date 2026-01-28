@@ -103,6 +103,7 @@ export interface IStorage {
   getOccurrenceAdjustments(employeeId: number, startDate: string, endDate: string): Promise<OccurrenceAdjustment[]>;
   getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]>;
   createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
+  retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -530,6 +531,19 @@ export class DatabaseStorage implements IStorage {
   async createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment> {
     const [newAdjustment] = await db.insert(occurrenceAdjustments).values(adjustment).returning();
     return newAdjustment;
+  }
+
+  async retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment> {
+    const [updated] = await db.update(occurrenceAdjustments)
+      .set({ 
+        status: 'retracted', 
+        retractedReason: reason, 
+        retractedAt: new Date(),
+        retractedBy 
+      })
+      .where(eq(occurrenceAdjustments.id, id))
+      .returning();
+    return updated;
   }
 }
 

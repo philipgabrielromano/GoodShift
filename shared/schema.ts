@@ -272,6 +272,10 @@ export const occurrenceAdjustments = pgTable("occurrence_adjustments", {
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").defaultNow(),
   notes: text("notes"),
+  status: text("status").notNull().default("active"), // 'active' or 'retracted'
+  retractedReason: text("retracted_reason"), // Reason for retraction
+  retractedAt: timestamp("retracted_at"), // When it was retracted
+  retractedBy: integer("retracted_by"), // User ID who retracted
 });
 
 export const occurrencesRelations = relations(occurrences, ({ one }) => ({

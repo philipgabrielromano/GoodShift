@@ -88,6 +88,22 @@ export function useRetractOccurrence() {
   });
 }
 
+export function useRetractAdjustment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, reason, employeeId }: { id: number; reason: string; employeeId: number }) => {
+      const res = await apiRequest("POST", `/api/occurrence-adjustments/${id}/retract`, { reason });
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      // Invalidate all occurrence-related queries for this employee
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId] });
+      // Also invalidate alerts since retracting adjustments may change alert status
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
+    }
+  });
+}
+
 export function useCreateOccurrenceAdjustment() {
   const queryClient = useQueryClient();
   return useMutation({

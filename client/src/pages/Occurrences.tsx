@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useEmployees } from "@/hooks/use-employees";
-import { useOccurrenceSummary, useRetractOccurrence, useCreateOccurrenceAdjustment } from "@/hooks/use-occurrences";
+import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -57,11 +57,16 @@ export default function Occurrences() {
   // Only fetch summary when we have a valid employee ID
   const { data: summary, isLoading: summaryLoading } = useOccurrenceSummary(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
   const retractOccurrence = useRetractOccurrence();
+  const retractAdjustment = useRetractAdjustment();
   const createAdjustment = useCreateOccurrenceAdjustment();
 
   const [retractDialogOpen, setRetractDialogOpen] = useState(false);
   const [retractOccurrenceId, setRetractOccurrenceId] = useState<number | null>(null);
   const [retractReason, setRetractReason] = useState("");
+
+  const [retractAdjustmentDialogOpen, setRetractAdjustmentDialogOpen] = useState(false);
+  const [retractAdjustmentId, setRetractAdjustmentId] = useState<number | null>(null);
+  const [retractAdjustmentReason, setRetractAdjustmentReason] = useState("");
 
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
   const [adjustmentType, setAdjustmentType] = useState<string>("");
@@ -83,6 +88,23 @@ export default function Occurrences() {
       setRetractReason("");
     } catch (error) {
       toast({ title: "Error", description: "Failed to retract occurrence", variant: "destructive" });
+    }
+  };
+
+  const handleRetractAdjustment = async () => {
+    if (!retractAdjustmentId || !selectedEmployeeId || !retractAdjustmentReason) return;
+    
+    try {
+      await retractAdjustment.mutateAsync({
+        id: retractAdjustmentId,
+        reason: retractAdjustmentReason,
+        employeeId: selectedEmployeeId
+      });
+      toast({ title: "Adjustment retracted", description: "The adjustment has been retracted successfully." });
+      setRetractAdjustmentDialogOpen(false);
+      setRetractAdjustmentReason("");
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to retract adjustment", variant: "destructive" });
     }
   };
 
@@ -417,28 +439,59 @@ export default function Occurrences() {
                           </div>
                         </div>
                       )}
-                      {summary.adjustments.map((adjustment) => (
-                        <div 
-                          key={adjustment.id} 
-                          className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800"
-                          data-testid={`adjustment-${adjustment.id}`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className="text-sm font-medium w-24">
-                              {format(new Date(adjustment.adjustmentDate + "T12:00:00"), "MMM d, yyyy")}
+                      {summary.adjustments.map((adjustment) => {
+                        const isRetracted = adjustment.status === 'retracted';
+                        return (
+                          <div 
+                            key={adjustment.id} 
+                            className={`flex items-center justify-between p-3 rounded border ${isRetracted ? 'bg-muted/30 opacity-60' : 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'}`}
+                            data-testid={`adjustment-${adjustment.id}`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className={`text-sm font-medium w-24 ${isRetracted ? 'line-through text-muted-foreground' : ''}`}>
+                                {format(new Date(adjustment.adjustmentDate + "T12:00:00"), "MMM d, yyyy")}
+                              </div>
+                              <Badge 
+                                variant={isRetracted ? "outline" : "outline"} 
+                                className={isRetracted ? 'line-through' : 'text-green-600 border-green-600'}
+                              >
+                                Covered Shift
+                              </Badge>
+                              {isRetracted && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Retracted
+                                </Badge>
+                              )}
+                              {adjustment.notes && !isRetracted && (
+                                <span className="text-sm text-muted-foreground">{adjustment.notes}</span>
+                              )}
+                              {isRetracted && adjustment.retractedReason && (
+                                <span className="text-sm text-muted-foreground italic">
+                                  Reason: {adjustment.retractedReason}
+                                </span>
+                              )}
                             </div>
-                            <Badge variant="outline" className="text-green-600 border-green-600">
-                              Covered Shift
-                            </Badge>
-                            {adjustment.notes && (
-                              <span className="text-sm text-muted-foreground">{adjustment.notes}</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <span className={`text-sm font-medium ${isRetracted ? 'line-through text-muted-foreground' : 'text-green-600'}`}>
+                                {(adjustment.adjustmentValue / 100).toFixed(1)}
+                              </span>
+                              {canManageOccurrences && !isRetracted && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setRetractAdjustmentId(adjustment.id);
+                                    setRetractAdjustmentDialogOpen(true);
+                                  }}
+                                  data-testid={`button-retract-adjustment-${adjustment.id}`}
+                                >
+                                  <Undo2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <span className="text-sm font-medium text-green-600">
-                            {(adjustment.adjustmentValue / 100).toFixed(1)}
-                          </span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </CardContent>
                 </Card>
@@ -482,6 +535,51 @@ export default function Occurrences() {
             >
               {retractOccurrence.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Retract Occurrence
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={retractAdjustmentDialogOpen} onOpenChange={(open) => {
+        setRetractAdjustmentDialogOpen(open);
+        if (!open) {
+          setRetractAdjustmentId(null);
+          setRetractAdjustmentReason("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Undo2 className="w-5 h-5" />
+              Retract Adjustment
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Retracting an adjustment will restore it to the employee's tally. This should only be done if the adjustment was recorded in error.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="retractAdjustmentReason">Reason for retraction</Label>
+              <Textarea
+                id="retractAdjustmentReason"
+                value={retractAdjustmentReason}
+                onChange={(e) => setRetractAdjustmentReason(e.target.value)}
+                placeholder="e.g., Adjustment was granted in error, Documentation invalid..."
+                data-testid="input-retract-adjustment-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRetractAdjustmentDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRetractAdjustment} 
+              disabled={!retractAdjustmentReason || retractAdjustment.isPending}
+              data-testid="button-confirm-retract-adjustment"
+            >
+              {retractAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Retract Adjustment
             </Button>
           </DialogFooter>
         </DialogContent>

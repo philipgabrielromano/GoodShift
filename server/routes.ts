@@ -1863,6 +1863,32 @@ export async function registerRoutes(
     }
   });
 
+  // Retract an adjustment
+  app.post("/api/occurrence-adjustments/:id/retract", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can retract adjustments" });
+      }
+      
+      const id = Number(req.params.id);
+      const { reason } = req.body;
+      
+      if (!reason) {
+        return res.status(400).json({ message: "Retraction reason is required" });
+      }
+      
+      const adjustment = await storage.retractAdjustment(id, reason, user.id);
+      if (!adjustment) {
+        return res.status(404).json({ message: "Adjustment not found" });
+      }
+      res.json(adjustment);
+    } catch (error) {
+      console.error("Error retracting adjustment:", error);
+      res.status(500).json({ message: "Failed to retract adjustment" });
+    }
+  });
+
   // Get occurrence summary (rolling 12-month tally) for an employee
   app.get("/api/occurrences/:employeeId/summary", requireAuth, async (req, res) => {
     try {
