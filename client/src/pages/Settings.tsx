@@ -1,34 +1,18 @@
-import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
-import { Save, RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Clock, PieChart } from "lucide-react";
+import { useState } from "react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 
 export default function Settings() {
-  const { data: settings } = useGlobalSettings();
-  const updateSettings = useUpdateGlobalSettings();
   const { toast } = useToast();
 
-  const [cashieringPercent, setCashieringPercent] = useState<number>(40);
-  const [donationPricingPercent, setDonationPricingPercent] = useState<number>(35);
-  const [donorGreetingPercent, setDonorGreetingPercent] = useState<number>(25);
   const [selectedStore, setSelectedStore] = useState<string>("");
-
-  // Initialize labor allocation from settings
-  useEffect(() => {
-    if (settings) {
-      setCashieringPercent(settings.cashieringPercent ?? 40);
-      setDonationPricingPercent(settings.donationPricingPercent ?? 35);
-      setDonorGreetingPercent(settings.donorGreetingPercent ?? 25);
-    }
-  }, [settings]);
 
   const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string } | null; ssoConfigured: boolean }>({
     queryKey: ["/api/auth/status"],
@@ -82,100 +66,12 @@ export default function Settings() {
     },
   });
 
-  const totalPercent = cashieringPercent + donationPricingPercent + donorGreetingPercent;
-
-  const handleSaveLaborAllocation = async () => {
-    if (totalPercent !== 100) {
-      toast({ variant: "destructive", title: "Error", description: "Labor percentages must total 100%" });
-      return;
-    }
-    try {
-      await updateSettings.mutateAsync({ 
-        cashieringPercent, 
-        donationPricingPercent, 
-        donorGreetingPercent 
-      });
-      toast({ title: "Labor allocation saved" });
-    } catch (err) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to save labor allocation" });
-    }
-  };
-
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
       <div>
         <h1 className="text-3xl font-bold font-display">Settings</h1>
         <p className="text-muted-foreground mt-1">Configure global constraints and requirements.</p>
       </div>
-
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <PieChart className="w-5 h-5" />
-            Labor Allocation
-          </CardTitle>
-          <CardDescription>Configure how store hours are distributed across roles. This applies to all schedules.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Cashiering (CASHSLS) %</Label>
-              <Input 
-                type="number" 
-                min={0} 
-                max={100}
-                value={cashieringPercent} 
-                onChange={e => setCashieringPercent(parseInt(e.target.value) || 0)}
-                data-testid="input-cashiering-percent"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Donation Pricing (DONPRI, APPROC) %</Label>
-              <Input 
-                type="number" 
-                min={0} 
-                max={100}
-                value={donationPricingPercent} 
-                onChange={e => setDonationPricingPercent(parseInt(e.target.value) || 0)}
-                data-testid="input-donation-pricing-percent"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Donor Greeting (DONDOOR) %</Label>
-              <Input 
-                type="number" 
-                min={0} 
-                max={100}
-                value={donorGreetingPercent} 
-                onChange={e => setDonorGreetingPercent(parseInt(e.target.value) || 0)}
-                data-testid="input-donor-greeting-percent"
-              />
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <div className={`text-sm font-medium ${totalPercent === 100 ? "text-green-600" : "text-destructive"}`}>
-              Total: {totalPercent}%
-              {totalPercent !== 100 && " (must equal 100%)"}
-            </div>
-            <Button 
-              onClick={handleSaveLaborAllocation} 
-              disabled={updateSettings.isPending || totalPercent !== 100}
-              data-testid="button-save-labor-allocation"
-            >
-              <Save className="w-4 h-4 mr-2" /> Save
-            </Button>
-          </div>
-          <div className="space-y-2 pt-4 border-t">
-            <Label className="flex items-center gap-2">
-              <Clock className="w-4 h-4" />
-              Timezone
-            </Label>
-            <p className="text-sm text-muted-foreground">
-              All scheduling is done in Eastern Time (EST/EDT).
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
