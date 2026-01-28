@@ -758,11 +758,96 @@ export default function Schedule() {
 
       {canViewSchedule && (
       <div className="flex gap-6">
-        {/* Left Controls Sidebar - managers and admins only */}
-        {(userRole === "admin" || userRole === "manager") && (
-          <div className="w-48 shrink-0 space-y-3" data-testid="controls-sidebar">
-            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-              Schedule Actions
+        {/* Left Sidebar */}
+        <div className="w-64 shrink-0 space-y-4" data-testid="left-sidebar">
+          {/* Location Hours Panel */}
+          {(() => {
+            const displayLocations = selectedLocation === "all" 
+              ? userLocations 
+              : userLocations.filter(l => l.name === selectedLocation);
+            
+            if (displayLocations.length === 0) return null;
+            
+            return (
+              <Card>
+                <CardHeader className="pb-2 px-3 pt-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-primary" />
+                    Store Hours
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 px-3 pb-3">
+                  {displayLocations.map(location => {
+                    const used = locationHoursUsed[location.name] || 0;
+                    const limit = location.weeklyHoursLimit;
+                    const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+                    const isOverBudget = used > limit;
+                    
+                    return (
+                      <div key={location.id} className="space-y-1" data-testid={`location-hours-${location.id}`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium truncate">{location.name}</span>
+                          <div className="flex items-center gap-1">
+                            <span className={cn(
+                              "text-xs font-mono",
+                              isOverBudget ? "text-destructive font-bold" : "text-muted-foreground"
+                            )}>
+                              {used.toFixed(1)} / {limit}
+                            </span>
+                            {isOverBudget && (
+                              <Badge variant="destructive" className="text-[10px] px-1 py-0">
+                                Over
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <Progress 
+                          value={percentage} 
+                          className={cn(
+                            "h-1.5",
+                            isOverBudget && "[&>[data-state=complete]]:bg-destructive [&>div]:bg-destructive"
+                          )}
+                        />
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            );
+          })()}
+          
+          {/* Schedule Validator */}
+          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} />
+          
+          {/* AI Reasoning Display */}
+          {aiReasoning && (
+            <Card className="border-accent/30 bg-accent/5">
+              <CardHeader className="pb-2 px-3 pt-3">
+                <CardTitle className="text-xs flex items-center gap-2">
+                  <Sparkles className="w-3 h-3 text-accent" />
+                  AI Reasoning
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-3 pb-3">
+                <p className="text-xs text-muted-foreground">{aiReasoning}</p>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="mt-2 text-xs h-6 px-2"
+                  onClick={() => setAIReasoning(null)}
+                  data-testid="button-dismiss-reasoning"
+                >
+                  Dismiss
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+          
+          {/* Schedule Actions - managers and admins only */}
+          {(userRole === "admin" || userRole === "manager") && (
+          <div className="space-y-3" data-testid="controls-sidebar">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Actions
             </div>
             
             {/* Publish/Unpublish Button */}
@@ -876,12 +961,13 @@ export default function Schedule() {
               </Button>
             </div>
           </div>
-        )}
+          )}
+        </div>
         
         {/* Main Content Area */}
-        <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 gap-6">
+        <div className="flex-1">
         {/* Main Schedule Grid */}
-        <div className="xl:col-span-3 bg-card rounded border shadow-sm overflow-hidden relative">
+        <div className="bg-card rounded border shadow-sm overflow-hidden relative">
           {/* Generation Loading Overlay - positioned at top */}
           {(isAIGenerating || isManualGenerating) && (
             <div className="absolute top-0 left-0 right-0 bg-primary/95 backdrop-blur-sm z-50 flex items-center justify-center gap-4 py-4 px-6 shadow-lg" data-testid="overlay-generating">
@@ -1207,94 +1293,6 @@ export default function Schedule() {
           </div>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Location Hours Panel - shows only selected location or user's locations */}
-          {(() => {
-            // Filter locations based on selection
-            const displayLocations = selectedLocation === "all" 
-              ? userLocations 
-              : userLocations.filter(l => l.name === selectedLocation);
-            
-            if (displayLocations.length === 0) return null;
-            
-            return (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <MapPin className="w-5 h-5 text-primary" />
-                    Store Hours Budget
-                  </CardTitle>
-                  <CardDescription>
-                    {selectedLocation === "all" ? "Weekly hours by location" : `Weekly hours for ${selectedLocation}`}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {displayLocations.map(location => {
-                    const used = locationHoursUsed[location.name] || 0;
-                    const limit = location.weeklyHoursLimit;
-                    const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-                    const isOverBudget = used > limit;
-                    
-                    return (
-                      <div key={location.id} className="space-y-2" data-testid={`location-hours-${location.id}`}>
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium truncate">{location.name}</span>
-                          <div className="flex items-center gap-2">
-                            <span className={cn(
-                              "text-sm font-mono",
-                              isOverBudget ? "text-destructive font-bold" : "text-muted-foreground"
-                            )}>
-                              {used.toFixed(1)} / {limit}
-                            </span>
-                            {isOverBudget && (
-                              <Badge variant="destructive" className="text-xs">
-                                Over
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                        <Progress 
-                          value={percentage} 
-                          className={cn(
-                            "h-2",
-                            isOverBudget && "[&>[data-state=complete]]:bg-destructive [&>div]:bg-destructive"
-                          )}
-                        />
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            );
-          })()}
-          
-          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} />
-          
-          {/* AI Reasoning Display */}
-          {aiReasoning && (
-            <Card className="border-accent/30 bg-accent/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-accent" />
-                  AI Schedule Reasoning
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{aiReasoning}</p>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="mt-2 text-xs"
-                  onClick={() => setAIReasoning(null)}
-                  data-testid="button-dismiss-reasoning"
-                >
-                  Dismiss
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </div>
       </div>
       </div>
       )}
