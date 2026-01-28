@@ -702,12 +702,6 @@ export default function Schedule() {
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
       <div className="flex flex-col items-center gap-4">
         <div className="flex flex-col md:flex-row items-center gap-4">
-          <div className="text-center md:text-left">
-            <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "'Lato', sans-serif" }}>Weekly Schedule</h1>
-            <p className="text-muted-foreground mt-1">
-              Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))} • {formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}
-            </p>
-          </div>
           {/* Location dropdown: Admins can switch between all locations, others see their assigned location */}
           {isAdmin ? (
             <Select value={selectedLocation} onValueChange={setSelectedLocation}>
@@ -734,8 +728,9 @@ export default function Schedule() {
             <Button variant="ghost" size="icon" onClick={handlePrevWeek} data-testid="button-prev-week">
               <ChevronLeft className="w-5 h-5" />
             </Button>
-            <div className="px-4 font-medium min-w-[120px] text-center">
-              {formatInTimeZone(currentDate, TIMEZONE, "MMMM yyyy")}
+            <div className="px-4 font-medium min-w-[200px] text-center">
+              <div className="text-sm font-semibold">Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))}</div>
+              <div className="text-xs text-muted-foreground">{formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}</div>
             </div>
             <Button variant="ghost" size="icon" onClick={handleNextWeek} data-testid="button-next-week">
               <ChevronRight className="w-5 h-5" />
