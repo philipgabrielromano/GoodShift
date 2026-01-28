@@ -1,276 +1,79 @@
 # GoodShift - Employee Scheduling Application
 
 ## Overview
-
-GoodShift is a full-stack employee scheduling and workforce management application. It enables managers to create and manage employee shifts, handle time-off requests, configure role-based staffing requirements, and validate schedules against business rules. The application features a weekly calendar view for shift visualization, employee management, and configurable global settings.
+GoodShift is a full-stack employee scheduling and workforce management application designed for retail thrift stores. It enables managers to create and manage employee shifts, handle time-off requests, configure role-based staffing requirements, and validate schedules against business rules. Key capabilities include a weekly calendar view, employee management, configurable global settings, automatic schedule generation, and real-time schedule validation. The application aims to optimize workforce allocation, ensure compliance with labor laws, and streamline scheduling processes for multi-location retail operations.
 
 ## User Preferences
-
 Preferred communication style: Simple, everyday language.
-
-### Brand Colors
-**Core Colors:**
-- Blue (#00539F) - Primary brand color
-- Black (#212721) - Text/foreground
-- Gray (#52585A) - Muted text
-- White (#FFFFFF) - Backgrounds
-
-**Accent Colors:**
-- #4F87C6 - Light blue
-- #7CC1E8 - Sky blue
-- #E9992F - Orange
-- #FFD600 - Yellow
-- #B2D235 - Lime green
-- #4FBC86 - Teal (accent)
-- #A95678 - Pink
-- #DF4E51 - Red (destructive)
-
-**Design Style:** Squared corners (minimal border radius), clean professional look.
 
 ## System Architecture
 
-### Frontend Architecture
+### Frontend
 - **Framework**: React 18 with TypeScript
-- **Routing**: Wouter (lightweight React router)
-- **State Management**: TanStack React Query for server state caching and synchronization
-- **Styling**: Tailwind CSS with CSS variables for theming
-- **UI Components**: shadcn/ui component library (Radix UI primitives with custom styling)
-- **Build Tool**: Vite for development and production builds
+- **Routing**: Wouter
+- **State Management**: TanStack React Query
+- **Styling**: Tailwind CSS with CSS variables for theming, using shadcn/ui component library (Radix UI primitives).
+- **Build Tool**: Vite
 
-The frontend follows a page-based structure with shared components. Custom hooks in `client/src/hooks/` encapsulate all API interactions and provide type-safe data fetching using the shared route contracts.
-
-### Backend Architecture
-- **Framework**: Express.js 5 running on Node.js
+### Backend
+- **Framework**: Express.js 5 with Node.js
 - **Language**: TypeScript with ES modules
-- **API Design**: RESTful endpoints defined in `server/routes.ts`
+- **API Design**: RESTful endpoints with Zod schemas for validation
 - **Database Access**: Drizzle ORM with PostgreSQL
-
-The server uses a storage abstraction layer (`server/storage.ts`) that implements the `IStorage` interface, making it possible to swap database implementations. Routes are registered centrally and use Zod schemas from the shared module for input validation.
+- **Storage Abstraction**: `IStorage` interface for database interchangeability.
 
 ### Data Storage
 - **Database**: PostgreSQL
-- **ORM**: Drizzle ORM with type-safe schema definitions
-- **Schema Location**: `shared/schema.ts` contains all table definitions
-- **Migrations**: Drizzle Kit manages schema migrations (output to `./migrations`)
+- **ORM**: Drizzle ORM for type-safe schema definitions
+- **Schema**: Defined in `shared/schema.ts`
+- **Migrations**: Drizzle Kit
 
-Database tables:
-- `employees` - Staff members with job titles, max hours, location, and status
-- `shifts` - Scheduled work periods with start/end timestamps
-- `time_off_requests` - Employee vacation/leave requests with approval status
-- `role_requirements` - Minimum weekly hours required per job title with color coding
-- `global_settings` - Application-wide configuration (hours limits, timezone, labor allocation)
-- `users` - User accounts with roles (admin/manager/viewer) and location access control
-- `locations` - Store locations with weekly hours allocation limits
-- `time_clock_entries` - Historical time punch data from UKG (employee hours worked)
-- `schedule_templates` - Reusable weekly schedule patterns for quick schedule creation
-- `shift_presets` - Predefined shift times for quick shift creation (admin configurable)
+**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`.
 
-### Shared Code Architecture
-The `shared/` directory contains code used by both frontend and backend:
-- `schema.ts` - Drizzle table definitions and Zod insert schemas
-- `routes.ts` - API contract definitions with paths, methods, and response schemas
+### Shared Code
+The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod insert schemas) and `routes.ts` (API contract definitions) to ensure type safety across the full stack.
 
-This approach ensures type safety across the full stack and eliminates API contract drift.
+### UI/UX
+- **Design Style**: Squared corners, clean professional aesthetic.
+- **Color Scheme**: Core brand colors (Blue, Black, Gray, White) with various accent colors.
 
-### Build System
-- Development: Vite dev server with HMR, proxied through Express
-- Production: 
-  - Frontend built with Vite to `dist/public`
-  - Backend bundled with esbuild to `dist/index.cjs`
-  - Select dependencies are bundled to reduce cold start times
+### Key Features
+- **Auto-Generate Schedule**: Creates schedules based on availability, role requirements, time-off, and manager coverage.
+- **Schedule Validation**: Real-time checks for max hours, role coverage, budget, time-off conflicts, manager coverage, and clopening detection.
+- **Schedule Publishing**: Controls visibility of schedules to employees (viewers) while managers/admins always see full schedules.
+- **User Administration**: Role-based access control (Admin, Manager, Viewer) with location-based restrictions for Managers.
+- **Retail Job Codes**: Manages scheduling for specific retail job codes and translates them for display.
+- **Part-Time Scheduling Flexibility**: Accommodates part-time employees with flexible shift lengths and preferred days per week.
+- **Schedule Templates & Copy**: Allows managers to save, apply, and copy schedule patterns.
+- **Labor Allocation**: Configurable percentages for distributing store hours across different job functions.
+- **Weather Forecasts**: Displays 14-day weather forecasts sourced from Open-Meteo API.
+- **Holiday Management**: Automatically identifies and accounts for Easter, Thanksgiving, and Christmas, preventing scheduling on these closed days.
+- **Timezone Handling**: All scheduling is handled in Eastern Time (America/New_York).
+- **Location Management**: Admins manage store locations with weekly hours budgets, and managers view location-specific budgets.
+- **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments.
 
 ## External Dependencies
 
 ### Database
-- **PostgreSQL**: Primary data store, connection via `DATABASE_URL` environment variable
-- **Connection Pooling**: Uses `pg` Pool for connection management
+- **PostgreSQL**: Primary data store.
+- **pg Pool**: For connection pooling.
 
 ### UI Framework Dependencies
-- **Radix UI**: Accessible component primitives (dialogs, dropdowns, tooltips, etc.)
-- **Embla Carousel**: Carousel/slider functionality
-- **react-day-picker**: Calendar date selection
-- **cmdk**: Command palette component
-- **vaul**: Drawer component
+- **Radix UI**: Accessible component primitives.
+- **Embla Carousel**: Carousel functionality.
+- **react-day-picker**: Calendar date selection.
+- **cmdk**: Command palette.
+- **vaul**: Drawer component.
 
 ### Utility Libraries
-- **date-fns**: Date manipulation and formatting
-- **date-fns-tz**: Timezone-aware date handling (Eastern Time)
-- **Zod**: Runtime type validation for API inputs/outputs
-- **drizzle-zod**: Generates Zod schemas from Drizzle table definitions
-- **class-variance-authority**: Component variant styling
-- **clsx/tailwind-merge**: Conditional CSS class composition
+- **date-fns**: Date manipulation.
+- **date-fns-tz**: Timezone-aware date handling.
+- **Zod**: Runtime type validation.
+- **drizzle-zod**: Zod schema generation from Drizzle.
+- **class-variance-authority**: Component variant styling.
+- **clsx/tailwind-merge**: Conditional CSS class composition.
 
-### Development Tools
-- **Replit Plugins**: Runtime error overlay, cartographer, dev banner (development only)
-
-## Integrations
-
-### UKG Workforce Management
-The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OData API to pull employee data directly from your workforce management system.
-
-**Configuration** (via environment variables):
-- `UKG_API_URL` - Base URL for your UKG API (e.g., https://kew33.ulticlock.com/UtmOdataServices/api)
-- `UKG_AUTH_HEADER` - Pre-encoded Basic auth header for API authentication
-
-**Features**:
-- Automatic daily employee sync with UKG (runs on server startup and every 24 hours)
-- Automatic time clock data sync (runs on startup and every 4 hours)
-- Historical time clock data from 2026-01-01 downloaded on initial sync
-- Full pagination support for large employee datasets (handles 11,000+ employees)
-- Job title lookup from UKG Job table (maps JobId to job names)
-- Location lookup from UKG OrgLevel1 table (maps OrgLevel1Id to store names like "Massillon Store")
-- Employment type mapping (PayCate: 1=Full-Time, 2=Part-Time)
-- Active/Terminated status tracking (Active: A=active, I=terminated)
-- Only syncs active employees to database (terminated employees are skipped)
-- Uses UKG unique ID (Id field) for employee matching to prevent duplicates
-- PAL (Paid Annual Leave) integration: Time entries with PaycodeId=2 are displayed as black "PAL" blocks in the schedule and counted toward employee/store hours totals
-- Unpaid Time Off (UTO) integration: Time entries with PaycodeId=4 are displayed as gray "UTO" blocks in the schedule but NOT counted toward employee/store hours totals
-- Future date sync: Time clock data is synced up to 60 days in the future to capture scheduled PAL/UTO entries
-
-**Data Fields Synced**:
-- Name (FirstName + LastName)
-- Email (or auto-generated from name if not provided)
-- Job Title (from Job lookup table)
-- Location (from OrgLevel1 lookup table - store names)
-- Employment Type (Full-Time/Part-Time)
-- Active Status
-- UKG Employee ID (for update matching)
-
-### Microsoft 365 SSO
-Single sign-on authentication using Microsoft Azure AD.
-
-**Configuration** (via environment variables):
-- `AZURE_CLIENT_ID` - Azure AD application client ID
-- `AZURE_TENANT_ID` - Azure AD tenant ID
-- `AZURE_CLIENT_SECRET` - Azure AD application secret
-- `SESSION_SECRET` - Secret for session encryption
-
-**Features**:
-- Sign in with Microsoft 365 organizational accounts
-- Secure session management
-- Automatic user profile retrieval
-
-## Key Features
-
-### Auto-Generate Schedule
-The application can automatically generate a week's schedule based on:
-- Employee availability and max weekly hours
-- Role requirements (minimum hours per job title)
-- Time-off requests
-- Manager coverage requirements (morning and evening shifts)
-- Total weekly hours budget
-
-### Schedule Validation
-Real-time validation checks for:
-- Employee max hours exceeded
-- Role coverage shortfalls
-- Total weekly hours limit
-- Time-off conflicts
-- Manager coverage requirements
-- **Clopening detection**: Warns when an employee works a closing shift (ending 7:30pm+) followed by an opening shift (starting 8-9am) the next day
-
-### Schedule Publishing
-Managers can control the visibility of weekly schedules:
-- **Publish**: Makes the week's schedule visible to all employees (viewers)
-- **Unpublish**: Hides the schedule from employees until it's ready
-
-Access control:
-- **Viewers** only see schedules that have been published; unpublished weeks show "Schedule Not Available"
-- **Managers/Admins** always see the full schedule regardless of publish status
-- Only managers and admins can publish/unpublish schedules
-
-### User Administration
-Role-based access control with three user roles:
-- **Admin**: Full access to all features including user management
-- **Manager**: Can view and schedule employees from their assigned locations only
-- **Viewer**: Read-only access to schedule and employee data
-
-Managers are automatically filtered to only see employees from their assigned store locations.
-
-### Retail Job Codes
-Only employees with specific retail job codes are scheduleable:
-- APPROC - Apparel Processor
-- DONDOOR - Donor Greeter  
-- CASHSLS - Cashier
-- DONPRI - Donation Pricing Associate
-- STSUPER - Store Manager
-- STASSTSP - Assistant Manager
-- STLDWKR - Team Lead
-
-Job codes are automatically translated to human-readable titles in the UI using the `getJobTitle()` utility function.
-
-### Part-Time Scheduling Flexibility
-Part-time employees (less than 32 max hours) can work up to 5 days per week with flexible shift lengths:
-- Full shifts: 8 paid hours (8.5 clock hours with 30-min unpaid lunch)
-- Short shifts: 5.5 paid hours (no lunch break, under 6 hours)
-- Gap shifts: 5 paid hours (no lunch break, used to fill remaining hours)
-
-The scheduler intelligently picks the best combination of shift types to maximize hours while staying within max weekly hours limits.
-
-Each employee has a **Preferred Days/Week** setting (4 or 5) that managers can configure in the employee profile. The scheduler will respect this setting, allowing some employees to work fewer days with longer shifts while others spread hours across more days.
-
-### Schedule Templates & Copy
-Managers can save and reuse schedule patterns:
-- **Copy to Next Week**: Duplicates all shifts from the current week to the following week
-- **Save as Template**: Saves the current week's schedule as a named template (stores shift patterns by day of week and time)
-- **Apply Template**: Loads a saved template and creates shifts for any target week
-- **Delete Template**: Removes saved templates that are no longer needed
-
-Templates store shift patterns (employee, day of week, start/end times) rather than absolute dates, making them reusable across different weeks.
-
-### Labor Allocation
-Configurable percentages for distributing store hours:
-- Cashiering (CASHSLS)
-- Donation Pricing (DONPRI, APPROC)
-- Donor Greeting (DONDOOR)
-
-These percentages must total 100% and are used by the scheduler to allocate hours appropriately.
-
-### Weather Forecasts
-The schedule page displays weather forecasts in each day's header:
-- High/low temperatures (in Fahrenheit)
-- Precipitation probability percentage
-- Data sourced from Open-Meteo API (free, no API key required)
-- Cached for 1 hour to minimize API calls
-- 14-day forecast available
-
-### Holidays
-The store is closed on three holidays each year:
-- **Easter** (calculated dynamically - varies each year)
-- **Thanksgiving** (4th Thursday of November)
-- **Christmas** (December 25th)
-
-Holiday features:
-- Schedule page shows "CLOSED" indicator on holiday dates with red highlighting
-- Scheduler automatically skips holidays when generating schedules
-- Validation shows errors if any shifts are scheduled on holidays
-- AI scheduler is informed of holidays and instructed not to schedule anyone
-
-### Timezone Handling
-All scheduling is done in Eastern Time (America/New_York). The application uses date-fns-tz for timezone-aware date handling.
-
-### Location Management
-Admins can manage store locations with weekly hours budgets:
-- Create/edit/delete store locations
-- Set weekly hours allocation per store
-- Track active/inactive location status
-
-The Schedule page shows location-specific hours tracking:
-- Managers see only their assigned locations' hours budget
-- Admins see all active locations
-- Progress bars show used vs. allocated hours
-- Over-budget warnings displayed when exceeded
-
-Location data flow:
-- `users.locationIds` stores array of location IDs (as strings like "1", "2")
-- `employees.location` stores location NAME from UKG sync (e.g., "Store A")
-- `locations.id` is the numeric identifier, `locations.name` is the location name
-- Manager filtering: userLocationIds -> lookup location names -> filter employees by name
-- Hours calculation: match employee location names to location records, aggregate by location
-
-### Business Context
-This application is designed for retail thrift store scheduling, with the ability to:
-- Import employees from UKG by store location
-- Authenticate staff via Microsoft 365 SSO
-- Manage multiple job roles (Manager, Staff, etc.)
-- Track time-off requests and approvals
+### Integrations
+- **UKG Workforce Management**: Integrates with UltiClock OData API for daily employee and time clock data sync (including PAL/UTO). Syncs employee details, job titles, locations, employment types, and active status.
+- **Microsoft 365 SSO**: Single sign-on authentication using Azure AD for secure session management and user profile retrieval.
+- **Open-Meteo API**: Provides weather forecast data for scheduling page.
