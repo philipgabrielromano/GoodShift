@@ -16,6 +16,13 @@ import { getJobTitle } from "@/lib/utils";
 
 const TIMEZONE = "America/New_York";
 
+function formatTimeAmPm(time24: string): string {
+  const [hours, minutes] = time24.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const hours12 = hours % 12 || 12;
+  return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+}
+
 interface ShiftDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -161,7 +168,7 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
                         />
                         <span>{preset.name}</span>
                         <span className="text-muted-foreground text-xs ml-1">
-                          ({preset.startTime} - {preset.endTime})
+                          ({formatTimeAmPm(preset.startTime)} - {formatTimeAmPm(preset.endTime)})
                         </span>
                       </div>
                     </SelectItem>
