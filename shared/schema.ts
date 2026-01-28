@@ -236,6 +236,63 @@ export const insertPublishedScheduleSchema = createInsertSchema(publishedSchedul
 export type PublishedSchedule = typeof publishedSchedules.$inferSelect;
 export type InsertPublishedSchedule = z.infer<typeof insertPublishedScheduleSchema>;
 
+// === OCCURRENCES (Attendance Tracking) ===
+
+// Occurrences table for tracking attendance issues (tardiness, absences, NCNS)
+export const occurrences = pgTable("occurrences", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  occurrenceDate: date("occurrence_date").notNull(), // Date of the occurrence
+  occurrenceType: text("occurrence_type").notNull(), // 'half' (0.5), 'full' (1), 'ncns' (1 + warning)
+  occurrenceValue: integer("occurrence_value").notNull(), // Stored as 50 for 0.5, 100 for 1.0 (multiplied by 100)
+  hoursMissed: integer("hours_missed"), // Minutes missed (for calculating type)
+  reason: text("reason"), // Description of what happened
+  illnessGroupId: text("illness_group_id"), // UUID to link multi-day illness occurrences (days 1-3 = single occurrence)
+  isNcns: boolean("is_ncns").notNull().default(false), // No Call/No Show flag
+  status: text("status").notNull().default("active"), // 'active' or 'retracted'
+  retractedReason: text("retracted_reason"), // 'perfect_attendance', 'unscheduled_shift', or manual reason
+  retractedAt: timestamp("retracted_at"), // When it was retracted
+  retractedBy: integer("retracted_by"), // User ID who retracted
+  createdBy: integer("created_by"), // User ID who created
+  createdAt: timestamp("created_at").defaultNow(),
+  notes: text("notes"), // Additional notes
+});
+
+// Occurrence adjustments for tracking reductions (perfect attendance, covering shifts)
+export const occurrenceAdjustments = pgTable("occurrence_adjustments", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  adjustmentDate: date("adjustment_date").notNull(), // Date the adjustment was earned
+  adjustmentType: text("adjustment_type").notNull(), // 'perfect_attendance' or 'unscheduled_shift'
+  adjustmentValue: integer("adjustment_value").notNull().default(-100), // -100 = -1.0 occurrence
+  calendarYear: integer("calendar_year").notNull(), // Year for tracking max 2/year
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  notes: text("notes"),
+});
+
+export const occurrencesRelations = relations(occurrences, ({ one }) => ({
+  employee: one(employees, {
+    fields: [occurrences.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const occurrenceAdjustmentsRelations = relations(occurrenceAdjustments, ({ one }) => ({
+  employee: one(employees, {
+    fields: [occurrenceAdjustments.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const insertOccurrenceSchema = createInsertSchema(occurrences).omit({ id: true, createdAt: true });
+export const insertOccurrenceAdjustmentSchema = createInsertSchema(occurrenceAdjustments).omit({ id: true, createdAt: true });
+
+export type Occurrence = typeof occurrences.$inferSelect;
+export type InsertOccurrence = z.infer<typeof insertOccurrenceSchema>;
+export type OccurrenceAdjustment = typeof occurrenceAdjustments.$inferSelect;
+export type InsertOccurrenceAdjustment = z.infer<typeof insertOccurrenceAdjustmentSchema>;
+
 // === CHAT TABLES FOR AI INTEGRATION ===
 
 import { sql } from "drizzle-orm";
