@@ -880,8 +880,25 @@ export async function registerRoutes(
 
       // ========== PHASE 1: MANDATORY COVERAGE (All 7 days except holidays) ==========
       // First pass: ensure every day has minimum required coverage
-      // IMPORTANT: Prefer full-timers for coverage positions to maximize part-timer flexibility
-      // Process days in priority order: Saturday and Friday first to ensure weekend leadership coverage
+      // IMPORTANT: Use ROUND-ROBIN for cashiers to ensure Wed/Thu get coverage before employees hit max days
+      // Process managers/greeters/pricers in priority order (Sat/Fri first)
+      // Process cashiers using round-robin across all days
+
+      // Helper to sort employees: full-timers first, then by priority, then by ID (for determinism)
+      const sortFullTimersFirst = (a: typeof employees[0], b: typeof employees[0]) => {
+        // Full-timers (>= 32h) should come before part-timers
+        const aIsFullTime = a.maxWeeklyHours >= 32;
+        const bIsFullTime = b.maxWeeklyHours >= 32;
+        if (aIsFullTime && !bIsFullTime) return -1;
+        if (!aIsFullTime && bIsFullTime) return 1;
+        // If same type, sort by priority
+        const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
+        if (priorityDiff !== 0) return priorityDiff;
+        // Tie-breaker: sort by employee ID for deterministic results
+        return a.id - b.id;
+      };
+
+      // Phase 1a: Schedule managers, greeters, and pricers (in priority order for weekend coverage)
       for (const dayIndex of dayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         
@@ -894,20 +911,6 @@ export async function registerRoutes(
         
         const shifts = getShiftTimes(currentDay);
         const isSaturday = dayIndex === 6;
-
-        // Helper to sort employees: full-timers first, then by priority, then by ID (for determinism)
-        const sortFullTimersFirst = (a: typeof employees[0], b: typeof employees[0]) => {
-          // Full-timers (>= 32h) should come before part-timers
-          const aIsFullTime = a.maxWeeklyHours >= 32;
-          const bIsFullTime = b.maxWeeklyHours >= 32;
-          if (aIsFullTime && !bIsFullTime) return -1;
-          if (!aIsFullTime && bIsFullTime) return 1;
-          // If same type, sort by priority
-          const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
-          if (priorityDiff !== 0) return priorityDiff;
-          // Tie-breaker: sort by employee ID for deterministic results
-          return a.id - b.id;
-        };
 
         // On Saturdays, schedule more managers (at least 2 per shift if available)
         const saturdayManagerBonus = isSaturday ? 1 : 0;
@@ -949,25 +952,7 @@ export async function registerRoutes(
           scheduleShift(closingGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
-        // 1e. Opening cashiers - prefer full-timers
-        const availableCashiers = cashiers
-          .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
-        
-        for (let i = 0; i < openersRequired && i < availableCashiers.length; i++) {
-          scheduleShift(availableCashiers[i], shifts.opener.start, shifts.opener.end, dayIndex);
-        }
-
-        // 1f. Closing cashiers - prefer full-timers
-        const closingCashiers = cashiers
-          .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
-        
-        for (let i = 0; i < closersRequired && i < closingCashiers.length; i++) {
-          scheduleShift(closingCashiers[i], shifts.closer.start, shifts.closer.end, dayIndex);
-        }
-
-        // 1g. Donation Pricers - use short morning shifts for part-timers, full for full-timers
+        // 1e. Donation Pricers - use short morning shifts for part-timers, full for full-timers
         // Pricers don't need to be there all day, just early morning for pricing
         const availablePricers = donationPricers
           .filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
@@ -984,6 +969,77 @@ export async function registerRoutes(
             const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
             scheduleShift(pricer, shift.start, shift.end, dayIndex);
           }
+        }
+      }
+
+      // Phase 1b: Schedule CASHIERS using ROUND-ROBIN to ensure all days get coverage
+      // This prevents Wed/Thu from having no cashiers because Sat-Tue used them all up
+      const cashierOpenersNeeded: Record<number, number> = {};
+      const cashierClosersNeeded: Record<number, number> = {};
+      const nonHolidayDays: number[] = [];
+      
+      // Initialize needed counts for each non-holiday day
+      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        if (!isHoliday(currentDay)) {
+          nonHolidayDays.push(dayIndex);
+          cashierOpenersNeeded[dayIndex] = openersRequired;
+          cashierClosersNeeded[dayIndex] = closersRequired;
+        }
+      }
+
+      // Round-robin: cycle through days, assigning ONE opener per day until all targets met
+      let madeOpenerProgress = true;
+      while (madeOpenerProgress) {
+        madeOpenerProgress = false;
+        for (const dayIndex of nonHolidayDays) {
+          if (cashierOpenersNeeded[dayIndex] <= 0) continue;
+          
+          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          const shifts = getShiftTimes(currentDay);
+          
+          const availableCashiers = cashiers
+            .filter(c => canWorkFullShift(c, currentDay, dayIndex))
+            .sort(sortFullTimersFirst);
+          
+          if (availableCashiers.length > 0) {
+            scheduleShift(availableCashiers[0], shifts.opener.start, shifts.opener.end, dayIndex);
+            cashierOpenersNeeded[dayIndex]--;
+            madeOpenerProgress = true;
+          }
+        }
+      }
+
+      // Round-robin: cycle through days, assigning ONE closer per day until all targets met
+      let madeCloserProgress = true;
+      while (madeCloserProgress) {
+        madeCloserProgress = false;
+        for (const dayIndex of nonHolidayDays) {
+          if (cashierClosersNeeded[dayIndex] <= 0) continue;
+          
+          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          const shifts = getShiftTimes(currentDay);
+          
+          const availableCashiers = cashiers
+            .filter(c => canWorkFullShift(c, currentDay, dayIndex))
+            .sort(sortFullTimersFirst);
+          
+          if (availableCashiers.length > 0) {
+            scheduleShift(availableCashiers[0], shifts.closer.start, shifts.closer.end, dayIndex);
+            cashierClosersNeeded[dayIndex]--;
+            madeCloserProgress = true;
+          }
+        }
+      }
+
+      // Log any days that couldn't get full cashier coverage
+      for (const dayIndex of nonHolidayDays) {
+        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
+        if (cashierOpenersNeeded[dayIndex] > 0) {
+          console.log(`[Scheduler] WARNING: ${dayName} is short ${cashierOpenersNeeded[dayIndex]} opening cashier(s)`);
+        }
+        if (cashierClosersNeeded[dayIndex] > 0) {
+          console.log(`[Scheduler] WARNING: ${dayName} is short ${cashierClosersNeeded[dayIndex]} closing cashier(s)`);
         }
       }
 
