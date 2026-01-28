@@ -1918,46 +1918,53 @@ export async function registerRoutes(
       // Calculate total points (stored as integers x100, so divide by 100)
       const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
-      // Get manual adjustments for the current calendar year (only unscheduled_shift now)
+      // Get adjustments for the current calendar year
       const currentYear = now.getFullYear();
       const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
-      // Filter out any legacy perfect_attendance adjustments - these are now calculated automatically
-      const manualAdjustments = adjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
-      const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
       
-      // Calculate automatic perfect attendance bonus (90 days without occurrences = -1.0, once per calendar year)
-      // Check if employee has had 90 consecutive days of perfect attendance this calendar year
+      // Separate manual adjustments (unscheduled_shift) from perfect attendance adjustments
+      // Active adjustments are used for tallies
+      const activeManualAdjustments = adjustments.filter(a => a.adjustmentType !== 'perfect_attendance' && a.status === 'active');
+      const activePerfectAttendanceAdjustments = adjustments.filter(a => a.adjustmentType === 'perfect_attendance' && a.status === 'active');
+      const manualAdjustmentTotal = activeManualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+      
+      // Perfect attendance: can only happen once per calendar year
+      const perfectAttendanceUsedThisYear = activePerfectAttendanceAdjustments.length > 0;
+      const perfectAttendanceValue = perfectAttendanceUsedThisYear 
+        ? activePerfectAttendanceAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100
+        : 0;
+      
+      // Check eligibility for perfect attendance (90 days without occurrences)
       const yearStart = `${currentYear}-01-01`;
       const yearOccurrences = await storage.getOccurrences(employeeId, yearStart, endDate);
       const activeYearOccurrences = yearOccurrences.filter(o => o.status === 'active');
       
-      let perfectAttendanceBonus = 0;
       let perfectAttendanceEligible = false;
       
-      if (activeYearOccurrences.length === 0) {
-        // No occurrences this calendar year - check if 90 days have passed since Jan 1
-        const yearStartDate = new Date(`${currentYear}-01-01T00:00:00`);
-        const daysSinceYearStart = Math.floor((now.getTime() - yearStartDate.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysSinceYearStart >= 90) {
-          perfectAttendanceBonus = -1.0;
-          perfectAttendanceEligible = true;
-        }
-      } else {
-        // Has occurrences - check for 90 consecutive days after the most recent occurrence
-        const sortedOccurrences = [...activeYearOccurrences].sort((a, b) => 
-          new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
-        );
-        const mostRecentOccurrence = sortedOccurrences[0];
-        const mostRecentDate = new Date(mostRecentOccurrence.occurrenceDate + 'T00:00:00');
-        const daysSinceLastOccurrence = Math.floor((now.getTime() - mostRecentDate.getTime()) / (1000 * 60 * 60 * 24));
-        if (daysSinceLastOccurrence >= 90) {
-          perfectAttendanceBonus = -1.0;
-          perfectAttendanceEligible = true;
+      if (!perfectAttendanceUsedThisYear) {
+        if (activeYearOccurrences.length === 0) {
+          // No occurrences this calendar year - check if 90 days have passed since Jan 1
+          const yearStartDate = new Date(`${currentYear}-01-01T00:00:00`);
+          const daysSinceYearStart = Math.floor((now.getTime() - yearStartDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSinceYearStart >= 90) {
+            perfectAttendanceEligible = true;
+          }
+        } else {
+          // Has occurrences - check for 90 consecutive days after the most recent occurrence
+          const sortedOccurrences = [...activeYearOccurrences].sort((a, b) => 
+            new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
+          );
+          const mostRecentOccurrence = sortedOccurrences[0];
+          const mostRecentDate = new Date(mostRecentOccurrence.occurrenceDate + 'T00:00:00');
+          const daysSinceLastOccurrence = Math.floor((now.getTime() - mostRecentDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSinceLastOccurrence >= 90) {
+            perfectAttendanceEligible = true;
+          }
         }
       }
       
-      // Total adjustment = manual adjustments + automatic perfect attendance
-      const totalAdjustment = manualAdjustmentTotal + perfectAttendanceBonus;
+      // Total adjustment = manual adjustments + perfect attendance (if used)
+      const totalAdjustment = manualAdjustmentTotal + perfectAttendanceValue;
       
       // Net tally = total occurrences + adjustments (adjustments are negative values)
       const netTally = Math.max(0, totalPoints + totalAdjustment);
@@ -1967,19 +1974,25 @@ export async function registerRoutes(
         new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
       );
       
+      // Determine if perfect attendance would be wasted (no occurrences to reduce)
+      const hasOccurrencesToReduce = totalPoints > 0;
+      
       res.json({
         employeeId,
         periodStart: startDate,
         periodEnd: endDate,
         totalOccurrences: totalPoints,
         adjustmentsThisYear: totalAdjustment,
-        adjustmentsRemaining: 2 - manualAdjustments.length, // Only count manual adjustments toward limit
+        adjustmentsRemaining: 2 - activeManualAdjustments.length, // Only count active manual adjustments toward limit
         netTally,
         occurrenceCount: activeOccurrences.length,
         occurrences: sortedOccurrences, // Include all occurrences (active + retracted) for history
-        adjustments: manualAdjustments,
-        perfectAttendanceBonus: perfectAttendanceBonus !== 0,
-        perfectAttendanceBonusValue: perfectAttendanceBonus
+        adjustments: adjustments, // Include all adjustments (active + retracted) for display
+        perfectAttendanceBonus: perfectAttendanceUsedThisYear,
+        perfectAttendanceBonusValue: perfectAttendanceValue,
+        perfectAttendanceUsed: perfectAttendanceUsedThisYear ? 1 : 0,
+        perfectAttendanceEligible,
+        perfectAttendanceWouldBeWasted: perfectAttendanceEligible && !hasOccurrencesToReduce
       });
     } catch (error) {
       console.error("Error fetching occurrence summary:", error);
@@ -2126,17 +2139,44 @@ export async function registerRoutes(
         return res.status(400).json({ message: "employeeId, adjustmentValue, and adjustmentType are required" });
       }
       
-      const year = calendarYear || new Date().getFullYear();
+      const now = new Date();
+      const year = calendarYear || now.getFullYear();
       
-      // Check if employee already has 2 adjustments this year
+      // Get existing adjustments for the year
       const existingAdjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, year);
-      if (existingAdjustments.length >= 2) {
-        return res.status(400).json({ message: "Employee has already used maximum 2 adjustments for this year" });
+      const activeAdjustments = existingAdjustments.filter(a => a.status === 'active');
+      
+      // Special validation for perfect_attendance adjustments
+      if (adjustmentType === 'perfect_attendance') {
+        // Check if already used perfect attendance this year
+        const existingPerfectAttendance = activeAdjustments.filter(a => a.adjustmentType === 'perfect_attendance');
+        if (existingPerfectAttendance.length > 0) {
+          return res.status(400).json({ message: "Perfect attendance bonus has already been used this year (limit: 1 per year)" });
+        }
+        
+        // Check if employee has occurrences to reduce (don't waste the bonus)
+        const oneYearAgo = new Date(now);
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        const startDate = oneYearAgo.toISOString().split('T')[0];
+        const endDate = now.toISOString().split('T')[0];
+        const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
+        const activeOccurrences = occurrences.filter(o => o.status === 'active');
+        const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
+        
+        if (totalPoints === 0) {
+          return res.status(400).json({ message: "Cannot grant perfect attendance bonus - employee has no occurrences to reduce" });
+        }
+      } else {
+        // Check if employee already has 2 manual adjustments this year
+        const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
+        if (manualAdjustments.length >= 2) {
+          return res.status(400).json({ message: "Employee has already used maximum 2 adjustments for this year" });
+        }
       }
       
       const adjustment = await storage.createOccurrenceAdjustment({
         employeeId,
-        adjustmentDate: new Date().toISOString().split('T')[0],
+        adjustmentDate: now.toISOString().split('T')[0],
         adjustmentValue,
         adjustmentType,
         notes: notes || null,

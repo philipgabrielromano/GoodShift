@@ -15,6 +15,9 @@ interface OccurrenceSummary {
   adjustments: OccurrenceAdjustment[];
   perfectAttendanceBonus?: boolean;
   perfectAttendanceBonusValue?: number;
+  perfectAttendanceUsed?: number;
+  perfectAttendanceEligible?: boolean;
+  perfectAttendanceWouldBeWasted?: boolean;
 }
 
 export function useOccurrences(employeeId: number, startDate: string, endDate: string) {

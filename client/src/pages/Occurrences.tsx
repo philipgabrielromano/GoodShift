@@ -71,6 +71,8 @@ export default function Occurrences() {
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
   const [adjustmentType, setAdjustmentType] = useState<string>("");
   const [adjustmentNotes, setAdjustmentNotes] = useState("");
+  
+  const [perfectAttendanceDialogOpen, setPerfectAttendanceDialogOpen] = useState(false);
 
   const selectedEmployee = employees?.find(e => e.id === selectedEmployeeId);
 
@@ -126,6 +128,27 @@ export default function Occurrences() {
       toast({ 
         title: "Error", 
         description: error?.message || "Failed to add adjustment", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleGrantPerfectAttendance = async () => {
+    if (!selectedEmployeeId) return;
+    
+    try {
+      await createAdjustment.mutateAsync({
+        employeeId: selectedEmployeeId,
+        adjustmentValue: -100,
+        adjustmentType: 'perfect_attendance',
+        notes: '90-day perfect attendance bonus'
+      });
+      toast({ title: "Perfect Attendance Granted", description: "The -1.0 perfect attendance bonus has been applied." });
+      setPerfectAttendanceDialogOpen(false);
+    } catch (error: any) {
+      toast({ 
+        title: "Error", 
+        description: error?.message || "Failed to grant perfect attendance", 
         variant: "destructive" 
       });
     }
@@ -300,21 +323,25 @@ export default function Occurrences() {
                         className={`text-4xl font-bold ${summary.perfectAttendanceBonus ? 'text-green-600' : 'text-muted-foreground'}`}
                         data-testid="text-perfect-attendance-bonus"
                       >
-                        {summary.perfectAttendanceBonus ? (summary.perfectAttendanceBonusValue?.toFixed(1) || "-1.0") : "0.0"}
+                        {summary.perfectAttendanceUsed || 0}/1
                       </span>
-                      <span className="text-muted-foreground mb-1">removed</span>
+                      <span className="text-muted-foreground mb-1">used this year</span>
                     </div>
                     <p className="text-sm text-muted-foreground mt-2">
                       {summary.perfectAttendanceBonus 
-                        ? "Bonus earned this year" 
-                        : "Requires 90 days without occurrences"}
+                        ? `Bonus earned: ${summary.perfectAttendanceBonusValue?.toFixed(1) || "-1.0"}`
+                        : summary.perfectAttendanceEligible
+                          ? summary.perfectAttendanceWouldBeWasted
+                            ? "Eligible but no occurrences to reduce"
+                            : "Eligible for bonus (-1.0)"
+                          : "Requires 90 days without occurrences"}
                     </p>
                   </CardContent>
                 </Card>
               </div>
 
               {canManageOccurrences && (
-                <div className="flex gap-4">
+                <div className="flex gap-4 flex-wrap">
                   {summary.adjustmentsRemaining > 0 && (
                     <Button 
                       variant="outline" 
@@ -323,6 +350,19 @@ export default function Occurrences() {
                     >
                       <Award className="w-4 h-4 mr-2" />
                       Add Adjustment (-1.0)
+                    </Button>
+                  )}
+                  {summary.perfectAttendanceEligible && !summary.perfectAttendanceBonus && !summary.perfectAttendanceWouldBeWasted && (
+                    <Button 
+                      variant="outline" 
+                      className="border-green-300 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/20"
+                      onClick={() => {
+                        setPerfectAttendanceDialogOpen(true);
+                      }}
+                      data-testid="button-grant-perfect-attendance"
+                    >
+                      <Award className="w-4 h-4 mr-2" />
+                      Grant Perfect Attendance (-1.0)
                     </Button>
                   )}
                 </div>
@@ -412,7 +452,7 @@ export default function Occurrences() {
                 </CardContent>
               </Card>
 
-              {(summary.adjustments.length > 0 || summary.perfectAttendanceBonus) && (
+              {summary.adjustments.length > 0 && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Adjustments</CardTitle>
@@ -420,25 +460,6 @@ export default function Occurrences() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
-                      {summary.perfectAttendanceBonus && (
-                        <div 
-                          className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800"
-                          data-testid="adjustment-perfect-attendance-auto"
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className="text-sm font-medium w-24">Auto</div>
-                            <Badge variant="outline" className="text-green-600 border-green-600">
-                              90-Day Perfect Attendance
-                            </Badge>
-                            <span className="text-sm text-muted-foreground">Automatically calculated</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-green-600">
-                              {summary.perfectAttendanceBonusValue?.toFixed(1) || "-1.0"}
-                            </span>
-                          </div>
-                        </div>
-                      )}
                       {summary.adjustments.map((adjustment) => {
                         const isRetracted = adjustment.status === 'retracted';
                         return (
@@ -455,7 +476,7 @@ export default function Occurrences() {
                                 variant={isRetracted ? "outline" : "outline"} 
                                 className={isRetracted ? 'line-through' : 'text-green-600 border-green-600'}
                               >
-                                Covered Shift
+                                {adjustment.adjustmentType === 'perfect_attendance' ? 'Perfect Attendance' : 'Covered Shift'}
                               </Badge>
                               {isRetracted && (
                                 <Badge variant="secondary" className="text-xs">
@@ -608,7 +629,7 @@ export default function Occurrences() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Note: Perfect attendance bonuses are now calculated automatically (90 days = -1.0)
+                For perfect attendance (90 days), use the separate "Grant Perfect Attendance" button when eligible.
               </p>
             </div>
             <div className="space-y-2">
@@ -633,6 +654,39 @@ export default function Occurrences() {
             >
               {createAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Add Adjustment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={perfectAttendanceDialogOpen} onOpenChange={setPerfectAttendanceDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Award className="w-5 h-5 text-green-500" />
+              Grant Perfect Attendance Bonus
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              This employee has achieved 90 days of perfect attendance and is eligible for a -1.0 adjustment to their occurrence tally.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              This can only be granted once per calendar year.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPerfectAttendanceDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleGrantPerfectAttendance} 
+              disabled={createAdjustment.isPending}
+              className="bg-green-600 hover:bg-green-700"
+              data-testid="button-confirm-perfect-attendance"
+            >
+              {createAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Grant Bonus (-1.0)
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -253,6 +253,7 @@ export default function Users() {
               <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
                 {locations
                   ?.slice()
+                  .filter(loc => !/^Location \d+$/.test(loc.name))
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <label 
