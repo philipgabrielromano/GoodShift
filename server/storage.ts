@@ -68,6 +68,7 @@ export interface IStorage {
   // Time Clock Entries
   getTimeClockEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   getPALEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
+  getUnpaidTimeOffEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
   getLastTimeClockSyncDate(): Promise<string | null>;
 
@@ -333,6 +334,16 @@ export class DatabaseStorage implements IStorage {
         gte(timeClockEntries.workDate, startDate),
         lte(timeClockEntries.workDate, endDate),
         eq(timeClockEntries.paycodeId, 2)
+      ));
+  }
+
+  // Get Unpaid Time Off entries - paycodeId = 4
+  async getUnpaidTimeOffEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]> {
+    return await db.select().from(timeClockEntries)
+      .where(and(
+        gte(timeClockEntries.workDate, startDate),
+        lte(timeClockEntries.workDate, endDate),
+        eq(timeClockEntries.paycodeId, 4)
       ));
   }
 

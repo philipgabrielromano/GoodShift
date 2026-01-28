@@ -81,7 +81,11 @@ async function syncTimeClockFromUKG(): Promise<void> {
   try {
     // Get today's date in YYYY-MM-DD format
     const today = new Date();
-    const endDate = today.toISOString().split("T")[0];
+    
+    // Fetch up to 60 days in the future to capture PAL/time off entries that are scheduled ahead
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 60);
+    const endDate = futureDate.toISOString().split("T")[0];
     
     // Start from 2026-01-01 for initial sync, or from today if already synced
     // For regular syncs, just fetch last 7 days to catch any updates
@@ -91,9 +95,9 @@ async function syncTimeClockFromUKG(): Promise<void> {
     if (!lastSyncDate) {
       // First sync - get all historical data from beginning of 2026
       startDate = TIME_CLOCK_START_DATE;
-      console.log(`[Scheduler] First time clock sync - fetching from ${startDate} to ${endDate}`);
+      console.log(`[Scheduler] First time clock sync - fetching from ${startDate} to ${endDate} (including 60 days future)`);
     } else {
-      // Subsequent syncs - fetch last 7 days to catch updates
+      // Subsequent syncs - fetch last 7 days plus 60 days ahead to catch PAL/time off updates
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       startDate = sevenDaysAgo.toISOString().split("T")[0];
@@ -127,6 +131,7 @@ async function syncTimeClockFromUKG(): Promise<void> {
       totalHours: Math.round((entry.totalHours || 0) * 60),
       locationId: entry.locationId || null,
       jobId: entry.jobId || null,
+      paycodeId: entry.paycodeId || 0, // 2 = PAL (Paid Annual Leave), 4 = Unpaid Time Off
     }));
 
     const upserted = await storage.upsertTimeClockEntries(entries);

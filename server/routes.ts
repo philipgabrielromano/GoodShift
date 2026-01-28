@@ -200,6 +200,45 @@ export async function registerRoutes(
     }
   });
 
+  // === Unpaid Time Off Entries ===
+  // Get unpaid time off entries from UKG time clock data (paycodeId = 4) for a date range
+  app.get("/api/unpaid-time-off-entries", async (req, res) => {
+    try {
+      const startDate = req.query.start as string;
+      const endDate = req.query.end as string;
+      
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "start and end query parameters are required" });
+      }
+      
+      // Get unpaid time off entries from storage
+      const unpaidEntries = await storage.getUnpaidTimeOffEntries(startDate, endDate);
+      
+      // Get employee data to map UKG IDs to employee records
+      const employees = await storage.getEmployees();
+      const employeeByUkgId = new Map(
+        employees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
+      );
+      
+      // Enrich entries with employee info
+      const enrichedEntries = unpaidEntries.map(entry => {
+        const employee = employeeByUkgId.get(entry.ukgEmployeeId);
+        return {
+          ...entry,
+          employeeId: employee?.id || null,
+          employeeName: employee?.name || "Unknown",
+          // Convert total hours from minutes to hours
+          hoursDecimal: entry.totalHours / 60,
+        };
+      });
+      
+      res.json(enrichedEntries);
+    } catch (error) {
+      console.error("Error fetching unpaid time off entries:", error);
+      res.status(500).json({ message: "Failed to fetch unpaid time off entries" });
+    }
+  });
+
   // === Schedule Copy & Templates ===
   
   // Helper to validate date string

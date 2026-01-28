@@ -196,6 +196,44 @@ export default function Schedule() {
     return map;
   }, [palEntries]);
 
+  // Unpaid Time Off entries from UKG time clock data (paycodeId = 4)
+  interface UnpaidTimeOffEntry {
+    id: number;
+    ukgEmployeeId: string;
+    workDate: string;
+    totalHours: number; // In minutes
+    hoursDecimal: number; // In hours
+    employeeId: number | null;
+    employeeName: string;
+  }
+  
+  const { data: unpaidTimeOffEntries } = useQuery<UnpaidTimeOffEntry[]>({
+    queryKey: ["/api/unpaid-time-off-entries", weekStartStr, weekEndStr],
+    queryFn: async () => {
+      const res = await fetch(`/api/unpaid-time-off-entries?start=${weekStartStr}&end=${weekEndStr}`, {
+        credentials: "include",
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  
+  // Create a lookup map for Unpaid Time Off entries by employee ID and date
+  const unpaidByEmpDate = useMemo(() => {
+    const map = new Map<string, UnpaidTimeOffEntry>();
+    if (!unpaidTimeOffEntries) return map;
+    
+    for (const entry of unpaidTimeOffEntries) {
+      if (entry.employeeId) {
+        // Key is "employeeId-date"
+        const key = `${entry.employeeId}-${entry.workDate}`;
+        map.set(key, entry);
+      }
+    }
+    return map;
+  }, [unpaidTimeOffEntries]);
+
   // Weather forecast data
   interface WeatherForecast {
     date: string;
@@ -1252,6 +1290,29 @@ export default function Schedule() {
                                         <div className="flex flex-col leading-tight items-center">
                                           <span>PAL</span>
                                           <span className="text-[9px] opacity-80">{palEntry.hoursDecimal.toFixed(1)}h</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
+                                
+                                {/* Unpaid Time Off block - shows when employee has unpaid time off on this day */}
+                                {(() => {
+                                  const dateStr = format(day, "yyyy-MM-dd");
+                                  const unpaidKey = `${emp.id}-${dateStr}`;
+                                  const unpaidEntry = unpaidByEmpDate.get(unpaidKey);
+                                  
+                                  if (unpaidEntry) {
+                                    return (
+                                      <div 
+                                        className="p-1.5 rounded text-[10px] font-bold text-white flex items-center justify-center"
+                                        style={{ backgroundColor: "#6b7280" }}
+                                        data-testid={`unpaid-${emp.id}-${dateStr}`}
+                                      >
+                                        <div className="flex flex-col leading-tight items-center">
+                                          <span>UTO</span>
+                                          <span className="text-[9px] opacity-80">{unpaidEntry.hoursDecimal.toFixed(1)}h</span>
                                         </div>
                                       </div>
                                     );

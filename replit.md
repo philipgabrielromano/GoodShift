@@ -124,6 +124,8 @@ The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OD
 - Only syncs active employees to database (terminated employees are skipped)
 - Uses UKG unique ID (Id field) for employee matching to prevent duplicates
 - PAL (Paid Annual Leave) integration: Time entries with PaycodeId=2 are displayed as black "PAL" blocks in the schedule and counted toward employee/store hours totals
+- Unpaid Time Off (UTO) integration: Time entries with PaycodeId=4 are displayed as gray "UTO" blocks in the schedule but NOT counted toward employee/store hours totals
+- Future date sync: Time clock data is synced up to 60 days in the future to capture scheduled PAL/UTO entries
 
 **Data Fields Synced**:
 - Name (FirstName + LastName)
