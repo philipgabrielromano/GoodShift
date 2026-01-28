@@ -55,6 +55,7 @@ export function useCreateOccurrence() {
       reason?: string;
       illnessGroupId?: string;
       notes?: string;
+      documentUrl?: string;
     }) => {
       const res = await apiRequest("POST", "/api/occurrences", data);
       return res.json();

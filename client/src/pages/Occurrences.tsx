@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, MinusCircle, Undo2, Award, Loader2 } from "lucide-react";
+import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
 
 interface AuthStatus {
@@ -261,6 +261,18 @@ export default function Occurrences() {
                             </Badge>
                             {occurrence.reason && (
                               <span className="text-sm text-muted-foreground">{occurrence.reason}</span>
+                            )}
+                            {occurrence.documentUrl && (
+                              <a 
+                                href={occurrence.documentUrl} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                                data-testid={`link-document-${occurrence.id}`}
+                              >
+                                <FileText className="h-3 w-3" />
+                                View PDF
+                              </a>
                             )}
                           </div>
                           <div className="flex items-center gap-2">

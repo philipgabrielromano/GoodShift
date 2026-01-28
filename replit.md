@@ -50,7 +50,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Holiday Management**: Automatically identifies and accounts for Easter, Thanksgiving, and Christmas, preventing scheduling on these closed days.
 - **Timezone Handling**: All scheduling is handled in Eastern Time (America/New_York).
 - **Location Management**: Admins manage store locations with weekly hours budgets, and managers view location-specific budgets.
-- **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments.
+- **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments. Supports PDF document attachments for occurrence records.
 
 ## External Dependencies
 
@@ -77,3 +77,4 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **UKG Workforce Management**: Integrates with UltiClock OData API for daily employee and time clock data sync (including PAL/UTO). Syncs employee details, job titles, locations, employment types, and active status.
 - **Microsoft 365 SSO**: Single sign-on authentication using Azure AD for secure session management and user profile retrieval.
 - **Open-Meteo API**: Provides weather forecast data for scheduling page.
+- **Replit Object Storage**: Used for storing PDF document attachments for occurrence records.

@@ -5,9 +5,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useCreateOccurrence } from "@/hooks/use-occurrences";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useUpload } from "@/hooks/use-upload";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, Upload, FileText, X, Check } from "lucide-react";
 
 interface OccurrenceDialogProps {
   isOpen: boolean;
@@ -26,24 +27,90 @@ const OCCURRENCE_TYPES = [
 export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, occurrenceDate }: OccurrenceDialogProps) {
   const createOccurrence = useCreateOccurrence();
   const { toast } = useToast();
+  const { uploadFile, isUploading } = useUpload({
+    onError: (error) => {
+      toast({ 
+        title: "Upload Error", 
+        description: error.message, 
+        variant: "destructive" 
+      });
+    }
+  });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [occurrenceType, setOccurrenceType] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setOccurrenceType("");
       setReason("");
       setNotes("");
+      setSelectedFile(null);
+      setUploadedDocumentUrl(null);
     }
   }, [isOpen]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      toast({ 
+        title: "Invalid file type", 
+        description: "Please select a PDF file only.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ 
+        title: "File too large", 
+        description: "Maximum file size is 10MB.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    setSelectedFile(file);
+    setUploadedDocumentUrl(null);
+  };
+
+  const handleUploadDocument = async () => {
+    if (!selectedFile) return;
+
+    const response = await uploadFile(selectedFile);
+    if (response) {
+      setUploadedDocumentUrl(response.objectPath);
+      toast({ 
+        title: "Document uploaded", 
+        description: "PDF attached successfully." 
+      });
+    }
+  };
+
+  const handleRemoveDocument = () => {
+    setSelectedFile(null);
+    setUploadedDocumentUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!occurrenceType) {
       toast({ title: "Error", description: "Please select an occurrence type", variant: "destructive" });
+      return;
+    }
+
+    if (selectedFile && !uploadedDocumentUrl) {
+      toast({ title: "Error", description: "Please upload the selected document before submitting", variant: "destructive" });
       return;
     }
 
@@ -58,7 +125,8 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
         occurrenceValue: typeInfo.points,
         isNcns: occurrenceType === "ncns",
         reason: reason || undefined,
-        notes: notes || undefined
+        notes: notes || undefined,
+        documentUrl: uploadedDocumentUrl || undefined
       });
 
       toast({ 
@@ -145,13 +213,80 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
             />
           </div>
 
+          <div className="space-y-2">
+            <Label>Documentation (PDF only)</Label>
+            <div className="flex flex-col gap-2">
+              {!selectedFile ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                    data-testid="input-document"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    data-testid="button-select-document"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Attach PDF
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
+                  <FileText className="h-4 w-4 text-red-600 flex-shrink-0" />
+                  <span className="text-sm truncate flex-1">{selectedFile.name}</span>
+                  {uploadedDocumentUrl ? (
+                    <Check className="h-4 w-4 text-green-600 flex-shrink-0" />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleUploadDocument}
+                      disabled={isUploading}
+                      data-testid="button-upload-document"
+                    >
+                      {isUploading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Upload"
+                      )}
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleRemoveDocument}
+                    disabled={isUploading}
+                    data-testid="button-remove-document"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+              {selectedFile && !uploadedDocumentUrl && !isUploading && (
+                <p className="text-xs text-muted-foreground">Click "Upload" to attach the document</p>
+              )}
+              {uploadedDocumentUrl && (
+                <p className="text-xs text-green-600">Document attached successfully</p>
+              )}
+            </div>
+          </div>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} data-testid="button-cancel">
               Cancel
             </Button>
             <Button 
               type="submit" 
-              disabled={createOccurrence.isPending || !occurrenceType}
+              disabled={createOccurrence.isPending || !occurrenceType || isUploading}
               data-testid="button-submit"
             >
               {createOccurrence.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

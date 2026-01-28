@@ -8,6 +8,7 @@ import { ukgClient } from "./ukg";
 import { RETAIL_JOB_CODES } from "@shared/schema";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { isHoliday } from "./holidays";
+import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 const TIMEZONE = "America/New_York";
 
@@ -40,6 +41,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Register object storage routes for PDF document uploads
+  registerObjectStorageRoutes(app);
 
   // === Employees ===
   app.get(api.employees.list.path, async (req, res) => {
@@ -1699,7 +1703,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only managers and admins can create occurrences" });
       }
       
-      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, reason } = req.body;
+      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, reason, documentUrl } = req.body;
       
       if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
         return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
@@ -1714,6 +1718,7 @@ export async function registerRoutes(
         notes: notes || null,
         isNcns: isNcns || false,
         reason: reason || null,
+        documentUrl: documentUrl || null,
         createdBy: user.id
       });
       

@@ -256,6 +256,7 @@ export const occurrences = pgTable("occurrences", {
   createdBy: integer("created_by"), // User ID who created
   createdAt: timestamp("created_at").defaultNow(),
   notes: text("notes"), // Additional notes
+  documentUrl: text("document_url"), // URL to attached PDF documentation (stored in object storage)
 });
 
 // Occurrence adjustments for tracking reductions (perfect attendance, covering shifts)
