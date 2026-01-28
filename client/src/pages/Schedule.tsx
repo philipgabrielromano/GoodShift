@@ -700,9 +700,9 @@ export default function Schedule() {
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div>
+      <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col md:flex-row items-center gap-4">
+          <div className="text-center md:text-left">
             <h1 className="text-3xl font-bold text-foreground" style={{ fontFamily: "'Lato', sans-serif" }}>Weekly Schedule</h1>
             <p className="text-muted-foreground mt-1">
               Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))} • {formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}
@@ -730,24 +730,23 @@ export default function Schedule() {
               </span>
             </div>
           )}
-        </div>
-        
-        <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
-          <Button variant="ghost" size="icon" onClick={handlePrevWeek} data-testid="button-prev-week">
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-          <div className="px-4 font-medium min-w-[120px] text-center">
-            {formatInTimeZone(currentDate, TIMEZONE, "MMMM yyyy")}
+          <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
+            <Button variant="ghost" size="icon" onClick={handlePrevWeek} data-testid="button-prev-week">
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
+            <div className="px-4 font-medium min-w-[120px] text-center">
+              {formatInTimeZone(currentDate, TIMEZONE, "MMMM yyyy")}
+            </div>
+            <Button variant="ghost" size="icon" onClick={handleNextWeek} data-testid="button-next-week">
+              <ChevronRight className="w-5 h-5" />
+            </Button>
           </div>
-          <Button variant="ghost" size="icon" onClick={handleNextWeek} data-testid="button-next-week">
-            <ChevronRight className="w-5 h-5" />
-          </Button>
         </div>
       </div>
 
       {/* Actions Bar - managers and admins only */}
       {(userRole === "admin" || userRole === "manager") && (
-        <div className="flex items-center gap-2 flex-wrap" data-testid="actions-bar">
+        <div className="flex items-center justify-center gap-2 flex-wrap" data-testid="actions-bar">
           {/* Publish/Unpublish Button */}
           {isSchedulePublished ? (
             <Button
