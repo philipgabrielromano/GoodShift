@@ -63,6 +63,7 @@ Database tables:
 - `locations` - Store locations with weekly hours allocation limits
 - `time_clock_entries` - Historical time punch data from UKG (employee hours worked)
 - `schedule_templates` - Reusable weekly schedule patterns for quick schedule creation
+- `shift_presets` - Predefined shift times for quick shift creation (admin configurable)
 
 ### Shared Code Architecture
 The `shared/` directory contains code used by both frontend and backend:
