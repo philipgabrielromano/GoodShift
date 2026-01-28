@@ -99,3 +99,28 @@ export function useCreateOccurrenceAdjustment() {
     }
   });
 }
+
+export interface OccurrenceAlert {
+  employeeId: number;
+  employeeName: string;
+  location: string | null;
+  jobTitle: string;
+  occurrenceTotal: number;
+  netTally: number;
+  threshold: 5 | 7 | 8;
+  message: string;
+}
+
+export function useOccurrenceAlerts() {
+  return useQuery<OccurrenceAlert[]>({
+    queryKey: ["/api/occurrence-alerts"],
+    queryFn: async () => {
+      const res = await fetch("/api/occurrence-alerts", { credentials: "include" });
+      if (res.status === 403) return [];
+      if (!res.ok) throw new Error("Failed to fetch occurrence alerts");
+      return res.json();
+    },
+    refetchInterval: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
+  });
+}

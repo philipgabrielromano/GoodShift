@@ -6,6 +6,7 @@ import { useState } from "react";
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import goodwillLogo from "@/assets/goodwill-logo.png";
+import { NotificationBell } from "./NotificationBell";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -48,9 +49,14 @@ export function Navigation() {
     <>
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-64 h-screen border-r bg-card fixed left-0 top-0 z-50">
-        <div className="p-4 border-b flex flex-col items-center">
+        <div className="p-4 border-b flex flex-col items-center relative">
           <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-sidebar" />
           <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-sidebar">GoodShift</span>
+          {(isAdmin || authStatus?.user?.role === "manager") && (
+            <div className="absolute right-3 top-3">
+              <NotificationBell />
+            </div>
+          )}
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
@@ -90,7 +96,10 @@ export function Navigation() {
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-card/80 backdrop-blur-md z-50 flex items-center px-4 justify-between">
         <img src={goodwillLogo} alt="Goodwill" className="h-8 w-auto" />
         
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <div className="flex items-center gap-2">
+          {(isAdmin || authStatus?.user?.role === "manager") && <NotificationBell />}
+        
+          <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon">
               <Menu className="w-5 h-5" />
@@ -122,6 +131,7 @@ export function Navigation() {
             </nav>
           </SheetContent>
         </Sheet>
+        </div>
       </header>
     </>
   );

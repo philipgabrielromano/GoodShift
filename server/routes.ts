@@ -1884,6 +1884,131 @@ export async function registerRoutes(
     }
   });
 
+  // Get occurrence alerts - employees at 5, 7, or 8+ occurrences
+  app.get("/api/occurrence-alerts", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can view occurrence alerts" });
+      }
+
+      const now = new Date();
+      const oneYearAgo = new Date(now);
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      
+      const startDate = oneYearAgo.toISOString().split('T')[0];
+      const endDate = now.toISOString().split('T')[0];
+      const currentYear = now.getFullYear();
+      const yearStart = `${currentYear}-01-01`;
+
+      // Get all active employees
+      let allEmployees = await storage.getEmployees();
+      allEmployees = allEmployees.filter(e => e.isActive);
+      
+      // Filter by manager's locations if not admin
+      if (user.role === "manager" && user.locationIds && user.locationIds.length > 0) {
+        const allLocations = await storage.getLocations();
+        const userLocationNames = allLocations
+          .filter(loc => user.locationIds.includes(String(loc.id)))
+          .map(loc => loc.name);
+        allEmployees = allEmployees.filter(emp => 
+          emp.location && userLocationNames.includes(emp.location)
+        );
+      }
+
+      const alerts: Array<{
+        employeeId: number;
+        employeeName: string;
+        location: string | null;
+        jobTitle: string;
+        occurrenceTotal: number;
+        netTally: number;
+        threshold: 5 | 7 | 8;
+        message: string;
+      }> = [];
+
+      // Calculate occurrence totals for each employee
+      for (const emp of allEmployees) {
+        const allOccurrences = await storage.getOccurrences(emp.id, startDate, endDate);
+        const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
+        const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
+
+        // Get adjustments for this year
+        const adjustments = await storage.getOccurrenceAdjustmentsForYear(emp.id, currentYear);
+        const manualAdjustments = adjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
+        const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+
+        // Check for perfect attendance bonus
+        const yearOccurrences = await storage.getOccurrences(emp.id, yearStart, endDate);
+        const activeYearOccurrences = yearOccurrences.filter(o => o.status === 'active');
+        let perfectAttendanceBonus = 0;
+
+        if (activeYearOccurrences.length === 0) {
+          const yearStartDate = new Date(`${currentYear}-01-01T00:00:00`);
+          const daysSinceYearStart = Math.floor((now.getTime() - yearStartDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSinceYearStart >= 90) perfectAttendanceBonus = -1.0;
+        } else {
+          const sortedOccurrences = [...activeYearOccurrences].sort((a, b) => 
+            new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
+          );
+          const mostRecentDate = new Date(sortedOccurrences[0].occurrenceDate + 'T00:00:00');
+          const daysSinceLastOccurrence = Math.floor((now.getTime() - mostRecentDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSinceLastOccurrence >= 90) perfectAttendanceBonus = -1.0;
+        }
+
+        const totalAdjustment = manualAdjustmentTotal + perfectAttendanceBonus;
+        const netTally = Math.max(0, totalPoints + totalAdjustment);
+
+        // Check thresholds (using netTally for accurate count)
+        if (netTally >= 8) {
+          alerts.push({
+            employeeId: emp.id,
+            employeeName: emp.name,
+            location: emp.location,
+            jobTitle: emp.jobTitle,
+            occurrenceTotal: totalPoints,
+            netTally,
+            threshold: 8,
+            message: `${emp.name} has reached ${netTally.toFixed(1)} occurrences. Termination threshold exceeded.`
+          });
+        } else if (netTally >= 7) {
+          alerts.push({
+            employeeId: emp.id,
+            employeeName: emp.name,
+            location: emp.location,
+            jobTitle: emp.jobTitle,
+            occurrenceTotal: totalPoints,
+            netTally,
+            threshold: 7,
+            message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. At termination threshold.`
+          });
+        } else if (netTally >= 5) {
+          alerts.push({
+            employeeId: emp.id,
+            employeeName: emp.name,
+            location: emp.location,
+            jobTitle: emp.jobTitle,
+            occurrenceTotal: totalPoints,
+            netTally,
+            threshold: 5,
+            message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Final written warning threshold.`
+          });
+        }
+      }
+
+      // Sort by severity (8 first, then 7, then 5) and then by netTally descending
+      alerts.sort((a, b) => {
+        if (a.threshold !== b.threshold) return b.threshold - a.threshold;
+        return b.netTally - a.netTally;
+      });
+
+      res.json(alerts);
+    } catch (error) {
+      console.error("Error fetching occurrence alerts:", error);
+      res.status(500).json({ message: "Failed to fetch occurrence alerts" });
+    }
+  });
+
   // Create an occurrence adjustment
   app.post("/api/occurrence-adjustments", requireAuth, async (req, res) => {
     try {
