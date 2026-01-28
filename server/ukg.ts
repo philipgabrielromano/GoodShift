@@ -509,6 +509,63 @@ class UKGClient {
       return { success: false, sampleFields: [], count: 0 };
     }
   }
+
+  // Debug method to probe Location API with extended timeout
+  async probeLocationAPI(): Promise<{ success: boolean; data?: unknown; error?: string; sampleRecord?: unknown; fields?: string[] }> {
+    const baseUrl = process.env.UKG_API_URL;
+    if (!baseUrl) {
+      return { success: false, error: "UKG_API_URL not configured" };
+    }
+
+    const url = `${baseUrl}/Location?$top=5`;
+    console.log("UKG DEBUG: Probing Location API with extended timeout...");
+    console.log("UKG DEBUG: URL:", url);
+
+    const controller = new AbortController();
+    const timeoutMs = 60000; // 60 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: this.getAuthHeaders(),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      
+      console.log("UKG DEBUG Location API status:", response.status);
+      const responseText = await response.text();
+      console.log("UKG DEBUG Location API response (first 2000 chars):", responseText.slice(0, 2000));
+
+      if (!response.ok) {
+        return { success: false, error: `API error ${response.status}: ${responseText.slice(0, 500)}` };
+      }
+
+      const data = JSON.parse(responseText);
+      const records = data.value || [];
+      
+      if (records.length > 0) {
+        const sampleRecord = records[0];
+        const fields = Object.keys(sampleRecord).filter(key => !key.startsWith("@"));
+        console.log("UKG DEBUG: Location record fields:", fields);
+        console.log("UKG DEBUG: Sample Location record:", JSON.stringify(sampleRecord, null, 2));
+        return { 
+          success: true, 
+          data: records,
+          sampleRecord,
+          fields
+        };
+      }
+
+      return { success: true, data: [], error: "No location records found" };
+    } catch (error: unknown) {
+      clearTimeout(timeoutId);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("UKG DEBUG Location API error:", message);
+      return { success: false, error: message };
+    }
+  }
 }
 
 export const ukgClient = new UKGClient();
