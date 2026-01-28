@@ -48,6 +48,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Labor Allocation**: Configurable percentages for distributing store hours across different job functions.
 - **Weather Forecasts**: Displays 14-day weather forecasts sourced from Open-Meteo API.
 - **Holiday Management**: Automatically identifies and accounts for Easter, Thanksgiving, and Christmas, preventing scheduling on these closed days.
+- **Paid Holidays**: Full-time employees with 30+ days of service receive 8 hours of paid holiday pay on designated holidays (New Year's Day, MLK Jr. Birthday, Memorial Day, Juneteenth, Independence Day, Labor Day, Thanksgiving, Day After Thanksgiving, Christmas). The scheduler automatically reduces their scheduled hours for the week by the holiday pay amount.
 - **Timezone Handling**: All scheduling is handled in Eastern Time (America/New_York).
 - **Location Management**: Admins manage store locations with weekly hours budgets, and managers view location-specific budgets.
 - **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments. Supports PDF document attachments for occurrence records. Viewers can only see their own occurrence history (linked by email match).
