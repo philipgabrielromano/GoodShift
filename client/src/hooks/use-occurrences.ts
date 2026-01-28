@@ -64,7 +64,10 @@ export function useCreateOccurrence() {
       return res.json();
     },
     onSuccess: (_, variables) => {
+      // Invalidate all occurrence-related queries for this employee
       queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId] });
+      // Also invalidate alerts since adding occurrences may trigger new alerts
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
     }
   });
 }
@@ -77,7 +80,10 @@ export function useRetractOccurrence() {
       return res.json();
     },
     onSuccess: (_, variables) => {
+      // Invalidate all occurrence-related queries for this employee
       queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId] });
+      // Also invalidate alerts since retracting occurrences may change alert status
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
     }
   });
 }
@@ -96,7 +102,10 @@ export function useCreateOccurrenceAdjustment() {
       return res.json();
     },
     onSuccess: (_, variables) => {
+      // Invalidate all occurrence-related queries for this employee
       queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId] });
+      // Also invalidate alerts since adjustments may change alert status
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
     }
   });
 }

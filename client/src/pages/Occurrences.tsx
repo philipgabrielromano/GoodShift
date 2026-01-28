@@ -320,55 +320,71 @@ export default function Occurrences() {
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      {summary.occurrences.map((occurrence) => (
-                        <div 
-                          key={occurrence.id} 
-                          className="flex items-center justify-between p-3 bg-muted/50 rounded border"
-                          data-testid={`occurrence-${occurrence.id}`}
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className="text-sm font-medium w-24">
-                              {format(new Date(occurrence.occurrenceDate + "T12:00:00"), "MMM d, yyyy")}
+                      {summary.occurrences.map((occurrence) => {
+                        const isRetracted = occurrence.status === 'retracted';
+                        return (
+                          <div 
+                            key={occurrence.id} 
+                            className={`flex items-center justify-between p-3 rounded border ${isRetracted ? 'bg-muted/30 opacity-60' : 'bg-muted/50'}`}
+                            data-testid={`occurrence-${occurrence.id}`}
+                          >
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <div className={`text-sm font-medium w-24 ${isRetracted ? 'line-through text-muted-foreground' : ''}`}>
+                                {format(new Date(occurrence.occurrenceDate + "T12:00:00"), "MMM d, yyyy")}
+                              </div>
+                              <Badge 
+                                variant={isRetracted ? "outline" : (occurrence.isNcns ? "destructive" : "secondary")}
+                                className={isRetracted ? 'line-through' : ''}
+                              >
+                                {getOccurrenceTypeLabel(occurrence.occurrenceType)}
+                              </Badge>
+                              {isRetracted && (
+                                <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                                  Retracted
+                                </Badge>
+                              )}
+                              {occurrence.reason && !isRetracted && (
+                                <span className="text-sm text-muted-foreground">{occurrence.reason}</span>
+                              )}
+                              {isRetracted && occurrence.retractedReason && (
+                                <span className="text-sm text-muted-foreground italic">
+                                  Reason: {occurrence.retractedReason}
+                                </span>
+                              )}
+                              {occurrence.documentUrl && (
+                                <a 
+                                  href={occurrence.documentUrl} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                                  data-testid={`link-document-${occurrence.id}`}
+                                >
+                                  <FileText className="h-3 w-3" />
+                                  View PDF
+                                </a>
+                              )}
                             </div>
-                            <Badge variant={occurrence.isNcns ? "destructive" : "secondary"}>
-                              {getOccurrenceTypeLabel(occurrence.occurrenceType)}
-                            </Badge>
-                            {occurrence.reason && (
-                              <span className="text-sm text-muted-foreground">{occurrence.reason}</span>
-                            )}
-                            {occurrence.documentUrl && (
-                              <a 
-                                href={occurrence.documentUrl} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
-                                data-testid={`link-document-${occurrence.id}`}
-                              >
-                                <FileText className="h-3 w-3" />
-                                View PDF
-                              </a>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <span className={`text-sm font-medium ${isRetracted ? 'line-through text-muted-foreground' : ''}`}>
+                                {(occurrence.occurrenceValue / 100).toFixed(1)}
+                              </span>
+                              {canManageOccurrences && !isRetracted && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setRetractOccurrenceId(occurrence.id);
+                                    setRetractDialogOpen(true);
+                                  }}
+                                  data-testid={`button-retract-${occurrence.id}`}
+                                >
+                                  <Undo2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">
-                              {(occurrence.occurrenceValue / 100).toFixed(1)}
-                            </span>
-                            {canManageOccurrences && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setRetractOccurrenceId(occurrence.id);
-                                  setRetractDialogOpen(true);
-                                }}
-                                data-testid={`button-retract-${occurrence.id}`}
-                              >
-                                <Undo2 className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>

@@ -1915,6 +1915,11 @@ export async function registerRoutes(
       // Net tally = total occurrences + adjustments (adjustments are negative values)
       const netTally = Math.max(0, totalPoints + totalAdjustment);
       
+      // Sort all occurrences by date (most recent first) for display
+      const sortedOccurrences = [...allOccurrences].sort((a, b) => 
+        new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
+      );
+      
       res.json({
         employeeId,
         periodStart: startDate,
@@ -1924,7 +1929,7 @@ export async function registerRoutes(
         adjustmentsRemaining: 2 - manualAdjustments.length, // Only count manual adjustments toward limit
         netTally,
         occurrenceCount: activeOccurrences.length,
-        occurrences: activeOccurrences,
+        occurrences: sortedOccurrences, // Include all occurrences (active + retracted) for history
         adjustments: manualAdjustments,
         perfectAttendanceBonus: perfectAttendanceBonus !== 0,
         perfectAttendanceBonusValue: perfectAttendanceBonus
