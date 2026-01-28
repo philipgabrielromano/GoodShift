@@ -267,16 +267,18 @@ export default function Schedule() {
   const isAdmin = authStatus?.user?.role === "admin";
   
   // For non-admins, default to their first assigned location
-  // Get the user's accessible locations
+  // Get the user's accessible locations (filter out "Location XX" fallback names)
   const userLocationIds = authStatus?.user?.locationIds || [];
   const userLocations = useMemo(() => {
     if (!locations) return [];
+    const isValidLocation = (l: { name: string; isActive: boolean }) => 
+      l.isActive && !/^Location \d+$/.test(l.name);
     if (isAdmin) {
-      return locations.filter(l => l.isActive);
+      return locations.filter(isValidLocation);
     }
     // Non-admins only see their assigned locations
     return locations.filter(l => 
-      l.isActive && userLocationIds.includes(String(l.id))
+      isValidLocation(l) && userLocationIds.includes(String(l.id))
     );
   }, [locations, isAdmin, userLocationIds]);
   
