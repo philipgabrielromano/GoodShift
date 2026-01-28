@@ -560,10 +560,11 @@ export async function registerRoutes(
         daysWorkedOn: Set<number>; // Track which day indices they work
       }> = {};
       
-      // Calculate PAL hours per employee for the week
+      // Calculate PAL hours per employee for the week (PAID leave only)
       // Note: totalHours in the database is stored in MINUTES, so we convert to hours
+      // IMPORTANT: UTO (unpaid time off) does NOT count toward weekly hours - those days are just blocked
       const palHoursByEmployee = new Map<number, number>();
-      [...palEntries, ...utoEntries].forEach(entry => {
+      palEntries.forEach(entry => {
         const employee = employeeByUkgId.get(entry.ukgEmployeeId);
         if (employee && entry.totalHours) {
           const current = palHoursByEmployee.get(employee.id) || 0;
@@ -596,7 +597,7 @@ export async function registerRoutes(
         
         if (palHours > 0 || paidHolidayHours > 0) {
           const parts = [];
-          if (palHours > 0) parts.push(`${palHours} PAL/UTO`);
+          if (palHours > 0) parts.push(`${palHours} PAL`);
           if (paidHolidayHours > 0) parts.push(`${paidHolidayHours} holiday`);
           console.log(`[Scheduler] ${emp.name}: ${parts.join(' + ')} hours pre-counted (total: ${preCountedHours})`);
         }
