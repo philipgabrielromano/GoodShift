@@ -1488,6 +1488,49 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
+  // === Shift Presets ===
+  app.get(api.shiftPresets.list.path, requireAuth, async (req, res) => {
+    const presets = await storage.getShiftPresets();
+    res.json(presets);
+  });
+
+  app.get(api.shiftPresets.get.path, requireAuth, async (req, res) => {
+    const preset = await storage.getShiftPreset(Number(req.params.id));
+    if (!preset) return res.status(404).json({ message: "Shift preset not found" });
+    res.json(preset);
+  });
+
+  app.post(api.shiftPresets.create.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.shiftPresets.create.input.parse(req.body);
+      const preset = await storage.createShiftPreset(input);
+      res.status(201).json(preset);
+    } catch (err: any) {
+      if (err?.errors) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(400).json({ message: "Invalid shift preset data" });
+    }
+  });
+
+  app.put(api.shiftPresets.update.path, requireAdmin, async (req, res) => {
+    try {
+      const input = api.shiftPresets.update.input.parse(req.body);
+      const preset = await storage.updateShiftPreset(Number(req.params.id), input);
+      res.json(preset);
+    } catch (err: any) {
+      if (err?.errors) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(404).json({ message: "Shift preset not found" });
+    }
+  });
+
+  app.delete(api.shiftPresets.delete.path, requireAdmin, async (req, res) => {
+    await storage.deleteShiftPreset(Number(req.params.id));
+    res.status(204).send();
+  });
+
   // === Published Schedules ===
   // Check if a week's schedule is published
   app.get("/api/schedule/published/:weekStart", async (req, res) => {
