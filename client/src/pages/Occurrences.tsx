@@ -215,6 +215,30 @@ export default function Occurrences() {
                     )}
                   </CardContent>
                 </Card>
+
+                <Card className={summary.perfectAttendanceBonus ? "border-green-300 dark:border-green-700" : ""}>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      90-Day Perfect Attendance
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-end gap-2">
+                      <span 
+                        className={`text-4xl font-bold ${summary.perfectAttendanceBonus ? 'text-green-600' : 'text-muted-foreground'}`}
+                        data-testid="text-perfect-attendance-bonus"
+                      >
+                        {summary.perfectAttendanceBonus ? (summary.perfectAttendanceBonusValue?.toFixed(1) || "-1.0") : "0.0"}
+                      </span>
+                      <span className="text-muted-foreground mb-1">removed</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      {summary.perfectAttendanceBonus 
+                        ? "Bonus earned this year" 
+                        : "Requires 90 days without occurrences"}
+                    </p>
+                  </CardContent>
+                </Card>
               </div>
 
               {canManageOccurrences && (
