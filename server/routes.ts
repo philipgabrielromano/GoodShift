@@ -580,7 +580,10 @@ export async function registerRoutes(
       });
 
       // ========== HELPER FUNCTIONS ==========
-      const isOnTimeOff = (empId: number, day: Date) => {
+      // Day names array: index 0 = Sunday (matching dayIndex from weekStart which is always Sunday)
+      const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      
+      const isOnTimeOff = (empId: number, day: Date, dayIndex: number) => {
         // Check approved time-off requests
         const hasApprovedTimeOff = timeOff.some(to => 
           to.employeeId === empId && 
@@ -595,11 +598,11 @@ export async function registerRoutes(
         const hasPaidLeave = paidLeaveByEmpDate.has(`${empId}-${dayStr}`);
         if (hasPaidLeave) return true;
         
-        // Check non-working days configuration
+        // Check non-working days configuration using dayIndex (0=Sunday, 1=Monday, etc.)
+        // This avoids timezone issues with day.getDay() since weekStart is always a Sunday
         const emp = employees.find(e => e.id === empId);
         if (emp?.nonWorkingDays && emp.nonWorkingDays.length > 0) {
-          const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-          const dayName = dayNames[day.getDay()];
+          const dayName = dayNames[dayIndex];
           if (emp.nonWorkingDays.includes(dayName)) return true;
         }
         
@@ -613,7 +616,7 @@ export async function registerRoutes(
       const canWorkFullShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
         if (!emp.isActive) return false;
-        if (isOnTimeOff(emp.id, day)) return false;
+        if (isOnTimeOff(emp.id, day, dayIndex)) return false;
         if (state.hoursScheduled + FULL_SHIFT_HOURS > emp.maxWeeklyHours) return false;
         if (state.daysWorked >= getMaxDays(emp)) return false; // Respect preferred days setting
         if (state.daysWorkedOn.has(dayIndex)) return false; // Already working this day
@@ -624,7 +627,7 @@ export async function registerRoutes(
       const canWorkShortShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
         if (!emp.isActive) return false;
-        if (isOnTimeOff(emp.id, day)) return false;
+        if (isOnTimeOff(emp.id, day, dayIndex)) return false;
         if (state.hoursScheduled + SHORT_SHIFT_HOURS > emp.maxWeeklyHours) return false;
         if (state.daysWorked >= getMaxDays(emp)) return false;
         if (state.daysWorkedOn.has(dayIndex)) return false;
@@ -635,7 +638,7 @@ export async function registerRoutes(
       const canWorkAnyShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
         if (!emp.isActive) return false;
-        if (isOnTimeOff(emp.id, day)) return false;
+        if (isOnTimeOff(emp.id, day, dayIndex)) return false;
         if (state.hoursScheduled >= emp.maxWeeklyHours) return false; // Already maxed
         if (state.daysWorked >= getMaxDays(emp)) return false;
         if (state.daysWorkedOn.has(dayIndex)) return false;
@@ -646,7 +649,7 @@ export async function registerRoutes(
       const canWorkGapShift = (emp: typeof employees[0], day: Date, dayIndex: number) => {
         const state = employeeState[emp.id];
         if (!emp.isActive) return false;
-        if (isOnTimeOff(emp.id, day)) return false;
+        if (isOnTimeOff(emp.id, day, dayIndex)) return false;
         if (state.hoursScheduled + GAP_SHIFT_HOURS > emp.maxWeeklyHours) return false;
         if (state.daysWorked >= getMaxDays(emp)) return false;
         if (state.daysWorkedOn.has(dayIndex)) return false;
@@ -1169,7 +1172,7 @@ export async function registerRoutes(
             if (state.daysWorkedOn.has(dayIndex)) continue;
             
             const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-            if (isOnTimeOff(emp.id, currentDay)) continue;
+            if (isOnTimeOff(emp.id, currentDay, dayIndex)) continue;
             if (!canWorkGapShift(emp, currentDay, dayIndex)) continue;
             
             const shifts = getShiftTimes(currentDay);
@@ -1194,7 +1197,7 @@ export async function registerRoutes(
             if (state.daysWorkedOn.has(dayIndex)) continue;
             
             const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-            if (isOnTimeOff(emp.id, currentDay)) continue;
+            if (isOnTimeOff(emp.id, currentDay, dayIndex)) continue;
             if (!canWorkShortShift(emp, currentDay, dayIndex)) continue;
             
             const shifts = getShiftTimes(currentDay);

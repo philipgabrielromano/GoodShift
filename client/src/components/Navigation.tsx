@@ -58,11 +58,9 @@ export function Navigation() {
         <div className="p-4 border-b flex flex-col items-center relative">
           <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-sidebar" />
           <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-sidebar">GoodShift</span>
-          {(isAdmin || authStatus?.user?.role === "manager") && (
-            <div className="absolute right-3 top-3">
-              <NotificationBell />
-            </div>
-          )}
+          <div className="absolute right-3 top-3">
+            <NotificationBell />
+          </div>
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
@@ -103,7 +101,7 @@ export function Navigation() {
         <img src={goodwillLogo} alt="Goodwill" className="h-8 w-auto" />
         
         <div className="flex items-center gap-2">
-          {(isAdmin || authStatus?.user?.role === "manager") && <NotificationBell />}
+          <NotificationBell />
         
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
