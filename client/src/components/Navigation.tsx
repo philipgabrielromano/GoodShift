@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -21,6 +21,7 @@ const baseNavItems = [
 const adminNavItems = [
   { href: "/users", label: "Users", icon: Shield },
   { href: "/locations", label: "Locations", icon: MapPin },
+  { href: "/shifts", label: "Shifts", icon: Clock },
 ];
 
 const settingsNavItems = [

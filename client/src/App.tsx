@@ -11,6 +11,7 @@ import TimeOffRequests from "@/pages/TimeOffRequests";
 import Settings from "@/pages/Settings";
 import Users from "@/pages/Users";
 import Locations from "@/pages/Locations";
+import Shifts from "@/pages/Shifts";
 import Login from "@/pages/Login";
 import { Loader2 } from "lucide-react";
 
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/requests" component={TimeOffRequests} />
       <Route path="/users" component={Users} />
       <Route path="/locations" component={Locations} />
+      <Route path="/shifts" component={Shifts} />
       <Route path="/settings" component={Settings} />
       <Route component={NotFound} />
     </Switch>
