@@ -28,6 +28,13 @@ interface UKGLocation {
   Code?: string;
 }
 
+// OrgLevel1 contains store/location information (more reliable than Location API)
+interface UKGOrgLevel1 {
+  Id: number;
+  Name?: string;
+  Description?: string;
+}
+
 interface UKGProEmployee {
   employeeId: string;
   ukgId: number;
@@ -217,18 +224,19 @@ class UKGClient {
 
     console.log("UKG: Loading jobs and locations lookup tables...");
 
-    // Fetch locations FIRST (sequentially, not in parallel) to avoid rate limiting
-    console.log("UKG: Fetching locations first...");
-    const locations = await this.fetchAllPaginated<UKGLocation>("Location");
+    // Fetch OrgLevel1 for location/store names (Location API times out)
+    console.log("UKG: Fetching OrgLevel1 for locations...");
+    const orgLevels = await this.fetchAllPaginated<UKGOrgLevel1>("OrgLevel1");
     
-    for (const location of locations) {
-      const name = location.Name || location.Description || location.Code || `Location ${location.Id}`;
-      this.locationCache.set(location.Id, name);
+    for (const org of orgLevels) {
+      // Use Description for store names like "Massillon Store", fall back to Name/Id
+      const name = org.Description || org.Name || `Location ${org.Id}`;
+      this.locationCache.set(org.Id, name);
     }
-    console.log(`UKG: Loaded ${this.locationCache.size} locations`);
+    console.log(`UKG: Loaded ${this.locationCache.size} locations from OrgLevel1`);
 
     // Small delay before fetching jobs
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Then fetch jobs
     console.log("UKG: Fetching jobs...");
@@ -282,8 +290,9 @@ class UKGClient {
 
     const employees: UKGProEmployee[] = rawEmployees.map(emp => {
       const jobTitle = this.jobCache.get(emp.JobId) || "Staff";
-      // Use location name from cache, or fall back to LocationId number if lookup fails
-      const location = this.locationCache.get(emp.LocationId) || (emp.LocationId ? `Location ${emp.LocationId}` : "");
+      // Use OrgLevel1Id for location (maps to store names like "Massillon Store")
+      const orgLevel1Id = emp.OrgLevel1Id || 0;
+      const location = this.locationCache.get(orgLevel1Id) || (orgLevel1Id ? `Location ${orgLevel1Id}` : "");
       const employmentType = emp.PayCate === "1" ? "Full-Time" : "Part-Time";
       const isActive = emp.Active === "A";
 

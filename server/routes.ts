@@ -1348,8 +1348,8 @@ export async function registerRoutes(
     res.json({ entities: results, error });
   });
 
-  // Debug: Probe Location API directly with extended timeout (no auth for testing)
-  app.get("/api/ukg/probe-location", async (req, res) => {
+  // Debug: Probe OrgLevel1 API for location data
+  app.get("/api/ukg/probe-location", requireAdmin, async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json({ success: false, error: "UKG is not configured" });
     }

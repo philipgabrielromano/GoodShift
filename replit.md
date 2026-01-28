@@ -117,7 +117,7 @@ The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OD
 - Historical time clock data from 2026-01-01 downloaded on initial sync
 - Full pagination support for large employee datasets (handles 11,000+ employees)
 - Job title lookup from UKG Job table (maps JobId to job names)
-- Location lookup from UKG Location table (maps LocationId to location names)
+- Location lookup from UKG OrgLevel1 table (maps OrgLevel1Id to store names like "Massillon Store")
 - Employment type mapping (PayCate: 1=Full-Time, 2=Part-Time)
 - Active/Terminated status tracking (Active: A=active, I=terminated)
 - Only syncs active employees to database (terminated employees are skipped)
@@ -128,7 +128,7 @@ The application integrates with UKG (Ultimate Kronos Group) via the UltiClock OD
 - Name (FirstName + LastName)
 - Email (or auto-generated from name if not provided)
 - Job Title (from Job lookup table)
-- Location (from Location lookup table)
+- Location (from OrgLevel1 lookup table - store names)
 - Employment Type (Full-Time/Part-Time)
 - Active Status
 - UKG Employee ID (for update matching)
