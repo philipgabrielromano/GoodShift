@@ -1,13 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle } from "lucide-react";
 import { cn, getJobTitle, isHoliday } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
 import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import { ShiftDialog } from "@/components/ShiftDialog";
+import { OccurrenceDialog } from "@/components/OccurrenceDialog";
 import { ScheduleValidator, RemediationData } from "@/components/ScheduleValidator";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,6 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import type { Shift, ScheduleTemplate } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -616,6 +618,12 @@ export default function Schedule() {
   const [selectedShift, setSelectedShift] = useState<Shift | undefined>(undefined);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
   const [selectedEmpId, setSelectedEmpId] = useState<number | undefined>(undefined);
+  
+  // Occurrence dialog state
+  const [occurrenceDialogOpen, setOccurrenceDialogOpen] = useState(false);
+  const [occurrenceEmpId, setOccurrenceEmpId] = useState<number | undefined>(undefined);
+  const [occurrenceEmpName, setOccurrenceEmpName] = useState<string>("");
+  const [occurrenceDate, setOccurrenceDate] = useState<string>("");
 
   const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
   const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
@@ -630,6 +638,13 @@ export default function Schedule() {
   const handleEditShift = (shift: Shift) => {
     setSelectedShift(shift);
     setDialogOpen(true);
+  };
+
+  const handleAddOccurrence = (empId: number, empName: string, date: Date) => {
+    setOccurrenceEmpId(empId);
+    setOccurrenceEmpName(empName);
+    setOccurrenceDate(format(date, "yyyy-MM-dd"));
+    setOccurrenceDialogOpen(true);
   };
 
   // Handle remediation from validation issues
@@ -1250,27 +1265,48 @@ export default function Schedule() {
                                   const actualHours = timeClockKey ? timeClockByEmpDate.get(timeClockKey) : null;
                                   
                                   return (
-                                    <div 
-                                      key={shift.id}
-                                      draggable
-                                      onDragStart={(e) => handleDragStart(e, shift)}
-                                      onDragEnd={handleDragEnd}
-                                      onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                                      className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
-                                      style={{ backgroundColor: getJobColor(emp.jobTitle) }}
-                                      data-testid={`shift-${shift.id}`}
-                                    >
-                                      <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
-                                      <div className="flex flex-col leading-tight">
-                                        <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
-                                        <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
-                                        {actualHours && (
-                                          <span className="text-[9px] opacity-80 mt-0.5 border-t border-white/30 pt-0.5">
-                                            Worked: {actualHours.totalHours.toFixed(1)}h
-                                          </span>
+                                    <ContextMenu key={shift.id}>
+                                      <ContextMenuTrigger asChild>
+                                        <div 
+                                          draggable
+                                          onDragStart={(e) => handleDragStart(e, shift)}
+                                          onDragEnd={handleDragEnd}
+                                          onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
+                                          className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
+                                          style={{ backgroundColor: getJobColor(emp.jobTitle) }}
+                                          data-testid={`shift-${shift.id}`}
+                                        >
+                                          <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                          <div className="flex flex-col leading-tight">
+                                            <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
+                                            <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
+                                            {actualHours && (
+                                              <span className="text-[9px] opacity-80 mt-0.5 border-t border-white/30 pt-0.5">
+                                                Worked: {actualHours.totalHours.toFixed(1)}h
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </ContextMenuTrigger>
+                                      <ContextMenuContent>
+                                        <ContextMenuItem 
+                                          onClick={() => handleEditShift(shift)}
+                                          data-testid={`context-edit-shift-${shift.id}`}
+                                        >
+                                          Edit Shift
+                                        </ContextMenuItem>
+                                        {(userRole === 'admin' || userRole === 'manager') && (
+                                          <ContextMenuItem 
+                                            onClick={() => handleAddOccurrence(emp.id, emp.name, day)}
+                                            className="text-orange-600"
+                                            data-testid={`context-add-occurrence-${shift.id}`}
+                                          >
+                                            <AlertTriangle className="w-4 h-4 mr-2" />
+                                            Add Occurrence
+                                          </ContextMenuItem>
                                         )}
-                                      </div>
-                                    </div>
+                                      </ContextMenuContent>
+                                    </ContextMenu>
                                   );
                                 })}
                                 
@@ -1354,6 +1390,16 @@ export default function Schedule() {
         defaultDate={selectedDate}
         defaultEmployeeId={selectedEmpId}
       />
+
+      {occurrenceEmpId && (
+        <OccurrenceDialog
+          isOpen={occurrenceDialogOpen}
+          onClose={() => setOccurrenceDialogOpen(false)}
+          employeeId={occurrenceEmpId}
+          employeeName={occurrenceEmpName}
+          occurrenceDate={occurrenceDate}
+        />
+      )}
 
       <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
         <DialogContent>

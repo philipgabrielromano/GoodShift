@@ -1699,19 +1699,21 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only managers and admins can create occurrences" });
       }
       
-      const { employeeId, occurrenceDate, type, points, illnessGroupId, notes } = req.body;
+      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, reason } = req.body;
       
-      if (!employeeId || !occurrenceDate || !type || points === undefined) {
-        return res.status(400).json({ message: "employeeId, occurrenceDate, type, and points are required" });
+      if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
+        return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
       }
       
       const occurrence = await storage.createOccurrence({
         employeeId,
         occurrenceDate,
-        type,
-        points,
+        occurrenceType,
+        occurrenceValue,
         illnessGroupId: illnessGroupId || null,
         notes: notes || null,
+        isNcns: isNcns || false,
+        reason: reason || null,
         createdBy: user.id
       });
       
@@ -1761,7 +1763,7 @@ export async function registerRoutes(
       const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
       
       // Calculate total points (stored as integers x100, so divide by 100)
-      const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.points, 0) / 100;
+      const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
       // Get adjustments for the current calendar year
       const currentYear = now.getFullYear();
@@ -1797,10 +1799,10 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Only managers and admins can create adjustments" });
       }
       
-      const { employeeId, adjustmentValue, reason, calendarYear } = req.body;
+      const { employeeId, adjustmentValue, adjustmentType, notes, calendarYear } = req.body;
       
-      if (!employeeId || adjustmentValue === undefined || !reason) {
-        return res.status(400).json({ message: "employeeId, adjustmentValue, and reason are required" });
+      if (!employeeId || adjustmentValue === undefined || !adjustmentType) {
+        return res.status(400).json({ message: "employeeId, adjustmentValue, and adjustmentType are required" });
       }
       
       const year = calendarYear || new Date().getFullYear();
@@ -1815,7 +1817,8 @@ export async function registerRoutes(
         employeeId,
         adjustmentDate: new Date().toISOString().split('T')[0],
         adjustmentValue,
-        reason,
+        adjustmentType,
+        notes: notes || null,
         calendarYear: year,
         createdBy: user.id
       });
