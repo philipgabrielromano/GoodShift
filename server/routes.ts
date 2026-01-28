@@ -1672,6 +1672,161 @@ export async function registerRoutes(
     }
   });
 
+  // === Occurrences ===
+  // Get occurrences for an employee within a date range
+  app.get("/api/occurrences/:employeeId", requireAuth, async (req, res) => {
+    try {
+      const employeeId = Number(req.params.employeeId);
+      const { startDate, endDate } = req.query;
+      
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate query parameters are required" });
+      }
+      
+      const occurrenceList = await storage.getOccurrences(employeeId, String(startDate), String(endDate));
+      res.json(occurrenceList);
+    } catch (error) {
+      console.error("Error fetching occurrences:", error);
+      res.status(500).json({ message: "Failed to fetch occurrences" });
+    }
+  });
+
+  // Create a new occurrence
+  app.post("/api/occurrences", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can create occurrences" });
+      }
+      
+      const { employeeId, occurrenceDate, type, points, illnessGroupId, notes } = req.body;
+      
+      if (!employeeId || !occurrenceDate || !type || points === undefined) {
+        return res.status(400).json({ message: "employeeId, occurrenceDate, type, and points are required" });
+      }
+      
+      const occurrence = await storage.createOccurrence({
+        employeeId,
+        occurrenceDate,
+        type,
+        points,
+        illnessGroupId: illnessGroupId || null,
+        notes: notes || null,
+        createdBy: user.id
+      });
+      
+      res.status(201).json(occurrence);
+    } catch (error) {
+      console.error("Error creating occurrence:", error);
+      res.status(500).json({ message: "Failed to create occurrence" });
+    }
+  });
+
+  // Retract an occurrence
+  app.post("/api/occurrences/:id/retract", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can retract occurrences" });
+      }
+      
+      const id = Number(req.params.id);
+      const { reason } = req.body;
+      
+      if (!reason) {
+        return res.status(400).json({ message: "Retraction reason is required" });
+      }
+      
+      const occurrence = await storage.retractOccurrence(id, reason, user.id);
+      res.json(occurrence);
+    } catch (error) {
+      console.error("Error retracting occurrence:", error);
+      res.status(500).json({ message: "Failed to retract occurrence" });
+    }
+  });
+
+  // Get occurrence summary (rolling 12-month tally) for an employee
+  app.get("/api/occurrences/:employeeId/summary", requireAuth, async (req, res) => {
+    try {
+      const employeeId = Number(req.params.employeeId);
+      const now = new Date();
+      const oneYearAgo = new Date(now);
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      
+      const startDate = oneYearAgo.toISOString().split('T')[0];
+      const endDate = now.toISOString().split('T')[0];
+      
+      // Get active (non-retracted) occurrences in the rolling 12-month window
+      const allOccurrences = await storage.getOccurrences(employeeId, startDate, endDate);
+      const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
+      
+      // Calculate total points (stored as integers x100, so divide by 100)
+      const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.points, 0) / 100;
+      
+      // Get adjustments for the current calendar year
+      const currentYear = now.getFullYear();
+      const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
+      const totalAdjustment = adjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+      
+      // Net tally = total occurrences minus adjustments
+      const netTally = totalPoints - totalAdjustment;
+      
+      res.json({
+        employeeId,
+        periodStart: startDate,
+        periodEnd: endDate,
+        totalOccurrences: totalPoints,
+        adjustmentsThisYear: totalAdjustment,
+        adjustmentsRemaining: 2 - adjustments.length,
+        netTally,
+        occurrenceCount: activeOccurrences.length,
+        occurrences: activeOccurrences,
+        adjustments
+      });
+    } catch (error) {
+      console.error("Error fetching occurrence summary:", error);
+      res.status(500).json({ message: "Failed to fetch occurrence summary" });
+    }
+  });
+
+  // Create an occurrence adjustment
+  app.post("/api/occurrence-adjustments", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can create adjustments" });
+      }
+      
+      const { employeeId, adjustmentValue, reason, calendarYear } = req.body;
+      
+      if (!employeeId || adjustmentValue === undefined || !reason) {
+        return res.status(400).json({ message: "employeeId, adjustmentValue, and reason are required" });
+      }
+      
+      const year = calendarYear || new Date().getFullYear();
+      
+      // Check if employee already has 2 adjustments this year
+      const existingAdjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, year);
+      if (existingAdjustments.length >= 2) {
+        return res.status(400).json({ message: "Employee has already used maximum 2 adjustments for this year" });
+      }
+      
+      const adjustment = await storage.createOccurrenceAdjustment({
+        employeeId,
+        adjustmentDate: new Date().toISOString().split('T')[0],
+        adjustmentValue,
+        reason,
+        calendarYear: year,
+        createdBy: user.id
+      });
+      
+      res.status(201).json(adjustment);
+    } catch (error) {
+      console.error("Error creating adjustment:", error);
+      res.status(500).json({ message: "Failed to create adjustment" });
+    }
+  });
+
   // === SEED DATA ===
   await seedDatabase();
 
