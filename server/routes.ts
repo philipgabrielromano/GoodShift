@@ -515,10 +515,28 @@ export async function registerRoutes(
       const settings = await storage.getGlobalSettings();
       const timeOff = await storage.getTimeOffRequests();
       const locations = await storage.getLocations();
+      
+      // Fetch PAL (Paid Annual Leave) and UTO (Unpaid Time Off) entries for the week
+      const weekEndDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const startDateStr = startDate.toISOString().split('T')[0];
+      const endDateStr = weekEndDate.toISOString().split('T')[0];
+      const palEntries = await storage.getPALEntries(startDateStr, endDateStr);
+      const utoEntries = await storage.getUnpaidTimeOffEntries(startDateStr, endDateStr);
+      
+      // Create a map of employeeId -> dates with PAL/UTO for quick lookup
+      const employeeByUkgId = new Map(
+        allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
+      );
+      const paidLeaveByEmpDate = new Set<string>();
+      [...palEntries, ...utoEntries].forEach(entry => {
+        const employee = employeeByUkgId.get(entry.ukgEmployeeId);
+        if (employee) {
+          paidLeaveByEmpDate.add(`${employee.id}-${entry.workDate}`);
+        }
+      });
+      console.log(`[Scheduler] Found ${palEntries.length} PAL entries and ${utoEntries.length} UTO entries for the week`);
 
       // Clear existing shifts for the week (batch delete for performance)
-      const weekEndMs = startDate.getTime() + 7 * 24 * 60 * 60 * 1000;
-      const weekEndDate = new Date(weekEndMs);
       const deletedCount = await storage.deleteShiftsByDateRange(startDate, weekEndDate);
       console.log(`[Scheduler] Cleared ${deletedCount} existing shifts`);
       
@@ -542,12 +560,19 @@ export async function registerRoutes(
 
       // ========== HELPER FUNCTIONS ==========
       const isOnTimeOff = (empId: number, day: Date) => {
-        return timeOff.some(to => 
+        // Check approved time-off requests
+        const hasApprovedTimeOff = timeOff.some(to => 
           to.employeeId === empId && 
           to.status === "approved" && 
           new Date(to.startDate) <= day && 
           new Date(to.endDate) >= day
         );
+        if (hasApprovedTimeOff) return true;
+        
+        // Check PAL/UTO entries from UKG
+        const dayStr = day.toISOString().split('T')[0];
+        const hasPaidLeave = paidLeaveByEmpDate.has(`${empId}-${dayStr}`);
+        return hasPaidLeave;
       };
       
       // Get max days per week for an employee (uses preferred setting, defaults to 5)
