@@ -14,19 +14,22 @@ interface AuthStatus {
   ssoConfigured: boolean;
 }
 
-const baseNavItems = [
+// Items shown to all authenticated users
+const viewerNavItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
-  { href: "/employees", label: "Employees", icon: Users },
   { href: "/occurrences", label: "Occurrences", icon: AlertTriangle },
 ];
 
+// Items shown to managers and admins only
+const managerNavItems = [
+  { href: "/employees", label: "Employees", icon: Users },
+];
+
+// Items shown to admins only
 const adminNavItems = [
   { href: "/users", label: "Users", icon: Shield },
   { href: "/locations", label: "Locations", icon: MapPin },
   { href: "/shifts", label: "Shifts", icon: Clock },
-];
-
-const settingsNavItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -39,10 +42,13 @@ export function Navigation() {
   });
 
   const isAdmin = authStatus?.user?.role === "admin";
+  const isManager = authStatus?.user?.role === "manager";
+  const isManagerOrAdmin = isAdmin || isManager;
+  
   const navItems = [
-    ...baseNavItems,
+    ...viewerNavItems,
+    ...(isManagerOrAdmin ? managerNavItems : []),
     ...(isAdmin ? adminNavItems : []),
-    ...settingsNavItems,
   ];
 
   return (

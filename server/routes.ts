@@ -47,6 +47,13 @@ export async function registerRoutes(
 
   // === Employees ===
   app.get(api.employees.list.path, async (req, res) => {
+    const user = (req.session as any)?.user;
+    
+    // Viewers cannot access the employee list
+    if (user?.role === "viewer") {
+      return res.status(403).json({ message: "You do not have permission to view the employee list" });
+    }
+    
     let employees = await storage.getEmployees();
     
     // Filter by retail job codes if requested
@@ -61,7 +68,6 @@ export async function registerRoutes(
     // user.locationIds contains location IDs (as strings), but emp.location contains location NAMES
     // We need to look up the location names from the IDs
     // Admins can see all employees regardless of locationIds
-    const user = (req.session as any)?.user;
     if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
       const allLocations = await storage.getLocations();
       const userLocationNames = allLocations
@@ -481,12 +487,12 @@ export async function registerRoutes(
   });
 
   // === Global Settings ===
-  app.get(api.globalSettings.get.path, async (req, res) => {
+  app.get(api.globalSettings.get.path, requireAdmin, async (req, res) => {
     const settings = await storage.getGlobalSettings();
     res.json(settings);
   });
 
-  app.post(api.globalSettings.update.path, async (req, res) => {
+  app.post(api.globalSettings.update.path, requireAdmin, async (req, res) => {
     try {
       const input = api.globalSettings.update.input.parse(req.body);
       const settings = await storage.updateGlobalSettings(input);
@@ -1582,12 +1588,12 @@ export async function registerRoutes(
   });
 
   // === Shift Presets ===
-  app.get(api.shiftPresets.list.path, requireAuth, async (req, res) => {
+  app.get(api.shiftPresets.list.path, requireAdmin, async (req, res) => {
     const presets = await storage.getShiftPresets();
     res.json(presets);
   });
 
-  app.get(api.shiftPresets.get.path, requireAuth, async (req, res) => {
+  app.get(api.shiftPresets.get.path, requireAdmin, async (req, res) => {
     const preset = await storage.getShiftPreset(Number(req.params.id));
     if (!preset) return res.status(404).json({ message: "Shift preset not found" });
     res.json(preset);
