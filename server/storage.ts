@@ -10,7 +10,8 @@ import {
   locations, type Location, type InsertLocation,
   timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry,
   scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate,
-  publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule
+  publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule,
+  shiftPresets, type ShiftPreset, type InsertShiftPreset
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -80,6 +81,13 @@ export interface IStorage {
   isSchedulePublished(weekStart: string): Promise<boolean>;
   publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule>;
   unpublishSchedule(weekStart: string): Promise<void>;
+
+  // Shift Presets
+  getShiftPresets(): Promise<ShiftPreset[]>;
+  getShiftPreset(id: number): Promise<ShiftPreset | undefined>;
+  createShiftPreset(preset: InsertShiftPreset): Promise<ShiftPreset>;
+  updateShiftPreset(id: number, preset: Partial<InsertShiftPreset>): Promise<ShiftPreset>;
+  deleteShiftPreset(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -410,6 +418,30 @@ export class DatabaseStorage implements IStorage {
 
   async unpublishSchedule(weekStart: string): Promise<void> {
     await db.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+  }
+
+  // Shift Presets
+  async getShiftPresets(): Promise<ShiftPreset[]> {
+    return await db.select().from(shiftPresets).orderBy(shiftPresets.sortOrder);
+  }
+
+  async getShiftPreset(id: number): Promise<ShiftPreset | undefined> {
+    const [preset] = await db.select().from(shiftPresets).where(eq(shiftPresets.id, id));
+    return preset;
+  }
+
+  async createShiftPreset(preset: InsertShiftPreset): Promise<ShiftPreset> {
+    const [newPreset] = await db.insert(shiftPresets).values(preset).returning();
+    return newPreset;
+  }
+
+  async updateShiftPreset(id: number, preset: Partial<InsertShiftPreset>): Promise<ShiftPreset> {
+    const [updated] = await db.update(shiftPresets).set(preset).where(eq(shiftPresets.id, id)).returning();
+    return updated;
+  }
+
+  async deleteShiftPreset(id: number): Promise<void> {
+    await db.delete(shiftPresets).where(eq(shiftPresets.id, id));
   }
 }
 

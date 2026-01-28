@@ -92,6 +92,17 @@ export const locations = pgTable("locations", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
+// Shift presets - preconfigured shift times that can be quickly applied
+export const shiftPresets = pgTable("shift_presets", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(), // Display name like "Morning Shift", "Evening Shift"
+  startTime: text("start_time").notNull(), // Time in HH:MM format (e.g., "08:00")
+  endTime: text("end_time").notNull(), // Time in HH:MM format (e.g., "16:30")
+  color: text("color").notNull().default("#3b82f6"), // Color for visual display
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0), // For ordering in the list
+});
+
 // Time clock entries from UKG - stores historical time punch data
 export const timeClockEntries = pgTable("time_clock_entries", {
   id: serial("id").primaryKey(),
@@ -140,6 +151,7 @@ export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
+export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ id: true });
 export const insertTimeClockEntrySchema = createInsertSchema(timeClockEntries).omit({ id: true, syncedAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
@@ -171,6 +183,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 // Location Types
 export type Location = typeof locations.$inferSelect;
 export type InsertLocation = z.infer<typeof insertLocationSchema>;
+
+// Shift Preset Types
+export type ShiftPreset = typeof shiftPresets.$inferSelect;
+export type InsertShiftPreset = z.infer<typeof insertShiftPresetSchema>;
 
 // Time Clock Entry Types
 export type TimeClockEntry = typeof timeClockEntries.$inferSelect;
