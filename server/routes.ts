@@ -561,12 +561,14 @@ export async function registerRoutes(
       }> = {};
       
       // Calculate PAL hours per employee for the week
+      // Note: totalHours in the database is stored in MINUTES, so we convert to hours
       const palHoursByEmployee = new Map<number, number>();
       [...palEntries, ...utoEntries].forEach(entry => {
         const employee = employeeByUkgId.get(entry.ukgEmployeeId);
         if (employee && entry.totalHours) {
           const current = palHoursByEmployee.get(employee.id) || 0;
-          palHoursByEmployee.set(employee.id, current + entry.totalHours);
+          const hoursFromMinutes = entry.totalHours / 60; // Convert minutes to hours
+          palHoursByEmployee.set(employee.id, current + hoursFromMinutes);
         }
       });
       
