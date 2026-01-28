@@ -5,12 +5,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { useCreateShift, useUpdateShift, useDeleteShift } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
+import { useShiftPresets } from "@/hooks/use-shift-presets";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { type Shift } from "@shared/schema";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, Clock } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
 
 const TIMEZONE = "America/New_York";
@@ -25,6 +26,7 @@ interface ShiftDialogProps {
 
 export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmployeeId }: ShiftDialogProps) {
   const { data: employees } = useEmployees();
+  const { data: shiftPresets } = useShiftPresets();
   const createShift = useCreateShift();
   const updateShift = useUpdateShift();
   const deleteShift = useDeleteShift();
@@ -34,12 +36,13 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [date, setDate] = useState("");
+  const [selectedPreset, setSelectedPreset] = useState<string>("");
 
   useEffect(() => {
     if (isOpen) {
+      setSelectedPreset("");
       if (shift) {
         setEmployeeId(shift.employeeId.toString());
-        // Display dates in EST
         setDate(formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd"));
         setStartTime(formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm"));
         setEndTime(formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm"));
@@ -51,6 +54,17 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
       }
     }
   }, [isOpen, shift, defaultDate, defaultEmployeeId]);
+
+  const handlePresetChange = (presetId: string) => {
+    setSelectedPreset(presetId);
+    const preset = shiftPresets?.find(p => p.id.toString() === presetId);
+    if (preset) {
+      setStartTime(preset.startTime);
+      setEndTime(preset.endTime);
+    }
+  };
+
+  const activePresets = shiftPresets?.filter(p => p.isActive).sort((a, b) => a.sortOrder - b.sortOrder) || [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,17 +138,47 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
 
           <div className="space-y-2">
             <Label>Date</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} required data-testid="input-shift-date" />
           </div>
+
+          {activePresets.length > 0 && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <Clock className="w-4 h-4" />
+                Shift Preset
+              </Label>
+              <Select value={selectedPreset} onValueChange={handlePresetChange}>
+                <SelectTrigger data-testid="select-shift-preset">
+                  <SelectValue placeholder="Quick select shift times..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {activePresets.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id.toString()} data-testid={`preset-${preset.id}`}>
+                      <div className="flex items-center gap-2">
+                        <div 
+                          className="w-2.5 h-2.5 rounded-full" 
+                          style={{ backgroundColor: preset.color }} 
+                        />
+                        <span>{preset.name}</span>
+                        <span className="text-muted-foreground text-xs ml-1">
+                          ({preset.startTime} - {preset.endTime})
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Start Time</Label>
-              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required />
+              <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} required data-testid="input-start-time" />
             </div>
             <div className="space-y-2">
               <Label>End Time</Label>
-              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required />
+              <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required data-testid="input-end-time" />
             </div>
           </div>
 
