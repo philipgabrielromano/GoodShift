@@ -251,21 +251,24 @@ export default function Users() {
             <div className="space-y-2">
               <Label>Assigned Locations</Label>
               <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
-                {locations?.map(loc => (
-                  <label 
-                    key={loc.id} 
-                    className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={(formData.locationIds || []).includes(String(loc.id))}
-                      onChange={() => toggleLocationId(String(loc.id))}
-                      className="rounded"
-                      data-testid={`checkbox-location-${loc.id}`}
-                    />
-                    <span className="text-sm">{loc.name}</span>
-                  </label>
-                ))}
+                {locations
+                  ?.slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(loc => (
+                    <label 
+                      key={loc.id} 
+                      className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={(formData.locationIds || []).includes(String(loc.id))}
+                        onChange={() => toggleLocationId(String(loc.id))}
+                        className="rounded"
+                        data-testid={`checkbox-location-${loc.id}`}
+                      />
+                      <span className="text-sm">{loc.name}</span>
+                    </label>
+                  ))}
                 {(!locations || locations.length === 0) && (
                   <p className="text-sm text-muted-foreground p-2">No locations available</p>
                 )}
