@@ -12,6 +12,7 @@ interface UKGODataEmployee {
   PayCate: string;
   PaygroupId?: number;
   OrgLevel1Id?: number;
+  HireDate?: string; // Date employee was hired (format: "YYYY-MM-DD")
 }
 
 interface UKGJob {
@@ -46,6 +47,7 @@ interface UKGProEmployee {
   employmentType: string;
   isActive: boolean;
   scheduledHours: number;
+  hireDate?: string; // Date employee was hired (format: "YYYY-MM-DD")
 }
 
 interface UKGLocationInfo {
@@ -300,6 +302,7 @@ class UKGClient {
         employmentType,
         isActive,
         scheduledHours: employmentType === "Full-Time" ? 40 : 29,
+        hireDate: emp.HireDate || undefined,
       };
     });
 
@@ -328,6 +331,7 @@ class UKGClient {
       location: ukgEmployee.location || null,
       employmentType: ukgEmployee.employmentType || null,
       ukgEmployeeId: ukgEmployee.employeeId, // Use EmpId (string) for time clock matching
+      hireDate: ukgEmployee.hireDate || null,
     };
   }
 

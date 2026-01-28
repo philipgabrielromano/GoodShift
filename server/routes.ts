@@ -7,7 +7,7 @@ import { z } from "zod";
 import { ukgClient } from "./ukg";
 import { RETAIL_JOB_CODES } from "@shared/schema";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
-import { isHoliday } from "./holidays";
+import { isHoliday, getPaidHolidaysInRange, isEligibleForPaidHoliday } from "./holidays";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 
 const TIMEZONE = "America/New_York";
@@ -572,12 +572,33 @@ export async function registerRoutes(
         }
       });
       
+      // Calculate paid holidays in the scheduling week
+      const paidHolidaysInWeek = getPaidHolidaysInRange(startDate, weekEndDate);
+      if (paidHolidaysInWeek.length > 0) {
+        console.log(`[Scheduler] Paid holidays in week: ${paidHolidaysInWeek.map(h => h.name).join(', ')}`);
+      }
+      
       employees.forEach(emp => {
         // Initialize with PAL hours already counted toward weekly total
         const palHours = palHoursByEmployee.get(emp.id) || 0;
-        employeeState[emp.id] = { hoursScheduled: palHours, daysWorked: 0, daysWorkedOn: new Set() };
-        if (palHours > 0) {
-          console.log(`[Scheduler] ${emp.name}: ${palHours} PAL/UTO hours pre-counted`);
+        
+        // Calculate paid holiday hours for eligible full-time employees (30+ days service)
+        let paidHolidayHours = 0;
+        for (const holiday of paidHolidaysInWeek) {
+          if (isEligibleForPaidHoliday(emp.hireDate, holiday.date, emp.employmentType)) {
+            paidHolidayHours += 8;
+          }
+        }
+        
+        // Pre-count both PAL hours and paid holiday hours
+        const preCountedHours = palHours + paidHolidayHours;
+        employeeState[emp.id] = { hoursScheduled: preCountedHours, daysWorked: 0, daysWorkedOn: new Set() };
+        
+        if (palHours > 0 || paidHolidayHours > 0) {
+          const parts = [];
+          if (palHours > 0) parts.push(`${palHours} PAL/UTO`);
+          if (paidHolidayHours > 0) parts.push(`${paidHolidayHours} holiday`);
+          console.log(`[Scheduler] ${emp.name}: ${parts.join(' + ')} hours pre-counted (total: ${preCountedHours})`);
         }
       });
 

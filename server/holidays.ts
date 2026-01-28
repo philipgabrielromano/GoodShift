@@ -1,8 +1,24 @@
 // Holiday utilities for server-side scheduling
+//
+// Two types of holidays:
+// 1. Closed holidays (store is closed): Easter, Thanksgiving, Christmas
+// 2. Paid holidays (employees get 8 hours pay, but store is open):
+//    - New Year's Day (January 1)
+//    - MLK Jr. Birthday (3rd Monday in January)
+//    - Memorial Day (Last Monday in May)
+//    - Juneteenth (June 19)
+//    - Independence Day (July 4)
+//    - Labor Day (1st Monday in September)
+//    - Thanksgiving Day (4th Thursday in November)
+//    - Day After Thanksgiving (4th Friday in November)
+//    - Christmas Day (December 25)
+//
+// Full-time employees with 30+ days of service receive 8 hours holiday pay.
 
 export interface Holiday {
   date: Date;
   name: string;
+  isPaid?: boolean; // Whether this is a paid holiday
 }
 
 // Calculate Easter Sunday using the Anonymous Gregorian algorithm
@@ -28,22 +44,60 @@ function calculateEaster(year: number): Date {
 function calculateThanksgiving(year: number): Date {
   const november = new Date(year, 10, 1); // November 1st
   const dayOfWeek = november.getDay();
-  // Find first Thursday: Thursday is day 4
-  // If Nov 1 is Sunday (0), first Thursday is Nov 5 (4 days later)
-  // If Nov 1 is Thursday (4), first Thursday is Nov 1
-  // Formula: ((4 - dayOfWeek + 7) % 7) gives days until Thursday, then +1 for date
   const daysUntilThursday = (4 - dayOfWeek + 7) % 7;
   const firstThursday = 1 + daysUntilThursday;
-  // Add 3 weeks to get 4th Thursday
   return new Date(year, 10, firstThursday + 21);
 }
 
-// Get all holidays for a given year
-export function getHolidaysForYear(year: number): Holiday[] {
+// Get nth occurrence of a day of week in a month (1-indexed)
+function getNthDayOfWeekInMonth(year: number, month: number, dayOfWeek: number, n: number): Date {
+  const firstOfMonth = new Date(year, month, 1);
+  const firstDayOfWeek = firstOfMonth.getDay();
+  let daysUntilTarget = dayOfWeek - firstDayOfWeek;
+  if (daysUntilTarget < 0) daysUntilTarget += 7;
+  const nthOccurrence = 1 + daysUntilTarget + (n - 1) * 7;
+  return new Date(year, month, nthOccurrence);
+}
+
+// Get last occurrence of a day of week in a month
+function getLastDayOfWeekInMonth(year: number, month: number, dayOfWeek: number): Date {
+  const lastOfMonth = new Date(year, month + 1, 0);
+  const lastDayOfWeek = lastOfMonth.getDay();
+  let daysDiff = lastDayOfWeek - dayOfWeek;
+  if (daysDiff < 0) daysDiff += 7;
+  return new Date(year, month, lastOfMonth.getDate() - daysDiff);
+}
+
+// Get all closed holidays (store is closed) for a year
+export function getClosedHolidaysForYear(year: number): Holiday[] {
   return [
     { date: calculateEaster(year), name: "Easter" },
     { date: calculateThanksgiving(year), name: "Thanksgiving" },
     { date: new Date(year, 11, 25), name: "Christmas" },
+  ];
+}
+
+// Get all paid holidays for a year
+export function getPaidHolidaysForYear(year: number): Holiday[] {
+  const thanksgiving = calculateThanksgiving(year);
+  return [
+    { date: new Date(year, 0, 1), name: "New Year's Day", isPaid: true },
+    { date: getNthDayOfWeekInMonth(year, 0, 1, 3), name: "MLK Jr. Birthday", isPaid: true },
+    { date: getLastDayOfWeekInMonth(year, 4, 1), name: "Memorial Day", isPaid: true },
+    { date: new Date(year, 5, 19), name: "Juneteenth", isPaid: true },
+    { date: new Date(year, 6, 4), name: "Independence Day", isPaid: true },
+    { date: getNthDayOfWeekInMonth(year, 8, 1, 1), name: "Labor Day", isPaid: true },
+    { date: thanksgiving, name: "Thanksgiving Day", isPaid: true },
+    { date: new Date(year, 10, thanksgiving.getDate() + 1), name: "Day After Thanksgiving", isPaid: true },
+    { date: new Date(year, 11, 25), name: "Christmas Day", isPaid: true },
+  ];
+}
+
+// Get all holidays for a given year (closed + paid)
+export function getHolidaysForYear(year: number): Holiday[] {
+  return [
+    ...getClosedHolidaysForYear(year),
+    ...getPaidHolidaysForYear(year),
   ];
 }
 
@@ -79,4 +133,66 @@ export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
     }
   }
   return holidays;
+}
+
+// Get paid holidays that fall within a date range
+export function getPaidHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
+  const holidays: Holiday[] = [];
+  const startYear = startDate.getFullYear();
+  const endYear = endDate.getFullYear();
+  
+  for (let year = startYear; year <= endYear; year++) {
+    const yearHolidays = getPaidHolidaysForYear(year);
+    for (const holiday of yearHolidays) {
+      if (holiday.date >= startDate && holiday.date <= endDate) {
+        holidays.push(holiday);
+      }
+    }
+  }
+  return holidays;
+}
+
+// Check if an employee is eligible for paid holiday (full-time with 30+ days of service)
+export function isEligibleForPaidHoliday(
+  hireDate: string | Date | null | undefined,
+  holidayDate: Date,
+  employmentType: string | null | undefined
+): boolean {
+  // Must be full-time
+  if (employmentType !== "Full-Time") {
+    return false;
+  }
+  
+  // Must have hire date
+  if (!hireDate) {
+    return false;
+  }
+  
+  // Calculate days of service
+  const hireDateObj = typeof hireDate === 'string' ? new Date(hireDate + 'T00:00:00') : hireDate;
+  const daysSinceHire = Math.floor(
+    (holidayDate.getTime() - hireDateObj.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  
+  // Must have 30+ days of service
+  return daysSinceHire >= 30;
+}
+
+// Calculate total paid holiday hours for an employee in a given week
+export function getPaidHolidayHoursInWeek(
+  weekStart: Date,
+  weekEnd: Date,
+  hireDate: string | Date | null | undefined,
+  employmentType: string | null | undefined
+): number {
+  const holidays = getPaidHolidaysInRange(weekStart, weekEnd);
+  
+  let totalHours = 0;
+  for (const holiday of holidays) {
+    if (isEligibleForPaidHoliday(hireDate, holiday.date, employmentType)) {
+      totalHours += 8;
+    }
+  }
+  
+  return totalHours;
 }
