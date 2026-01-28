@@ -1770,13 +1770,49 @@ export async function registerRoutes(
       // Calculate total points (stored as integers x100, so divide by 100)
       const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
-      // Get adjustments for the current calendar year
+      // Get manual adjustments for the current calendar year (only unscheduled_shift now)
       const currentYear = now.getFullYear();
       const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
-      const totalAdjustment = adjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+      // Filter out any legacy perfect_attendance adjustments - these are now calculated automatically
+      const manualAdjustments = adjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
+      const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
       
-      // Net tally = total occurrences minus adjustments
-      const netTally = totalPoints - totalAdjustment;
+      // Calculate automatic perfect attendance bonus (90 days without occurrences = -1.0, once per calendar year)
+      // Check if employee has had 90 consecutive days of perfect attendance this calendar year
+      const yearStart = `${currentYear}-01-01`;
+      const yearOccurrences = await storage.getOccurrences(employeeId, yearStart, endDate);
+      const activeYearOccurrences = yearOccurrences.filter(o => o.status === 'active');
+      
+      let perfectAttendanceBonus = 0;
+      let perfectAttendanceEligible = false;
+      
+      if (activeYearOccurrences.length === 0) {
+        // No occurrences this calendar year - check if 90 days have passed since Jan 1
+        const yearStartDate = new Date(`${currentYear}-01-01T00:00:00`);
+        const daysSinceYearStart = Math.floor((now.getTime() - yearStartDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysSinceYearStart >= 90) {
+          perfectAttendanceBonus = -1.0;
+          perfectAttendanceEligible = true;
+        }
+      } else {
+        // Has occurrences - check for 90 consecutive days after the most recent occurrence
+        const sortedOccurrences = [...activeYearOccurrences].sort((a, b) => 
+          new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
+        );
+        const mostRecentOccurrence = sortedOccurrences[0];
+        const mostRecentDate = new Date(mostRecentOccurrence.occurrenceDate + 'T00:00:00');
+        const daysSinceLastOccurrence = Math.floor((now.getTime() - mostRecentDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysSinceLastOccurrence >= 90) {
+          perfectAttendanceBonus = -1.0;
+          perfectAttendanceEligible = true;
+        }
+      }
+      
+      // Total adjustment = manual adjustments + automatic perfect attendance
+      const totalAdjustment = manualAdjustmentTotal + perfectAttendanceBonus;
+      
+      // Net tally = total occurrences + adjustments (adjustments are negative values)
+      const netTally = Math.max(0, totalPoints + totalAdjustment);
       
       res.json({
         employeeId,
@@ -1784,11 +1820,13 @@ export async function registerRoutes(
         periodEnd: endDate,
         totalOccurrences: totalPoints,
         adjustmentsThisYear: totalAdjustment,
-        adjustmentsRemaining: 2 - adjustments.length,
+        adjustmentsRemaining: 2 - manualAdjustments.length, // Only count manual adjustments toward limit
         netTally,
         occurrenceCount: activeOccurrences.length,
         occurrences: activeOccurrences,
-        adjustments
+        adjustments: manualAdjustments,
+        perfectAttendanceBonus: perfectAttendanceBonus !== 0,
+        perfectAttendanceBonusValue: perfectAttendanceBonus
       });
     } catch (error) {
       console.error("Error fetching occurrence summary:", error);

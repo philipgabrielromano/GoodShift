@@ -300,7 +300,7 @@ export default function Occurrences() {
                 </CardContent>
               </Card>
 
-              {summary.adjustments.length > 0 && (
+              {(summary.adjustments.length > 0 || summary.perfectAttendanceBonus) && (
                 <Card>
                   <CardHeader>
                     <CardTitle>Adjustments</CardTitle>
@@ -308,6 +308,25 @@ export default function Occurrences() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
+                      {summary.perfectAttendanceBonus && (
+                        <div 
+                          className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 rounded border border-green-200 dark:border-green-800"
+                          data-testid="adjustment-perfect-attendance-auto"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="text-sm font-medium w-24">Auto</div>
+                            <Badge variant="outline" className="text-green-600 border-green-600">
+                              90-Day Perfect Attendance
+                            </Badge>
+                            <span className="text-sm text-muted-foreground">Automatically calculated</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-green-600">
+                              {summary.perfectAttendanceBonusValue?.toFixed(1) || "-1.0"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       {summary.adjustments.map((adjustment) => (
                         <div 
                           key={adjustment.id} 
@@ -319,7 +338,7 @@ export default function Occurrences() {
                               {format(new Date(adjustment.adjustmentDate + "T12:00:00"), "MMM d, yyyy")}
                             </div>
                             <Badge variant="outline" className="text-green-600 border-green-600">
-                              {adjustment.adjustmentType === "perfect_attendance" ? "Perfect Attendance" : "Covered Shift"}
+                              Covered Shift
                             </Badge>
                             {adjustment.notes && (
                               <span className="text-sm text-muted-foreground">{adjustment.notes}</span>
@@ -397,10 +416,12 @@ export default function Occurrences() {
                   <SelectValue placeholder="Select type..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="perfect_attendance">Perfect Attendance (30 days)</SelectItem>
                   <SelectItem value="unscheduled_shift">Covered Unscheduled Shift</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Note: Perfect attendance bonuses are now calculated automatically (90 days = -1.0)
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="adjustmentNotes">Notes (optional)</Label>

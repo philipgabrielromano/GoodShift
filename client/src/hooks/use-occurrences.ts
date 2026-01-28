@@ -13,6 +13,8 @@ interface OccurrenceSummary {
   occurrenceCount: number;
   occurrences: Occurrence[];
   adjustments: OccurrenceAdjustment[];
+  perfectAttendanceBonus?: boolean;
+  perfectAttendanceBonusValue?: number;
 }
 
 export function useOccurrences(employeeId: number, startDate: string, endDate: string) {
