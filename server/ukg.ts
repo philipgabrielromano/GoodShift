@@ -280,28 +280,12 @@ class UKGClient {
     const rawEmployees = await this.fetchAllPaginated<UKGODataEmployee>("Employee");
     console.log(`UKG: Total employees fetched: ${rawEmployees.length}`);
     
-    // Debug: Log first 3 raw employee records to see available fields
-    if (rawEmployees.length > 0) {
-      console.log("UKG DEBUG: Sample raw employee records:");
-      rawEmployees.slice(0, 3).forEach((emp, i) => {
-        console.log(`UKG DEBUG Employee ${i + 1}:`, JSON.stringify(emp, null, 2));
-      });
-    }
-
-    // Track missing OrgLevel1Ids for debugging
-    const missingOrgLevel1Ids = new Set<number>();
-    
     const employees: UKGProEmployee[] = rawEmployees.map(emp => {
       const jobTitle = this.jobCache.get(emp.JobId) || "Staff";
       // Use OrgLevel1Id for location (maps to store names like "Massillon Store")
       const orgLevel1Id = emp.OrgLevel1Id || 0;
-      let location = this.locationCache.get(orgLevel1Id);
-      if (!location && orgLevel1Id) {
-        missingOrgLevel1Ids.add(orgLevel1Id);
-        location = `Location ${orgLevel1Id}`;
-      } else if (!location) {
-        location = "";
-      }
+      // Use empty string if location not found (avoid "Location X" fallbacks)
+      const location = this.locationCache.get(orgLevel1Id) || "";
       const employmentType = emp.PayCate === "1" ? "Full-Time" : "Part-Time";
       const isActive = emp.Active === "A";
 
@@ -321,12 +305,6 @@ class UKGClient {
 
     console.log(`UKG: Processed ${employees.length} employees`);
     console.log(`UKG: Active: ${employees.filter(e => e.isActive).length}, Terminated: ${employees.filter(e => !e.isActive).length}`);
-    
-    // Log missing OrgLevel1Ids
-    if (missingOrgLevel1Ids.size > 0) {
-      console.log(`UKG: Missing OrgLevel1Ids (not in lookup table): ${Array.from(missingOrgLevel1Ids).join(", ")}`);
-    }
-    console.log(`UKG: Employees with empty location: ${employees.filter(e => !e.location).length}`);
     
     return employees;
   }

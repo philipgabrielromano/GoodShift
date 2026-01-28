@@ -53,11 +53,12 @@ export async function registerRoutes(
       );
     }
     
-    // Filter by location for users with assigned locations (applies to all roles including admin)
+    // Filter by location for non-admin users with assigned locations
     // user.locationIds contains location IDs (as strings), but emp.location contains location NAMES
     // We need to look up the location names from the IDs
+    // Admins can see all employees regardless of locationIds
     const user = (req.session as any)?.user;
-    if (user && user.locationIds && user.locationIds.length > 0) {
+    if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
       const allLocations = await storage.getLocations();
       const userLocationNames = allLocations
         .filter(loc => user.locationIds.includes(String(loc.id)))
