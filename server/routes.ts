@@ -1348,6 +1348,16 @@ export async function registerRoutes(
     res.json({ entities: results, error });
   });
 
+  // Debug: Probe Location API directly with extended timeout (no auth for testing)
+  app.get("/api/ukg/probe-location", async (req, res) => {
+    if (!ukgClient.isConfigured()) {
+      return res.json({ success: false, error: "UKG is not configured" });
+    }
+
+    const result = await ukgClient.probeLocationAPI();
+    res.json(result);
+  });
+
   // Get time clock data for a date range (from stored data)
   app.get(api.ukg.timeclock.path, requireAuth, async (req, res) => {
     const { startDate, endDate } = req.query;

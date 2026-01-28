@@ -510,61 +510,69 @@ class UKGClient {
     }
   }
 
-  // Debug method to probe Location API with extended timeout
-  async probeLocationAPI(): Promise<{ success: boolean; data?: unknown; error?: string; sampleRecord?: unknown; fields?: string[] }> {
+  // Debug method to probe various UKG APIs that might have location data
+  async probeLocationAPI(): Promise<{ success: boolean; data?: unknown; error?: string; results?: Record<string, unknown> }> {
     const baseUrl = process.env.UKG_API_URL;
     if (!baseUrl) {
       return { success: false, error: "UKG_API_URL not configured" };
     }
 
-    const url = `${baseUrl}/Location?$top=5`;
-    console.log("UKG DEBUG: Probing Location API with extended timeout...");
-    console.log("UKG DEBUG: URL:", url);
+    const results: Record<string, unknown> = {};
+    
+    // Try multiple endpoints that might have location information
+    const endpointsToProbe = [
+      "OrgLevel1",    // Organization level 1 (might be locations/stores)
+    ];
 
-    const controller = new AbortController();
-    const timeoutMs = 60000; // 60 second timeout
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    for (const endpoint of endpointsToProbe) {
+      // Get more records from OrgLevel1 to see all locations
+      const url = `${baseUrl}/${endpoint}?$top=200`;
+      console.log(`UKG DEBUG: Probing ${endpoint}...`);
 
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: this.getAuthHeaders(),
-        signal: controller.signal,
-      });
+      const controller = new AbortController();
+      const timeoutMs = 30000;
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      clearTimeout(timeoutId);
-      
-      console.log("UKG DEBUG Location API status:", response.status);
-      const responseText = await response.text();
-      console.log("UKG DEBUG Location API response (first 2000 chars):", responseText.slice(0, 2000));
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: this.getAuthHeaders(),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        return { success: false, error: `API error ${response.status}: ${responseText.slice(0, 500)}` };
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          results[endpoint] = { error: `HTTP ${response.status}` };
+          continue;
+        }
+
+        const data = await response.json();
+        const records = data.value || [];
+        
+        if (records.length > 0) {
+          const sampleRecord = records[0];
+          const fields = Object.keys(sampleRecord).filter(key => !key.startsWith("@"));
+          console.log(`UKG DEBUG ${endpoint} fields:`, fields);
+          console.log(`UKG DEBUG ${endpoint} sample:`, JSON.stringify(records.slice(0, 3), null, 2));
+          results[endpoint] = {
+            success: true,
+            count: records.length,
+            fields,
+            allRecords: records  // Return all records to see all locations
+          };
+        } else {
+          results[endpoint] = { success: true, count: 0 };
+        }
+      } catch (error: unknown) {
+        clearTimeout(timeoutId);
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`UKG DEBUG ${endpoint} error:`, message);
+        results[endpoint] = { error: message };
       }
-
-      const data = JSON.parse(responseText);
-      const records = data.value || [];
-      
-      if (records.length > 0) {
-        const sampleRecord = records[0];
-        const fields = Object.keys(sampleRecord).filter(key => !key.startsWith("@"));
-        console.log("UKG DEBUG: Location record fields:", fields);
-        console.log("UKG DEBUG: Sample Location record:", JSON.stringify(sampleRecord, null, 2));
-        return { 
-          success: true, 
-          data: records,
-          sampleRecord,
-          fields
-        };
-      }
-
-      return { success: true, data: [], error: "No location records found" };
-    } catch (error: unknown) {
-      clearTimeout(timeoutId);
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("UKG DEBUG Location API error:", message);
-      return { success: false, error: message };
     }
+
+    return { success: true, results };
   }
 }
 
