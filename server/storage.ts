@@ -11,7 +11,9 @@ import {
   timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry,
   scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate,
   publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule,
-  shiftPresets, type ShiftPreset, type InsertShiftPreset
+  shiftPresets, type ShiftPreset, type InsertShiftPreset,
+  occurrences, type Occurrence, type InsertOccurrence,
+  occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -89,6 +91,18 @@ export interface IStorage {
   createShiftPreset(preset: InsertShiftPreset): Promise<ShiftPreset>;
   updateShiftPreset(id: number, preset: Partial<InsertShiftPreset>): Promise<ShiftPreset>;
   deleteShiftPreset(id: number): Promise<void>;
+
+  // Occurrences
+  getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]>;
+  getOccurrence(id: number): Promise<Occurrence | undefined>;
+  createOccurrence(occurrence: InsertOccurrence): Promise<Occurrence>;
+  updateOccurrence(id: number, occurrence: Partial<InsertOccurrence>): Promise<Occurrence>;
+  retractOccurrence(id: number, reason: string, retractedBy: number): Promise<Occurrence>;
+  
+  // Occurrence Adjustments
+  getOccurrenceAdjustments(employeeId: number, startDate: string, endDate: string): Promise<OccurrenceAdjustment[]>;
+  getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]>;
+  createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -453,6 +467,69 @@ export class DatabaseStorage implements IStorage {
 
   async deleteShiftPreset(id: number): Promise<void> {
     await db.delete(shiftPresets).where(eq(shiftPresets.id, id));
+  }
+
+  // Occurrences
+  async getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]> {
+    return await db.select().from(occurrences)
+      .where(and(
+        eq(occurrences.employeeId, employeeId),
+        gte(occurrences.occurrenceDate, startDate),
+        lte(occurrences.occurrenceDate, endDate)
+      ))
+      .orderBy(occurrences.occurrenceDate);
+  }
+
+  async getOccurrence(id: number): Promise<Occurrence | undefined> {
+    const [occurrence] = await db.select().from(occurrences).where(eq(occurrences.id, id));
+    return occurrence;
+  }
+
+  async createOccurrence(occurrence: InsertOccurrence): Promise<Occurrence> {
+    const [newOccurrence] = await db.insert(occurrences).values(occurrence).returning();
+    return newOccurrence;
+  }
+
+  async updateOccurrence(id: number, occurrence: Partial<InsertOccurrence>): Promise<Occurrence> {
+    const [updated] = await db.update(occurrences).set(occurrence).where(eq(occurrences.id, id)).returning();
+    return updated;
+  }
+
+  async retractOccurrence(id: number, reason: string, retractedBy: number): Promise<Occurrence> {
+    const [updated] = await db.update(occurrences)
+      .set({ 
+        status: 'retracted', 
+        retractedReason: reason, 
+        retractedAt: new Date(),
+        retractedBy 
+      })
+      .where(eq(occurrences.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Occurrence Adjustments
+  async getOccurrenceAdjustments(employeeId: number, startDate: string, endDate: string): Promise<OccurrenceAdjustment[]> {
+    return await db.select().from(occurrenceAdjustments)
+      .where(and(
+        eq(occurrenceAdjustments.employeeId, employeeId),
+        gte(occurrenceAdjustments.adjustmentDate, startDate),
+        lte(occurrenceAdjustments.adjustmentDate, endDate)
+      ))
+      .orderBy(occurrenceAdjustments.adjustmentDate);
+  }
+
+  async getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]> {
+    return await db.select().from(occurrenceAdjustments)
+      .where(and(
+        eq(occurrenceAdjustments.employeeId, employeeId),
+        eq(occurrenceAdjustments.calendarYear, year)
+      ));
+  }
+
+  async createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment> {
+    const [newAdjustment] = await db.insert(occurrenceAdjustments).values(adjustment).returning();
+    return newAdjustment;
   }
 }
 
