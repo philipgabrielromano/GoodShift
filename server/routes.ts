@@ -554,8 +554,23 @@ export async function registerRoutes(
         daysWorkedOn: Set<number>; // Track which day indices they work
       }> = {};
       
+      // Calculate PAL hours per employee for the week
+      const palHoursByEmployee = new Map<number, number>();
+      [...palEntries, ...utoEntries].forEach(entry => {
+        const employee = employeeByUkgId.get(entry.ukgEmployeeId);
+        if (employee && entry.totalHours) {
+          const current = palHoursByEmployee.get(employee.id) || 0;
+          palHoursByEmployee.set(employee.id, current + entry.totalHours);
+        }
+      });
+      
       employees.forEach(emp => {
-        employeeState[emp.id] = { hoursScheduled: 0, daysWorked: 0, daysWorkedOn: new Set() };
+        // Initialize with PAL hours already counted toward weekly total
+        const palHours = palHoursByEmployee.get(emp.id) || 0;
+        employeeState[emp.id] = { hoursScheduled: palHours, daysWorked: 0, daysWorkedOn: new Set() };
+        if (palHours > 0) {
+          console.log(`[Scheduler] ${emp.name}: ${palHours} PAL/UTO hours pre-counted`);
+        }
       });
 
       // ========== HELPER FUNCTIONS ==========
