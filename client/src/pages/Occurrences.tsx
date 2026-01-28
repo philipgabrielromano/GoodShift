@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useEmployees } from "@/hooks/use-employees";
 import { useOccurrenceSummary, useRetractOccurrence, useCreateOccurrenceAdjustment } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText } from "lucide-react";
+import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
+import type { Employee } from "@shared/schema";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -22,8 +23,11 @@ interface AuthStatus {
   ssoConfigured: boolean;
 }
 
+interface MyEmployeeResponse {
+  employee: Employee | null;
+}
+
 export default function Occurrences() {
-  const { data: employees, isLoading: employeesLoading } = useEmployees();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const { toast } = useToast();
   
@@ -31,9 +35,27 @@ export default function Occurrences() {
     queryKey: ["/api/auth/status"],
   });
   
+  const isViewer = authStatus?.user?.role === "viewer";
   const canManageOccurrences = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+  
+  // Only fetch employees list for managers/admins (not viewers)
+  const { data: employees, isLoading: employeesLoading } = useEmployees({ enabled: !isViewer });
+  
+  // For viewers, fetch their linked employee
+  const { data: myEmployeeData, isLoading: myEmployeeLoading } = useQuery<MyEmployeeResponse>({
+    queryKey: ["/api/my-employee"],
+    enabled: isViewer,
+  });
+  
+  // Auto-select linked employee for viewers
+  useEffect(() => {
+    if (isViewer && myEmployeeData?.employee) {
+      setSelectedEmployeeId(myEmployeeData.employee.id);
+    }
+  }, [isViewer, myEmployeeData]);
 
-  const { data: summary, isLoading: summaryLoading } = useOccurrenceSummary(selectedEmployeeId ?? 0);
+  // Only fetch summary when we have a valid employee ID
+  const { data: summary, isLoading: summaryLoading } = useOccurrenceSummary(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
   const retractOccurrence = useRetractOccurrence();
   const createAdjustment = useCreateOccurrenceAdjustment();
 
@@ -110,33 +132,61 @@ export default function Occurrences() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Select Employee</CardTitle>
-          <CardDescription>Choose an employee to view their occurrence history.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {employeesLoading ? (
-            <Skeleton className="h-10 w-full max-w-md" />
-          ) : (
-            <Select 
-              value={selectedEmployeeId?.toString() || ""} 
-              onValueChange={(v) => setSelectedEmployeeId(v ? Number(v) : null)}
-            >
-              <SelectTrigger className="max-w-md" data-testid="select-employee">
-                <SelectValue placeholder="Select an employee..." />
-              </SelectTrigger>
-              <SelectContent>
-                {activeEmployees.map((emp) => (
-                  <SelectItem key={emp.id} value={emp.id.toString()}>
-                    {emp.name} - {getJobTitle(emp.jobTitle)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </CardContent>
-      </Card>
+      {isViewer ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <User className="w-5 h-5" />
+              My Occurrence History
+            </CardTitle>
+            <CardDescription>View your personal attendance occurrence record.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {myEmployeeLoading ? (
+              <Skeleton className="h-6 w-48" />
+            ) : myEmployeeData?.employee ? (
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{myEmployeeData.employee.name}</Badge>
+                <span className="text-sm text-muted-foreground">
+                  {getJobTitle(myEmployeeData.employee.jobTitle)}
+                </span>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No employee record is linked to your account. Please contact your manager.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Select Employee</CardTitle>
+            <CardDescription>Choose an employee to view their occurrence history.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {employeesLoading ? (
+              <Skeleton className="h-10 w-full max-w-md" />
+            ) : (
+              <Select 
+                value={selectedEmployeeId?.toString() || ""} 
+                onValueChange={(v) => setSelectedEmployeeId(v ? Number(v) : null)}
+              >
+                <SelectTrigger className="max-w-md" data-testid="select-employee">
+                  <SelectValue placeholder="Select an employee..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeEmployees.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id.toString()}>
+                      {emp.name} - {getJobTitle(emp.jobTitle)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {selectedEmployeeId && (
         <>

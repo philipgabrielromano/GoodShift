@@ -31,7 +31,8 @@ export function useOccurrences(employeeId: number, startDate: string, endDate: s
   });
 }
 
-export function useOccurrenceSummary(employeeId: number) {
+export function useOccurrenceSummary(employeeId: number, options?: { enabled?: boolean }) {
+  const externalEnabled = options?.enabled ?? true;
   return useQuery<OccurrenceSummary>({
     queryKey: ["/api/occurrences", employeeId, "summary"],
     queryFn: async () => {
@@ -41,7 +42,7 @@ export function useOccurrenceSummary(employeeId: number) {
       if (!res.ok) throw new Error("Failed to fetch occurrence summary");
       return res.json();
     },
-    enabled: !!employeeId
+    enabled: !!employeeId && externalEnabled
   });
 }
 

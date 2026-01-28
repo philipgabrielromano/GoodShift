@@ -1726,12 +1726,41 @@ export async function registerRoutes(
     }
   });
 
+  // === User's Linked Employee ===
+  // Get the current user's linked employee (for viewers to access their own data)
+  app.get("/api/my-employee", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (!user?.email) {
+        return res.json({ employee: null });
+      }
+      
+      const employees = await storage.getEmployees();
+      const linkedEmployee = employees.find(e => e.email && e.email.toLowerCase() === user.email.toLowerCase());
+      
+      res.json({ employee: linkedEmployee || null });
+    } catch (error) {
+      console.error("Error fetching linked employee:", error);
+      res.status(500).json({ message: "Failed to fetch linked employee" });
+    }
+  });
+
   // === Occurrences ===
   // Get occurrences for an employee within a date range
   app.get("/api/occurrences/:employeeId", requireAuth, async (req, res) => {
     try {
       const employeeId = Number(req.params.employeeId);
       const { startDate, endDate } = req.query;
+      const user = (req.session as any)?.user;
+      
+      // Viewers can only see their own occurrences
+      if (user.role === "viewer") {
+        const employees = await storage.getEmployees();
+        const linkedEmployee = employees.find(e => e.email && e.email.toLowerCase() === user.email.toLowerCase());
+        if (!linkedEmployee || linkedEmployee.id !== employeeId) {
+          return res.status(403).json({ message: "You can only view your own occurrence history" });
+        }
+      }
       
       if (!startDate || !endDate) {
         return res.status(400).json({ message: "startDate and endDate query parameters are required" });
@@ -1806,6 +1835,17 @@ export async function registerRoutes(
   app.get("/api/occurrences/:employeeId/summary", requireAuth, async (req, res) => {
     try {
       const employeeId = Number(req.params.employeeId);
+      const user = (req.session as any)?.user;
+      
+      // Viewers can only see their own occurrence summary
+      if (user.role === "viewer") {
+        const employees = await storage.getEmployees();
+        const linkedEmployee = employees.find(e => e.email && e.email.toLowerCase() === user.email.toLowerCase());
+        if (!linkedEmployee || linkedEmployee.id !== employeeId) {
+          return res.status(403).json({ message: "You can only view your own occurrence history" });
+        }
+      }
+      
       const now = new Date();
       const oneYearAgo = new Date(now);
       oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);

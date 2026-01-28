@@ -50,7 +50,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Holiday Management**: Automatically identifies and accounts for Easter, Thanksgiving, and Christmas, preventing scheduling on these closed days.
 - **Timezone Handling**: All scheduling is handled in Eastern Time (America/New_York).
 - **Location Management**: Admins manage store locations with weekly hours budgets, and managers view location-specific budgets.
-- **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments. Supports PDF document attachments for occurrence records.
+- **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments. Supports PDF document attachments for occurrence records. Viewers can only see their own occurrence history (linked by email match).
 
 ## External Dependencies
 

@@ -3,8 +3,9 @@ import { api, buildUrl } from "@shared/routes";
 import type { Employee, InsertEmployee } from "@shared/schema";
 
 // Fetch all employees
-export function useEmployees(options?: { retailOnly?: boolean }) {
+export function useEmployees(options?: { retailOnly?: boolean; enabled?: boolean }) {
   const retailOnly = options?.retailOnly ?? false;
+  const enabled = options?.enabled ?? true;
   const url = retailOnly 
     ? `${api.employees.list.path}?retailOnly=true`
     : api.employees.list.path;
@@ -17,6 +18,7 @@ export function useEmployees(options?: { retailOnly?: boolean }) {
       const data = await res.json();
       return api.employees.list.responses[200].parse(data);
     },
+    enabled,
   });
 }
 
