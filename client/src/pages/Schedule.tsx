@@ -1266,7 +1266,7 @@ export default function Schedule() {
                                   
                                   return (
                                     <ContextMenu key={shift.id}>
-                                      <ContextMenuTrigger asChild>
+                                      <ContextMenuTrigger>
                                         <div 
                                           draggable
                                           onDragStart={(e) => handleDragStart(e, shift)}
