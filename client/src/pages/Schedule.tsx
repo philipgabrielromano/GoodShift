@@ -712,7 +712,7 @@ export default function Schedule() {
               <SelectContent>
                 <SelectItem value="all">All Locations</SelectItem>
                 {(locations || [])
-                  .filter(l => l.isActive)
+                  .filter(l => l.isActive && !/^Location \d+$/.test(l.name))
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>

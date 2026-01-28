@@ -109,14 +109,17 @@ export default function Locations() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {locations?.length === 0 ? (
+              {locations?.filter(l => !/^Location \d+$/.test(l.name)).length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                     No locations found. Locations will be added automatically when employees are synced from UKG.
                   </TableCell>
                 </TableRow>
               ) : (
-                locations?.map((location) => (
+                locations
+                  ?.filter(l => !/^Location \d+$/.test(l.name))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map((location) => (
                   <TableRow key={location.id} data-testid={`row-location-${location.id}`}>
                     <TableCell className="font-medium">{location.name}</TableCell>
                     <TableCell>
