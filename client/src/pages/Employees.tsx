@@ -4,8 +4,9 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useEffect } from "react";
-import { Search, MoreHorizontal, Pencil, Trash2, MapPin } from "lucide-react";
+import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -132,7 +133,14 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           <span className="text-muted-foreground/50">-</span>
         )}
       </div>
-      <div className="text-sm">{employee.maxWeeklyHours}h</div>
+      <div className="text-sm flex items-center gap-1">
+        {employee.maxWeeklyHours}h
+        {employee.nonWorkingDays && employee.nonWorkingDays.length > 0 && (
+          <span className="text-muted-foreground" title={`Off: ${employee.nonWorkingDays.join(', ')}`}>
+            <CalendarOff className="w-3 h-3" />
+          </span>
+        )}
+      </div>
       <div className="text-sm">
         {isPartTime ? (
           <Select 
@@ -189,14 +197,20 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
     maxWeeklyHours: 40,
     color: "#3b82f6",
     isActive: true,
-    preferredDaysPerWeek: 5
+    preferredDaysPerWeek: 5,
+    nonWorkingDays: []
   });
+
+  const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   // Update state when dialog opens or employee changes
   useEffect(() => {
     if (open) {
       if (employee) {
-        setFormData(employee);
+        setFormData({
+          ...employee,
+          nonWorkingDays: employee.nonWorkingDays || []
+        });
       } else {
         setFormData({
           name: "",
@@ -205,11 +219,21 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
           maxWeeklyHours: 40,
           color: "#3b82f6",
           isActive: true,
-          preferredDaysPerWeek: 5
+          preferredDaysPerWeek: 5,
+          nonWorkingDays: []
         });
       }
     }
   }, [open, employee]);
+
+  const toggleDay = (day: string) => {
+    const currentDays = formData.nonWorkingDays || [];
+    if (currentDays.includes(day)) {
+      setFormData({...formData, nonWorkingDays: currentDays.filter(d => d !== day)});
+    } else {
+      setFormData({...formData, nonWorkingDays: [...currentDays, day]});
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -280,6 +304,30 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
                 className="w-12 h-10 p-1"
               />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <CalendarOff className="w-4 h-4" />
+              Days Off (Not Available to Work)
+            </Label>
+            <div className="grid grid-cols-4 gap-2">
+              {DAYS_OF_WEEK.map(day => (
+                <label 
+                  key={day} 
+                  className="flex items-center gap-2 cursor-pointer p-2 rounded-md border bg-muted/30 has-[:checked]:bg-primary/10 has-[:checked]:border-primary/50"
+                  data-testid={`checkbox-day-${day.toLowerCase()}`}
+                >
+                  <Checkbox 
+                    checked={(formData.nonWorkingDays || []).includes(day)}
+                    onCheckedChange={() => toggleDay(day)}
+                  />
+                  <span className="text-sm">{day.slice(0, 3)}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Scheduler will not assign shifts on these days.
+            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

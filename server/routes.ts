@@ -587,7 +587,17 @@ export async function registerRoutes(
         // Check PAL/UTO entries from UKG
         const dayStr = day.toISOString().split('T')[0];
         const hasPaidLeave = paidLeaveByEmpDate.has(`${empId}-${dayStr}`);
-        return hasPaidLeave;
+        if (hasPaidLeave) return true;
+        
+        // Check non-working days configuration
+        const emp = employees.find(e => e.id === empId);
+        if (emp?.nonWorkingDays && emp.nonWorkingDays.length > 0) {
+          const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          const dayName = dayNames[day.getDay()];
+          if (emp.nonWorkingDays.includes(dayName)) return true;
+        }
+        
+        return false;
       };
       
       // Get max days per week for an employee (uses preferred setting, defaults to 5)

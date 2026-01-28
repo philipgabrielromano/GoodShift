@@ -1,7 +1,9 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import { cn, getJobTitle, isHoliday } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
@@ -480,6 +482,99 @@ export default function Schedule() {
     }
   };
 
+  const handleExportPDF = () => {
+    if (!shifts || !employees) {
+      toast({ variant: "destructive", title: "Export Failed", description: "Schedule data is not loaded yet." });
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "letter" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Title
+    const locationName = selectedLocation || "All Locations";
+    const weekRange = `${format(weekStart, "MMM d")} - ${format(addDays(weekStart, 6), "MMM d, yyyy")}`;
+    doc.setFontSize(16);
+    doc.text(`Weekly Schedule - ${locationName}`, 14, 15);
+    doc.setFontSize(11);
+    doc.text(weekRange, 14, 22);
+    
+    // Filter employees by location if selected
+    const filteredEmployees = employees.filter(emp => {
+      if (!selectedLocation) return true;
+      return emp.location === selectedLocation;
+    }).sort((a, b) => {
+      const priorityA = getJobPriority(a.jobTitle);
+      const priorityB = getJobPriority(b.jobTitle);
+      if (priorityA !== priorityB) return priorityA - priorityB;
+      return a.name.localeCompare(b.name);
+    });
+    
+    if (filteredEmployees.length === 0) {
+      toast({ variant: "destructive", title: "No Employees", description: "No employees found for the selected location." });
+      return;
+    }
+    
+    // Build table data
+    const dayHeaders = weekDays.map(day => format(day, "EEE M/d"));
+    const tableHead = [["Employee", "Role", ...dayHeaders, "Total"]];
+    const totalColumnIndex = 2 + dayHeaders.length; // Employee + Role + days
+    
+    const tableBody = filteredEmployees.map(emp => {
+      const empShifts = shifts.filter(s => s.employeeId === emp.id);
+      let weeklyHours = 0;
+      
+      const dayData = weekDays.map(day => {
+        const dayShift = empShifts.find(s => isSameDay(new Date(s.startTime), day));
+        if (dayShift) {
+          const start = new Date(dayShift.startTime);
+          const end = new Date(dayShift.endTime);
+          const hours = calculatePaidHours(start, end);
+          weeklyHours += hours;
+          return `${format(start, "h:mma")}-${format(end, "h:mma")}`;
+        }
+        return "-";
+      });
+      
+      return [emp.name, getJobTitle(emp.jobTitle), ...dayData, `${weeklyHours.toFixed(1)}h`];
+    });
+    
+    // Generate table with autoTable
+    autoTable(doc, {
+      head: tableHead,
+      body: tableBody,
+      startY: 28,
+      theme: "grid",
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 35 },
+        1: { cellWidth: 25 },
+        [totalColumnIndex]: { cellWidth: 15, halign: "center" }
+      },
+      alternateRowStyles: { fillColor: [245, 247, 250] }
+    });
+    
+    // Add summary at bottom - safely get finalY with fallback
+    const lastAutoTable = (doc as any).lastAutoTable;
+    const finalY = lastAutoTable?.finalY ? lastAutoTable.finalY + 10 : 150;
+    
+    const totalScheduledHours = shifts.reduce((sum, s) => {
+      const emp = employees.find(e => e.id === s.employeeId);
+      if (selectedLocation && emp?.location !== selectedLocation) return sum;
+      return sum + calculatePaidHours(new Date(s.startTime), new Date(s.endTime));
+    }, 0);
+    
+    doc.setFontSize(10);
+    doc.text(`Total Scheduled Hours: ${totalScheduledHours.toFixed(1)}h`, 14, finalY);
+    doc.text(`Generated: ${format(new Date(), "MMM d, yyyy h:mm a")}`, pageWidth - 70, finalY);
+    
+    // Save PDF
+    const filename = `schedule_${format(weekStart, "yyyy-MM-dd")}_${locationName.replace(/\s+/g, '_')}.pdf`;
+    doc.save(filename);
+    toast({ title: "PDF Exported", description: `Schedule saved as ${filename}` });
+  };
+
   const handleSaveTemplate = async () => {
     if (!templateName.trim()) {
       toast({ variant: "destructive", title: "Name Required", description: "Please enter a template name." });
@@ -893,6 +988,15 @@ export default function Schedule() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          
+          <Button 
+            variant="outline" 
+            onClick={handleExportPDF}
+            data-testid="button-export-pdf"
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Export PDF
+          </Button>
           
           <Button 
             variant="outline" 
