@@ -3,7 +3,7 @@ import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
-import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, format, differenceInCalendarDays } from "date-fns";
+import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, subDays, format, differenceInCalendarDays } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMemo } from "react";
@@ -39,8 +39,13 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
   const start = startOfWeek(baseDate, { weekStartsOn: 0 }).toISOString();
   const end = endOfWeek(baseDate, { weekStartsOn: 0 }).toISOString();
 
+  // Calculate previous week for consecutive days check across schedule boundaries
+  const prevWeekStart = subDays(parseISO(start), 7).toISOString();
+  const prevWeekEnd = subDays(parseISO(end), 7).toISOString();
+
   const { data: employees } = useEmployees();
   const { data: shifts } = useShifts(start, end);
+  const { data: prevWeekShifts } = useShifts(prevWeekStart, prevWeekEnd);
   const { data: roles } = useRoleRequirements();
   const { data: settings } = useGlobalSettings();
   const { data: timeOff } = useTimeOffRequests();
@@ -50,7 +55,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
   }, [start]);
 
   const issues = useMemo(() => {
-    if (!employees || !shifts || !roles || !settings || !timeOff) return [];
+    if (!employees || !shifts || !roles || !settings || !timeOff || !prevWeekShifts) return [];
     
     const newIssues: Issue[] = [];
     let totalWeeklyHours = 0;
@@ -434,8 +439,69 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
     });
 
+    // Check 10: Consecutive days worked (more than 5 days in a row)
+    // This checks across schedule boundaries by looking at previous week's shifts
+    employees.forEach(emp => {
+      // Get all shift dates for this employee from both weeks
+      const currentWeekDates = shifts
+        .filter(s => s.employeeId === emp.id)
+        .map(s => format(new Date(s.startTime), 'yyyy-MM-dd'));
+      
+      const prevWeekDates = prevWeekShifts
+        .filter(s => s.employeeId === emp.id)
+        .map(s => format(new Date(s.startTime), 'yyyy-MM-dd'));
+      
+      // Combine and deduplicate dates
+      const allDatesSet = new Set([...prevWeekDates, ...currentWeekDates]);
+      const allDates = Array.from(allDatesSet).sort();
+      
+      if (allDates.length === 0) return;
+      
+      // Find consecutive day streaks
+      let currentStreak = 1;
+      let maxStreak = 1;
+      let streakStartDate = allDates[0];
+      let maxStreakStart = allDates[0];
+      let maxStreakEnd = allDates[0];
+      
+      for (let i = 1; i < allDates.length; i++) {
+        const prevDate = new Date(allDates[i - 1]);
+        const currDate = new Date(allDates[i]);
+        const daysDiff = differenceInCalendarDays(currDate, prevDate);
+        
+        if (daysDiff === 1) {
+          currentStreak++;
+          if (currentStreak > maxStreak) {
+            maxStreak = currentStreak;
+            maxStreakStart = streakStartDate;
+            maxStreakEnd = allDates[i];
+          }
+        } else {
+          currentStreak = 1;
+          streakStartDate = allDates[i];
+        }
+      }
+      
+      // Flag if more than 5 consecutive days
+      if (maxStreak > 5) {
+        // Check if any part of this streak is in the current week
+        const currentWeekStartDate = format(parseISO(start), 'yyyy-MM-dd');
+        const currentWeekEndDate = format(parseISO(end), 'yyyy-MM-dd');
+        
+        // Only show warning if the streak includes current week days
+        if (maxStreakEnd >= currentWeekStartDate && maxStreakStart <= currentWeekEndDate) {
+          const startLabel = format(new Date(maxStreakStart), "EEE M/d");
+          const endLabel = format(new Date(maxStreakEnd), "EEE M/d");
+          newIssues.push({
+            type: "warning",
+            message: `${emp.name} is scheduled ${maxStreak} days in a row (${startLabel} - ${endLabel})`
+          });
+        }
+      }
+    });
+
     return newIssues;
-  }, [employees, shifts, roles, settings, timeOff]);
+  }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, start, end]);
 
   if (!issues.length) {
     return (

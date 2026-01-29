@@ -39,7 +39,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 
 ### Key Features
 - **Auto-Generate Schedule**: Creates schedules based on availability, role requirements, time-off, and manager coverage.
-- **Schedule Validation**: Real-time checks for max hours, role coverage, budget, time-off conflicts, manager coverage, and clopening detection.
+- **Schedule Validation**: Real-time checks for max hours, role coverage, budget, time-off conflicts, manager coverage, clopening detection, and consecutive days worked (warns if >5 days in a row, checking across schedule boundaries).
 - **Schedule Publishing**: Controls visibility of schedules to employees (viewers) while managers/admins always see full schedules.
 - **User Administration**: Role-based access control (Admin, Manager, Viewer) with location-based restrictions for Managers.
 - **Retail Job Codes**: Manages scheduling for specific retail job codes and translates them for display.
