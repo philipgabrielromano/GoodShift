@@ -921,36 +921,67 @@ export async function registerRoutes(
         
         const shifts = getShiftTimes(currentDay);
         const isSaturday = dayIndex === 6;
+        const isSunday = dayIndex === 0;
 
         // On Saturdays, schedule more managers (at least 2 per shift if available)
         const saturdayManagerBonus = isSaturday ? 1 : 0;
         const managersToSchedule = managersRequired + saturdayManagerBonus;
 
-        // 1a. Morning Manager - sort by priority (who needs hours most)
+        // Get all available managers for today
         const availableManagers = managers
           .filter(m => canWorkFullShift(m, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
-        for (let i = 0; i < managersToSchedule && i < availableManagers.length; i++) {
-          scheduleShift(availableManagers[i], shifts.opener.start, shifts.opener.end, dayIndex);
-        }
-
-        // 1b. Evening Manager (different from morning)
-        const eveningManagers = managers
-          .filter(m => canWorkFullShift(m, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        // Manager scheduling strategy:
+        // - When 3+ managers available: 1 opener, 1 closer, 1 mid-shift (10-6:30)
+        // - When 2 managers: 1 opener, 1 closer
+        // - When 1 manager: opener
+        const totalManagersForDay = Math.min(availableManagers.length, managersToSchedule * 2 + 1);
         
-        for (let i = 0; i < managersToSchedule && i < eveningManagers.length; i++) {
-          scheduleShift(eveningManagers[i], shifts.closer.start, shifts.closer.end, dayIndex);
+        let scheduledManagerCount = 0;
+        
+        // 1a. Morning Manager(s) - opener shift
+        for (let i = 0; i < managersToSchedule && scheduledManagerCount < availableManagers.length; i++) {
+          const manager = availableManagers[scheduledManagerCount];
+          if (manager) {
+            scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
+            scheduledManagerCount++;
+          }
         }
 
+        // 1b. Evening Manager(s) - closer shift
+        for (let i = 0; i < managersToSchedule && scheduledManagerCount < availableManagers.length; i++) {
+          const manager = availableManagers[scheduledManagerCount];
+          if (manager) {
+            scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
+            scheduledManagerCount++;
+          }
+        }
+        
+        // 1b-2. Third manager gets mid-shift (10-6:30) when 3+ managers available
+        // This ensures coverage across all hours of operation
+        if (scheduledManagerCount >= 2 && scheduledManagerCount < availableManagers.length) {
+          const thirdManager = availableManagers[scheduledManagerCount];
+          if (thirdManager) {
+            scheduleShift(thirdManager, shifts.mid10.start, shifts.mid10.end, dayIndex);
+            scheduledManagerCount++;
+            console.log(`[Scheduler] Scheduled 3rd manager ${thirdManager.name} on mid-shift (10-6:30)`);
+          }
+        }
+
+        // Saturday gets priority for donor greeters (busiest donation day)
+        // Schedule extra greeters on Saturday compared to Sunday
+        const greeterTarget = isSaturday ? 3 : (isSunday ? 2 : 2); // Sat: 3 greeters, Sun: 2, other days: 2
+        
         // 1c. Opening Donor Greeter - prefer full-timers
         const availableGreeters = donorGreeters
           .filter(g => canWorkFullShift(g, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
-        if (availableGreeters.length > 0) {
-          scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
+        // Schedule opening greeters
+        const openingGreetersToSchedule = Math.ceil(greeterTarget / 2);
+        for (let i = 0; i < openingGreetersToSchedule && i < availableGreeters.length; i++) {
+          scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
         }
 
         // 1d. Closing Donor Greeter - prefer full-timers
@@ -958,8 +989,10 @@ export async function registerRoutes(
           .filter(g => canWorkFullShift(g, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
-        if (closingGreeters.length > 0) {
-          scheduleShift(closingGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
+        // Schedule closing greeters (remaining from target)
+        const closingGreetersToSchedule = greeterTarget - openingGreetersToSchedule;
+        for (let i = 0; i < closingGreetersToSchedule && i < closingGreeters.length; i++) {
+          scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
         }
 
         // 1e. Donation Pricers - use short morning shifts for part-timers, full for full-timers

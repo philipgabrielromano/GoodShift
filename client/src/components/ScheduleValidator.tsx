@@ -349,6 +349,35 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
     });
 
+    // Check 4b: Saturday vs Sunday donor greeter comparison
+    // Saturday is the busiest day for donations - should have >= greeters as Sunday
+    const donorGreeterCodes = ['DONDOOR', 'WVDON'];
+    const saturdayDate = weekDays.find(d => d.getDay() === 6);
+    const sundayDate = weekDays.find(d => d.getDay() === 0);
+    
+    if (saturdayDate && sundayDate) {
+      const satShifts = shifts.filter(s => isSameDay(s.startTime, saturdayDate));
+      const sunShifts = shifts.filter(s => isSameDay(s.startTime, sundayDate));
+      
+      const satGreeters = satShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp && donorGreeterCodes.includes(emp.jobTitle);
+      }).length;
+      
+      const sunGreeters = sunShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp && donorGreeterCodes.includes(emp.jobTitle);
+      }).length;
+      
+      if (sunGreeters > satGreeters && satGreeters > 0) {
+        newIssues.push({
+          type: "warning",
+          category: "staffing",
+          message: `Sunday has more donor greeters (${sunGreeters}) than Saturday (${satGreeters}) - Saturday is the busiest donation day`
+        });
+      }
+    }
+
     // Check 5: Time off conflicts
     shifts.forEach(shift => {
       const emp = employees.find(e => e.id === shift.employeeId);
