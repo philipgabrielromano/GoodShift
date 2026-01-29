@@ -996,17 +996,31 @@ export async function registerRoutes(
       // Saturday is the busiest donation day - MUST have more greeters than Sunday
       // Process Saturday FIRST, then other days in priority order
       const greeterDayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
-      const greeterTargets: Record<number, number> = {
-        6: 3, // Saturday - busiest donation day, needs 3 greeters
+      
+      // Determine targets based on pool size - if limited, reduce targets to ensure coverage across all days
+      const totalGreeterPool = donorGreeters.length;
+      const workDaysCount = 6; // Assuming 6 working days per week
+      
+      // Calculate adaptive targets based on pool size
+      // With 2 greeters doing 5 days each = 10 greeter-days available
+      // We want to spread coverage so all days get at least 1 greeter if possible
+      const greeterTargets: Record<number, number> = totalGreeterPool >= 4 ? {
+        6: 3, // Saturday - busiest donation day
         5: 2, // Friday
         0: 2, // Sunday - must not exceed Saturday
         1: 2, 2: 2, 3: 2, 4: 2 // Weekdays
+      } : {
+        // Limited pool: prioritize having coverage every day with opener+closer on Saturday
+        6: Math.min(2, totalGreeterPool), // Saturday gets opener+closer if 2+ greeters
+        5: 1, // Friday - 1 greeter
+        0: 1, // Sunday - 1 greeter (will be capped to Saturday's count)
+        1: 1, 2: 1, 3: 1, 4: 1 // Weekdays - 1 greeter each
       };
       
       // Track scheduled greeters per day to ensure Saturday >= Sunday
       const greetersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
       
-      console.log(`[Scheduler] Total donor greeters available: ${donorGreeters.length}`);
+      console.log(`[Scheduler] Total donor greeters available: ${totalGreeterPool}, using ${totalGreeterPool >= 4 ? 'standard' : 'limited pool'} targets`);
       
       for (const dayIndex of greeterDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
@@ -1019,7 +1033,7 @@ export async function registerRoutes(
         }
         
         const shifts = getShiftTimes(currentDay);
-        const target = greeterTargets[dayIndex] || 2;
+        const target = greeterTargets[dayIndex] || 1;
         const isSunday = dayIndex === 0;
         
         // For Sunday: don't schedule more greeters than Saturday has
@@ -1032,8 +1046,38 @@ export async function registerRoutes(
         
         console.log(`[Scheduler] Greeter ${dayName}: target=${target}, maxForDay=${maxForDay}, available=${availableGreeters.length}, satCount=${greetersByDay[6]}`);
         
+        // For Saturday with 2+ greeters: explicitly schedule opener + closer
+        if (dayIndex === 6 && availableGreeters.length >= 2) {
+          // Schedule first greeter as opener
+          scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
+          greetersByDay[dayIndex]++;
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[0].name} as opener`);
+          
+          // Schedule second greeter as closer
+          scheduleShift(availableGreeters[1], shifts.closer.start, shifts.closer.end, dayIndex);
+          greetersByDay[dayIndex]++;
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[1].name} as closer`);
+          
+          // If 3+ greeters and target allows, schedule additional
+          if (availableGreeters.length >= 3 && maxForDay >= 3) {
+            scheduleShift(availableGreeters[2], shifts.mid10.start, shifts.mid10.end, dayIndex);
+            greetersByDay[dayIndex]++;
+            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[2].name} as mid`);
+          }
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${greetersByDay[dayIndex]} greeters (opener+closer mode)`);
+          continue;
+        }
+        
+        // For other days or Saturday with only 1 available: schedule what we can
+        const actualTarget = Math.min(maxForDay, availableGreeters.length);
+        
+        if (actualTarget === 0) {
+          console.log(`[Scheduler] Greeter ${dayName}: No available greeters, skipping`);
+          continue;
+        }
+        
         // Schedule opening greeters (half of target, rounded up)
-        const openingTarget = Math.ceil(maxForDay / 2);
+        const openingTarget = Math.ceil(actualTarget / 2);
         let openersScheduled = 0;
         for (let i = 0; i < openingTarget && i < availableGreeters.length; i++) {
           scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
@@ -1042,13 +1086,13 @@ export async function registerRoutes(
           console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as opener`);
         }
         
-        // Get remaining available greeters for closing
+        // Get remaining available greeters for closing (re-filter after scheduling openers)
         const closingGreeters = donorGreeters
           .filter(g => canWorkFullShift(g, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
         // Schedule closing greeters
-        const closingTarget = maxForDay - openingTarget;
+        const closingTarget = actualTarget - openersScheduled;
         let closersScheduled = 0;
         for (let i = 0; i < closingTarget && i < closingGreeters.length; i++) {
           scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
@@ -1060,7 +1104,7 @@ export async function registerRoutes(
         console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${openersScheduled} openers, ${closersScheduled} closers, total=${greetersByDay[dayIndex]}`);
       }
       
-      console.log(`[Scheduler] FINAL Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}`);
+      console.log(`[Scheduler] FINAL Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}, Wed=${greetersByDay[3]}, Thu=${greetersByDay[4]}`);
 
       // Phase 1b: Schedule CASHIERS with Saturday priority
       // Saturday is the busiest sales day - MUST have more cashiers than Sunday
