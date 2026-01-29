@@ -249,6 +249,15 @@ export type InsertPublishedSchedule = z.infer<typeof insertPublishedScheduleSche
 // === OCCURRENCES (Attendance Tracking) ===
 
 // Occurrences table for tracking attendance issues (tardiness, absences, NCNS)
+// Absence reason types for occurrence tracking
+export const ABSENCE_REASONS = [
+  { value: "self_sick", label: "Self Sick", notesAvailable: false },
+  { value: "family_sick", label: "Family Sick", notesAvailable: false },
+  { value: "transportation", label: "Transportation Issue", notesAvailable: true },
+] as const;
+
+export type AbsenceReasonType = typeof ABSENCE_REASONS[number]["value"];
+
 export const occurrences = pgTable("occurrences", {
   id: serial("id").primaryKey(),
   employeeId: integer("employee_id").notNull(),
@@ -256,16 +265,18 @@ export const occurrences = pgTable("occurrences", {
   occurrenceType: text("occurrence_type").notNull(), // 'half' (0.5), 'full' (1), 'ncns' (1 + warning)
   occurrenceValue: integer("occurrence_value").notNull(), // Stored as 50 for 0.5, 100 for 1.0 (multiplied by 100)
   hoursMissed: integer("hours_missed"), // Minutes missed (for calculating type)
-  reason: text("reason"), // Description of what happened
+  reason: text("reason"), // Dropdown value: 'self_sick', 'family_sick', 'transportation'
   illnessGroupId: text("illness_group_id"), // UUID to link multi-day illness occurrences (days 1-3 = single occurrence)
   isNcns: boolean("is_ncns").notNull().default(false), // No Call/No Show flag
+  isFmla: boolean("is_fmla").notNull().default(false), // FMLA usage - does NOT count as occurrence
+  isConsecutiveSickness: boolean("is_consecutive_sickness").notNull().default(false), // Consecutive sickness - does NOT count as occurrence
   status: text("status").notNull().default("active"), // 'active' or 'retracted'
   retractedReason: text("retracted_reason"), // 'perfect_attendance', 'unscheduled_shift', or manual reason
   retractedAt: timestamp("retracted_at"), // When it was retracted
   retractedBy: integer("retracted_by"), // User ID who retracted
   createdBy: integer("created_by"), // User ID who created
   createdAt: timestamp("created_at").defaultNow(),
-  notes: text("notes"), // Additional notes
+  notes: text("notes"), // Additional notes (only available for transportation issues)
   documentUrl: text("document_url"), // URL to attached PDF documentation (stored in object storage)
 });
 
