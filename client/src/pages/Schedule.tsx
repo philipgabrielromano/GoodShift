@@ -27,6 +27,7 @@ import type { Shift, ScheduleTemplate } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
+import fanfareSound from "@assets/zelda-tp-item-fanfare_1769708907750.mp3";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -39,39 +40,12 @@ const TIMEZONE = "America/New_York";
 // Play a fanfare sound when schedule generation completes
 const playFanfare = () => {
   try {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    
-    // Fanfare notes (C major chord progression with triumphant melody)
-    const notes = [
-      { freq: 523.25, start: 0, duration: 0.15 },      // C5
-      { freq: 659.25, start: 0.1, duration: 0.15 },    // E5
-      { freq: 783.99, start: 0.2, duration: 0.15 },    // G5
-      { freq: 1046.50, start: 0.3, duration: 0.4 },    // C6 (main note)
-      { freq: 783.99, start: 0.35, duration: 0.35 },   // G5 (harmony)
-      { freq: 659.25, start: 0.4, duration: 0.3 },     // E5 (harmony)
-    ];
-    
-    notes.forEach(({ freq, start, duration }) => {
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      oscillator.frequency.value = freq;
-      oscillator.type = 'triangle'; // Softer, more musical tone
-      
-      // Fade in and out for smoother sound
-      const now = audioContext.currentTime;
-      gainNode.gain.setValueAtTime(0, now + start);
-      gainNode.gain.linearRampToValueAtTime(0.3, now + start + 0.05);
-      gainNode.gain.exponentialRampToValueAtTime(0.01, now + start + duration);
-      
-      oscillator.start(now + start);
-      oscillator.stop(now + start + duration);
+    const audio = new Audio(fanfareSound);
+    audio.volume = 0.5;
+    audio.play().catch(() => {
+      console.log('Audio playback not supported or blocked');
     });
   } catch (e) {
-    // Audio not supported, silently fail
     console.log('Audio playback not supported');
   }
 };
