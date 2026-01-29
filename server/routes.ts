@@ -49,11 +49,6 @@ export async function registerRoutes(
   app.get(api.employees.list.path, async (req, res) => {
     const user = (req.session as any)?.user;
     
-    // Viewers cannot access the employee list
-    if (user?.role === "viewer") {
-      return res.status(403).json({ message: "You do not have permission to view the employee list" });
-    }
-    
     let employees = await storage.getEmployees();
     
     // Filter by retail job codes if requested
@@ -77,6 +72,29 @@ export async function registerRoutes(
       employees = employees.filter(emp => 
         emp.location && userLocationNames.includes(emp.location)
       );
+    }
+    
+    // Viewers can only see employees for published schedules
+    // They get limited employee data (just what's needed for schedule viewing)
+    if (user?.role === "viewer") {
+      // Return limited employee data for schedule viewing
+      const limitedEmployees = employees.map(emp => ({
+        id: emp.id,
+        name: emp.name,
+        jobTitle: emp.jobTitle,
+        location: emp.location,
+        employmentType: emp.employmentType,
+        maxWeeklyHours: emp.maxWeeklyHours,
+        isActive: emp.isActive,
+        color: emp.color,
+        // Exclude sensitive fields like email, ukgId, etc.
+        email: "",
+        ukgEmployeeId: null,
+        hireDate: null,
+        preferredDaysPerWeek: emp.preferredDaysPerWeek,
+        nonWorkingDays: emp.nonWorkingDays,
+      }));
+      return res.json(limitedEmployees);
     }
     
     res.json(employees);
