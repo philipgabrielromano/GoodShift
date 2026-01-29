@@ -1006,11 +1006,17 @@ export async function registerRoutes(
       // Track scheduled greeters per day to ensure Saturday >= Sunday
       const greetersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
       
+      console.log(`[Scheduler] Total donor greeters available: ${donorGreeters.length}`);
+      
       for (const dayIndex of greeterDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
         
         // Skip holidays
-        if (isHoliday(currentDay)) continue;
+        if (isHoliday(currentDay)) {
+          console.log(`[Scheduler] Greeter ${dayName}: Skipping - holiday`);
+          continue;
+        }
         
         const shifts = getShiftTimes(currentDay);
         const target = greeterTargets[dayIndex] || 2;
@@ -1024,11 +1030,16 @@ export async function registerRoutes(
           .filter(g => canWorkFullShift(g, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
+        console.log(`[Scheduler] Greeter ${dayName}: target=${target}, maxForDay=${maxForDay}, available=${availableGreeters.length}, satCount=${greetersByDay[6]}`);
+        
         // Schedule opening greeters (half of target, rounded up)
         const openingTarget = Math.ceil(maxForDay / 2);
+        let openersScheduled = 0;
         for (let i = 0; i < openingTarget && i < availableGreeters.length; i++) {
           scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
           greetersByDay[dayIndex]++;
+          openersScheduled++;
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as opener`);
         }
         
         // Get remaining available greeters for closing
@@ -1038,13 +1049,18 @@ export async function registerRoutes(
         
         // Schedule closing greeters
         const closingTarget = maxForDay - openingTarget;
+        let closersScheduled = 0;
         for (let i = 0; i < closingTarget && i < closingGreeters.length; i++) {
           scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
           greetersByDay[dayIndex]++;
+          closersScheduled++;
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${closingGreeters[i].name} as closer`);
         }
+        
+        console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${openersScheduled} openers, ${closersScheduled} closers, total=${greetersByDay[dayIndex]}`);
       }
       
-      console.log(`[Scheduler] Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}`);
+      console.log(`[Scheduler] FINAL Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}`);
 
       // Phase 1b: Schedule CASHIERS with Saturday priority
       // Saturday is the busiest sales day - MUST have more cashiers than Sunday
@@ -1060,11 +1076,17 @@ export async function registerRoutes(
       // Track scheduled cashiers per day to ensure Saturday >= Sunday
       const cashiersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
       
+      console.log(`[Scheduler] Total cashiers available: ${cashiers.length}`);
+      
       for (const dayIndex of cashierDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
         
         // Skip holidays
-        if (isHoliday(currentDay)) continue;
+        if (isHoliday(currentDay)) {
+          console.log(`[Scheduler] Cashier ${dayName}: Skipping - holiday`);
+          continue;
+        }
         
         const shifts = getShiftTimes(currentDay);
         const baseTarget = cashierTargets[dayIndex] || openersRequired;
@@ -1073,15 +1095,22 @@ export async function registerRoutes(
         // For Sunday: don't schedule more cashiers than Saturday has
         const maxForDay = isSunday ? Math.min(baseTarget, cashiersByDay[6]) : baseTarget;
         
+        console.log(`[Scheduler] Cashier ${dayName}: baseTarget=${baseTarget}, maxForDay=${maxForDay}, satCount=${cashiersByDay[6]}`);
+        
         // Schedule opening cashiers
         const openingTarget = Math.ceil(maxForDay / 2);
         const availableOpeners = cashiers
           .filter(c => canWorkFullShift(c, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
+        console.log(`[Scheduler] Cashier ${dayName}: openingTarget=${openingTarget}, availableOpeners=${availableOpeners.length}`);
+        
+        let openersScheduled = 0;
         for (let i = 0; i < openingTarget && i < availableOpeners.length; i++) {
           scheduleShift(availableOpeners[i], shifts.opener.start, shifts.opener.end, dayIndex);
           cashiersByDay[dayIndex]++;
+          openersScheduled++;
+          console.log(`[Scheduler] Cashier ${dayName}: Scheduled ${availableOpeners[i].name} as opener`);
         }
         
         // Schedule closing cashiers
@@ -1090,13 +1119,20 @@ export async function registerRoutes(
           .filter(c => canWorkFullShift(c, currentDay, dayIndex))
           .sort(sortFullTimersFirst);
         
+        console.log(`[Scheduler] Cashier ${dayName}: closingTarget=${closingTarget}, availableClosers=${availableClosers.length}`);
+        
+        let closersScheduled = 0;
         for (let i = 0; i < closingTarget && i < availableClosers.length; i++) {
           scheduleShift(availableClosers[i], shifts.closer.start, shifts.closer.end, dayIndex);
           cashiersByDay[dayIndex]++;
+          closersScheduled++;
+          console.log(`[Scheduler] Cashier ${dayName}: Scheduled ${availableClosers[i].name} as closer`);
         }
+        
+        console.log(`[Scheduler] Cashier ${dayName}: Scheduled ${openersScheduled} openers, ${closersScheduled} closers, total=${cashiersByDay[dayIndex]}`);
       }
       
-      console.log(`[Scheduler] Cashiers by day: Sat=${cashiersByDay[6]}, Sun=${cashiersByDay[0]}, Fri=${cashiersByDay[5]}`);
+      console.log(`[Scheduler] FINAL Cashiers by day: Sat=${cashiersByDay[6]}, Sun=${cashiersByDay[0]}, Fri=${cashiersByDay[5]}`);
       
       // Log any days that couldn't get full cashier coverage
       for (const dayIndex of cashierDayOrder) {
@@ -1229,29 +1265,76 @@ export async function registerRoutes(
       // ========== PHASE 3: MAXIMIZE EMPLOYEE HOURS (Round-robin) ==========
       // Fill each employee to their max hours using round-robin across days
       // This ensures even distribution of hours across all 7 days
+      // IMPORTANT: Use Saturday-first ordering to maintain Saturday >= Sunday for greeters/cashiers
+      
+      // Track greeter/cashier counts per day for Phase 3 (continuing from Phase 1)
+      // Initialize from existing shifts
+      const phase3GreetersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+      const phase3CashiersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+      
+      // Count existing shifts from Phase 1
+      for (const shift of pendingShifts) {
+        const shiftDate = new Date(shift.date);
+        const dayOfWeek = getLocalDayOfWeek(shiftDate);
+        const emp = allEmployees.find(e => e.id === shift.employeeId);
+        if (emp) {
+          if (greeterCodes.includes(emp.jobTitle)) {
+            phase3GreetersByDay[dayOfWeek]++;
+          } else if (cashierCodes.includes(emp.jobTitle)) {
+            phase3CashiersByDay[dayOfWeek]++;
+          }
+        }
+      }
+      
+      console.log(`[Scheduler] Phase 3 starting - Greeters: Sat=${phase3GreetersByDay[6]}, Sun=${phase3GreetersByDay[0]}`);
+      console.log(`[Scheduler] Phase 3 starting - Cashiers: Sat=${phase3CashiersByDay[6]}, Sun=${phase3CashiersByDay[0]}`);
       
       // Keep filling until no one can take more shifts
       let madeProgress = true;
       let iterations = 0;
       const maxIterations = 50; // Prevent infinite loops
       
+      // Use Saturday-first day order to ensure Saturday gets priority
+      const phase3DayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
+      
       while (madeProgress && iterations < maxIterations) {
         madeProgress = false;
         iterations++;
         
-        // Process each day in sequence (round-robin across all 7 days)
-        for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        // Process each day in Saturday-first order
+        for (const dayIndex of phase3DayOrder) {
           const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
           
           // Skip holidays
           if (isHoliday(currentDay)) continue;
           
           const shifts = getShiftTimes(currentDay);
+          const isSunday = dayIndex === 0;
 
           // Find employees who can still work (either full or short shifts)
           // Sort by fewest days worked first to ensure even distribution
           const underScheduled = [...managers, ...donorGreeters, ...donationPricers, ...cashiers]
-            .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
+            .filter(e => {
+              const canWork = canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex);
+              if (!canWork) return false;
+              
+              // For Sunday: enforce Saturday >= Sunday constraint for greeters and cashiers
+              if (isSunday) {
+                if (greeterCodes.includes(e.jobTitle)) {
+                  // Only allow greeter on Sunday if Sunday count < Saturday count
+                  if (phase3GreetersByDay[0] >= phase3GreetersByDay[6]) {
+                    return false;
+                  }
+                }
+                if (cashierCodes.includes(e.jobTitle)) {
+                  // Only allow cashier on Sunday if Sunday count < Saturday count
+                  if (phase3CashiersByDay[0] >= phase3CashiersByDay[6]) {
+                    return false;
+                  }
+                }
+              }
+              return true;
+            })
             .sort((a, b) => {
               // Prefer employees who have worked fewer days (spread coverage evenly)
               const daysWorkedDiff = employeeState[a.id].daysWorked - employeeState[b.id].daysWorked;
@@ -1279,6 +1362,12 @@ export async function registerRoutes(
               if (bestShift) {
                 scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
                 madeProgress = true;
+                // Update tracking for greeters/cashiers
+                if (greeterCodes.includes(emp.jobTitle)) {
+                  phase3GreetersByDay[dayIndex]++;
+                } else if (cashierCodes.includes(emp.jobTitle)) {
+                  phase3CashiersByDay[dayIndex]++;
+                }
                 break; // Move to next day (round-robin)
               }
             }
@@ -1294,11 +1383,20 @@ export async function registerRoutes(
               }
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
+              // Update tracking for greeters/cashiers
+              if (greeterCodes.includes(emp.jobTitle)) {
+                phase3GreetersByDay[dayIndex]++;
+              } else if (cashierCodes.includes(emp.jobTitle)) {
+                phase3CashiersByDay[dayIndex]++;
+              }
               break; // Move to next day (round-robin)
             }
           }
         }
       }
+      
+      console.log(`[Scheduler] Phase 3 complete - Greeters: Sat=${phase3GreetersByDay[6]}, Sun=${phase3GreetersByDay[0]}`);
+      console.log(`[Scheduler] Phase 3 complete - Cashiers: Sat=${phase3CashiersByDay[6]}, Sun=${phase3CashiersByDay[0]}`);
 
       console.log(`[Scheduler] After Phase 3: ${pendingShifts.length} shifts, ${getTotalScheduledHours()} hours`);
 
@@ -1307,7 +1405,15 @@ export async function registerRoutes(
       // - 5h gap shift for employees with exactly 5h remaining (e.g., 24h + 5h = 29h)
       // - 5.5h short shift for employees with 5.5h+ remaining
       // Note: Managers are excluded - they should only work full opener/closer shifts for coverage
+      // IMPORTANT: Use Saturday-first ordering to maintain Saturday >= Sunday for greeters/cashiers
       const allRetailEmployees = [...donorGreeters, ...donationPricers, ...cashiers];
+      
+      // Track greeter/cashier counts for Phase 4 (continuing from Phase 3)
+      const phase4GreetersByDay = { ...phase3GreetersByDay };
+      const phase4CashiersByDay = { ...phase3CashiersByDay };
+      
+      // Use Saturday-first day order
+      const phase4DayOrder = [6, 5, 0, 1, 2, 3, 4];
       
       // Sort by employees who are closest to max (smallest gap first) to prioritize filling
       const sortedForPhase4 = [...allRetailEmployees].sort((a, b) => {
@@ -1326,12 +1432,19 @@ export async function registerRoutes(
         
         // Use gap shift (5h) if remaining is exactly 5h or close to it
         if (remaining >= 5 && remaining <= 5.5) {
-          for (let dayIndex = 0; dayIndex < 7; dayIndex++) { // Even distribution
+          for (const dayIndex of phase4DayOrder) { // Saturday-first distribution
             if (state.daysWorkedOn.has(dayIndex)) continue;
             
             const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
             if (isOnTimeOff(emp.id, currentDay, dayIndex)) continue;
             if (!canWorkGapShift(emp, currentDay, dayIndex)) continue;
+            
+            // For Sunday: enforce Saturday >= Sunday constraint
+            const isSunday = dayIndex === 0;
+            if (isSunday) {
+              if (greeterCodes.includes(emp.jobTitle) && phase4GreetersByDay[0] >= phase4GreetersByDay[6]) continue;
+              if (cashierCodes.includes(emp.jobTitle) && phase4CashiersByDay[0] >= phase4CashiersByDay[6]) continue;
+            }
             
             const shifts = getShiftTimes(currentDay);
             
@@ -1346,17 +1459,27 @@ export async function registerRoutes(
             }
             
             scheduleShift(emp, gapShift.start, gapShift.end, dayIndex);
+            // Update tracking
+            if (greeterCodes.includes(emp.jobTitle)) phase4GreetersByDay[dayIndex]++;
+            if (cashierCodes.includes(emp.jobTitle)) phase4CashiersByDay[dayIndex]++;
             break;
           }
         }
         // Use short shift (5.5h) if remaining is more than 5.5h but less than 8h
         else if (remaining >= SHORT_SHIFT_HOURS && remaining < FULL_SHIFT_HOURS) {
-          for (let dayIndex = 0; dayIndex < 7; dayIndex++) { // Even distribution
+          for (const dayIndex of phase4DayOrder) { // Saturday-first distribution
             if (state.daysWorkedOn.has(dayIndex)) continue;
             
             const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
             if (isOnTimeOff(emp.id, currentDay, dayIndex)) continue;
             if (!canWorkShortShift(emp, currentDay, dayIndex)) continue;
+            
+            // For Sunday: enforce Saturday >= Sunday constraint
+            const isSunday = dayIndex === 0;
+            if (isSunday) {
+              if (greeterCodes.includes(emp.jobTitle) && phase4GreetersByDay[0] >= phase4GreetersByDay[6]) continue;
+              if (cashierCodes.includes(emp.jobTitle) && phase4CashiersByDay[0] >= phase4CashiersByDay[6]) continue;
+            }
             
             const shifts = getShiftTimes(currentDay);
             
@@ -1371,10 +1494,16 @@ export async function registerRoutes(
             }
             
             scheduleShift(emp, shortShift.start, shortShift.end, dayIndex);
+            // Update tracking
+            if (greeterCodes.includes(emp.jobTitle)) phase4GreetersByDay[dayIndex]++;
+            if (cashierCodes.includes(emp.jobTitle)) phase4CashiersByDay[dayIndex]++;
             break;
           }
         }
       }
+      
+      console.log(`[Scheduler] Phase 4 complete - Greeters: Sat=${phase4GreetersByDay[6]}, Sun=${phase4GreetersByDay[0]}`);
+      console.log(`[Scheduler] Phase 4 complete - Cashiers: Sat=${phase4CashiersByDay[6]}, Sun=${phase4CashiersByDay[0]}`);
 
       // Debug: Log part-timer hours allocation
       const partTimerSummary = employees
