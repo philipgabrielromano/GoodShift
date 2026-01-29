@@ -922,8 +922,9 @@ export default function Schedule() {
             onClick={handleManualGenerate} 
             disabled={isManualGenerating || isAIGenerating}
             data-testid="button-generate-schedule"
+            className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950 shadow-[0_0_10px_rgba(168,85,247,0.5)] hover:shadow-[0_0_15px_rgba(168,85,247,0.7)]"
           >
-            <CalendarClock className={cn("w-4 h-4 mr-2", isManualGenerating && "animate-spin")} />
+            <span className="mr-2">✨</span>
             {isManualGenerating ? "Generating..." : "Generate"}
           </Button>
           
