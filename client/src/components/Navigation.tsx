@@ -17,7 +17,7 @@ interface AuthStatus {
 // Items shown to all authenticated users
 const viewerNavItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
-  { href: "/occurrences", label: "Occurrences", icon: AlertTriangle },
+  { href: "/attendance", label: "Attendance", icon: AlertTriangle },
 ];
 
 // Items shown to managers and admins only

@@ -2224,7 +2224,9 @@ export async function registerRoutes(
       const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
       
       // Calculate total points (stored as integers x100, so divide by 100)
-      const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
+      // FMLA and consecutive sickness occurrences do NOT count toward the total
+      const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+      const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
       // Get adjustments for the current calendar year
       const currentYear = now.getFullYear();
@@ -2355,7 +2357,9 @@ export async function registerRoutes(
       for (const emp of allEmployees) {
         const allOccurrences = await storage.getOccurrences(emp.id, startDate, endDate);
         const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
-        const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
+        // FMLA and consecutive sickness occurrences do NOT count toward the total
+        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+        const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
 
         // Get adjustments for this year
         const adjustments = await storage.getOccurrenceAdjustmentsForYear(emp.id, currentYear);
@@ -2384,6 +2388,7 @@ export async function registerRoutes(
         const netTally = Math.max(0, totalPoints + totalAdjustment);
 
         // Check thresholds (using netTally for accurate count)
+        // 5 = warning, 7 = final warning, 8 = termination
         if (netTally >= 8) {
           alerts.push({
             employeeId: emp.id,
@@ -2393,7 +2398,7 @@ export async function registerRoutes(
             occurrenceTotal: totalPoints,
             netTally,
             threshold: 8,
-            message: `${emp.name} has reached ${netTally.toFixed(1)} occurrences. Termination threshold exceeded.`
+            message: `${emp.name} has reached ${netTally.toFixed(1)} occurrences. Termination.`
           });
         } else if (netTally >= 7) {
           alerts.push({
@@ -2404,7 +2409,7 @@ export async function registerRoutes(
             occurrenceTotal: totalPoints,
             netTally,
             threshold: 7,
-            message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. At termination threshold.`
+            message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Final warning.`
           });
         } else if (netTally >= 5) {
           alerts.push({
@@ -2415,7 +2420,7 @@ export async function registerRoutes(
             occurrenceTotal: totalPoints,
             netTally,
             threshold: 5,
-            message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Final written warning threshold.`
+            message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Warning.`
           });
         }
       }

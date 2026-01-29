@@ -27,7 +27,7 @@ interface MyEmployeeResponse {
   employee: Employee | null;
 }
 
-export default function Occurrences() {
+export default function Attendance() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const { toast } = useToast();
   
@@ -171,9 +171,9 @@ export default function Occurrences() {
         <div>
           <h1 className="text-3xl font-bold font-display flex items-center gap-3">
             <AlertTriangle className="w-8 h-8 text-orange-500" />
-            Occurrences
+            Attendance
           </h1>
-          <p className="text-muted-foreground mt-1">Track and manage employee attendance occurrences.</p>
+          <p className="text-muted-foreground mt-1">Track and manage employee attendance records.</p>
         </div>
       </div>
 
@@ -182,9 +182,9 @@ export default function Occurrences() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <User className="w-5 h-5" />
-              My Occurrence History
+              My Attendance History
             </CardTitle>
-            <CardDescription>View your personal attendance occurrence record.</CardDescription>
+            <CardDescription>View your personal attendance record.</CardDescription>
           </CardHeader>
           <CardContent>
             {myEmployeeLoading ? (
@@ -207,7 +207,7 @@ export default function Occurrences() {
         <Card>
           <CardHeader>
             <CardTitle>Select Employee</CardTitle>
-            <CardDescription>Choose an employee to view their occurrence history.</CardDescription>
+            <CardDescription>Choose an employee to view their attendance history.</CardDescription>
           </CardHeader>
           <CardContent>
             {employeesLoading ? (
@@ -261,10 +261,10 @@ export default function Occurrences() {
                       <span className="text-muted-foreground mb-1">occurrences</span>
                     </div>
                     <Progress 
-                      value={(summary.totalOccurrences / 7) * 100} 
+                      value={(summary.totalOccurrences / 8) * 100} 
                       className="mt-3 h-2"
                     />
-                    <p className="text-xs text-muted-foreground mt-1">7.0 = termination threshold</p>
+                    <p className="text-xs text-muted-foreground mt-1">5 = warning, 7 = final warning, 8 = termination</p>
                   </CardContent>
                 </Card>
 
@@ -298,16 +298,20 @@ export default function Occurrences() {
                   <CardContent>
                     <div className="flex items-end gap-2">
                       <span 
-                        className={`text-4xl font-bold ${summary.netTally >= 6 ? 'text-red-600' : summary.netTally >= 4 ? 'text-orange-500' : ''}`}
+                        className={`text-4xl font-bold ${summary.netTally >= 7 ? 'text-red-600' : summary.netTally >= 5 ? 'text-orange-500' : ''}`}
                         data-testid="text-net-tally"
                       >
                         {summary.netTally.toFixed(1)}
                       </span>
                       <span className="text-muted-foreground mb-1">after adjustments</span>
                     </div>
-                    {summary.netTally >= 6 && (
+                    {summary.netTally >= 8 ? (
+                      <Badge variant="destructive" className="mt-2">Termination</Badge>
+                    ) : summary.netTally >= 7 ? (
                       <Badge variant="destructive" className="mt-2">Final Warning</Badge>
-                    )}
+                    ) : summary.netTally >= 5 ? (
+                      <Badge className="mt-2 bg-orange-500 hover:bg-orange-600">Warning</Badge>
+                    ) : null}
                   </CardContent>
                 </Card>
 

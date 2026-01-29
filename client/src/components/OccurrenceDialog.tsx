@@ -3,12 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useCreateOccurrence } from "@/hooks/use-occurrences";
 import { useToast } from "@/hooks/use-toast";
 import { useUpload } from "@/hooks/use-upload";
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { Loader2, AlertTriangle, Upload, FileText, X, Check } from "lucide-react";
+import { ABSENCE_REASONS } from "@shared/schema";
 
 interface OccurrenceDialogProps {
   isOpen: boolean;
@@ -41,18 +43,31 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
   const [occurrenceType, setOccurrenceType] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
+  const [isFmla, setIsFmla] = useState<boolean>(false);
+  const [isConsecutiveSickness, setIsConsecutiveSickness] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | null>(null);
+
+  const selectedReason = ABSENCE_REASONS.find(r => r.value === reason);
+  const notesAvailable = selectedReason?.notesAvailable ?? false;
 
   useEffect(() => {
     if (isOpen) {
       setOccurrenceType("");
       setReason("");
       setNotes("");
+      setIsFmla(false);
+      setIsConsecutiveSickness(false);
       setSelectedFile(null);
       setUploadedDocumentUrl(null);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!notesAvailable) {
+      setNotes("");
+    }
+  }, [notesAvailable]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -109,6 +124,11 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
       return;
     }
 
+    if (!reason) {
+      toast({ title: "Error", description: "Please select a reason", variant: "destructive" });
+      return;
+    }
+
     if (selectedFile && !uploadedDocumentUrl) {
       toast({ title: "Error", description: "Please upload the selected document before submitting", variant: "destructive" });
       return;
@@ -124,20 +144,23 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
         occurrenceType,
         occurrenceValue: typeInfo.points,
         isNcns: occurrenceType === "ncns",
+        isFmla,
+        isConsecutiveSickness,
         reason: reason || undefined,
-        notes: notes || undefined,
+        notes: notesAvailable ? (notes || undefined) : undefined,
         documentUrl: uploadedDocumentUrl || undefined
       });
 
+      const exemptionNote = isFmla ? " (FMLA - not counted)" : isConsecutiveSickness ? " (Consecutive sickness - not counted)" : "";
       toast({ 
-        title: "Occurrence recorded", 
-        description: `${typeInfo.label} recorded for ${employeeName}.` 
+        title: "Attendance record created", 
+        description: `${typeInfo.label} recorded for ${employeeName}${exemptionNote}.` 
       });
       onClose();
     } catch (error) {
       toast({ 
         title: "Error", 
-        description: "Failed to record occurrence", 
+        description: "Failed to record attendance", 
         variant: "destructive" 
       });
     }
@@ -151,7 +174,7 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-500" />
-            Record Occurrence
+            Record Attendance Issue
           </DialogTitle>
         </DialogHeader>
 
@@ -183,8 +206,8 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
           </div>
 
           {occurrenceType === "ncns" && (
-            <div className="rounded-md bg-red-50 border border-red-200 p-3">
-              <p className="text-sm text-red-800">
+            <div className="rounded-md bg-red-50 border border-red-200 p-3 dark:bg-red-950 dark:border-red-800">
+              <p className="text-sm text-red-800 dark:text-red-200">
                 <strong>Warning:</strong> A No Call/No Show results in 1.0 occurrence plus a final written warning. 
                 A second NCNS within 12 months results in termination.
               </p>
@@ -193,25 +216,75 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
 
           <div className="space-y-2">
             <Label htmlFor="reason">Reason</Label>
-            <Textarea
-              id="reason"
-              placeholder="Describe what happened..."
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              data-testid="input-reason"
-            />
+            <Select value={reason} onValueChange={setReason}>
+              <SelectTrigger data-testid="select-reason">
+                <SelectValue placeholder="Select reason..." />
+              </SelectTrigger>
+              <SelectContent>
+                {ABSENCE_REASONS.map((r) => (
+                  <SelectItem key={r.value} value={r.value} data-testid={`option-reason-${r.value}`}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="notes">Additional Notes (optional)</Label>
-            <Textarea
-              id="notes"
-              placeholder="Any additional notes..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              data-testid="input-notes"
-            />
+          {notesAvailable && (
+            <div className="space-y-2">
+              <Label htmlFor="notes">Additional Notes</Label>
+              <Textarea
+                id="notes"
+                placeholder="Describe the transportation issue..."
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                data-testid="input-notes"
+              />
+            </div>
+          )}
+
+          <div className="space-y-3 pt-2 border-t">
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="isFmla" 
+                checked={isFmla} 
+                onCheckedChange={(checked) => {
+                  setIsFmla(checked === true);
+                  if (checked) setIsConsecutiveSickness(false);
+                }}
+                data-testid="checkbox-fmla"
+              />
+              <Label htmlFor="isFmla" className="text-sm font-normal cursor-pointer">
+                FMLA Usage <span className="text-muted-foreground">(will not count as occurrence)</span>
+              </Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="isConsecutiveSickness" 
+                checked={isConsecutiveSickness} 
+                onCheckedChange={(checked) => {
+                  setIsConsecutiveSickness(checked === true);
+                  if (checked) setIsFmla(false);
+                }}
+                data-testid="checkbox-consecutive-sickness"
+              />
+              <Label htmlFor="isConsecutiveSickness" className="text-sm font-normal cursor-pointer">
+                Consecutive Sickness <span className="text-muted-foreground">(will not count as occurrence)</span>
+              </Label>
+            </div>
           </div>
+
+          {(isFmla || isConsecutiveSickness) && (
+            <div className="rounded-md bg-blue-50 border border-blue-200 p-3 dark:bg-blue-950 dark:border-blue-800">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                {isFmla 
+                  ? "This absence is protected under FMLA and will be documented but not counted toward the occurrence total."
+                  : "This is part of a consecutive illness period and will be documented but not counted toward the occurrence total."
+                }
+              </p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>Documentation (PDF only)</Label>
@@ -286,11 +359,11 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
             </Button>
             <Button 
               type="submit" 
-              disabled={createOccurrence.isPending || !occurrenceType || isUploading}
+              disabled={createOccurrence.isPending || !occurrenceType || !reason || isUploading}
               data-testid="button-submit"
             >
               {createOccurrence.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Record Occurrence
+              Record
             </Button>
           </DialogFooter>
         </form>

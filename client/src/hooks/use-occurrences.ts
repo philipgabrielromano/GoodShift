@@ -58,6 +58,8 @@ export function useCreateOccurrence() {
       occurrenceType: string;
       occurrenceValue: number;
       isNcns?: boolean;
+      isFmla?: boolean;
+      isConsecutiveSickness?: boolean;
       reason?: string;
       illnessGroupId?: string;
       notes?: string;

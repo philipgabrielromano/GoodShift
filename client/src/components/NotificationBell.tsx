@@ -19,9 +19,9 @@ function getThresholdColor(threshold: 5 | 7 | 8) {
 
 function getThresholdLabel(threshold: 5 | 7 | 8) {
   switch (threshold) {
-    case 8: return "Termination Exceeded";
-    case 7: return "Termination Threshold";
-    case 5: return "Final Warning";
+    case 8: return "Termination";
+    case 7: return "Final Warning";
+    case 5: return "Warning";
     default: return "";
   }
 }
@@ -33,12 +33,12 @@ export function NotificationBell() {
 
   const handleAlertClick = (alert: OccurrenceAlert) => {
     setOpen(false);
-    navigate("/occurrences");
+    navigate("/attendance");
   };
 
   const alertCount = alerts.length;
   const hasAlerts = alertCount > 0;
-  const hasCritical = alerts.some(a => a.threshold >= 7);
+  const hasCritical = alerts.some(a => a.threshold >= 8);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -64,7 +64,7 @@ export function NotificationBell() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0" data-testid="popover-notifications">
         <div className="p-3 border-b">
-          <h4 className="font-semibold">Occurrence Alerts</h4>
+          <h4 className="font-semibold">Attendance Alerts</h4>
           <p className="text-xs text-muted-foreground">Employees requiring attention</p>
         </div>
         
@@ -119,11 +119,11 @@ export function NotificationBell() {
               className="w-full"
               onClick={() => {
                 setOpen(false);
-                navigate("/occurrences");
+                navigate("/attendance");
               }}
-              data-testid="button-view-all-occurrences"
+              data-testid="button-view-all-attendance"
             >
-              View All Occurrences
+              View All Attendance Records
             </Button>
           </div>
         )}
