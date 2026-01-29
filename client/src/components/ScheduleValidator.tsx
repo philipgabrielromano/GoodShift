@@ -376,6 +376,26 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
           message: `Sunday has more donor greeters (${sunGreeters}) than Saturday (${satGreeters}) - Saturday is the busiest donation day`
         });
       }
+      
+      // Also check cashiers - Saturday should have >= cashiers as Sunday
+      const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
+      const satCashiers = satShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp && cashierCodes.includes(emp.jobTitle);
+      }).length;
+      
+      const sunCashiers = sunShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp && cashierCodes.includes(emp.jobTitle);
+      }).length;
+      
+      if (sunCashiers > satCashiers && satCashiers > 0) {
+        newIssues.push({
+          type: "warning",
+          category: "staffing",
+          message: `Sunday has more cashiers (${sunCashiers}) than Saturday (${satCashiers}) - Saturday is the busiest sales day`
+        });
+      }
     }
 
     // Check 5: Time off conflicts

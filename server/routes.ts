@@ -1046,74 +1046,70 @@ export async function registerRoutes(
       
       console.log(`[Scheduler] Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}`);
 
-      // Phase 1b: Schedule CASHIERS using ROUND-ROBIN to ensure all days get coverage
-      // This prevents Wed/Thu from having no cashiers because Sat-Tue used them all up
-      const cashierOpenersNeeded: Record<number, number> = {};
-      const cashierClosersNeeded: Record<number, number> = {};
-      const nonHolidayDays: number[] = [];
+      // Phase 1b: Schedule CASHIERS with Saturday priority
+      // Saturday is the busiest sales day - MUST have more cashiers than Sunday
+      // Process Saturday FIRST, then other days
+      const cashierDayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
+      const cashierTargets: Record<number, number> = {
+        6: Math.max(openersRequired + 1, 3), // Saturday - busiest, needs extra cashiers
+        5: openersRequired, // Friday
+        0: openersRequired, // Sunday - will be capped to Saturday's count
+        1: openersRequired, 2: openersRequired, 3: openersRequired, 4: openersRequired
+      };
       
-      // Initialize needed counts for each non-holiday day
-      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      // Track scheduled cashiers per day to ensure Saturday >= Sunday
+      const cashiersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+      
+      for (const dayIndex of cashierDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        if (!isHoliday(currentDay)) {
-          nonHolidayDays.push(dayIndex);
-          cashierOpenersNeeded[dayIndex] = openersRequired;
-          cashierClosersNeeded[dayIndex] = closersRequired;
+        
+        // Skip holidays
+        if (isHoliday(currentDay)) continue;
+        
+        const shifts = getShiftTimes(currentDay);
+        const baseTarget = cashierTargets[dayIndex] || openersRequired;
+        const isSunday = dayIndex === 0;
+        
+        // For Sunday: don't schedule more cashiers than Saturday has
+        const maxForDay = isSunday ? Math.min(baseTarget, cashiersByDay[6]) : baseTarget;
+        
+        // Schedule opening cashiers
+        const openingTarget = Math.ceil(maxForDay / 2);
+        const availableOpeners = cashiers
+          .filter(c => canWorkFullShift(c, currentDay, dayIndex))
+          .sort(sortFullTimersFirst);
+        
+        for (let i = 0; i < openingTarget && i < availableOpeners.length; i++) {
+          scheduleShift(availableOpeners[i], shifts.opener.start, shifts.opener.end, dayIndex);
+          cashiersByDay[dayIndex]++;
+        }
+        
+        // Schedule closing cashiers
+        const closingTarget = maxForDay - openingTarget;
+        const availableClosers = cashiers
+          .filter(c => canWorkFullShift(c, currentDay, dayIndex))
+          .sort(sortFullTimersFirst);
+        
+        for (let i = 0; i < closingTarget && i < availableClosers.length; i++) {
+          scheduleShift(availableClosers[i], shifts.closer.start, shifts.closer.end, dayIndex);
+          cashiersByDay[dayIndex]++;
         }
       }
-
-      // Round-robin: cycle through days, assigning ONE opener per day until all targets met
-      let madeOpenerProgress = true;
-      while (madeOpenerProgress) {
-        madeOpenerProgress = false;
-        for (const dayIndex of nonHolidayDays) {
-          if (cashierOpenersNeeded[dayIndex] <= 0) continue;
-          
-          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-          const shifts = getShiftTimes(currentDay);
-          
-          const availableCashiers = cashiers
-            .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-            .sort(sortFullTimersFirst);
-          
-          if (availableCashiers.length > 0) {
-            scheduleShift(availableCashiers[0], shifts.opener.start, shifts.opener.end, dayIndex);
-            cashierOpenersNeeded[dayIndex]--;
-            madeOpenerProgress = true;
-          }
-        }
-      }
-
-      // Round-robin: cycle through days, assigning ONE closer per day until all targets met
-      let madeCloserProgress = true;
-      while (madeCloserProgress) {
-        madeCloserProgress = false;
-        for (const dayIndex of nonHolidayDays) {
-          if (cashierClosersNeeded[dayIndex] <= 0) continue;
-          
-          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-          const shifts = getShiftTimes(currentDay);
-          
-          const availableCashiers = cashiers
-            .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-            .sort(sortFullTimersFirst);
-          
-          if (availableCashiers.length > 0) {
-            scheduleShift(availableCashiers[0], shifts.closer.start, shifts.closer.end, dayIndex);
-            cashierClosersNeeded[dayIndex]--;
-            madeCloserProgress = true;
-          }
-        }
-      }
-
+      
+      console.log(`[Scheduler] Cashiers by day: Sat=${cashiersByDay[6]}, Sun=${cashiersByDay[0]}, Fri=${cashiersByDay[5]}`);
+      
       // Log any days that couldn't get full cashier coverage
-      for (const dayIndex of nonHolidayDays) {
+      for (const dayIndex of cashierDayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        if (isHoliday(currentDay)) continue;
+        
         const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
-        if (cashierOpenersNeeded[dayIndex] > 0) {
-          console.log(`[Scheduler] WARNING: ${dayName} is short ${cashierOpenersNeeded[dayIndex]} opening cashier(s)`);
-        }
-        if (cashierClosersNeeded[dayIndex] > 0) {
-          console.log(`[Scheduler] WARNING: ${dayName} is short ${cashierClosersNeeded[dayIndex]} closing cashier(s)`);
+        const target = cashierTargets[dayIndex] || openersRequired;
+        const isSunday = dayIndex === 0;
+        const maxForDay = isSunday ? Math.min(target, cashiersByDay[6]) : target;
+        
+        if (cashiersByDay[dayIndex] < maxForDay) {
+          console.log(`[Scheduler] WARNING: ${dayName} is short ${maxForDay - cashiersByDay[dayIndex]} cashier(s)`);
         }
       }
 
