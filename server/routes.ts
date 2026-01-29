@@ -722,7 +722,12 @@ export async function registerRoutes(
         
         const getShortShift = () => {
           if (donationPricerCodes.includes(emp.jobTitle)) return shifts.shortMorning;
-          else if (donorGreeterCodes.includes(emp.jobTitle)) return shifts.shortEvening;
+          else if (donorGreeterCodes.includes(emp.jobTitle)) {
+            // Rotate greeter short shifts for variety: 10-3:30, 12-5:30, 3-8:30
+            const greeterShortOptions = [shifts.shortMid10, shifts.shortMid12, shifts.shortEvening];
+            const rotationIndex = (state.daysWorked + emp.id) % greeterShortOptions.length;
+            return greeterShortOptions[rotationIndex];
+          }
           else return shifts.shortMid;
         };
         
@@ -872,6 +877,11 @@ export async function registerRoutes(
           // Short 5.5-hour shifts (5.5 clock hours) for PT employees
           shortMorning: { start: createESTTime(day, 8, 0), end: createESTTime(day, 13, 30) },
           shortMid: { start: createESTTime(day, 11, 0), end: createESTTime(day, 16, 30) },
+          // Greeter short shift varieties for better coverage spread
+          shortMid10: { start: createESTTime(day, 10, 0), end: createESTTime(day, 15, 30) }, // 10-3:30
+          shortMid12: isSunday
+            ? { start: createESTTime(day, 12, 0), end: createESTTime(day, 17, 30) } // 12-5:30 (fits Sunday close)
+            : { start: createESTTime(day, 12, 0), end: createESTTime(day, 17, 30) }, // 12-5:30
           // Sunday short evening ends at 7:30pm
           shortEvening: isSunday
             ? { start: createESTTime(day, 14, 0), end: createESTTime(day, 19, 30) }
@@ -1022,10 +1032,17 @@ export async function registerRoutes(
       // Calculate adaptive targets based on pool size
       // With 2 greeters doing 5 days each = 10 greeter-days available
       // We want to spread coverage so all days get at least 1 greeter if possible
+      // When 4+ greeters: allow 3+ on busy days for mid-shift coverage
       const greeterTargets: Record<number, number> = totalGreeterPool >= 4 ? {
-        6: 3, // Saturday - busiest donation day
+        6: Math.min(4, totalGreeterPool), // Saturday - busiest donation day, allow 4 for opener/mid/mid/closer
+        5: 3, // Friday - allow mid-shift
+        0: 3, // Sunday - must not exceed Saturday, allow mid-shift
+        1: 3, 2: 3, 3: 3, 4: 3 // Weekdays - allow mid-shift when available
+      } : totalGreeterPool >= 3 ? {
+        // 3 greeters: opener + closer + mid on Saturday
+        6: 3, // Saturday gets full coverage
         5: 2, // Friday
-        0: 2, // Sunday - must not exceed Saturday
+        0: 2, // Sunday
         1: 2, 2: 2, 3: 2, 4: 2 // Weekdays
       } : {
         // Limited pool: prioritize having coverage every day with opener+closer on Saturday
@@ -1565,12 +1582,15 @@ export async function registerRoutes(
             
             const shifts = getShiftTimes(currentDay);
             
-            // Assign short shift based on role
+            // Assign short shift based on role with variety for greeters
             let shortShift;
             if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
               shortShift = shifts.shortMorning;
             } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
-              shortShift = shifts.shortEvening;
+              // Rotate greeter short shifts for variety: 10-3:30, 12-5:30, 3-8:30
+              const greeterShortOptions = [shifts.shortMid10, shifts.shortMid12, shifts.shortEvening];
+              const rotationIndex = (employeeState[emp.id].daysWorked + emp.id) % greeterShortOptions.length;
+              shortShift = greeterShortOptions[rotationIndex];
             } else {
               shortShift = shifts.shortMid;
             }
