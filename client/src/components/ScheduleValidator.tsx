@@ -121,6 +121,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (hours > emp.maxWeeklyHours) {
         newIssues.push({
           type: "error",
+          category: "hours",
           message: `${emp.name} is scheduled for ${hours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
         });
       }
@@ -149,6 +150,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (roleHours < role.requiredWeeklyHours) {
         newIssues.push({
           type: "warning",
+          category: "staffing",
           message: `${getJobTitle(role.jobTitle)} coverage is ${roleHours.toFixed(1)}h (Required: ${role.requiredWeeklyHours}h)`
         });
       }
@@ -213,6 +215,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (openerShifts.length < openersRequired) {
         newIssues.push({
           type: "warning",
+          category: "staffing",
           message: `${dayLabel}: ${openerShifts.length}/${openersRequired} openers scheduled`
         });
       }
@@ -220,6 +223,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (closerShifts.length < closersRequired) {
         newIssues.push({
           type: "warning",
+          category: "staffing",
           message: `${dayLabel}: ${closerShifts.length}/${closersRequired} closers scheduled`
         });
       }
@@ -227,6 +231,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (openingManagers < managersRequired) {
         newIssues.push({
           type: "error",
+          category: "staffing",
           message: `${dayLabel}: Need ${managersRequired} opening manager(s), have ${openingManagers}`,
           remediation: { day, jobTitle: "STSUPER", shiftType: "opener" }
         });
@@ -235,6 +240,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (closingManagers < managersRequired) {
         newIssues.push({
           type: "error",
+          category: "staffing",
           message: `${dayLabel}: Need ${managersRequired} closing manager(s), have ${closingManagers}`,
           remediation: { day, jobTitle: "STSUPER", shiftType: "closer" }
         });
@@ -263,6 +269,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (!openingGreeter) {
         newIssues.push({
           type: "error",
+          category: "staffing",
           message: `${dayLabel}: Missing opening donor greeter`,
           remediation: { day, jobTitle: "DONDOOR", shiftType: "opener" }
         });
@@ -271,6 +278,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (!closingGreeter) {
         newIssues.push({
           type: "error",
+          category: "staffing",
           message: `${dayLabel}: Missing closing donor greeter`,
           remediation: { day, jobTitle: "DONDOOR", shiftType: "closer" }
         });
@@ -299,6 +307,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (!openingCashier) {
         newIssues.push({
           type: "error",
+          category: "staffing",
           message: `${dayLabel}: Missing opening cashier`,
           remediation: { day, jobTitle: "CASHSLS", shiftType: "opener" }
         });
@@ -307,6 +316,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (!closingCashier) {
         newIssues.push({
           type: "error",
+          category: "staffing",
           message: `${dayLabel}: Missing closing cashier`,
           remediation: { day, jobTitle: "CASHSLS", shiftType: "closer" }
         });
@@ -328,6 +338,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (midShiftsScheduled.length === 0) {
         newIssues.push({
           type: "warning",
+          category: "staffing",
           message: `${dayLabel}: No mid-shifts scheduled (9-5:30, 10-6:30, 11-7:30)`
         });
       }
@@ -347,6 +358,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (conflicts.length > 0) {
         newIssues.push({
           type: "error",
+          category: "conflicts",
           message: `${emp.name} has a shift during approved time off`
         });
       }
@@ -383,6 +395,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
           const openDay = format(nextDate, "EEE");
           newIssues.push({
             type: "warning",
+            category: "quality",
             message: `${emp.name} has a clopening: closes ${closeDay} then opens ${openDay}`
           });
         }
@@ -430,11 +443,13 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
         if (openingCount === 0 && closingCount >= 2) {
           newIssues.push({
             type: "warning",
+            category: "quality",
             message: `${greeter.name} (Donor Greeter) has ${closingCount} closing shifts but no opening shifts - needs variety`
           });
         } else if (closingCount === 0 && openingCount >= 2) {
           newIssues.push({
             type: "warning",
+            category: "quality",
             message: `${greeter.name} (Donor Greeter) has ${openingCount} opening shifts but no closing shifts - needs variety`
           });
         }
@@ -467,6 +482,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       if (closingCount > 3) {
         newIssues.push({
           type: "warning",
+          category: "quality",
           message: `${manager.name} (${getJobTitle(manager.jobTitle)}) has ${closingCount} closing shifts this week (max 3 recommended)`
         });
       }
@@ -481,6 +497,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
         const empName = emp?.name || "Unknown";
         newIssues.push({
           type: "error",
+          category: "conflicts",
           message: `${empName} is scheduled on ${holidayName} (store is closed)`
         });
       }
@@ -541,6 +558,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
           const endLabel = format(new Date(maxStreakEnd), "EEE M/d");
           newIssues.push({
             type: "warning",
+            category: "hours",
             message: `${emp.name} is scheduled ${maxStreak} days in a row (${startLabel} - ${endLabel})`
           });
         }
@@ -549,6 +567,40 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
 
     return newIssues;
   }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, start, end]);
+
+  // Track expanded state for each category
+  const [expandedCategories, setExpandedCategories] = useState<Record<IssueCategory, boolean>>({
+    hours: true,
+    staffing: true,
+    quality: true,
+    conflicts: true
+  });
+
+  const toggleCategory = (category: IssueCategory) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [category]: !prev[category]
+    }));
+  };
+
+  // Group issues by category
+  const groupedIssues = useMemo(() => {
+    const groups: Record<IssueCategory, Issue[]> = {
+      hours: [],
+      staffing: [],
+      quality: [],
+      conflicts: []
+    };
+    
+    issues.forEach(issue => {
+      groups[issue.category].push(issue);
+    });
+    
+    return groups;
+  }, [issues]);
+
+  // Order of categories to display
+  const categoryOrder: IssueCategory[] = ["conflicts", "hours", "staffing", "quality"];
 
   if (!issues.length) {
     return (
@@ -572,35 +624,99 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
         <CardTitle className="text-lg flex items-center gap-2">
           <AlertCircle className="w-5 h-5 text-orange-500" />
           Validation Issues
+          <span className="text-sm font-normal text-muted-foreground">
+            ({issues.length} {issues.length === 1 ? 'issue' : 'issues'})
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {issues.map((issue, idx) => (
-            <div 
-              key={idx} 
-              className={cn(
-                "p-3 rounded text-sm border flex items-start gap-3",
-                issue.type === "error" ? "bg-red-50 border-red-200 text-red-800" : "bg-orange-50 border-orange-200 text-orange-800"
-              )}
-              data-testid={`validation-issue-${idx}`}
-            >
-               <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", issue.type === "error" ? "bg-red-500" : "bg-orange-500")} />
-               <span className="flex-1">{issue.message}</span>
-               {issue.remediation && onRemediate && (
-                 <Button 
-                   size="sm" 
-                   variant="outline"
-                   className="shrink-0 h-7 px-2 text-xs gap-1"
-                   onClick={() => onRemediate(issue.remediation!)}
-                   data-testid={`button-fix-issue-${idx}`}
-                 >
-                   <Wand2 className="w-3 h-3" />
-                   Fix
-                 </Button>
-               )}
-            </div>
-          ))}
+          {categoryOrder.map(category => {
+            const categoryIssues = groupedIssues[category];
+            if (categoryIssues.length === 0) return null;
+            
+            const config = categoryConfig[category];
+            const Icon = config.icon;
+            const errorCount = categoryIssues.filter(i => i.type === "error").length;
+            const warningCount = categoryIssues.filter(i => i.type === "warning").length;
+            const isExpanded = expandedCategories[category];
+            
+            return (
+              <Collapsible 
+                key={category} 
+                open={isExpanded} 
+                onOpenChange={() => toggleCategory(category)}
+              >
+                <CollapsibleTrigger asChild>
+                  <button
+                    className={cn(
+                      "w-full flex items-center justify-between p-3 rounded border transition-colors",
+                      config.headerBg,
+                      config.borderColor,
+                      config.textColor,
+                      "hover:opacity-90 cursor-pointer"
+                    )}
+                    data-testid={`button-toggle-${category}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4" />
+                      )}
+                      <Icon className="w-4 h-4" />
+                      <span className="font-medium">{config.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {errorCount > 0 && (
+                        <span className="px-2 py-0.5 text-xs font-medium rounded bg-red-500 text-white">
+                          {errorCount} error{errorCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                      {warningCount > 0 && (
+                        <span className="px-2 py-0.5 text-xs font-medium rounded bg-orange-500 text-white">
+                          {warningCount} warning{warningCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className={cn("mt-1 space-y-1 pl-2 border-l-2", config.borderColor)}>
+                    {categoryIssues.map((issue, idx) => (
+                      <div 
+                        key={idx} 
+                        className={cn(
+                          "p-2 rounded text-sm flex items-start gap-2 ml-2",
+                          config.bgColor,
+                          config.textColor
+                        )}
+                        data-testid={`validation-issue-${category}-${idx}`}
+                      >
+                        <div className={cn(
+                          "w-2 h-2 rounded-full mt-1.5 shrink-0",
+                          issue.type === "error" ? "bg-red-500" : "bg-orange-500"
+                        )} />
+                        <span className="flex-1">{issue.message}</span>
+                        {issue.remediation && onRemediate && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="shrink-0 h-6 px-2 text-xs gap-1"
+                            onClick={() => onRemediate(issue.remediation!)}
+                            data-testid={`button-fix-issue-${category}-${idx}`}
+                          >
+                            <Wand2 className="w-3 h-3" />
+                            Fix
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
         </div>
       </CardContent>
     </Card>
