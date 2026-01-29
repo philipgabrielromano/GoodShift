@@ -1274,11 +1274,11 @@ export async function registerRoutes(
       
       // Count existing shifts from Phase 1
       for (const shift of pendingShifts) {
-        const shiftDate = new Date(shift.date);
-        const dayOfWeek = getLocalDayOfWeek(shiftDate);
-        const emp = allEmployees.find(e => e.id === shift.employeeId);
+        const shiftDate = new Date(shift.startTime);
+        const dayOfWeek = shiftDate.getDay();
+        const emp = employees.find(e => e.id === shift.employeeId);
         if (emp) {
-          if (greeterCodes.includes(emp.jobTitle)) {
+          if (donorGreeterCodes.includes(emp.jobTitle)) {
             phase3GreetersByDay[dayOfWeek]++;
           } else if (cashierCodes.includes(emp.jobTitle)) {
             phase3CashiersByDay[dayOfWeek]++;
@@ -1320,7 +1320,7 @@ export async function registerRoutes(
               
               // For Sunday: enforce Saturday >= Sunday constraint for greeters and cashiers
               if (isSunday) {
-                if (greeterCodes.includes(e.jobTitle)) {
+                if (donorGreeterCodes.includes(e.jobTitle)) {
                   // Only allow greeter on Sunday if Sunday count < Saturday count
                   if (phase3GreetersByDay[0] >= phase3GreetersByDay[6]) {
                     return false;
@@ -1363,7 +1363,7 @@ export async function registerRoutes(
                 scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
                 madeProgress = true;
                 // Update tracking for greeters/cashiers
-                if (greeterCodes.includes(emp.jobTitle)) {
+                if (donorGreeterCodes.includes(emp.jobTitle)) {
                   phase3GreetersByDay[dayIndex]++;
                 } else if (cashierCodes.includes(emp.jobTitle)) {
                   phase3CashiersByDay[dayIndex]++;
@@ -1384,7 +1384,7 @@ export async function registerRoutes(
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
               // Update tracking for greeters/cashiers
-              if (greeterCodes.includes(emp.jobTitle)) {
+              if (donorGreeterCodes.includes(emp.jobTitle)) {
                 phase3GreetersByDay[dayIndex]++;
               } else if (cashierCodes.includes(emp.jobTitle)) {
                 phase3CashiersByDay[dayIndex]++;
@@ -1442,7 +1442,7 @@ export async function registerRoutes(
             // For Sunday: enforce Saturday >= Sunday constraint
             const isSunday = dayIndex === 0;
             if (isSunday) {
-              if (greeterCodes.includes(emp.jobTitle) && phase4GreetersByDay[0] >= phase4GreetersByDay[6]) continue;
+              if (donorGreeterCodes.includes(emp.jobTitle) && phase4GreetersByDay[0] >= phase4GreetersByDay[6]) continue;
               if (cashierCodes.includes(emp.jobTitle) && phase4CashiersByDay[0] >= phase4CashiersByDay[6]) continue;
             }
             
@@ -1460,7 +1460,7 @@ export async function registerRoutes(
             
             scheduleShift(emp, gapShift.start, gapShift.end, dayIndex);
             // Update tracking
-            if (greeterCodes.includes(emp.jobTitle)) phase4GreetersByDay[dayIndex]++;
+            if (donorGreeterCodes.includes(emp.jobTitle)) phase4GreetersByDay[dayIndex]++;
             if (cashierCodes.includes(emp.jobTitle)) phase4CashiersByDay[dayIndex]++;
             break;
           }
@@ -1477,7 +1477,7 @@ export async function registerRoutes(
             // For Sunday: enforce Saturday >= Sunday constraint
             const isSunday = dayIndex === 0;
             if (isSunday) {
-              if (greeterCodes.includes(emp.jobTitle) && phase4GreetersByDay[0] >= phase4GreetersByDay[6]) continue;
+              if (donorGreeterCodes.includes(emp.jobTitle) && phase4GreetersByDay[0] >= phase4GreetersByDay[6]) continue;
               if (cashierCodes.includes(emp.jobTitle) && phase4CashiersByDay[0] >= phase4CashiersByDay[6]) continue;
             }
             
@@ -1495,7 +1495,7 @@ export async function registerRoutes(
             
             scheduleShift(emp, shortShift.start, shortShift.end, dayIndex);
             // Update tracking
-            if (greeterCodes.includes(emp.jobTitle)) phase4GreetersByDay[dayIndex]++;
+            if (donorGreeterCodes.includes(emp.jobTitle)) phase4GreetersByDay[dayIndex]++;
             if (cashierCodes.includes(emp.jobTitle)) phase4CashiersByDay[dayIndex]++;
             break;
           }
