@@ -1164,20 +1164,20 @@ export default function Schedule() {
                     return shiftDateStr === dayDateStr;
                   }) || [];
                   
-                  // Get apparel pricer production (APPROC)
+                  // Get apparel pricer production (APPROC, APWV for WV)
                   const apparelPricerShifts = dayShifts.filter(s => {
                     const emp = employees?.find(e => e.id === s.employeeId);
-                    return emp?.jobTitle === 'APPROC';
+                    return emp?.jobTitle === 'APPROC' || emp?.jobTitle === 'APWV';
                   });
                   const apparelEffectiveHours = apparelPricerShifts.reduce((sum, shift) => {
                     return sum + calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
                   }, 0);
                   const apparelProduction = Math.round(apparelEffectiveHours * PIECES_PER_EFFECTIVE_HOUR);
                   
-                  // Get donation pricer production (DONPRI)
+                  // Get donation pricer production (DONPRI, DONPRWV for WV)
                   const donationPricerShifts = dayShifts.filter(s => {
                     const emp = employees?.find(e => e.id === s.employeeId);
-                    return emp?.jobTitle === 'DONPRI';
+                    return emp?.jobTitle === 'DONPRI' || emp?.jobTitle === 'DONPRWV';
                   });
                   const donationEffectiveHours = donationPricerShifts.reduce((sum, shift) => {
                     return sum + calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));

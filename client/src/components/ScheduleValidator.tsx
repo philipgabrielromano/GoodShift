@@ -191,7 +191,8 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       
       // Count managers on opening and closing shifts (must match full shift times)
       // Manager job codes: STSUPER (Store Manager), STASSTSP (Assistant Manager), STLDWKR (Team Lead)
-      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
+      // Include WV (Weirton) variants: WVSTMNG, WVSTAST, WVLDWRK
+      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
       const managerShifts = dayShifts.filter(s => {
         const emp = employees.find(e => e.id === s.employeeId);
         return emp && managerCodes.includes(emp.jobTitle);
@@ -247,9 +248,11 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
       
       // Check donor greeter coverage (one opening, one closing)
+      // Include WV variant: WVDON
+      const donorGreeterCodes = ['DONDOOR', 'WVDON'];
       const donorGreeterShifts = dayShifts.filter(s => {
         const emp = employees.find(e => e.id === s.employeeId);
-        return emp?.jobTitle === 'DONDOOR';
+        return emp && donorGreeterCodes.includes(emp.jobTitle);
       });
       
       const openingGreeter = donorGreeterShifts.some(s => {
@@ -285,9 +288,11 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
       
       // Check cashier coverage (one opening, one closing)
+      // Include WV variant: CSHSLSWV
+      const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
       const cashierShifts = dayShifts.filter(s => {
         const emp = employees.find(e => e.id === s.employeeId);
-        return emp?.jobTitle === 'CASHSLS';
+        return emp && cashierCodes.includes(emp.jobTitle);
       });
       
       const openingCashier = cashierShifts.some(s => {
@@ -404,7 +409,9 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
 
     // Check 7: Donor greeter shift variety (must have mix of opening and closing shifts)
     // This applies to both part-time and full-time employees
-    const donorGreeters = employees.filter(emp => emp.jobTitle === 'DONDOOR' && emp.isActive);
+    // Include WV variant: WVDON
+    const donorGreeterJobCodes = ['DONDOOR', 'WVDON'];
+    const donorGreeters = employees.filter(emp => donorGreeterJobCodes.includes(emp.jobTitle) && emp.isActive);
     
     donorGreeters.forEach(greeter => {
       const greeterShifts = shifts.filter(s => s.employeeId === greeter.id);
@@ -457,7 +464,8 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     });
 
     // Check 8: Manager closing shift limit (max 3 closes per week)
-    const managerJobCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
+    // Include WV variants: WVSTMNG, WVSTAST, WVLDWRK
+    const managerJobCodes = ['STSUPER', 'STASSTSP', 'STLDWRK', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
     const managers = employees.filter(emp => managerJobCodes.includes(emp.jobTitle) && emp.isActive);
     
     managers.forEach(manager => {

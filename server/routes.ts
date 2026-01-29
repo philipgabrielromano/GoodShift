@@ -698,21 +698,25 @@ export async function registerRoutes(
         const daysRemaining = maxDays - state.daysWorked;
         
         // Helper to get appropriate shift time based on job
+        // Include WV job codes in the checks
+        const donationPricerCodes = ['DONPRI', 'APPROC', 'DONPRWV', 'APWV'];
+        const donorGreeterCodes = ['DONDOOR', 'WVDON'];
+        
         const getFullShift = () => {
-          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) return shifts.opener;
-          else if (emp.jobTitle === 'DONDOOR') return shifts.closer;
+          if (donationPricerCodes.includes(emp.jobTitle)) return shifts.opener;
+          else if (donorGreeterCodes.includes(emp.jobTitle)) return shifts.closer;
           else return shifts.mid10;
         };
         
         const getShortShift = () => {
-          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) return shifts.shortMorning;
-          else if (emp.jobTitle === 'DONDOOR') return shifts.shortEvening;
+          if (donationPricerCodes.includes(emp.jobTitle)) return shifts.shortMorning;
+          else if (donorGreeterCodes.includes(emp.jobTitle)) return shifts.shortEvening;
           else return shifts.shortMid;
         };
         
         const getGapShift = () => {
-          if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) return shifts.gapMorning;
-          else if (emp.jobTitle === 'DONDOOR') return shifts.gapEvening;
+          if (donationPricerCodes.includes(emp.jobTitle)) return shifts.gapMorning;
+          else if (donorGreeterCodes.includes(emp.jobTitle)) return shifts.gapEvening;
           else return shifts.gapMid;
         };
         
@@ -824,11 +828,16 @@ export async function registerRoutes(
       };
 
       // ========== CATEGORIZE EMPLOYEES ==========
-      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR'];
+      // Include both standard and WV (Weirton) job codes
+      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
+      const donorGreeterCodes = ['DONDOOR', 'WVDON'];
+      const donationPricerCodes = ['DONPRI', 'APPROC', 'DONPRWV', 'APWV'];
+      const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
+      
       const managers = employees.filter(emp => managerCodes.includes(emp.jobTitle) && emp.isActive);
-      const donorGreeters = employees.filter(emp => emp.jobTitle === 'DONDOOR' && emp.isActive);
-      const donationPricers = employees.filter(emp => ['DONPRI', 'APPROC'].includes(emp.jobTitle) && emp.isActive);
-      const cashiers = employees.filter(emp => emp.jobTitle === 'CASHSLS' && emp.isActive);
+      const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive);
+      const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive);
+      const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive);
       
       console.log(`[Scheduler] Total employees: ${employees.length}`);
       console.log(`[Scheduler] Managers: ${managers.length}, Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
@@ -1104,7 +1113,7 @@ export async function registerRoutes(
               }
             } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
-              if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+              if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
                 shift = additionalAssigned[dayIndex] % 2 === 0 ? shifts.opener : shifts.early9;
               } else {
                 shift = shiftRotation[additionalAssigned[dayIndex] % shiftRotation.length];
@@ -1207,9 +1216,9 @@ export async function registerRoutes(
             // Full-timers get full shifts only
             else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
-              if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+              if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
                 shift = shifts.opener;
-              } else if (emp.jobTitle === 'DONDOOR') {
+              } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
                 shift = shifts.closer;
               } else {
                 shift = shifts.mid10;
@@ -1259,9 +1268,9 @@ export async function registerRoutes(
             
             // Assign gap shift based on role
             let gapShift;
-            if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
               gapShift = shifts.gapMorning;
-            } else if (emp.jobTitle === 'DONDOOR') {
+            } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
               gapShift = shifts.gapEvening;
             } else {
               gapShift = shifts.gapMid;
@@ -1284,9 +1293,9 @@ export async function registerRoutes(
             
             // Assign short shift based on role
             let shortShift;
-            if (['DONPRI', 'APPROC'].includes(emp.jobTitle)) {
+            if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
               shortShift = shifts.shortMorning;
-            } else if (emp.jobTitle === 'DONDOOR') {
+            } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
               shortShift = shifts.shortEvening;
             } else {
               shortShift = shifts.shortMid;

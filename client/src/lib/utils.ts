@@ -88,6 +88,7 @@ export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
 }
 
 const JOB_CODE_TITLES: Record<string, string> = {
+  // Standard job codes
   APPROC: "Apparel Processor",
   DONDOOR: "Donor Greeter",
   CASHSLS: "Cashier",
@@ -98,7 +99,52 @@ const JOB_CODE_TITLES: Record<string, string> = {
   STLDWKR: "Team Lead",
   PART: "Part-Time Staff",
   CUST: "Custodian",
+  // West Virginia (Weirton) job codes
+  APWV: "Apparel Processor",
+  WVDON: "Donor Greeter",
+  CSHSLSWV: "Cashier",
+  DONPRWV: "Donation Pricing",
+  WVSTMNG: "Store Manager",
+  WVSTAST: "Assistant Manager",
+  WVLDWRK: "Team Lead",
 };
+
+// Mapping of equivalent job codes (WV variants map to standard codes)
+export const JOB_CODE_EQUIVALENTS: Record<string, string> = {
+  APWV: "APPROC",
+  WVDON: "DONDOOR",
+  CSHSLSWV: "CASHSLS",
+  DONPRWV: "DONPRI",
+  WVSTMNG: "STSUPER",
+  WVSTAST: "STASSTSP",
+  WVLDWRK: "STLDWKR",
+};
+
+// Get the canonical job code (normalize WV variants to standard codes)
+export function getCanonicalJobCode(code: string): string {
+  if (!code) return "";
+  const upperCode = code.toUpperCase();
+  return JOB_CODE_EQUIVALENTS[upperCode] || upperCode;
+}
+
+// Check if a job code matches (considering WV equivalents)
+export function jobCodeMatches(code: string, targetCode: string): boolean {
+  const canonical = getCanonicalJobCode(code);
+  const targetCanonical = getCanonicalJobCode(targetCode);
+  return canonical === targetCanonical;
+}
+
+// Get all job codes that are equivalent to the given code
+export function getEquivalentJobCodes(code: string): string[] {
+  const canonical = getCanonicalJobCode(code);
+  const equivalents = [canonical];
+  for (const [wvCode, standardCode] of Object.entries(JOB_CODE_EQUIVALENTS)) {
+    if (standardCode === canonical) {
+      equivalents.push(wvCode);
+    }
+  }
+  return equivalents;
+}
 
 export function getJobTitle(code: string): string {
   if (!code) return "";

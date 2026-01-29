@@ -42,7 +42,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Schedule Validation**: Real-time checks for max hours, role coverage, budget, time-off conflicts, manager coverage, clopening detection, and consecutive days worked (warns if >5 days in a row, checking across schedule boundaries).
 - **Schedule Publishing**: Controls visibility of schedules to employees (viewers) while managers/admins always see full schedules.
 - **User Administration**: Role-based access control (Admin, Manager, Viewer) with location-based restrictions for Managers.
-- **Retail Job Codes**: Manages scheduling for specific retail job codes and translates them for display.
+- **Retail Job Codes**: Manages scheduling for specific retail job codes and translates them for display. Includes West Virginia (Weirton) variants: APWV→APPROC, WVDON→DONDOOR, CSHSLSWV→CASHSLS, DONPRWV→DONPRI, WVSTMNG→STSUPER, WVSTAST→STASSTSP, WVLDWRK→STLDWKR.
 - **Part-Time Scheduling Flexibility**: Accommodates part-time employees with flexible shift lengths and preferred days per week.
 - **Schedule Templates & Copy**: Allows managers to save, apply, and copy schedule patterns.
 - **Labor Allocation**: Configurable percentages for distributing store hours across different job functions.
