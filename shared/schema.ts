@@ -72,6 +72,14 @@ export const RETAIL_JOB_CODES = [
   "STSUPER",   // Store Manager (was STRSUPER - corrected to match UKG)
   "STASSTSP",  // Assistant Manager
   "STLDWKR",   // Team Lead
+  // West Virginia (Weirton) job code variants
+  "APWV",      // Apparel Processor (WV)
+  "WVDON",     // Donor Greeter (WV)
+  "CSHSLSWV",  // Cashier (WV)
+  "DONPRWV",   // Donation Pricing Associate (WV)
+  "WVSTMNG",   // Store Manager (WV)
+  "WVSTAST",   // Assistant Manager (WV)
+  "WVLDWRK",   // Team Lead (WV)
 ] as const;
 
 // Users table for authentication and role management
