@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -7,6 +7,7 @@ import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import goodwillLogo from "@/assets/goodwill-logo.png";
 import { NotificationBell } from "./NotificationBell";
+import { queryClient } from "@/lib/queryClient";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -87,10 +88,21 @@ export function Navigation() {
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Current User</p>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-purple-600"></div>
-              <div>
-                <p className="text-sm font-semibold">{authStatus?.user?.name || "Guest"}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
                 <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
               </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                data-testid="button-logout-sidebar"
+                onClick={() => {
+                  window.location.href = "/api/auth/logout";
+                }}
+                title="Log out"
+              >
+                <LogOut className="w-4 h-4 text-muted-foreground" />
+              </Button>
             </div>
           </div>
         </div>
@@ -133,6 +145,24 @@ export function Navigation() {
                 </Link>
               ))}
             </nav>
+            <div className="p-4 border-t mt-auto">
+              <div className="bg-muted/50 rounded p-3 mb-3">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Current User</p>
+                <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
+                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
+              </div>
+              <Button
+                variant="outline"
+                className="w-full"
+                data-testid="button-logout-mobile"
+                onClick={() => {
+                  window.location.href = "/api/auth/logout";
+                }}
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Log out
+              </Button>
+            </div>
           </SheetContent>
         </Sheet>
         </div>
