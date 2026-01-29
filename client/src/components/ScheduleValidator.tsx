@@ -1,4 +1,4 @@
-import { AlertCircle, CheckCircle2, Wand2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Wand2, ChevronDown, ChevronRight, Clock, Users, Calendar, AlertTriangle } from "lucide-react";
 import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
@@ -6,14 +6,60 @@ import { useTimeOffRequests } from "@/hooks/use-time-off";
 import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, subDays, format, differenceInCalendarDays } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { cn, getJobTitle, isHoliday } from "@/lib/utils";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
 function calculatePaidHours(startTime: Date, endTime: Date): number {
   const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
   return clockHours >= 6 ? clockHours - 0.5 : clockHours;
 }
+
+// Issue categories for grouping
+type IssueCategory = "hours" | "staffing" | "quality" | "conflicts";
+
+const categoryConfig: Record<IssueCategory, { 
+  label: string; 
+  icon: typeof Clock;
+  bgColor: string;
+  borderColor: string;
+  textColor: string;
+  headerBg: string;
+}> = {
+  hours: { 
+    label: "Hours & Limits", 
+    icon: Clock,
+    bgColor: "bg-blue-50",
+    borderColor: "border-blue-200",
+    textColor: "text-blue-800",
+    headerBg: "bg-blue-100"
+  },
+  staffing: { 
+    label: "Staffing Coverage", 
+    icon: Users,
+    bgColor: "bg-purple-50",
+    borderColor: "border-purple-200",
+    textColor: "text-purple-800",
+    headerBg: "bg-purple-100"
+  },
+  quality: { 
+    label: "Schedule Quality", 
+    icon: AlertTriangle,
+    bgColor: "bg-amber-50",
+    borderColor: "border-amber-200",
+    textColor: "text-amber-800",
+    headerBg: "bg-amber-100"
+  },
+  conflicts: { 
+    label: "Conflicts & Holidays", 
+    icon: Calendar,
+    bgColor: "bg-red-50",
+    borderColor: "border-red-200",
+    textColor: "text-red-800",
+    headerBg: "bg-red-100"
+  }
+};
 
 // Remediation metadata for clickable issues
 export interface RemediationData {
@@ -25,6 +71,7 @@ export interface RemediationData {
 interface Issue {
   type: "error" | "warning";
   message: string;
+  category: IssueCategory;
   remediation?: RemediationData;
 }
 
