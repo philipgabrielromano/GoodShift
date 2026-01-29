@@ -142,21 +142,30 @@ Available shift lengths: Full (8h), Short (5.5h), Gap (5h)
 - Openers Required: ${settings.openersRequired ?? 2}
 - Closers Required: ${settings.closersRequired ?? 2}
 - Managers Required: ${settings.managersRequired ?? 1} (one opener, one closer)
-- At least 1 Donor Greeter (DONDOOR) on opening shift
-- At least 1 Donor Greeter (DONDOOR) on closing shift
-- At least 1 Cashier (CASHSLS) on opening shift
-- At least 1 Cashier (CASHSLS) on closing shift
+- At least 1 Donor Greeter (DONDOOR or WVDON) on opening shift
+- At least 1 Donor Greeter (DONDOOR or WVDON) on closing shift
+- At least 1 Cashier (CASHSLS or CSHSLSWV) on opening shift
+- At least 1 Cashier (CASHSLS or CSHSLSWV) on closing shift
 - Fill mid-shifts to maximize coverage and hour usage
 
 ## Labor Allocation (percentage of hours by category)
-- Cashiering (CASHSLS): ${settings.cashieringPercent ?? 40}%
-- Donation Pricing (DONPRI, APPROC): ${settings.donationPricingPercent ?? 35}%
-- Donor Greeting (DONDOOR): ${settings.donorGreetingPercent ?? 25}%
+- Cashiering (CASHSLS, CSHSLSWV): ${settings.cashieringPercent ?? 40}%
+- Donation Pricing (DONPRI, DONPRWV, APPROC, APWV): ${settings.donationPricingPercent ?? 35}%
+- Donor Greeting (DONDOOR, WVDON): ${settings.donorGreetingPercent ?? 25}%
+
+## Job Code Equivalents (West Virginia Weirton variants - treat identically)
+- APWV = APPROC (Apparel Processor)
+- WVDON = DONDOOR (Donor Greeter)
+- CSHSLSWV = CASHSLS (Cashier)
+- DONPRWV = DONPRI (Donation Pricing)
+- WVSTMNG = STSUPER (Store Manager)
+- WVSTAST = STASSTSP (Assistant Manager)
+- WVLDWRK = STLDWKR (Team Lead)
 
 ## Manager Job Codes
-- STSUPER (Store Manager)
-- STASSTSP (Assistant Manager)
-- STLDWKR (Team Lead)
+- STSUPER, WVSTMNG (Store Manager)
+- STASSTSP, WVSTAST (Assistant Manager)
+- STLDWKR, WVLDWRK (Team Lead)
 
 ## ALL EMPLOYEES - SCHEDULE EACH ONE (${activeEmployees.length} total)
 Note: "Available Hours" = Max Hours minus PAL hours (PAL counts as paid time). Schedule only the Available Hours.
@@ -234,7 +243,7 @@ ${(() => {
 11. **NEVER schedule on UTO days** - Employee is on Unpaid Time Off, unavailable
 12. **NEVER schedule ANYONE on holidays** - Store is closed on Easter, Thanksgiving, and Christmas
 13. Generate shifts for ALL 7 days EXCEPT holidays (Sunday=0 through Saturday=6)
-14. STSUPER (Store Manager) counts as manager coverage for opener/closer requirements
+14. STSUPER and WVSTMNG (Store Manager) count as manager coverage for opener/closer requirements
 
 ## OUTPUT FORMAT
 
@@ -260,7 +269,7 @@ Respond with a JSON object:
 4. **Minimum 2 days off per employee** - No exceptions
 5. Never schedule an employee on a day they have approved time off
 6. **NEVER schedule on PAL or UTO days** - These are blocked days
-7. STSUPER (Store Manager) counts as manager for opening/closing coverage
+7. STSUPER and WVSTMNG (Store Manager) count as manager for opening/closing coverage
 8. Prioritize manager coverage (one manager opening, one closing each day)
 9. Ensure donor greeter coverage (one opening, one closing each day)
 10. Ensure cashier coverage (one opening, one closing each day)

@@ -4,7 +4,7 @@ import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { cn, getJobTitle, isHoliday } from "@/lib/utils";
+import { cn, getJobTitle, isHoliday, getCanonicalJobCode } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -73,11 +73,15 @@ const JOB_COLORS: Record<string, string> = {
 };
 
 function getJobColor(jobTitle: string): string {
-  return JOB_COLORS[jobTitle] ?? "#6B7280"; // Default gray
+  // Use canonical job code to ensure WV variants get the same color
+  const canonical = getCanonicalJobCode(jobTitle);
+  return JOB_COLORS[canonical] ?? "#6B7280"; // Default gray
 }
 
 function getJobPriority(jobTitle: string): number {
-  return JOB_PRIORITY[jobTitle] ?? 99;
+  // Use canonical job code to ensure WV variants get the same priority
+  const canonical = getCanonicalJobCode(jobTitle);
+  return JOB_PRIORITY[canonical] ?? 99;
 }
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
