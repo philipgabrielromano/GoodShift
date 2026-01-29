@@ -549,6 +549,18 @@ export async function registerRoutes(
       // Collect shifts in memory first, then batch insert at the end for performance
       const pendingShifts: { employeeId: number; startTime: Date; endTime: Date }[] = [];
 
+      // ========== RANDOMIZATION FOR SHIFT VARIETY ==========
+      // Fisher-Yates shuffle to randomize employee order each generation
+      // This ensures employees don't always get the same shifts (opener vs closer)
+      const shuffleArray = <T>(array: T[]): T[] => {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+      };
+
       const FULL_SHIFT_HOURS = 8; // 8.5 clock hours - 0.5 unpaid lunch = 8 paid hours
       const SHORT_SHIFT_HOURS = 5.5; // 5.5 clock hours - NO lunch deduction (less than 6 hours)
       const GAP_SHIFT_HOURS = 5; // 5 clock hours = 5 paid hours (under 6h, no lunch deduction)
@@ -894,7 +906,9 @@ export async function registerRoutes(
       // Process managers/greeters/pricers in priority order (Sat/Fri first)
       // Process cashiers using round-robin across all days
 
-      // Helper to sort employees: full-timers first, then by priority, then by ID (for determinism)
+      // Helper to sort employees: full-timers first, then by priority
+      // Note: We use shuffleArray BEFORE sorting to randomize among equal-priority employees
+      // This provides shift variety - employees won't always get the same shifts
       const sortFullTimersFirst = (a: typeof employees[0], b: typeof employees[0]) => {
         // Full-timers (>= 32h) should come before part-timers
         const aIsFullTime = a.maxWeeklyHours >= 32;
@@ -903,9 +917,13 @@ export async function registerRoutes(
         if (!aIsFullTime && bIsFullTime) return 1;
         // If same type, sort by priority
         const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
-        if (priorityDiff !== 0) return priorityDiff;
-        // Tie-breaker: sort by employee ID for deterministic results
-        return a.id - b.id;
+        return priorityDiff;
+        // No tie-breaker - the pre-shuffle provides randomness for equal priority employees
+      };
+      
+      // Helper to shuffle and then sort - provides variety while respecting priorities
+      const shuffleAndSort = (empList: typeof employees) => {
+        return shuffleArray(empList).sort(sortFullTimersFirst);
       };
 
       // Phase 1a: Schedule managers, greeters, and pricers (in priority order for weekend coverage)
@@ -927,10 +945,10 @@ export async function registerRoutes(
         const saturdayManagerBonus = isSaturday ? 1 : 0;
         const managersToSchedule = managersRequired + saturdayManagerBonus;
 
-        // Get all available managers for today
-        const availableManagers = managers
-          .filter(m => canWorkFullShift(m, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        // Get all available managers for today (shuffled for variety)
+        const availableManagers = shuffleAndSort(
+          managers.filter(m => canWorkFullShift(m, currentDay, dayIndex))
+        );
         
         // Manager scheduling strategy:
         // - When 3+ managers available: 1 opener, 1 closer, 1 mid-shift (10-6:30)
@@ -973,10 +991,10 @@ export async function registerRoutes(
         // (moved to Phase 1a-greeter section below)
 
         // 1e. Donation Pricers - use short morning shifts for part-timers, full for full-timers
-        // Pricers don't need to be there all day, just early morning for pricing
-        const availablePricers = donationPricers
-          .filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        // Pricers don't need to be there all day, just early morning for pricing (shuffled for variety)
+        const availablePricers = shuffleAndSort(
+          donationPricers.filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
+        );
         
         // Schedule at least 2 pricers per day on early shifts
         const minPricers = Math.min(2, availablePricers.length);
@@ -1039,10 +1057,10 @@ export async function registerRoutes(
         // For Sunday: don't schedule more greeters than Saturday has
         const maxForDay = isSunday ? Math.min(target, greetersByDay[6]) : target;
         
-        // Get available greeters for this day
-        const availableGreeters = donorGreeters
-          .filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        // Get available greeters for this day (shuffled for variety)
+        const availableGreeters = shuffleAndSort(
+          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+        );
         
         console.log(`[Scheduler] Greeter ${dayName}: target=${target}, maxForDay=${maxForDay}, available=${availableGreeters.length}, satCount=${greetersByDay[6]}`);
         
@@ -1086,10 +1104,10 @@ export async function registerRoutes(
           console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as opener`);
         }
         
-        // Get remaining available greeters for closing (re-filter after scheduling openers)
-        const closingGreeters = donorGreeters
-          .filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        // Get remaining available greeters for closing (re-filter after scheduling openers, shuffled)
+        const closingGreeters = shuffleAndSort(
+          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+        );
         
         // Schedule closing greeters
         const closingTarget = actualTarget - openersScheduled;
@@ -1141,11 +1159,11 @@ export async function registerRoutes(
         
         console.log(`[Scheduler] Cashier ${dayName}: baseTarget=${baseTarget}, maxForDay=${maxForDay}, satCount=${cashiersByDay[6]}`);
         
-        // Schedule opening cashiers
+        // Schedule opening cashiers (shuffled for variety)
         const openingTarget = Math.ceil(maxForDay / 2);
-        const availableOpeners = cashiers
-          .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        const availableOpeners = shuffleAndSort(
+          cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex))
+        );
         
         console.log(`[Scheduler] Cashier ${dayName}: openingTarget=${openingTarget}, availableOpeners=${availableOpeners.length}`);
         
@@ -1157,11 +1175,11 @@ export async function registerRoutes(
           console.log(`[Scheduler] Cashier ${dayName}: Scheduled ${availableOpeners[i].name} as opener`);
         }
         
-        // Schedule closing cashiers
+        // Schedule closing cashiers (shuffled for variety)
         const closingTarget = maxForDay - openingTarget;
-        const availableClosers = cashiers
-          .filter(c => canWorkFullShift(c, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
+        const availableClosers = shuffleAndSort(
+          cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex))
+        );
         
         console.log(`[Scheduler] Cashier ${dayName}: closingTarget=${closingTarget}, availableClosers=${availableClosers.length}`);
         
@@ -1228,19 +1246,17 @@ export async function registerRoutes(
           
           const shifts = getShiftTimes(currentDay);
           
-          // Get all available employees who can work any shift today
-          // Sort by fewest days worked first (to spread evenly), then by priority, then ID
+          // Get all available employees who can work any shift today (shuffled for variety)
+          // Sort by fewest days worked first (to spread evenly), then by priority
           // Include donor greeters for Saturday-priority additional staffing
-          const allAvailable = [...donorGreeters, ...donationPricers, ...cashiers]
+          const allAvailable = shuffleArray([...donorGreeters, ...donationPricers, ...cashiers])
             .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
             .sort((a, b) => {
               // Prefer employees who have worked fewer days (spread coverage evenly)
               const daysWorkedDiff = employeeState[a.id].daysWorked - employeeState[b.id].daysWorked;
               if (daysWorkedDiff !== 0) return daysWorkedDiff;
-              // Then by priority
-              const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
-              if (priorityDiff !== 0) return priorityDiff;
-              return a.id - b.id;
+              // Then by priority (pre-shuffle provides randomness for equal priority)
+              return getEmployeePriority(a) - getEmployeePriority(b);
             });
           
           // Try to assign just ONE shift per day per cycle (round-robin)
@@ -1356,8 +1372,8 @@ export async function registerRoutes(
           const isSunday = dayIndex === 0;
 
           // Find employees who can still work (either full or short shifts)
-          // Sort by fewest days worked first to ensure even distribution
-          const underScheduled = [...managers, ...donorGreeters, ...donationPricers, ...cashiers]
+          // Shuffle first, then sort by fewest days worked for even distribution with variety
+          const underScheduled = shuffleArray([...managers, ...donorGreeters, ...donationPricers, ...cashiers])
             .filter(e => {
               const canWork = canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex);
               if (!canWork) return false;
@@ -1383,10 +1399,8 @@ export async function registerRoutes(
               // Prefer employees who have worked fewer days (spread coverage evenly)
               const daysWorkedDiff = employeeState[a.id].daysWorked - employeeState[b.id].daysWorked;
               if (daysWorkedDiff !== 0) return daysWorkedDiff;
-              // Then by priority (who needs more hours)
-              const priorityDiff = getEmployeePriority(a) - getEmployeePriority(b);
-              if (priorityDiff !== 0) return priorityDiff;
-              return a.id - b.id;
+              // Then by priority (pre-shuffle provides randomness for equal priority)
+              return getEmployeePriority(a) - getEmployeePriority(b);
             });
 
           // Assign ONE employee per day per iteration (round-robin)
@@ -1394,8 +1408,8 @@ export async function registerRoutes(
             // Managers always get full shifts (opener or closer only)
             if (managerCodes.includes(emp.jobTitle)) {
               if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
-              // Deterministic: alternate based on employee ID to ensure consistent results
-              const shift = (emp.id % 2 === 0) ? shifts.opener : shifts.closer;
+              // Randomize opener vs closer for variety
+              const shift = Math.random() < 0.5 ? shifts.opener : shifts.closer;
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
               break; // Move to next day (round-robin)
@@ -1459,12 +1473,12 @@ export async function registerRoutes(
       // Use Saturday-first day order
       const phase4DayOrder = [6, 5, 0, 1, 2, 3, 4];
       
-      // Sort by employees who are closest to max (smallest gap first) to prioritize filling
-      const sortedForPhase4 = [...allRetailEmployees].sort((a, b) => {
+      // Shuffle first, then sort by employees who are closest to max (smallest gap first)
+      // This provides variety for employees with similar remaining hours
+      const sortedForPhase4 = shuffleArray([...allRetailEmployees]).sort((a, b) => {
         const gapA = getRemainingHours(a);
         const gapB = getRemainingHours(b);
-        if (gapA !== gapB) return gapA - gapB; // Smallest gap first
-        return a.id - b.id; // Tie-breaker
+        return gapA - gapB; // Smallest gap first, pre-shuffle provides randomness for ties
       });
       
       for (const emp of sortedForPhase4) {

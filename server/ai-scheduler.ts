@@ -117,6 +117,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 ## CRITICAL GOAL
 **MAXIMIZE EACH EMPLOYEE'S HOURS** - Schedule every employee as close to their maxWeeklyHours as possible
 **SCHEDULE EVERY EMPLOYEE** - You have ${activeEmployees.length} employees. Each should get shifts up to their max hours.
+**PROVIDE VARIETY** - Rotate shift types (opener/mid/closer) among employees. Don't always assign the same person to the same shift type. This ensures fairness - nobody should always get closing shifts.
 
 ## Shift Types
 ### Full Shifts (8.5 clock hours = 8 PAID hours, includes 30-min unpaid lunch)
