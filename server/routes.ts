@@ -969,31 +969,8 @@ export async function registerRoutes(
           }
         }
 
-        // Saturday gets priority for donor greeters (busiest donation day)
-        // Schedule extra greeters on Saturday compared to Sunday
-        const greeterTarget = isSaturday ? 3 : (isSunday ? 2 : 2); // Sat: 3 greeters, Sun: 2, other days: 2
-        
-        // 1c. Opening Donor Greeter - prefer full-timers
-        const availableGreeters = donorGreeters
-          .filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
-        
-        // Schedule opening greeters
-        const openingGreetersToSchedule = Math.ceil(greeterTarget / 2);
-        for (let i = 0; i < openingGreetersToSchedule && i < availableGreeters.length; i++) {
-          scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
-        }
-
-        // 1d. Closing Donor Greeter - prefer full-timers
-        const closingGreeters = donorGreeters
-          .filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          .sort(sortFullTimersFirst);
-        
-        // Schedule closing greeters (remaining from target)
-        const closingGreetersToSchedule = greeterTarget - openingGreetersToSchedule;
-        for (let i = 0; i < closingGreetersToSchedule && i < closingGreeters.length; i++) {
-          scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
-        }
+        // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority
+        // (moved to Phase 1a-greeter section below)
 
         // 1e. Donation Pricers - use short morning shifts for part-timers, full for full-timers
         // Pricers don't need to be there all day, just early morning for pricing
@@ -1014,6 +991,60 @@ export async function registerRoutes(
           }
         }
       }
+
+      // Phase 1a-greeter: Schedule DONOR GREETERS with Saturday priority
+      // Saturday is the busiest donation day - MUST have more greeters than Sunday
+      // Process Saturday FIRST, then other days in priority order
+      const greeterDayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
+      const greeterTargets: Record<number, number> = {
+        6: 3, // Saturday - busiest donation day, needs 3 greeters
+        5: 2, // Friday
+        0: 2, // Sunday - must not exceed Saturday
+        1: 2, 2: 2, 3: 2, 4: 2 // Weekdays
+      };
+      
+      // Track scheduled greeters per day to ensure Saturday >= Sunday
+      const greetersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+      
+      for (const dayIndex of greeterDayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        
+        // Skip holidays
+        if (isHoliday(currentDay)) continue;
+        
+        const shifts = getShiftTimes(currentDay);
+        const target = greeterTargets[dayIndex] || 2;
+        const isSunday = dayIndex === 0;
+        
+        // For Sunday: don't schedule more greeters than Saturday has
+        const maxForDay = isSunday ? Math.min(target, greetersByDay[6]) : target;
+        
+        // Get available greeters for this day
+        const availableGreeters = donorGreeters
+          .filter(g => canWorkFullShift(g, currentDay, dayIndex))
+          .sort(sortFullTimersFirst);
+        
+        // Schedule opening greeters (half of target, rounded up)
+        const openingTarget = Math.ceil(maxForDay / 2);
+        for (let i = 0; i < openingTarget && i < availableGreeters.length; i++) {
+          scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
+          greetersByDay[dayIndex]++;
+        }
+        
+        // Get remaining available greeters for closing
+        const closingGreeters = donorGreeters
+          .filter(g => canWorkFullShift(g, currentDay, dayIndex))
+          .sort(sortFullTimersFirst);
+        
+        // Schedule closing greeters
+        const closingTarget = maxForDay - openingTarget;
+        for (let i = 0; i < closingTarget && i < closingGreeters.length; i++) {
+          scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
+          greetersByDay[dayIndex]++;
+        }
+      }
+      
+      console.log(`[Scheduler] Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}`);
 
       // Phase 1b: Schedule CASHIERS using ROUND-ROBIN to ensure all days get coverage
       // This prevents Wed/Thu from having no cashiers because Sat-Tue used them all up
