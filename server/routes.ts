@@ -1094,32 +1094,56 @@ export async function registerRoutes(
           continue;
         }
         
-        // Schedule opening greeters (half of target, rounded up)
-        const openingTarget = Math.ceil(actualTarget / 2);
-        let openersScheduled = 0;
-        for (let i = 0; i < openingTarget && i < availableGreeters.length; i++) {
-          scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
+        // When 3+ greeters: 1 opener, 1 closer, 1+ mid-shift (like managers)
+        // When 2 greeters: 1 opener, 1 closer
+        // When 1 greeter: 1 opener
+        if (actualTarget >= 3) {
+          // Schedule 1 opener
+          scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
           greetersByDay[dayIndex]++;
-          openersScheduled++;
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as opener`);
-        }
-        
-        // Get remaining available greeters for closing (re-filter after scheduling openers, shuffled)
-        const closingGreeters = shuffleAndSort(
-          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
-        );
-        
-        // Schedule closing greeters
-        const closingTarget = actualTarget - openersScheduled;
-        let closersScheduled = 0;
-        for (let i = 0; i < closingTarget && i < closingGreeters.length; i++) {
-          scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[0].name} as opener`);
+          
+          // Schedule 1 closer
+          scheduleShift(availableGreeters[1], shifts.closer.start, shifts.closer.end, dayIndex);
           greetersByDay[dayIndex]++;
-          closersScheduled++;
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${closingGreeters[i].name} as closer`);
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[1].name} as closer`);
+          
+          // Schedule remaining as mid-shift (10-6:30) for coverage across all hours
+          for (let i = 2; i < actualTarget && i < availableGreeters.length; i++) {
+            scheduleShift(availableGreeters[i], shifts.mid10.start, shifts.mid10.end, dayIndex);
+            greetersByDay[dayIndex]++;
+            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as mid-shift (10-6:30)`);
+          }
+          
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled 1 opener, 1 closer, ${actualTarget - 2} mid-shift, total=${greetersByDay[dayIndex]}`);
+        } else {
+          // Schedule opening greeters (half of target, rounded up)
+          const openingTarget = Math.ceil(actualTarget / 2);
+          let openersScheduled = 0;
+          for (let i = 0; i < openingTarget && i < availableGreeters.length; i++) {
+            scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
+            greetersByDay[dayIndex]++;
+            openersScheduled++;
+            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as opener`);
+          }
+          
+          // Get remaining available greeters for closing (re-filter after scheduling openers, shuffled)
+          const closingGreeters = shuffleAndSort(
+            donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+          );
+          
+          // Schedule closing greeters
+          const closingTarget = actualTarget - openersScheduled;
+          let closersScheduled = 0;
+          for (let i = 0; i < closingTarget && i < closingGreeters.length; i++) {
+            scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
+            greetersByDay[dayIndex]++;
+            closersScheduled++;
+            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${closingGreeters[i].name} as closer`);
+          }
+          
+          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${openersScheduled} openers, ${closersScheduled} closers, total=${greetersByDay[dayIndex]}`);
         }
-        
-        console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${openersScheduled} openers, ${closersScheduled} closers, total=${greetersByDay[dayIndex]}`);
       }
       
       console.log(`[Scheduler] FINAL Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}, Wed=${greetersByDay[3]}, Thu=${greetersByDay[4]}`);
