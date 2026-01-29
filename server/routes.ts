@@ -1115,9 +1115,9 @@ export async function registerRoutes(
 
       console.log(`[Scheduler] After Phase 1: ${pendingShifts.length} shifts scheduled`);
 
-      // ========== PHASE 2: FILL REMAINING CAPACITY (Round-robin for even distribution) ==========
-      // Use round-robin approach: assign one shift per day, cycling through all 7 days
-      // This ensures Wed/Thu get staff before Sat/Fri use up all available employees
+      // ========== PHASE 2: FILL REMAINING CAPACITY (Saturday-first for priority staffing) ==========
+      // Process Saturday first, then other weekend days, then weekdays
+      // This ensures Saturday and Friday get adequate staffing before weekdays
       // Part-timers get flexible shift selection (full or short based on what maximizes hours)
       
       // Track how many additional shifts we want per day (Sat/Fri get 30% more)
@@ -1129,13 +1129,16 @@ export async function registerRoutes(
         additionalAssigned[d] = 0;
       }
       
+      // Saturday-first day order for Phase 2 (matching Phase 1)
+      const phase2DayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat, Fri, Sun, Mon, Tue, Wed, Thu
+      
       // Round-robin: keep cycling through days until all targets are met or no progress
       let phase2Progress = true;
       while (phase2Progress) {
         phase2Progress = false;
         
-        // Process each day in order (0-6 = Sun-Sat)
-        for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        // Process days in Saturday-first order
+        for (const dayIndex of phase2DayOrder) {
           if (additionalAssigned[dayIndex] >= additionalTargets[dayIndex]) continue;
           
           const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
@@ -1147,7 +1150,8 @@ export async function registerRoutes(
           
           // Get all available employees who can work any shift today
           // Sort by fewest days worked first (to spread evenly), then by priority, then ID
-          const allAvailable = [...donationPricers, ...cashiers]
+          // Include donor greeters for Saturday-priority additional staffing
+          const allAvailable = [...donorGreeters, ...donationPricers, ...cashiers]
             .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
             .sort((a, b) => {
               // Prefer employees who have worked fewer days (spread coverage evenly)
@@ -1174,8 +1178,13 @@ export async function registerRoutes(
             } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
               if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
+                // Donation pricers work morning shifts
                 shift = additionalAssigned[dayIndex] % 2 === 0 ? shifts.opener : shifts.early9;
+              } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
+                // Donor greeters work afternoon/closing shifts
+                shift = additionalAssigned[dayIndex] % 2 === 0 ? shifts.closer : shifts.mid11;
               } else {
+                // Cashiers and others rotate through shifts
                 shift = shiftRotation[additionalAssigned[dayIndex] % shiftRotation.length];
               }
               scheduleShift(emp, shift.start, shift.end, dayIndex);
