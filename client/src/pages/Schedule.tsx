@@ -36,6 +36,46 @@ interface AuthStatus {
 
 const TIMEZONE = "America/New_York";
 
+// Play a fanfare sound when schedule generation completes
+const playFanfare = () => {
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    
+    // Fanfare notes (C major chord progression with triumphant melody)
+    const notes = [
+      { freq: 523.25, start: 0, duration: 0.15 },      // C5
+      { freq: 659.25, start: 0.1, duration: 0.15 },    // E5
+      { freq: 783.99, start: 0.2, duration: 0.15 },    // G5
+      { freq: 1046.50, start: 0.3, duration: 0.4 },    // C6 (main note)
+      { freq: 783.99, start: 0.35, duration: 0.35 },   // G5 (harmony)
+      { freq: 659.25, start: 0.4, duration: 0.3 },     // E5 (harmony)
+    ];
+    
+    notes.forEach(({ freq, start, duration }) => {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = freq;
+      oscillator.type = 'triangle'; // Softer, more musical tone
+      
+      // Fade in and out for smoother sound
+      const now = audioContext.currentTime;
+      gainNode.gain.setValueAtTime(0, now + start);
+      gainNode.gain.linearRampToValueAtTime(0.3, now + start + 0.05);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + start + duration);
+      
+      oscillator.start(now + start);
+      oscillator.stop(now + start + duration);
+    });
+  } catch (e) {
+    // Audio not supported, silently fail
+    console.log('Audio playback not supported');
+  }
+};
+
 // Job title priority order for schedule display (STSUPER first)
 const JOB_PRIORITY: Record<string, number> = {
   "STSUPER": 1,
@@ -658,6 +698,7 @@ export default function Schedule() {
       }
       await apiRequest("POST", "/api/schedule/generate", payload);
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+      playFanfare();
       toast({ 
         title: "Schedule Generated", 
         description: selectedLocation === "all" 
@@ -679,6 +720,7 @@ export default function Schedule() {
       const result = await response.json();
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       setAIReasoning(result.reasoning);
+      playFanfare();
       toast({ 
         title: "AI Schedule Generated", 
         description: result.warnings?.length > 0 
