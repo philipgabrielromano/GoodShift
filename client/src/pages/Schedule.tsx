@@ -28,6 +28,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import fanfareSound from "@assets/zelda-tp-item-fanfare_1769708907750.mp3";
+import goodwillLogo from "@/assets/goodwill-logo.png";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -509,13 +510,18 @@ export default function Schedule() {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "letter" });
     const pageWidth = doc.internal.pageSize.getWidth();
     
-    // Title
+    // Add logo
+    const logoWidth = 25;
+    const logoHeight = 12;
+    doc.addImage(goodwillLogo, "PNG", 14, 8, logoWidth, logoHeight);
+    
+    // Title (positioned after logo)
     const locationName = selectedLocation || "All Locations";
     const weekRange = `${format(weekStart, "MMM d")} - ${format(addDays(weekStart, 6), "MMM d, yyyy")}`;
     doc.setFontSize(16);
-    doc.text(`Weekly Schedule - ${locationName}`, 14, 15);
+    doc.text(`Weekly Schedule - ${locationName}`, 44, 14);
     doc.setFontSize(11);
-    doc.text(weekRange, 14, 22);
+    doc.text(weekRange, 44, 20);
     
     // Filter employees by location if selected and exclude hidden employees
     const filteredEmployees = employees.filter(emp => {
@@ -568,7 +574,7 @@ export default function Schedule() {
       startY: 28,
       theme: "grid",
       styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
-      headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: "bold", fontSize: 7 },
+      headStyles: { fillColor: [0, 83, 159], textColor: 255, fontStyle: "bold", fontSize: 7 }, // Brand blue #00539F
       columnStyles: {
         0: { cellWidth: 32 }, // Employee name
         1: { cellWidth: 22 }, // Role
