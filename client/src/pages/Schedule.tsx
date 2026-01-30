@@ -29,6 +29,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import fanfareSound from "@assets/zelda-tp-item-fanfare_1769708907750.mp3";
 import goodwillLogo from "@/assets/goodwill-logo.png";
+import latoRegularUrl from "@/assets/Lato-Regular.ttf";
+import latoBoldUrl from "@/assets/Lato-Bold.ttf";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -501,7 +503,7 @@ export default function Schedule() {
     }
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     if (!shifts || !employees) {
       toast({ variant: "destructive", title: "Export Failed", description: "Schedule data is not loaded yet." });
       return;
@@ -509,6 +511,32 @@ export default function Schedule() {
 
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "letter" });
     const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Load and register Lato fonts
+    try {
+      const [latoRegularData, latoBoldData] = await Promise.all([
+        fetch(latoRegularUrl).then(r => r.arrayBuffer()),
+        fetch(latoBoldUrl).then(r => r.arrayBuffer())
+      ]);
+      
+      // Convert ArrayBuffer to base64
+      const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      };
+      
+      doc.addFileToVFS("Lato-Regular.ttf", arrayBufferToBase64(latoRegularData));
+      doc.addFont("Lato-Regular.ttf", "Lato", "normal");
+      doc.addFileToVFS("Lato-Bold.ttf", arrayBufferToBase64(latoBoldData));
+      doc.addFont("Lato-Bold.ttf", "Lato", "bold");
+      doc.setFont("Lato");
+    } catch (e) {
+      console.warn("Could not load Lato font, using default");
+    }
     
     // Add logo
     const logoWidth = 25;
@@ -518,8 +546,10 @@ export default function Schedule() {
     // Title (positioned after logo)
     const locationName = selectedLocation || "All Locations";
     const weekRange = `${format(weekStart, "MMM d")} - ${format(addDays(weekStart, 6), "MMM d, yyyy")}`;
+    doc.setFont("Lato", "bold");
     doc.setFontSize(16);
     doc.text(`Weekly Schedule - ${locationName}`, 44, 14);
+    doc.setFont("Lato", "normal");
     doc.setFontSize(11);
     doc.text(weekRange, 44, 20);
     
@@ -573,8 +603,8 @@ export default function Schedule() {
       body: tableBody,
       startY: 28,
       theme: "grid",
-      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
-      headStyles: { fillColor: [0, 83, 159], textColor: 255, fontStyle: "bold", fontSize: 7 }, // Brand blue #00539F
+      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak", font: "Lato" },
+      headStyles: { fillColor: [0, 83, 159], textColor: 255, fontStyle: "bold", fontSize: 7, font: "Lato" }, // Brand blue #00539F
       columnStyles: {
         0: { cellWidth: 32 }, // Employee name
         1: { cellWidth: 22 }, // Role
