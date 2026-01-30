@@ -14,6 +14,7 @@ export const employees = pgTable("employees", {
   maxWeeklyHours: integer("max_weekly_hours").notNull().default(40),
   color: text("color").notNull().default("#3b82f6"), // For UI visualization
   isActive: boolean("is_active").notNull().default(true),
+  isHiddenFromSchedule: boolean("is_hidden_from_schedule").notNull().default(false), // Manager can hide terminated employees pending UKG update
   location: text("location"), // Store/location name from UKG
   employmentType: text("employment_type"), // "Full-Time" or "Part-Time"
   ukgEmployeeId: text("ukg_employee_id").unique(), // UKG employee ID for sync - unique to prevent duplicates
