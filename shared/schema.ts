@@ -81,6 +81,14 @@ export const RETAIL_JOB_CODES = [
   "WVSTMNG",   // Store Manager (WV)
   "WVSTAST",   // Assistant Manager (WV)
   "WVLDWRK",   // Team Lead (WV)
+  // Outlet store job codes
+  "OUTAM",     // Outlet Assistant Manager
+  "OUTCP",     // Outlet Clothing Processor
+  "OUTMGR",    // Outlet Manager
+  "OUTMH",     // Outlet Material Handler
+  "OUTSHS",    // Outlet Sales/Softlines
+  // Bookstore job codes
+  "ALTSTLD",   // Alternative Store Lead
 ] as const;
 
 // Users table for authentication and role management
