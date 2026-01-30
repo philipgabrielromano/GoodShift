@@ -1,4 +1,4 @@
-import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee } from "@/hooks/use-employees";
+import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useToggleScheduleVisibility } from "@/hooks/use-employees";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useEffect } from "react";
-import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff } from "lucide-react";
+import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff, EyeOff, Eye } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -92,6 +92,7 @@ export default function Employees() {
 function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => void }) {
   const deleteEmployee = useDeleteEmployee();
   const updateEmployee = useUpdateEmployee();
+  const toggleScheduleVisibility = useToggleScheduleVisibility();
   const { toast } = useToast();
   const isPartTime = (employee.maxWeeklyHours || 40) < 32;
 
@@ -111,16 +112,43 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
     }
   };
 
+  const handleToggleScheduleVisibility = async () => {
+    try {
+      await toggleScheduleVisibility.mutateAsync({ 
+        id: employee.id, 
+        isHiddenFromSchedule: !employee.isHiddenFromSchedule 
+      });
+      toast({ 
+        title: employee.isHiddenFromSchedule ? "Now visible on schedule" : "Hidden from schedule",
+        description: employee.isHiddenFromSchedule 
+          ? `${employee.name} will appear on the schedule.`
+          : `${employee.name} will not appear on the schedule or in AI scheduling.`
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update visibility." });
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate" data-testid={`row-employee-${employee.id}`}>
+    <div className={`grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate ${employee.isHiddenFromSchedule ? 'opacity-60' : ''}`} data-testid={`row-employee-${employee.id}`}>
       <div className="flex items-center gap-3 min-w-0">
         <div 
-          className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0" 
+          className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0 relative" 
           style={{ backgroundColor: employee.color }}
         >
           {employee.name.substring(0, 2).toUpperCase()}
+          {employee.isHiddenFromSchedule && (
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-muted-foreground rounded-full flex items-center justify-center">
+              <EyeOff className="w-2.5 h-2.5 text-background" />
+            </div>
+          )}
         </div>
-        <span className="font-medium">{employee.name}</span>
+        <div className="flex flex-col min-w-0">
+          <span className="font-medium">{employee.name}</span>
+          {employee.isHiddenFromSchedule && (
+            <span className="text-xs text-muted-foreground">Hidden from schedule</span>
+          )}
+        </div>
       </div>
       <div className="text-sm truncate">{getJobTitle(employee.jobTitle)}</div>
       <div className="text-sm text-muted-foreground truncate flex items-center gap-1">
@@ -174,6 +202,13 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={onEdit} data-testid={`button-edit-employee-${employee.id}`}>
               <Pencil className="w-4 h-4 mr-2" /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleToggleScheduleVisibility} data-testid={`button-toggle-schedule-visibility-${employee.id}`}>
+              {employee.isHiddenFromSchedule ? (
+                <><Eye className="w-4 h-4 mr-2" /> Show on Schedule</>
+              ) : (
+                <><EyeOff className="w-4 h-4 mr-2" /> Hide from Schedule</>
+              )}
             </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={handleDelete} data-testid={`button-delete-employee-${employee.id}`}>
               <Trash2 className="w-4 h-4 mr-2" /> Delete

@@ -64,7 +64,8 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 
   const totalAvailableHours = activeLocations.reduce((sum, loc) => sum + (loc.weeklyHoursLimit || 0), 0);
 
-  const activeEmployees = employees.filter(e => e.isActive);
+  // Filter out inactive employees and those hidden from schedule
+  const activeEmployees = employees.filter(e => e.isActive && !e.isHiddenFromSchedule);
   
   const approvedTimeOff = timeOff.filter(t => t.status === "approved");
 

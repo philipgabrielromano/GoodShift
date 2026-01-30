@@ -517,8 +517,9 @@ export default function Schedule() {
     doc.setFontSize(11);
     doc.text(weekRange, 14, 22);
     
-    // Filter employees by location if selected
+    // Filter employees by location if selected and exclude hidden employees
     const filteredEmployees = employees.filter(emp => {
+      if (emp.isHiddenFromSchedule) return false;
       if (!selectedLocation) return true;
       return emp.location === selectedLocation;
     }).sort((a, b) => {
@@ -770,6 +771,7 @@ export default function Schedule() {
     const availableEmployees = (employees || []).filter(emp => {
       if (emp.jobTitle !== jobTitle && !isManagerJobCode(emp.jobTitle, jobTitle)) return false;
       if (!emp.isActive) return false;
+      if (emp.isHiddenFromSchedule) return false;
       
       // Check if already scheduled that day
       const empShiftsOnDay = (shifts || []).filter(s => 
@@ -1279,7 +1281,7 @@ export default function Schedule() {
               {/* Grouped Employee Rows - sorted by job priority */}
               {Object.entries(
                 (employees || [])
-                  .filter(emp => selectedLocation === "all" || emp.location === selectedLocation)
+                  .filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation))
                   .reduce((acc, emp) => {
                     if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
                     acc[emp.jobTitle].push(emp);

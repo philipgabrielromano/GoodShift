@@ -99,3 +99,27 @@ export function useDeleteEmployee() {
     },
   });
 }
+
+// Toggle employee schedule visibility (manager/admin only)
+export function useToggleScheduleVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, isHiddenFromSchedule }: { id: number; isHiddenFromSchedule: boolean }) => {
+      const url = buildUrl(api.employees.toggleScheduleVisibility.path, { id });
+      const res = await fetch(url, {
+        method: api.employees.toggleScheduleVisibility.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isHiddenFromSchedule }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to update visibility");
+      }
+      return api.employees.toggleScheduleVisibility.responses[200].parse(await res.json());
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.employees.list.path] });
+    },
+  });
+}

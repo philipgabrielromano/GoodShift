@@ -82,6 +82,17 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    toggleScheduleVisibility: {
+      method: 'POST' as const,
+      path: '/api/employees/:id/toggle-schedule-visibility',
+      input: z.object({
+        isHiddenFromSchedule: z.boolean(),
+      }),
+      responses: {
+        200: z.custom<typeof employees.$inferSelect>(),
+        404: errorSchemas.notFound,
+      },
+    },
   },
   
   shifts: {

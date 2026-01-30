@@ -52,6 +52,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Timezone Handling**: All scheduling is handled in Eastern Time (America/New_York).
 - **Location Management**: Admins manage store locations with weekly hours budgets, and managers view location-specific budgets.
 - **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments. Supports PDF document attachments for occurrence records. Viewers can only see their own occurrence history (linked by email match).
+- **Hide from Schedule**: Managers can hide terminated employees from the schedule view and AI staffing while UKG admin processes complete. Hidden employees have visual indicators in the Employees list and don't appear on schedules.
 
 ## External Dependencies
 

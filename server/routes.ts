@@ -37,6 +37,15 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Middleware to require manager or admin role
+function requireManager(req: Request, res: Response, next: NextFunction) {
+  const user = (req.session as any)?.user;
+  if (!user || (user.role !== "admin" && user.role !== "manager")) {
+    return res.status(403).json({ message: "Manager access required" });
+  }
+  next();
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -76,7 +85,11 @@ export async function registerRoutes(
     
     // Viewers can only see employees for published schedules
     // They get limited employee data (just what's needed for schedule viewing)
+    // Also filter out hidden employees for viewers
     if (user?.role === "viewer") {
+      // Filter out hidden employees for viewers
+      employees = employees.filter(emp => !emp.isHiddenFromSchedule);
+      
       // Return limited employee data for schedule viewing
       const limitedEmployees = employees.map(emp => ({
         id: emp.id,
@@ -86,6 +99,7 @@ export async function registerRoutes(
         employmentType: emp.employmentType,
         maxWeeklyHours: emp.maxWeeklyHours,
         isActive: emp.isActive,
+        isHiddenFromSchedule: emp.isHiddenFromSchedule,
         color: emp.color,
         // Exclude sensitive fields like email, ukgId, etc.
         email: "",
@@ -119,7 +133,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employees.update.path, async (req, res) => {
+  app.put(api.employees.update.path, requireManager, async (req, res) => {
     try {
       const input = api.employees.update.input.parse(req.body);
       const employee = await storage.updateEmployee(Number(req.params.id), input);
@@ -135,6 +149,25 @@ export async function registerRoutes(
   app.delete(api.employees.delete.path, async (req, res) => {
     await storage.deleteEmployee(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // Toggle employee schedule visibility (for managers to hide terminated employees pending UKG update)
+  app.post(api.employees.toggleScheduleVisibility.path, requireManager, async (req, res) => {
+    try {
+      const input = api.employees.toggleScheduleVisibility.input.parse(req.body);
+      const employee = await storage.updateEmployee(Number(req.params.id), {
+        isHiddenFromSchedule: input.isHiddenFromSchedule,
+      });
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+      res.json(employee);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      return res.status(404).json({ message: "Employee not found" });
+    }
   });
 
   // === Shifts ===
