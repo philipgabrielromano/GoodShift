@@ -538,20 +538,23 @@ export default function Schedule() {
       console.warn("Could not load Lato font, using default");
     }
     
-    // Add logo
-    const logoWidth = 25;
-    const logoHeight = 12;
-    doc.addImage(goodwillLogo, "PNG", 14, 8, logoWidth, logoHeight);
+    // Page dimensions and margins
+    const margin = 10; // Equal left/right margins
+    
+    // Add logo with correct aspect ratio (Goodwill logo is approximately 3:1)
+    const logoHeight = 10;
+    const logoWidth = 30; // 3:1 aspect ratio
+    doc.addImage(goodwillLogo, "PNG", margin, 6, logoWidth, logoHeight);
     
     // Title (positioned after logo)
     const locationName = selectedLocation || "All Locations";
     const weekRange = `${format(weekStart, "MMM d")} - ${format(addDays(weekStart, 6), "MMM d, yyyy")}`;
     doc.setFont("Lato", "bold");
     doc.setFontSize(16);
-    doc.text(`Weekly Schedule - ${locationName}`, 44, 14);
+    doc.text(`Weekly Schedule - ${locationName}`, margin + logoWidth + 4, 12);
     doc.setFont("Lato", "normal");
     doc.setFontSize(11);
-    doc.text(weekRange, 44, 20);
+    doc.text(weekRange, margin + logoWidth + 4, 18);
     
     // Filter employees by location if selected and exclude hidden employees
     const filteredEmployees = employees.filter(emp => {
@@ -597,25 +600,26 @@ export default function Schedule() {
       return [emp.name, getJobTitle(emp.jobTitle), ...dayData, `${weeklyHours.toFixed(1)}h`];
     });
     
-    // Generate table with autoTable
+    // Generate table with autoTable - use equal margins
     autoTable(doc, {
       head: tableHead,
       body: tableBody,
-      startY: 28,
+      startY: 24,
       theme: "grid",
+      margin: { left: margin, right: margin },
       styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak", font: "Lato" },
       headStyles: { fillColor: [0, 83, 159], textColor: 255, fontStyle: "bold", fontSize: 7, font: "Lato" }, // Brand blue #00539F
       columnStyles: {
-        0: { cellWidth: 32 }, // Employee name
-        1: { cellWidth: 22 }, // Role
-        2: { cellWidth: 28 }, // Sun
-        3: { cellWidth: 28 }, // Mon
-        4: { cellWidth: 28 }, // Tue
-        5: { cellWidth: 28 }, // Wed
-        6: { cellWidth: 28 }, // Thu
-        7: { cellWidth: 28 }, // Fri
-        8: { cellWidth: 28 }, // Sat
-        [totalColumnIndex]: { cellWidth: 14, halign: "center" } // Total
+        0: { cellWidth: 35 }, // Employee name
+        1: { cellWidth: 25 }, // Role
+        2: { cellWidth: 25 }, // Sun
+        3: { cellWidth: 25 }, // Mon
+        4: { cellWidth: 25 }, // Tue
+        5: { cellWidth: 25 }, // Wed
+        6: { cellWidth: 25 }, // Thu
+        7: { cellWidth: 25 }, // Fri
+        8: { cellWidth: 25 }, // Sat
+        [totalColumnIndex]: { cellWidth: 15, halign: "center" } // Total
       },
       alternateRowStyles: { fillColor: [245, 247, 250] }
     });
