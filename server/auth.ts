@@ -215,6 +215,16 @@ export function setupAuth(app: Express) {
       res.json({ success: true });
     });
   });
+
+  // GET route for logout (used by navigation redirects)
+  app.get("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Logout error:", err);
+      }
+      res.redirect("/");
+    });
+  });
 }
 
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
