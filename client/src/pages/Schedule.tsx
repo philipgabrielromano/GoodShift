@@ -550,7 +550,10 @@ export default function Schedule() {
           const end = new Date(dayShift.endTime);
           const hours = calculatePaidHours(start, end);
           weeklyHours += hours;
-          return `${format(start, "h:mma")}-${format(end, "h:mma")}`;
+          // Shorter time format to fit columns: "8a-4:30p" instead of "8:00AM-4:30PM"
+          const startStr = format(start, "ha").toLowerCase().replace(":00", "");
+          const endStr = format(end, "h:mma").toLowerCase();
+          return `${startStr}-${endStr}`;
         }
         return "-";
       });
@@ -564,12 +567,19 @@ export default function Schedule() {
       body: tableBody,
       startY: 28,
       theme: "grid",
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: "bold" },
+      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+      headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: "bold", fontSize: 7 },
       columnStyles: {
-        0: { cellWidth: 35 },
-        1: { cellWidth: 25 },
-        [totalColumnIndex]: { cellWidth: 15, halign: "center" }
+        0: { cellWidth: 32 }, // Employee name
+        1: { cellWidth: 22 }, // Role
+        2: { cellWidth: 28 }, // Sun
+        3: { cellWidth: 28 }, // Mon
+        4: { cellWidth: 28 }, // Tue
+        5: { cellWidth: 28 }, // Wed
+        6: { cellWidth: 28 }, // Thu
+        7: { cellWidth: 28 }, // Fri
+        8: { cellWidth: 28 }, // Sat
+        [totalColumnIndex]: { cellWidth: 14, halign: "center" } // Total
       },
       alternateRowStyles: { fillColor: [245, 247, 250] }
     });
