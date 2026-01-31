@@ -201,6 +201,14 @@ export function setupAuth(app: Express) {
           locationIds: user.locationIds,
         };
         req.session.isAuthenticated = true;
+        
+        // Explicitly save session before redirect to ensure it persists
+        await new Promise<void>((resolve, reject) => {
+          req.session.save((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
       }
 
       res.redirect("/");
