@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useEmployees } from "@/hooks/use-employees";
 import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,15 @@ interface MyEmployeeResponse {
 export default function Attendance() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const searchString = useSearch();
+  
+  // Parse URL search params to get employee ID
+  const urlEmployeeId = useMemo(() => {
+    const params = new URLSearchParams(searchString);
+    const empId = params.get("employeeId");
+    return empId ? parseInt(empId, 10) : null;
+  }, [searchString]);
   
   const { data: authStatus } = useQuery<AuthStatus>({
     queryKey: ["/api/auth/status"],
@@ -55,12 +65,16 @@ export default function Attendance() {
     enabled: isViewer,
   });
   
-  // Auto-select linked employee for viewers
+  // Auto-select employee from URL parameter (for notifications) or linked employee for viewers
   useEffect(() => {
-    if (isViewer && myEmployeeData?.employee) {
+    if (urlEmployeeId && employees?.some(e => e.id === urlEmployeeId)) {
+      setSelectedEmployeeId(urlEmployeeId);
+      // Clear the URL parameter after selecting
+      navigate("/attendance", { replace: true });
+    } else if (isViewer && myEmployeeData?.employee) {
       setSelectedEmployeeId(myEmployeeData.employee.id);
     }
-  }, [isViewer, myEmployeeData]);
+  }, [urlEmployeeId, employees, isViewer, myEmployeeData, navigate]);
 
   // Only fetch summary when we have a valid employee ID
   const { data: summary, isLoading: summaryLoading } = useOccurrenceSummary(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });

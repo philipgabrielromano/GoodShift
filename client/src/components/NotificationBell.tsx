@@ -33,7 +33,7 @@ export function NotificationBell() {
 
   const handleAlertClick = (alert: OccurrenceAlert) => {
     setOpen(false);
-    navigate("/attendance");
+    navigate(`/attendance?employeeId=${alert.employeeId}`);
   };
 
   const alertCount = alerts.length;
