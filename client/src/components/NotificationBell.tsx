@@ -46,13 +46,13 @@ export function NotificationBell() {
         <Button 
           variant="ghost" 
           size="icon" 
-          className="relative"
+          className={`relative ${hasAlerts ? "animate-notification-glow" : ""}`}
           data-testid="button-notifications"
         >
-          <Bell className={`w-5 h-5 ${hasCritical ? "text-red-500" : hasAlerts ? "text-orange-500" : ""}`} />
+          <Bell className={`w-6 h-6 ${hasCritical ? "text-red-500" : hasAlerts ? "text-orange-500" : ""}`} />
           {hasAlerts && (
             <span 
-              className={`absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold ${
+              className={`absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold shadow-lg ${
                 hasCritical ? "bg-red-500 text-white" : "bg-orange-500 text-white"
               }`}
               data-testid="badge-notification-count"
