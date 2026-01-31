@@ -120,19 +120,58 @@ async function syncTimeClockFromUKG(): Promise<void> {
 
     console.log(`[Scheduler] Processing ${timeClockData.length} time clock entries...`);
 
-    // Convert to database entries (store hours as integer minutes for precision)
-    const entries: InsertTimeClockEntry[] = timeClockData.map(entry => ({
-      ukgEmployeeId: entry.employeeId,
-      workDate: entry.date,
-      clockIn: entry.clockIn || null,
-      clockOut: entry.clockOut || null,
-      regularHours: Math.round((entry.regularHours || 0) * 60), // Convert hours to minutes
-      overtimeHours: Math.round((entry.overtimeHours || 0) * 60),
-      totalHours: Math.round((entry.totalHours || 0) * 60),
-      locationId: entry.locationId || null,
-      jobId: entry.jobId || null,
-      paycodeId: entry.paycodeId || 0, // 2 = PAL (Paid Annual Leave), 4 = Unpaid Time Off
-    }));
+    // Aggregate multiple punches for the same employee/date before storing
+    // UKG returns separate entries for each punch (e.g., clock in, lunch out, lunch in, clock out)
+    // We need to sum the hours for each employee/date combination
+    const aggregatedMap = new Map<string, {
+      ukgEmployeeId: string;
+      workDate: string;
+      clockIn: string | null;
+      clockOut: string | null;
+      regularHours: number;
+      overtimeHours: number;
+      totalHours: number;
+      locationId: number | null;
+      jobId: number | null;
+      paycodeId: number;
+    }>();
+
+    for (const entry of timeClockData) {
+      const key = `${entry.employeeId}-${entry.date}`;
+      const existing = aggregatedMap.get(key);
+      
+      if (existing) {
+        // Add hours to existing entry
+        existing.regularHours += Math.round((entry.regularHours || 0) * 60);
+        existing.overtimeHours += Math.round((entry.overtimeHours || 0) * 60);
+        existing.totalHours += Math.round((entry.totalHours || 0) * 60);
+        // Keep the earliest clock-in and latest clock-out
+        if (entry.clockIn && (!existing.clockIn || entry.clockIn < existing.clockIn)) {
+          existing.clockIn = entry.clockIn;
+        }
+        if (entry.clockOut && (!existing.clockOut || entry.clockOut > existing.clockOut)) {
+          existing.clockOut = entry.clockOut;
+        }
+      } else {
+        // First entry for this employee/date
+        aggregatedMap.set(key, {
+          ukgEmployeeId: entry.employeeId,
+          workDate: entry.date,
+          clockIn: entry.clockIn || null,
+          clockOut: entry.clockOut || null,
+          regularHours: Math.round((entry.regularHours || 0) * 60), // Convert hours to minutes
+          overtimeHours: Math.round((entry.overtimeHours || 0) * 60),
+          totalHours: Math.round((entry.totalHours || 0) * 60),
+          locationId: entry.locationId || null,
+          jobId: entry.jobId || null,
+          paycodeId: entry.paycodeId || 0, // 2 = PAL (Paid Annual Leave), 4 = Unpaid Time Off
+        });
+      }
+    }
+
+    // Convert aggregated map to array for storage
+    const entries: InsertTimeClockEntry[] = Array.from(aggregatedMap.values());
+    console.log(`[Scheduler] Aggregated to ${entries.length} unique employee/date combinations`);
 
     const upserted = await storage.upsertTimeClockEntries(entries);
     console.log(`[Scheduler] Time clock sync complete: ${upserted} entries processed`);
