@@ -320,6 +320,29 @@ export const occurrenceAdjustmentsRelations = relations(occurrenceAdjustments, (
   }),
 }));
 
+// Disciplinary actions table for tracking warnings, final warnings, and terminations
+export const disciplinaryActions = pgTable("disciplinary_actions", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  actionType: text("action_type").notNull(), // 'warning', 'final_warning', 'termination'
+  actionDate: date("action_date").notNull(), // Date the action was delivered
+  occurrenceCount: integer("occurrence_count").notNull(), // Occurrence count at time of action (stored as x100)
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  notes: text("notes"),
+});
+
+export const disciplinaryActionsRelations = relations(disciplinaryActions, ({ one }) => ({
+  employee: one(employees, {
+    fields: [disciplinaryActions.employeeId],
+    references: [employees.id],
+  }),
+}));
+
+export const insertDisciplinaryActionSchema = createInsertSchema(disciplinaryActions).omit({ id: true, createdAt: true });
+export type DisciplinaryAction = typeof disciplinaryActions.$inferSelect;
+export type InsertDisciplinaryAction = z.infer<typeof insertDisciplinaryActionSchema>;
+
 export const insertOccurrenceSchema = createInsertSchema(occurrences).omit({ id: true, createdAt: true });
 export const insertOccurrenceAdjustmentSchema = createInsertSchema(occurrenceAdjustments).omit({ id: true, createdAt: true });
 

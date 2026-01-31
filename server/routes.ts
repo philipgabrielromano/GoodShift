@@ -2470,9 +2470,10 @@ export async function registerRoutes(
         const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
         const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
 
-        // Get adjustments for this year
+        // Get adjustments for this year (only count active adjustments)
         const adjustments = await storage.getOccurrenceAdjustmentsForYear(emp.id, currentYear);
-        const manualAdjustments = adjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
+        const activeAdjustments = adjustments.filter(a => a.status === 'active');
+        const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
         const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
 
         // Check for perfect attendance bonus
