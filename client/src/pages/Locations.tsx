@@ -44,8 +44,11 @@ export default function Locations() {
     setEditingHours("");
   };
 
-  const totalHours = locations?.reduce((sum, loc) => sum + loc.weeklyHoursLimit, 0) || 0;
-  const activeLocations = locations?.filter(loc => loc.isActive).length || 0;
+  // Filter out generic "Location #" entries - only show real store names
+  const displayedLocations = locations?.filter(l => !/^Location \d+$/.test(l.name)) || [];
+  
+  const totalHours = displayedLocations.reduce((sum, loc) => sum + loc.weeklyHoursLimit, 0);
+  const activeLocations = displayedLocations.filter(loc => loc.isActive).length;
 
   if (isLoading) {
     return (
@@ -74,7 +77,7 @@ export default function Locations() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Locations</CardDescription>
-            <CardTitle className="text-2xl">{locations?.length || 0}</CardTitle>
+            <CardTitle className="text-2xl">{displayedLocations.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
@@ -109,15 +112,14 @@ export default function Locations() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {locations?.filter(l => !/^Location \d+$/.test(l.name)).length === 0 ? (
+              {displayedLocations.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                     No locations found. Locations will be added automatically when employees are synced from UKG.
                   </TableCell>
                 </TableRow>
               ) : (
-                locations
-                  ?.filter(l => !/^Location \d+$/.test(l.name))
+                displayedLocations
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((location) => (
                   <TableRow key={location.id} data-testid={`row-location-${location.id}`}>
