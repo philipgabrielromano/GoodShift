@@ -13,7 +13,8 @@ import {
   publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule,
   shiftPresets, type ShiftPreset, type InsertShiftPreset,
   occurrences, type Occurrence, type InsertOccurrence,
-  occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment
+  occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment,
+  disciplinaryActions, type DisciplinaryAction, type InsertDisciplinaryAction
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -104,6 +105,11 @@ export interface IStorage {
   getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]>;
   createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
   retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment>;
+  
+  // Disciplinary Actions
+  getDisciplinaryActions(employeeId: number): Promise<DisciplinaryAction[]>;
+  createDisciplinaryAction(action: InsertDisciplinaryAction): Promise<DisciplinaryAction>;
+  deleteDisciplinaryAction(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -544,6 +550,22 @@ export class DatabaseStorage implements IStorage {
       .where(eq(occurrenceAdjustments.id, id))
       .returning();
     return updated;
+  }
+
+  // Disciplinary Actions
+  async getDisciplinaryActions(employeeId: number): Promise<DisciplinaryAction[]> {
+    return await db.select().from(disciplinaryActions)
+      .where(eq(disciplinaryActions.employeeId, employeeId))
+      .orderBy(disciplinaryActions.actionDate);
+  }
+
+  async createDisciplinaryAction(action: InsertDisciplinaryAction): Promise<DisciplinaryAction> {
+    const [newAction] = await db.insert(disciplinaryActions).values(action).returning();
+    return newAction;
+  }
+
+  async deleteDisciplinaryAction(id: number): Promise<void> {
+    await db.delete(disciplinaryActions).where(eq(disciplinaryActions.id, id));
   }
 }
 

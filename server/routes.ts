@@ -2614,6 +2614,105 @@ export async function registerRoutes(
     }
   });
 
+  // === DISCIPLINARY ACTIONS ===
+  
+  // Get disciplinary actions for an employee
+  app.get("/api/disciplinary-actions/:employeeId", requireAuth, async (req, res) => {
+    try {
+      const employeeId = Number(req.params.employeeId);
+      const user = (req.session as any)?.user;
+      
+      // Only managers and admins can view disciplinary actions
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can view disciplinary actions" });
+      }
+      
+      const actions = await storage.getDisciplinaryActions(employeeId);
+      res.json(actions);
+    } catch (error) {
+      console.error("Error fetching disciplinary actions:", error);
+      res.status(500).json({ message: "Failed to fetch disciplinary actions" });
+    }
+  });
+
+  // Create a disciplinary action
+  app.post("/api/disciplinary-actions", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can create disciplinary actions" });
+      }
+      
+      const { employeeId, actionType, actionDate, occurrenceCount, notes } = req.body;
+      
+      if (!employeeId || !actionType || !actionDate || occurrenceCount === undefined) {
+        return res.status(400).json({ message: "employeeId, actionType, actionDate, and occurrenceCount are required" });
+      }
+      
+      // Validate action type
+      const validTypes = ['warning', 'final_warning', 'termination'];
+      if (!validTypes.includes(actionType)) {
+        return res.status(400).json({ message: "actionType must be 'warning', 'final_warning', or 'termination'" });
+      }
+      
+      // Get existing actions to validate the progression
+      const existingActions = await storage.getDisciplinaryActions(employeeId);
+      
+      // Validate progression: warning -> final_warning -> termination
+      if (actionType === 'final_warning') {
+        const hasWarning = existingActions.some(a => a.actionType === 'warning');
+        if (!hasWarning) {
+          return res.status(400).json({ message: "A warning must be recorded before a final warning" });
+        }
+      }
+      
+      if (actionType === 'termination') {
+        const hasWarning = existingActions.some(a => a.actionType === 'warning');
+        const hasFinalWarning = existingActions.some(a => a.actionType === 'final_warning');
+        if (!hasWarning || !hasFinalWarning) {
+          return res.status(400).json({ message: "Both warning and final warning must be recorded before termination" });
+        }
+      }
+      
+      // Prevent duplicate actions of the same type
+      const alreadyExists = existingActions.some(a => a.actionType === actionType);
+      if (alreadyExists) {
+        return res.status(400).json({ message: `A ${actionType.replace('_', ' ')} has already been recorded` });
+      }
+      
+      const action = await storage.createDisciplinaryAction({
+        employeeId,
+        actionType,
+        actionDate,
+        occurrenceCount,
+        notes: notes || null,
+        createdBy: user.id
+      });
+      
+      res.status(201).json(action);
+    } catch (error) {
+      console.error("Error creating disciplinary action:", error);
+      res.status(500).json({ message: "Failed to create disciplinary action" });
+    }
+  });
+
+  // Delete a disciplinary action
+  app.delete("/api/disciplinary-actions/:id", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Only managers and admins can delete disciplinary actions" });
+      }
+      
+      const id = Number(req.params.id);
+      await storage.deleteDisciplinaryAction(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting disciplinary action:", error);
+      res.status(500).json({ message: "Failed to delete disciplinary action" });
+    }
+  });
+
   // === SEED DATA ===
   await seedDatabase();
 
