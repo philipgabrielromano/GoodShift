@@ -95,6 +95,7 @@ export interface IStorage {
 
   // Occurrences
   getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]>;
+  getAllOccurrencesInDateRange(startDate: string, endDate: string): Promise<Occurrence[]>;
   getOccurrence(id: number): Promise<Occurrence | undefined>;
   createOccurrence(occurrence: InsertOccurrence): Promise<Occurrence>;
   updateOccurrence(id: number, occurrence: Partial<InsertOccurrence>): Promise<Occurrence>;
@@ -103,11 +104,13 @@ export interface IStorage {
   // Occurrence Adjustments
   getOccurrenceAdjustments(employeeId: number, startDate: string, endDate: string): Promise<OccurrenceAdjustment[]>;
   getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]>;
+  getAllOccurrenceAdjustmentsForYear(year: number): Promise<OccurrenceAdjustment[]>;
   createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
   retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment>;
   
   // Disciplinary Actions
   getDisciplinaryActions(employeeId: number): Promise<DisciplinaryAction[]>;
+  getAllDisciplinaryActions(): Promise<DisciplinaryAction[]>;
   createDisciplinaryAction(action: InsertDisciplinaryAction): Promise<DisciplinaryAction>;
   deleteDisciplinaryAction(id: number): Promise<void>;
 }
@@ -487,6 +490,15 @@ export class DatabaseStorage implements IStorage {
       .orderBy(occurrences.occurrenceDate);
   }
 
+  async getAllOccurrencesInDateRange(startDate: string, endDate: string): Promise<Occurrence[]> {
+    return await db.select().from(occurrences)
+      .where(and(
+        gte(occurrences.occurrenceDate, startDate),
+        lte(occurrences.occurrenceDate, endDate)
+      ))
+      .orderBy(occurrences.occurrenceDate);
+  }
+
   async getOccurrence(id: number): Promise<Occurrence | undefined> {
     const [occurrence] = await db.select().from(occurrences).where(eq(occurrences.id, id));
     return occurrence;
@@ -534,6 +546,11 @@ export class DatabaseStorage implements IStorage {
       ));
   }
 
+  async getAllOccurrenceAdjustmentsForYear(year: number): Promise<OccurrenceAdjustment[]> {
+    return await db.select().from(occurrenceAdjustments)
+      .where(eq(occurrenceAdjustments.calendarYear, year));
+  }
+
   async createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment> {
     const [newAdjustment] = await db.insert(occurrenceAdjustments).values(adjustment).returning();
     return newAdjustment;
@@ -556,6 +573,11 @@ export class DatabaseStorage implements IStorage {
   async getDisciplinaryActions(employeeId: number): Promise<DisciplinaryAction[]> {
     return await db.select().from(disciplinaryActions)
       .where(eq(disciplinaryActions.employeeId, employeeId))
+      .orderBy(disciplinaryActions.actionDate);
+  }
+
+  async getAllDisciplinaryActions(): Promise<DisciplinaryAction[]> {
+    return await db.select().from(disciplinaryActions)
       .orderBy(disciplinaryActions.actionDate);
   }
 

@@ -2451,6 +2451,35 @@ export async function registerRoutes(
         );
       }
 
+      // OPTIMIZATION: Fetch all data in bulk with just 3 queries instead of 4 per employee
+      const [allOccurrences, allAdjustments, allDisciplinaryActions] = await Promise.all([
+        storage.getAllOccurrencesInDateRange(startDate, endDate),
+        storage.getAllOccurrenceAdjustmentsForYear(currentYear),
+        storage.getAllDisciplinaryActions()
+      ]);
+
+      // Group data by employee ID for fast lookups
+      const occurrencesByEmployee = new Map<number, typeof allOccurrences>();
+      for (const occ of allOccurrences) {
+        const list = occurrencesByEmployee.get(occ.employeeId) || [];
+        list.push(occ);
+        occurrencesByEmployee.set(occ.employeeId, list);
+      }
+
+      const adjustmentsByEmployee = new Map<number, typeof allAdjustments>();
+      for (const adj of allAdjustments) {
+        const list = adjustmentsByEmployee.get(adj.employeeId) || [];
+        list.push(adj);
+        adjustmentsByEmployee.set(adj.employeeId, list);
+      }
+
+      const disciplinaryByEmployee = new Map<number, typeof allDisciplinaryActions>();
+      for (const action of allDisciplinaryActions) {
+        const list = disciplinaryByEmployee.get(action.employeeId) || [];
+        list.push(action);
+        disciplinaryByEmployee.set(action.employeeId, list);
+      }
+
       const alerts: Array<{
         employeeId: number;
         employeeName: string;
@@ -2462,23 +2491,22 @@ export async function registerRoutes(
         message: string;
       }> = [];
 
-      // Calculate occurrence totals for each employee
+      // Calculate occurrence totals for each employee using pre-fetched data
       for (const emp of allEmployees) {
-        const allOccurrences = await storage.getOccurrences(emp.id, startDate, endDate);
-        const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
+        const empOccurrences = occurrencesByEmployee.get(emp.id) || [];
+        const activeOccurrences = empOccurrences.filter(o => o.status === 'active');
         // FMLA and consecutive sickness occurrences do NOT count toward the total
         const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
         const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
 
         // Get adjustments for this year (only count active adjustments)
-        const adjustments = await storage.getOccurrenceAdjustmentsForYear(emp.id, currentYear);
-        const activeAdjustments = adjustments.filter(a => a.status === 'active');
+        const empAdjustments = adjustmentsByEmployee.get(emp.id) || [];
+        const activeAdjustments = empAdjustments.filter(a => a.status === 'active');
         const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
         const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
 
-        // Check for perfect attendance bonus
-        const yearOccurrences = await storage.getOccurrences(emp.id, yearStart, endDate);
-        const activeYearOccurrences = yearOccurrences.filter(o => o.status === 'active');
+        // Check for perfect attendance bonus - filter occurrences to this year only
+        const activeYearOccurrences = activeOccurrences.filter(o => o.occurrenceDate >= yearStart);
         let perfectAttendanceBonus = 0;
 
         if (activeYearOccurrences.length === 0) {
@@ -2498,10 +2526,10 @@ export async function registerRoutes(
         const netTally = Math.max(0, totalPoints + totalAdjustment);
 
         // Get disciplinary actions for this employee to check if action already taken
-        const disciplinaryActions = await storage.getDisciplinaryActions(emp.id);
-        const hasWarning = disciplinaryActions.some(a => a.actionType === 'warning');
-        const hasFinalWarning = disciplinaryActions.some(a => a.actionType === 'final_warning');
-        const hasTermination = disciplinaryActions.some(a => a.actionType === 'termination');
+        const empDisciplinary = disciplinaryByEmployee.get(emp.id) || [];
+        const hasWarning = empDisciplinary.some(a => a.actionType === 'warning');
+        const hasFinalWarning = empDisciplinary.some(a => a.actionType === 'final_warning');
+        const hasTermination = empDisciplinary.some(a => a.actionType === 'termination');
 
         // Check thresholds (using netTally for accurate count)
         // Only show alert if the appropriate disciplinary action hasn't been recorded
