@@ -85,7 +85,9 @@ export function useRetractOccurrence() {
       return res.json();
     },
     onSuccess: (_, variables) => {
-      // Invalidate all occurrence-related queries for this employee
+      // Invalidate the occurrence summary specifically
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId, "summary"] });
+      // Also invalidate other occurrence-related queries for this employee
       queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId] });
       // Also invalidate alerts since retracting occurrences may change alert status
       queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
@@ -101,7 +103,9 @@ export function useRetractAdjustment() {
       return res.json();
     },
     onSuccess: (_, variables) => {
-      // Invalidate all occurrence-related queries for this employee
+      // Invalidate the occurrence summary specifically (includes adjustments remaining count)
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId, "summary"] });
+      // Also invalidate other occurrence-related queries for this employee
       queryClient.invalidateQueries({ queryKey: ["/api/occurrences", variables.employeeId] });
       // Also invalidate alerts since retracting adjustments may change alert status
       queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
