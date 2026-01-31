@@ -16,6 +16,14 @@ import { format } from "date-fns";
 import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
 import type { Employee } from "@shared/schema";
+import { ABSENCE_REASONS } from "@shared/schema";
+
+// Helper to get the display label for an absence reason
+function getReasonLabel(reasonValue: string | null | undefined): string {
+  if (!reasonValue) return "";
+  const reason = ABSENCE_REASONS.find(r => r.value === reasonValue);
+  return reason?.label || reasonValue;
+}
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -410,7 +418,12 @@ export default function Attendance() {
                                 </Badge>
                               )}
                               {occurrence.reason && !isRetracted && (
-                                <span className="text-sm text-muted-foreground">{occurrence.reason}</span>
+                                <span className="text-sm text-muted-foreground">
+                                  {getReasonLabel(occurrence.reason)}
+                                  {occurrence.notes && (
+                                    <span className="italic ml-1">— {occurrence.notes}</span>
+                                  )}
+                                </span>
                               )}
                               {isRetracted && occurrence.retractedReason && (
                                 <span className="text-sm text-muted-foreground italic">
