@@ -1,52 +1,36 @@
 // Outlook integration using Microsoft Graph API
-// Uses Replit's Outlook connector for authentication
+// Uses Azure AD App Registration with client credentials flow for shared mailbox support
 
 import { Client } from '@microsoft/microsoft-graph-client';
+import { ClientSecretCredential } from '@azure/identity';
+import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 
-let connectionSettings: any;
+let graphClient: Client | null = null;
 
-async function getAccessToken() {
-  if (connectionSettings && connectionSettings.settings.expires_at && new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
-    return connectionSettings.settings.access_token;
+function getGraphClient(): Client {
+  if (graphClient) {
+    return graphClient;
   }
+
+  const tenantId = process.env.AZURE_TENANT_ID;
+  const clientId = process.env.AZURE_CLIENT_ID;
+  const clientSecret = process.env.AZURE_CLIENT_SECRET;
+
+  if (!tenantId || !clientId || !clientSecret) {
+    throw new Error('Azure AD credentials not configured. Please set AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET.');
+  }
+
+  const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
   
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY 
-    ? 'repl ' + process.env.REPL_IDENTITY 
-    : process.env.WEB_REPL_RENEWAL 
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
-    : null;
-
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
-  }
-
-  connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=outlook',
-    {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
-      }
-    }
-  ).then(res => res.json()).then(data => data.items?.[0]);
-
-  const accessToken = connectionSettings?.settings?.access_token || connectionSettings.settings?.oauth?.credentials?.access_token;
-
-  if (!connectionSettings || !accessToken) {
-    throw new Error('Outlook not connected');
-  }
-  return accessToken;
-}
-
-async function getOutlookClient() {
-  const accessToken = await getAccessToken();
-
-  return Client.initWithMiddleware({
-    authProvider: {
-      getAccessToken: async () => accessToken
-    }
+  const authProvider = new TokenCredentialAuthenticationProvider(credential, {
+    scopes: ['https://graph.microsoft.com/.default']
   });
+
+  graphClient = Client.initWithMiddleware({
+    authProvider
+  });
+
+  return graphClient;
 }
 
 export interface OccurrenceAlertEmailData {
@@ -83,7 +67,13 @@ export async function sendOccurrenceAlertEmail(
   data: OccurrenceAlertEmailData
 ): Promise<boolean> {
   try {
-    const client = await getOutlookClient();
+    const client = getGraphClient();
+    
+    // Get the sender email from environment (shared mailbox address)
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      throw new Error('HR_SENDER_EMAIL not configured. Please set the shared mailbox email address.');
+    }
     
     const attendanceLink = `${data.appUrl}/attendance?employeeId=${data.employeeId}`;
     const thresholdLabel = getThresholdLabel(data.threshold);
@@ -153,9 +143,10 @@ export async function sendOccurrenceAlertEmail(
       ]
     };
 
-    await client.api('/me/sendMail').post({ message });
+    // Use the shared mailbox to send email (requires Mail.Send application permission)
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
     
-    console.log(`[Outlook] Sent occurrence alert email for ${data.employeeName} to ${toEmail}`);
+    console.log(`[Outlook] Sent occurrence alert email for ${data.employeeName} to ${toEmail} from ${senderEmail}`);
     return true;
   } catch (error) {
     console.error('[Outlook] Failed to send occurrence alert email:', error);
@@ -163,12 +154,73 @@ export async function sendOccurrenceAlertEmail(
   }
 }
 
-export async function testOutlookConnection(): Promise<{ success: boolean; error?: string }> {
+export async function testOutlookConnection(): Promise<{ success: boolean; error?: string; senderEmail?: string }> {
   try {
-    const client = await getOutlookClient();
-    const user = await client.api('/me').get();
+    const client = getGraphClient();
+    
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      return { success: false, error: 'HR_SENDER_EMAIL not configured. Please set the shared mailbox email address.' };
+    }
+    
+    // Test by getting the mailbox info for the sender
+    const mailboxSettings = await client.api(`/users/${senderEmail}`).select('displayName,mail').get();
+    
+    return { 
+      success: true, 
+      senderEmail: mailboxSettings.mail || senderEmail 
+    };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export async function sendTestEmail(toEmail: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const client = getGraphClient();
+    
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      return { success: false, error: 'HR_SENDER_EMAIL not configured.' };
+    }
+    
+    const message = {
+      subject: 'GoodShift HR Notifications - Test Email',
+      body: {
+        contentType: 'HTML',
+        content: `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #00539F; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">GoodShift HR Notifications</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>This is a test email to confirm that HR notifications are working correctly.</p>
+      <p>If you received this email, the email configuration is set up properly and you will receive automatic notifications when employees reach occurrence thresholds.</p>
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated notification from GoodShift.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`
+      },
+      toRecipients: [
+        {
+          emailAddress: {
+            address: toEmail
+          }
+        }
+      ]
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    
+    console.log(`[Outlook] Sent test email to ${toEmail} from ${senderEmail}`);
     return { success: true };
   } catch (error: any) {
+    console.error('[Outlook] Failed to send test email:', error);
     return { success: false, error: error.message };
   }
 }

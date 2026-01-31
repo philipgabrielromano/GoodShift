@@ -11,6 +11,7 @@
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@azure/identity": "^4.13.0",
     "@azure/msal-node": "^5.0.2",
     "@google-cloud/storage": "^7.18.0",
     "@hookform/resolvers": "^3.10.0",
