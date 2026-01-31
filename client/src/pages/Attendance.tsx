@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useEmployees } from "@/hooks/use-employees";
-import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment } from "@/hooks/use-occurrences";
+import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment, useDisciplinaryActions, useCreateDisciplinaryAction, useDeleteDisciplinaryAction } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,10 +11,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User } from "lucide-react";
+import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User, CheckSquare, Trash2 } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
 import type { Employee } from "@shared/schema";
 import { ABSENCE_REASONS } from "@shared/schema";
@@ -78,9 +80,12 @@ export default function Attendance() {
 
   // Only fetch summary when we have a valid employee ID
   const { data: summary, isLoading: summaryLoading } = useOccurrenceSummary(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
+  const { data: disciplinaryActions, isLoading: disciplinaryLoading } = useDisciplinaryActions(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
   const retractOccurrence = useRetractOccurrence();
   const retractAdjustment = useRetractAdjustment();
   const createAdjustment = useCreateOccurrenceAdjustment();
+  const createDisciplinaryAction = useCreateDisciplinaryAction();
+  const deleteDisciplinaryAction = useDeleteDisciplinaryAction();
 
   const [retractDialogOpen, setRetractDialogOpen] = useState(false);
   const [retractOccurrenceId, setRetractOccurrenceId] = useState<number | null>(null);
@@ -96,7 +101,16 @@ export default function Attendance() {
   
   const [perfectAttendanceDialogOpen, setPerfectAttendanceDialogOpen] = useState(false);
 
+  const [disciplinaryDialogOpen, setDisciplinaryDialogOpen] = useState(false);
+  const [disciplinaryActionType, setDisciplinaryActionType] = useState<'warning' | 'final_warning' | 'termination' | null>(null);
+  const [disciplinaryActionDate, setDisciplinaryActionDate] = useState<string>("");
+
   const selectedEmployee = employees?.find(e => e.id === selectedEmployeeId);
+  
+  // Helper to check if disciplinary actions exist
+  const hasWarning = disciplinaryActions?.some(a => a.actionType === 'warning') ?? false;
+  const hasFinalWarning = disciplinaryActions?.some(a => a.actionType === 'final_warning') ?? false;
+  const hasTermination = disciplinaryActions?.some(a => a.actionType === 'termination') ?? false;
 
   const handleRetract = async () => {
     if (!retractOccurrenceId || !selectedEmployeeId || !retractReason) return;
@@ -171,6 +185,45 @@ export default function Attendance() {
       toast({ 
         title: "Error", 
         description: error?.message || "Failed to grant perfect attendance", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleDisciplinaryAction = async () => {
+    if (!selectedEmployeeId || !disciplinaryActionType || !disciplinaryActionDate || !summary) return;
+    
+    try {
+      await createDisciplinaryAction.mutateAsync({
+        employeeId: selectedEmployeeId,
+        actionType: disciplinaryActionType,
+        actionDate: disciplinaryActionDate,
+        occurrenceCount: Math.round(summary.netTally * 100)
+      });
+      const actionLabel = disciplinaryActionType === 'warning' ? 'Warning' : disciplinaryActionType === 'final_warning' ? 'Final Warning' : 'Termination';
+      toast({ title: `${actionLabel} Recorded`, description: `The ${actionLabel.toLowerCase()} has been logged.` });
+      setDisciplinaryDialogOpen(false);
+      setDisciplinaryActionType(null);
+      setDisciplinaryActionDate("");
+    } catch (error: any) {
+      toast({ 
+        title: "Error", 
+        description: error?.message || "Failed to record disciplinary action", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  const handleDeleteDisciplinaryAction = async (id: number, actionType: string) => {
+    if (!selectedEmployeeId) return;
+    
+    try {
+      await deleteDisciplinaryAction.mutateAsync({ id, employeeId: selectedEmployeeId });
+      toast({ title: "Action Removed", description: `The ${actionType.replace('_', ' ')} record has been removed.` });
+    } catch (error: any) {
+      toast({ 
+        title: "Error", 
+        description: error?.message || "Failed to remove disciplinary action", 
         variant: "destructive" 
       });
     }
@@ -392,6 +445,152 @@ export default function Attendance() {
                     </Button>
                   )}
                 </div>
+              )}
+
+              {/* Disciplinary Actions Card */}
+              {canManageOccurrences && summary.netTally >= 5 && (
+                <Card className="border-orange-200 dark:border-orange-800">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2">
+                      <CheckSquare className="w-5 h-5 text-orange-500" />
+                      Disciplinary Actions
+                    </CardTitle>
+                    <CardDescription>
+                      Track progressive discipline based on occurrence count. Actions must be recorded in order.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Warning - available at 5+ occurrences */}
+                    <div className="flex items-center justify-between p-3 rounded border bg-muted/50">
+                      <div className="flex items-center gap-3">
+                        <Checkbox 
+                          id="warning" 
+                          checked={hasWarning}
+                          disabled={hasWarning || summary.netTally < 5}
+                          onCheckedChange={(checked) => {
+                            if (checked && !hasWarning) {
+                              setDisciplinaryActionType('warning');
+                              setDisciplinaryActionDate(format(new Date(), 'yyyy-MM-dd'));
+                              setDisciplinaryDialogOpen(true);
+                            }
+                          }}
+                          data-testid="checkbox-warning"
+                        />
+                        <Label htmlFor="warning" className="flex flex-col gap-0.5">
+                          <span className="font-medium">Warning</span>
+                          <span className="text-xs text-muted-foreground">At 5+ occurrences</span>
+                        </Label>
+                      </div>
+                      {hasWarning && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
+                            {format(new Date(disciplinaryActions?.find(a => a.actionType === 'warning')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
+                          </Badge>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              const action = disciplinaryActions?.find(a => a.actionType === 'warning');
+                              if (action) handleDeleteDisciplinaryAction(action.id, action.actionType);
+                            }}
+                            data-testid="button-delete-warning"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Final Warning - available at 7+ occurrences, requires warning */}
+                    <div className="flex items-center justify-between p-3 rounded border bg-muted/50">
+                      <div className="flex items-center gap-3">
+                        <Checkbox 
+                          id="final_warning" 
+                          checked={hasFinalWarning}
+                          disabled={hasFinalWarning || summary.netTally < 7 || !hasWarning}
+                          onCheckedChange={(checked) => {
+                            if (checked && !hasFinalWarning && hasWarning) {
+                              setDisciplinaryActionType('final_warning');
+                              setDisciplinaryActionDate(format(new Date(), 'yyyy-MM-dd'));
+                              setDisciplinaryDialogOpen(true);
+                            }
+                          }}
+                          data-testid="checkbox-final-warning"
+                        />
+                        <Label htmlFor="final_warning" className="flex flex-col gap-0.5">
+                          <span className="font-medium">Final Warning</span>
+                          <span className="text-xs text-muted-foreground">
+                            At 7+ occurrences {!hasWarning && "(requires Warning first)"}
+                          </span>
+                        </Label>
+                      </div>
+                      {hasFinalWarning && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                            {format(new Date(disciplinaryActions?.find(a => a.actionType === 'final_warning')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
+                          </Badge>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              const action = disciplinaryActions?.find(a => a.actionType === 'final_warning');
+                              if (action) handleDeleteDisciplinaryAction(action.id, action.actionType);
+                            }}
+                            data-testid="button-delete-final-warning"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Termination - available at 8+ occurrences, requires both warning and final warning */}
+                    <div className="flex items-center justify-between p-3 rounded border bg-muted/50">
+                      <div className="flex items-center gap-3">
+                        <Checkbox 
+                          id="termination" 
+                          checked={hasTermination}
+                          disabled={hasTermination || summary.netTally < 8 || !hasWarning || !hasFinalWarning}
+                          onCheckedChange={(checked) => {
+                            if (checked && !hasTermination && hasWarning && hasFinalWarning) {
+                              setDisciplinaryActionType('termination');
+                              setDisciplinaryActionDate(format(new Date(), 'yyyy-MM-dd'));
+                              setDisciplinaryDialogOpen(true);
+                            }
+                          }}
+                          data-testid="checkbox-termination"
+                        />
+                        <Label htmlFor="termination" className="flex flex-col gap-0.5">
+                          <span className="font-medium">Termination</span>
+                          <span className="text-xs text-muted-foreground">
+                            At 8+ occurrences {(!hasWarning || !hasFinalWarning) && "(requires Warning and Final Warning)"}
+                          </span>
+                        </Label>
+                      </div>
+                      {hasTermination && (
+                        <div className="flex items-center gap-2">
+                          <Badge variant="destructive">
+                            {format(new Date(disciplinaryActions?.find(a => a.actionType === 'termination')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
+                          </Badge>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              const action = disciplinaryActions?.find(a => a.actionType === 'termination');
+                              if (action) handleDeleteDisciplinaryAction(action.id, action.actionType);
+                            }}
+                            data-testid="button-delete-termination"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               )}
 
               <Card>
@@ -718,6 +917,55 @@ export default function Attendance() {
             >
               {createAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Grant Bonus (-1.0)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Disciplinary Action Date Dialog */}
+      <Dialog open={disciplinaryDialogOpen} onOpenChange={(open) => {
+        setDisciplinaryDialogOpen(open);
+        if (!open) {
+          setDisciplinaryActionType(null);
+          setDisciplinaryActionDate("");
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckSquare className="w-5 h-5 text-orange-500" />
+              Record {disciplinaryActionType === 'warning' ? 'Warning' : disciplinaryActionType === 'final_warning' ? 'Final Warning' : 'Termination'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {disciplinaryActionType === 'warning' && "Record that a warning was delivered to this employee."}
+              {disciplinaryActionType === 'final_warning' && "Record that a final warning was delivered to this employee."}
+              {disciplinaryActionType === 'termination' && "Record that termination was processed for this employee."}
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="action-date">Date Delivered</Label>
+              <Input
+                id="action-date"
+                type="date"
+                value={disciplinaryActionDate}
+                onChange={(e) => setDisciplinaryActionDate(e.target.value)}
+                data-testid="input-disciplinary-date"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDisciplinaryDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleDisciplinaryAction} 
+              disabled={!disciplinaryActionDate || createDisciplinaryAction.isPending}
+              variant={disciplinaryActionType === 'termination' ? 'destructive' : 'default'}
+              data-testid="button-confirm-disciplinary"
+            >
+              {createDisciplinaryAction.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirm
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -159,3 +159,61 @@ export function useOccurrenceAlerts() {
     staleTime: 2 * 60 * 1000,
   });
 }
+
+export interface DisciplinaryAction {
+  id: number;
+  employeeId: number;
+  actionType: 'warning' | 'final_warning' | 'termination';
+  actionDate: string;
+  occurrenceCount: number;
+  createdBy: number | null;
+  createdAt: string | null;
+  notes: string | null;
+}
+
+export function useDisciplinaryActions(employeeId: number, options?: { enabled?: boolean }) {
+  return useQuery<DisciplinaryAction[]>({
+    queryKey: ["/api/disciplinary-actions", employeeId],
+    queryFn: async () => {
+      const res = await fetch(`/api/disciplinary-actions/${employeeId}`, { credentials: "include" });
+      if (res.status === 403) return [];
+      if (!res.ok) throw new Error("Failed to fetch disciplinary actions");
+      return res.json();
+    },
+    enabled: options?.enabled !== false && employeeId > 0,
+  });
+}
+
+export function useCreateDisciplinaryAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { 
+      employeeId: number; 
+      actionType: 'warning' | 'final_warning' | 'termination'; 
+      actionDate: string; 
+      occurrenceCount: number;
+      notes?: string;
+    }) => {
+      const res = await apiRequest("POST", "/api/disciplinary-actions", data);
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/disciplinary-actions", variables.employeeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
+    }
+  });
+}
+
+export function useDeleteDisciplinaryAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, employeeId }: { id: number; employeeId: number }) => {
+      const res = await apiRequest("DELETE", `/api/disciplinary-actions/${id}`);
+      return res.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/disciplinary-actions", variables.employeeId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/occurrence-alerts"] });
+    }
+  });
+}

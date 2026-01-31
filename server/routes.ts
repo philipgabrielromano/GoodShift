@@ -2497,9 +2497,16 @@ export async function registerRoutes(
         const totalAdjustment = manualAdjustmentTotal + perfectAttendanceBonus;
         const netTally = Math.max(0, totalPoints + totalAdjustment);
 
+        // Get disciplinary actions for this employee to check if action already taken
+        const disciplinaryActions = await storage.getDisciplinaryActions(emp.id);
+        const hasWarning = disciplinaryActions.some(a => a.actionType === 'warning');
+        const hasFinalWarning = disciplinaryActions.some(a => a.actionType === 'final_warning');
+        const hasTermination = disciplinaryActions.some(a => a.actionType === 'termination');
+
         // Check thresholds (using netTally for accurate count)
+        // Only show alert if the appropriate disciplinary action hasn't been recorded
         // 5 = warning, 7 = final warning, 8 = termination
-        if (netTally >= 8) {
+        if (netTally >= 8 && !hasTermination) {
           alerts.push({
             employeeId: emp.id,
             employeeName: emp.name,
@@ -2510,7 +2517,7 @@ export async function registerRoutes(
             threshold: 8,
             message: `${emp.name} has reached ${netTally.toFixed(1)} occurrences. Termination.`
           });
-        } else if (netTally >= 7) {
+        } else if (netTally >= 7 && !hasFinalWarning) {
           alerts.push({
             employeeId: emp.id,
             employeeName: emp.name,
@@ -2521,7 +2528,7 @@ export async function registerRoutes(
             threshold: 7,
             message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Final warning.`
           });
-        } else if (netTally >= 5) {
+        } else if (netTally >= 5 && !hasWarning) {
           alerts.push({
             employeeId: emp.id,
             employeeName: emp.name,
