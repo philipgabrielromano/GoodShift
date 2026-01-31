@@ -50,6 +50,9 @@ export function setupAuth(app: Express) {
     console.warn("WARNING: SESSION_SECRET is not set. This is required in production.");
   }
 
+  // Trust proxy for correct protocol detection behind reverse proxy
+  app.set('trust proxy', 1);
+
   app.use(
     session({
       secret: sessionSecret || crypto.randomBytes(32).toString("hex"),
