@@ -62,6 +62,8 @@ export const globalSettings = pgTable("global_settings", {
   openersRequired: integer("openers_required").notNull().default(2),
   closersRequired: integer("closers_required").notNull().default(2),
   managersRequired: integer("managers_required").notNull().default(1),
+  // HR notification email for occurrence alerts
+  hrNotificationEmail: text("hr_notification_email"),
 });
 
 // Retail job codes that are scheduleable

@@ -9,6 +9,7 @@ import { RETAIL_JOB_CODES } from "@shared/schema";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { isHoliday, getPaidHolidaysInRange, isEligibleForPaidHoliday } from "./holidays";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
+import { sendOccurrenceAlertEmail, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
 
 const TIMEZONE = "America/New_York";
 
@@ -44,6 +45,96 @@ function requireManager(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({ message: "Manager access required" });
   }
   next();
+}
+
+// Helper function to check if HR notification should be sent for occurrence thresholds
+// addedOccurrenceValue: the value of the occurrence just added (used to detect crossing vs already over)
+async function checkAndSendHRNotification(
+  employeeId: number, 
+  addedOccurrenceValue: number, 
+  appUrl: string
+): Promise<void> {
+  try {
+    const settings = await storage.getGlobalSettings();
+    if (!settings?.hrNotificationEmail) {
+      return; // No HR email configured
+    }
+
+    const employee = await storage.getEmployee(employeeId);
+    if (!employee) {
+      return;
+    }
+
+    // Calculate current occurrence tally (rolling 12-month window)
+    const now = new Date();
+    const oneYearAgo = new Date(now);
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const startDate = oneYearAgo.toISOString().split('T')[0];
+    const endDate = now.toISOString().split('T')[0];
+    const currentYear = now.getFullYear();
+    const yearStart = `${currentYear}-01-01`;
+
+    // Get occurrences and adjustments
+    const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
+    const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
+    const disciplinaryActions = await storage.getDisciplinaryActions(employeeId);
+
+    // Calculate net tally (includes the newly added occurrence)
+    const activeOccurrences = occurrences.filter(o => o.status === 'active');
+    const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+    const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
+
+    const activeAdjustments = adjustments.filter(a => a.status === 'active');
+    const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
+    const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+
+    // Note: Perfect attendance bonus calculation is complex and depends on timing
+    // For threshold crossing detection, we use a simplified calculation without the bonus
+    // since adding an occurrence would typically invalidate perfect attendance anyway
+    const adjustmentTotal = manualAdjustmentTotal;
+    const netTally = Math.max(0, totalPoints + adjustmentTotal);
+    
+    // Calculate what the tally was BEFORE this occurrence was added
+    const addedPoints = addedOccurrenceValue / 100;
+    const previousTally = Math.max(0, netTally - addedPoints);
+
+    // Helper to check if threshold was JUST crossed (not already over)
+    const justCrossedThreshold = (thresholdValue: number): boolean => {
+      return previousTally < thresholdValue && netTally >= thresholdValue;
+    };
+
+    // Check if a threshold was JUST crossed (previousTally < threshold <= netTally)
+    let threshold: 5 | 7 | 8 | null = null;
+    if (justCrossedThreshold(8)) {
+      const hasTerminationAction = disciplinaryActions.some(a => a.actionType === 'termination');
+      if (!hasTerminationAction) threshold = 8;
+    } else if (justCrossedThreshold(7)) {
+      const hasFinalWarning = disciplinaryActions.some(a => a.actionType === 'final_warning');
+      if (!hasFinalWarning) threshold = 7;
+    } else if (justCrossedThreshold(5)) {
+      const hasWarning = disciplinaryActions.some(a => a.actionType === 'warning');
+      if (!hasWarning) threshold = 5;
+    }
+
+    if (threshold) {
+      console.log(`[HR Notification] Employee ${employee.name} crossed ${threshold}-point threshold (${previousTally.toFixed(1)} -> ${netTally.toFixed(1)})`);
+      
+      const emailData: OccurrenceAlertEmailData = {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        employeeEmail: employee.email || undefined,
+        jobTitle: employee.jobTitle || 'Unknown',
+        location: employee.location || 'Unknown',
+        netTally,
+        threshold,
+        appUrl
+      };
+
+      await sendOccurrenceAlertEmail(settings.hrNotificationEmail, emailData);
+    }
+  } catch (error) {
+    console.error('[HR Notification] Failed to check/send notification:', error);
+  }
 }
 
 export async function registerRoutes(
@@ -553,6 +644,53 @@ export async function registerRoutes(
         return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
+    }
+  });
+
+  // Test Outlook connection for HR notifications
+  app.get("/api/outlook/test", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const result = await testOutlookConnection();
+      if (result.success) {
+        res.json({ success: true, message: "Outlook connection is working" });
+      } else {
+        res.status(500).json({ success: false, message: result.error || "Outlook connection failed" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message || "Failed to test Outlook connection" });
+    }
+  });
+
+  // Send test HR notification email
+  app.post("/api/outlook/test-email", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const settings = await storage.getGlobalSettings();
+      if (!settings?.hrNotificationEmail) {
+        return res.status(400).json({ success: false, message: "No HR notification email configured in settings" });
+      }
+
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers.host || 'localhost:5000';
+      const appUrl = `${protocol}://${host}`;
+
+      const testData: OccurrenceAlertEmailData = {
+        employeeId: 0,
+        employeeName: "Test Employee",
+        jobTitle: "Test Position",
+        location: "Test Location",
+        netTally: 5.0,
+        threshold: 5,
+        appUrl
+      };
+
+      const sent = await sendOccurrenceAlertEmail(settings.hrNotificationEmail, testData);
+      if (sent) {
+        res.json({ success: true, message: `Test email sent to ${settings.hrNotificationEmail}` });
+      } else {
+        res.status(500).json({ success: false, message: "Failed to send test email" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message || "Failed to send test email" });
     }
   });
 
@@ -2249,6 +2387,14 @@ export async function registerRoutes(
         documentUrl: documentUrl || null,
         createdBy: user.id
       });
+      
+      // Check if HR notification should be sent for crossing thresholds
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers.host || 'localhost:5000';
+      const appUrl = `${protocol}://${host}`;
+      checkAndSendHRNotification(employeeId, occurrenceValue, appUrl).catch(err => 
+        console.error('[HR Notification] Background error:', err)
+      );
       
       res.status(201).json(occurrence);
     } catch (error) {
