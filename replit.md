@@ -28,7 +28,7 @@ Preferred communication style: Simple, everyday language.
 - **Schema**: Defined in `shared/schema.ts`
 - **Migrations**: Drizzle Kit
 
-**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`.
+**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `disciplinary_actions`.
 
 ### Shared Code
 The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod insert schemas) and `routes.ts` (API contract definitions) to ensure type safety across the full stack.
@@ -52,6 +52,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Timezone Handling**: All scheduling is handled in Eastern Time (America/New_York).
 - **Location Management**: Admins manage store locations with weekly hours budgets, and managers view location-specific budgets.
 - **Occurrence Tracking**: Tracks employee attendance occurrences within a rolling 12-month window for progressive discipline, including adjustments. Supports PDF document attachments for occurrence records. Viewers can only see their own occurrence history (linked by email match).
+- **Disciplinary Action Tracking**: Records progressive discipline actions (warning at 5+ occurrences, final warning at 7+, termination at 8+) with date delivered and occurrence count at time of action. Server-side validation enforces proper progression sequence. Alerts auto-suppress once the appropriate disciplinary action is recorded.
 - **Hide from Schedule**: Managers can hide terminated employees from the schedule view and AI staffing while UKG admin processes complete. Hidden employees have visual indicators in the Employees list and don't appear on schedules.
 
 ## External Dependencies
