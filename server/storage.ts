@@ -14,7 +14,7 @@ import {
   shiftPresets, type ShiftPreset, type InsertShiftPreset,
   occurrences, type Occurrence, type InsertOccurrence,
   occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment,
-  disciplinaryActions, type DisciplinaryAction, type InsertDisciplinaryAction
+  correctiveActions, type CorrectiveAction, type InsertCorrectiveAction
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
 
@@ -108,11 +108,11 @@ export interface IStorage {
   createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
   retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment>;
   
-  // Disciplinary Actions
-  getDisciplinaryActions(employeeId: number): Promise<DisciplinaryAction[]>;
-  getAllDisciplinaryActions(): Promise<DisciplinaryAction[]>;
-  createDisciplinaryAction(action: InsertDisciplinaryAction): Promise<DisciplinaryAction>;
-  deleteDisciplinaryAction(id: number): Promise<void>;
+  // Corrective Actions
+  getCorrectiveActions(employeeId: number): Promise<CorrectiveAction[]>;
+  getAllCorrectiveActions(): Promise<CorrectiveAction[]>;
+  createCorrectiveAction(action: InsertCorrectiveAction): Promise<CorrectiveAction>;
+  deleteCorrectiveAction(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -569,25 +569,25 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  // Disciplinary Actions
-  async getDisciplinaryActions(employeeId: number): Promise<DisciplinaryAction[]> {
-    return await db.select().from(disciplinaryActions)
-      .where(eq(disciplinaryActions.employeeId, employeeId))
-      .orderBy(disciplinaryActions.actionDate);
+  // Corrective Actions
+  async getCorrectiveActions(employeeId: number): Promise<CorrectiveAction[]> {
+    return await db.select().from(correctiveActions)
+      .where(eq(correctiveActions.employeeId, employeeId))
+      .orderBy(correctiveActions.actionDate);
   }
 
-  async getAllDisciplinaryActions(): Promise<DisciplinaryAction[]> {
-    return await db.select().from(disciplinaryActions)
-      .orderBy(disciplinaryActions.actionDate);
+  async getAllCorrectiveActions(): Promise<CorrectiveAction[]> {
+    return await db.select().from(correctiveActions)
+      .orderBy(correctiveActions.actionDate);
   }
 
-  async createDisciplinaryAction(action: InsertDisciplinaryAction): Promise<DisciplinaryAction> {
-    const [newAction] = await db.insert(disciplinaryActions).values(action).returning();
+  async createCorrectiveAction(action: InsertCorrectiveAction): Promise<CorrectiveAction> {
+    const [newAction] = await db.insert(correctiveActions).values(action).returning();
     return newAction;
   }
 
-  async deleteDisciplinaryAction(id: number): Promise<void> {
-    await db.delete(disciplinaryActions).where(eq(disciplinaryActions.id, id));
+  async deleteCorrectiveAction(id: number): Promise<void> {
+    await db.delete(correctiveActions).where(eq(correctiveActions.id, id));
   }
 }
 

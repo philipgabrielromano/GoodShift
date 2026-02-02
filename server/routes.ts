@@ -77,7 +77,7 @@ async function checkAndSendHRNotification(
     // Get occurrences and adjustments
     const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
     const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
-    const disciplinaryActions = await storage.getDisciplinaryActions(employeeId);
+    const correctiveActions = await storage.getCorrectiveActions(employeeId);
 
     // Calculate net tally (includes the newly added occurrence)
     const activeOccurrences = occurrences.filter(o => o.status === 'active');
@@ -106,13 +106,13 @@ async function checkAndSendHRNotification(
     // Check if a threshold was JUST crossed (previousTally < threshold <= netTally)
     let threshold: 5 | 7 | 8 | null = null;
     if (justCrossedThreshold(8)) {
-      const hasTerminationAction = disciplinaryActions.some(a => a.actionType === 'termination');
+      const hasTerminationAction = correctiveActions.some(a => a.actionType === 'termination');
       if (!hasTerminationAction) threshold = 8;
     } else if (justCrossedThreshold(7)) {
-      const hasFinalWarning = disciplinaryActions.some(a => a.actionType === 'final_warning');
+      const hasFinalWarning = correctiveActions.some(a => a.actionType === 'final_warning');
       if (!hasFinalWarning) threshold = 7;
     } else if (justCrossedThreshold(5)) {
-      const hasWarning = disciplinaryActions.some(a => a.actionType === 'warning');
+      const hasWarning = correctiveActions.some(a => a.actionType === 'warning');
       if (!hasWarning) threshold = 5;
     }
 
@@ -2598,10 +2598,10 @@ export async function registerRoutes(
       }
 
       // OPTIMIZATION: Fetch all data in bulk with just 3 queries instead of 4 per employee
-      const [allOccurrences, allAdjustments, allDisciplinaryActions] = await Promise.all([
+      const [allOccurrences, allAdjustments, allCorrectiveActions] = await Promise.all([
         storage.getAllOccurrencesInDateRange(startDate, endDate),
         storage.getAllOccurrenceAdjustmentsForYear(currentYear),
-        storage.getAllDisciplinaryActions()
+        storage.getAllCorrectiveActions()
       ]);
 
       // Group data by employee ID for fast lookups
@@ -2619,11 +2619,11 @@ export async function registerRoutes(
         adjustmentsByEmployee.set(adj.employeeId, list);
       }
 
-      const disciplinaryByEmployee = new Map<number, typeof allDisciplinaryActions>();
-      for (const action of allDisciplinaryActions) {
-        const list = disciplinaryByEmployee.get(action.employeeId) || [];
+      const correctiveByEmployee = new Map<number, typeof allCorrectiveActions>();
+      for (const action of allCorrectiveActions) {
+        const list = correctiveByEmployee.get(action.employeeId) || [];
         list.push(action);
-        disciplinaryByEmployee.set(action.employeeId, list);
+        correctiveByEmployee.set(action.employeeId, list);
       }
 
       const alerts: Array<{
@@ -2671,14 +2671,14 @@ export async function registerRoutes(
         const totalAdjustment = manualAdjustmentTotal + perfectAttendanceBonus;
         const netTally = Math.max(0, totalPoints + totalAdjustment);
 
-        // Get disciplinary actions for this employee to check if action already taken
-        const empDisciplinary = disciplinaryByEmployee.get(emp.id) || [];
-        const hasWarning = empDisciplinary.some(a => a.actionType === 'warning');
-        const hasFinalWarning = empDisciplinary.some(a => a.actionType === 'final_warning');
-        const hasTermination = empDisciplinary.some(a => a.actionType === 'termination');
+        // Get corrective actions for this employee to check if action already taken
+        const empCorrective = correctiveByEmployee.get(emp.id) || [];
+        const hasWarning = empCorrective.some(a => a.actionType === 'warning');
+        const hasFinalWarning = empCorrective.some(a => a.actionType === 'final_warning');
+        const hasTermination = empCorrective.some(a => a.actionType === 'termination');
 
         // Check thresholds (using netTally for accurate count)
-        // Only show alert if the appropriate disciplinary action hasn't been recorded
+        // Only show alert if the appropriate corrective action hasn't been recorded
         // 5 = warning, 7 = final warning, 8 = termination
         if (netTally >= 8 && !hasTermination) {
           alerts.push({
@@ -2795,33 +2795,33 @@ export async function registerRoutes(
     }
   });
 
-  // === DISCIPLINARY ACTIONS ===
+  // === CORRECTIVE ACTIONS ===
   
-  // Get disciplinary actions for an employee
-  app.get("/api/disciplinary-actions/:employeeId", requireAuth, async (req, res) => {
+  // Get corrective actions for an employee
+  app.get("/api/corrective-actions/:employeeId", requireAuth, async (req, res) => {
     try {
       const employeeId = Number(req.params.employeeId);
       const user = (req.session as any)?.user;
       
-      // Only managers and admins can view disciplinary actions
+      // Only managers and admins can view corrective actions
       if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers and admins can view disciplinary actions" });
+        return res.status(403).json({ message: "Only managers and admins can view corrective actions" });
       }
       
-      const actions = await storage.getDisciplinaryActions(employeeId);
+      const actions = await storage.getCorrectiveActions(employeeId);
       res.json(actions);
     } catch (error) {
-      console.error("Error fetching disciplinary actions:", error);
-      res.status(500).json({ message: "Failed to fetch disciplinary actions" });
+      console.error("Error fetching corrective actions:", error);
+      res.status(500).json({ message: "Failed to fetch corrective actions" });
     }
   });
 
-  // Create a disciplinary action
-  app.post("/api/disciplinary-actions", requireAuth, async (req, res) => {
+  // Create a corrective action
+  app.post("/api/corrective-actions", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers and admins can create disciplinary actions" });
+        return res.status(403).json({ message: "Only managers and admins can create corrective actions" });
       }
       
       const { employeeId, actionType, actionDate, occurrenceCount, notes } = req.body;
@@ -2837,7 +2837,7 @@ export async function registerRoutes(
       }
       
       // Get existing actions to validate the progression
-      const existingActions = await storage.getDisciplinaryActions(employeeId);
+      const existingActions = await storage.getCorrectiveActions(employeeId);
       
       // Validate progression: warning -> final_warning -> termination
       if (actionType === 'final_warning') {
@@ -2861,7 +2861,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: `A ${actionType.replace('_', ' ')} has already been recorded` });
       }
       
-      const action = await storage.createDisciplinaryAction({
+      const action = await storage.createCorrectiveAction({
         employeeId,
         actionType,
         actionDate,
@@ -2872,25 +2872,25 @@ export async function registerRoutes(
       
       res.status(201).json(action);
     } catch (error) {
-      console.error("Error creating disciplinary action:", error);
-      res.status(500).json({ message: "Failed to create disciplinary action" });
+      console.error("Error creating corrective action:", error);
+      res.status(500).json({ message: "Failed to create corrective action" });
     }
   });
 
-  // Delete a disciplinary action
-  app.delete("/api/disciplinary-actions/:id", requireAuth, async (req, res) => {
+  // Delete a corrective action
+  app.delete("/api/corrective-actions/:id", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers and admins can delete disciplinary actions" });
+        return res.status(403).json({ message: "Only managers and admins can delete corrective actions" });
       }
       
       const id = Number(req.params.id);
-      await storage.deleteDisciplinaryAction(id);
+      await storage.deleteCorrectiveAction(id);
       res.json({ success: true });
     } catch (error) {
-      console.error("Error deleting disciplinary action:", error);
-      res.status(500).json({ message: "Failed to delete disciplinary action" });
+      console.error("Error deleting corrective action:", error);
+      res.status(500).json({ message: "Failed to delete corrective action" });
     }
   });
 

@@ -39,7 +39,7 @@ export const changelog: ChangelogEntry[] = [
     date: "2026-01-20",
     title: "Occurrence Management Enhancements",
     changes: [
-      { type: "feature", description: "Added disciplinary action tracking with progressive discipline sequence (warning, final warning, termination)" },
+      { type: "feature", description: "Added corrective action tracking with progressive discipline sequence (warning, final warning, termination)" },
       { type: "feature", description: "Added PDF document attachments for occurrence records via Object Storage" },
       { type: "feature", description: "Added occurrence alerts with threshold indicators in notification bell" },
       { type: "improvement", description: "Occurrence tally calculation now uses rolling 12-month window" },

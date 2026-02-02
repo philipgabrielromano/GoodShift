@@ -322,8 +322,8 @@ export const occurrenceAdjustmentsRelations = relations(occurrenceAdjustments, (
   }),
 }));
 
-// Disciplinary actions table for tracking warnings, final warnings, and terminations
-export const disciplinaryActions = pgTable("disciplinary_actions", {
+// Corrective actions table for tracking warnings, final warnings, and terminations
+export const correctiveActions = pgTable("disciplinary_actions", {
   id: serial("id").primaryKey(),
   employeeId: integer("employee_id").notNull(),
   actionType: text("action_type").notNull(), // 'warning', 'final_warning', 'termination'
@@ -334,16 +334,16 @@ export const disciplinaryActions = pgTable("disciplinary_actions", {
   notes: text("notes"),
 });
 
-export const disciplinaryActionsRelations = relations(disciplinaryActions, ({ one }) => ({
+export const correctiveActionsRelations = relations(correctiveActions, ({ one }) => ({
   employee: one(employees, {
-    fields: [disciplinaryActions.employeeId],
+    fields: [correctiveActions.employeeId],
     references: [employees.id],
   }),
 }));
 
-export const insertDisciplinaryActionSchema = createInsertSchema(disciplinaryActions).omit({ id: true, createdAt: true });
-export type DisciplinaryAction = typeof disciplinaryActions.$inferSelect;
-export type InsertDisciplinaryAction = z.infer<typeof insertDisciplinaryActionSchema>;
+export const insertCorrectiveActionSchema = createInsertSchema(correctiveActions).omit({ id: true, createdAt: true });
+export type CorrectiveAction = typeof correctiveActions.$inferSelect;
+export type InsertCorrectiveAction = z.infer<typeof insertCorrectiveActionSchema>;
 
 export const insertOccurrenceSchema = createInsertSchema(occurrences).omit({ id: true, createdAt: true });
 export const insertOccurrenceAdjustmentSchema = createInsertSchema(occurrenceAdjustments).omit({ id: true, createdAt: true });

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useEmployees } from "@/hooks/use-employees";
-import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment, useDisciplinaryActions, useCreateDisciplinaryAction, useDeleteDisciplinaryAction } from "@/hooks/use-occurrences";
+import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment, useCorrectiveActions, useCreateCorrectiveAction, useDeleteCorrectiveAction } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -80,12 +80,12 @@ export default function Attendance() {
 
   // Only fetch summary when we have a valid employee ID
   const { data: summary, isLoading: summaryLoading } = useOccurrenceSummary(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
-  const { data: disciplinaryActions, isLoading: disciplinaryLoading } = useDisciplinaryActions(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
+  const { data: correctiveActions, isLoading: correctiveLoading } = useCorrectiveActions(selectedEmployeeId ?? 0, { enabled: !!selectedEmployeeId });
   const retractOccurrence = useRetractOccurrence();
   const retractAdjustment = useRetractAdjustment();
   const createAdjustment = useCreateOccurrenceAdjustment();
-  const createDisciplinaryAction = useCreateDisciplinaryAction();
-  const deleteDisciplinaryAction = useDeleteDisciplinaryAction();
+  const createCorrectiveAction = useCreateCorrectiveAction();
+  const deleteCorrectiveAction = useDeleteCorrectiveAction();
 
   const [retractDialogOpen, setRetractDialogOpen] = useState(false);
   const [retractOccurrenceId, setRetractOccurrenceId] = useState<number | null>(null);
@@ -101,16 +101,16 @@ export default function Attendance() {
   
   const [perfectAttendanceDialogOpen, setPerfectAttendanceDialogOpen] = useState(false);
 
-  const [disciplinaryDialogOpen, setDisciplinaryDialogOpen] = useState(false);
-  const [disciplinaryActionType, setDisciplinaryActionType] = useState<'warning' | 'final_warning' | 'termination' | null>(null);
-  const [disciplinaryActionDate, setDisciplinaryActionDate] = useState<string>("");
+  const [correctiveDialogOpen, setCorrectiveDialogOpen] = useState(false);
+  const [correctiveActionType, setCorrectiveActionType] = useState<'warning' | 'final_warning' | 'termination' | null>(null);
+  const [correctiveActionDate, setCorrectiveActionDate] = useState<string>("");
 
   const selectedEmployee = employees?.find(e => e.id === selectedEmployeeId);
   
-  // Helper to check if disciplinary actions exist
-  const hasWarning = disciplinaryActions?.some(a => a.actionType === 'warning') ?? false;
-  const hasFinalWarning = disciplinaryActions?.some(a => a.actionType === 'final_warning') ?? false;
-  const hasTermination = disciplinaryActions?.some(a => a.actionType === 'termination') ?? false;
+  // Helper to check if corrective actions exist
+  const hasWarning = correctiveActions?.some(a => a.actionType === 'warning') ?? false;
+  const hasFinalWarning = correctiveActions?.some(a => a.actionType === 'final_warning') ?? false;
+  const hasTermination = correctiveActions?.some(a => a.actionType === 'termination') ?? false;
 
   const handleRetract = async () => {
     if (!retractOccurrenceId || !selectedEmployeeId || !retractReason) return;
@@ -190,40 +190,40 @@ export default function Attendance() {
     }
   };
 
-  const handleDisciplinaryAction = async () => {
-    if (!selectedEmployeeId || !disciplinaryActionType || !disciplinaryActionDate || !summary) return;
+  const handleCorrectiveAction = async () => {
+    if (!selectedEmployeeId || !correctiveActionType || !correctiveActionDate || !summary) return;
     
     try {
-      await createDisciplinaryAction.mutateAsync({
+      await createCorrectiveAction.mutateAsync({
         employeeId: selectedEmployeeId,
-        actionType: disciplinaryActionType,
-        actionDate: disciplinaryActionDate,
+        actionType: correctiveActionType,
+        actionDate: correctiveActionDate,
         occurrenceCount: Math.round(summary.netTally * 100)
       });
-      const actionLabel = disciplinaryActionType === 'warning' ? 'Warning' : disciplinaryActionType === 'final_warning' ? 'Final Warning' : 'Termination';
+      const actionLabel = correctiveActionType === 'warning' ? 'Warning' : correctiveActionType === 'final_warning' ? 'Final Warning' : 'Termination';
       toast({ title: `${actionLabel} Recorded`, description: `The ${actionLabel.toLowerCase()} has been logged.` });
-      setDisciplinaryDialogOpen(false);
-      setDisciplinaryActionType(null);
-      setDisciplinaryActionDate("");
+      setCorrectiveDialogOpen(false);
+      setCorrectiveActionType(null);
+      setCorrectiveActionDate("");
     } catch (error: any) {
       toast({ 
         title: "Error", 
-        description: error?.message || "Failed to record disciplinary action", 
+        description: error?.message || "Failed to record corrective action", 
         variant: "destructive" 
       });
     }
   };
 
-  const handleDeleteDisciplinaryAction = async (id: number, actionType: string) => {
+  const handleDeleteCorrectiveAction = async (id: number, actionType: string) => {
     if (!selectedEmployeeId) return;
     
     try {
-      await deleteDisciplinaryAction.mutateAsync({ id, employeeId: selectedEmployeeId });
+      await deleteCorrectiveAction.mutateAsync({ id, employeeId: selectedEmployeeId });
       toast({ title: "Action Removed", description: `The ${actionType.replace('_', ' ')} record has been removed.` });
     } catch (error: any) {
       toast({ 
         title: "Error", 
-        description: error?.message || "Failed to remove disciplinary action", 
+        description: error?.message || "Failed to remove corrective action", 
         variant: "destructive" 
       });
     }
@@ -447,13 +447,13 @@ export default function Attendance() {
                 </div>
               )}
 
-              {/* Disciplinary Actions Card */}
+              {/* Corrective Actions Card */}
               {canManageOccurrences && summary.netTally >= 5 && (
                 <Card className="border-orange-200 dark:border-orange-800">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2">
                       <CheckSquare className="w-5 h-5 text-orange-500" />
-                      Disciplinary Actions
+                      Corrective Actions
                     </CardTitle>
                     <CardDescription>
                       Track progressive discipline based on occurrence count. Actions must be recorded in order.
@@ -469,9 +469,9 @@ export default function Attendance() {
                           disabled={hasWarning || summary.netTally < 5}
                           onCheckedChange={(checked) => {
                             if (checked && !hasWarning) {
-                              setDisciplinaryActionType('warning');
-                              setDisciplinaryActionDate(format(new Date(), 'yyyy-MM-dd'));
-                              setDisciplinaryDialogOpen(true);
+                              setCorrectiveActionType('warning');
+                              setCorrectiveActionDate(format(new Date(), 'yyyy-MM-dd'));
+                              setCorrectiveDialogOpen(true);
                             }
                           }}
                           data-testid="checkbox-warning"
@@ -484,15 +484,15 @@ export default function Attendance() {
                       {hasWarning && (
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200">
-                            {format(new Date(disciplinaryActions?.find(a => a.actionType === 'warning')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
+                            {format(new Date(correctiveActions?.find(a => a.actionType === 'warning')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
                           </Badge>
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-6 w-6 text-muted-foreground hover:text-destructive"
                             onClick={() => {
-                              const action = disciplinaryActions?.find(a => a.actionType === 'warning');
-                              if (action) handleDeleteDisciplinaryAction(action.id, action.actionType);
+                              const action = correctiveActions?.find(a => a.actionType === 'warning');
+                              if (action) handleDeleteCorrectiveAction(action.id, action.actionType);
                             }}
                             data-testid="button-delete-warning"
                           >
@@ -511,9 +511,9 @@ export default function Attendance() {
                           disabled={hasFinalWarning || summary.netTally < 7 || !hasWarning}
                           onCheckedChange={(checked) => {
                             if (checked && !hasFinalWarning && hasWarning) {
-                              setDisciplinaryActionType('final_warning');
-                              setDisciplinaryActionDate(format(new Date(), 'yyyy-MM-dd'));
-                              setDisciplinaryDialogOpen(true);
+                              setCorrectiveActionType('final_warning');
+                              setCorrectiveActionDate(format(new Date(), 'yyyy-MM-dd'));
+                              setCorrectiveDialogOpen(true);
                             }
                           }}
                           data-testid="checkbox-final-warning"
@@ -528,15 +528,15 @@ export default function Attendance() {
                       {hasFinalWarning && (
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary" className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                            {format(new Date(disciplinaryActions?.find(a => a.actionType === 'final_warning')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
+                            {format(new Date(correctiveActions?.find(a => a.actionType === 'final_warning')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
                           </Badge>
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-6 w-6 text-muted-foreground hover:text-destructive"
                             onClick={() => {
-                              const action = disciplinaryActions?.find(a => a.actionType === 'final_warning');
-                              if (action) handleDeleteDisciplinaryAction(action.id, action.actionType);
+                              const action = correctiveActions?.find(a => a.actionType === 'final_warning');
+                              if (action) handleDeleteCorrectiveAction(action.id, action.actionType);
                             }}
                             data-testid="button-delete-final-warning"
                           >
@@ -555,9 +555,9 @@ export default function Attendance() {
                           disabled={hasTermination || summary.netTally < 8 || !hasWarning || !hasFinalWarning}
                           onCheckedChange={(checked) => {
                             if (checked && !hasTermination && hasWarning && hasFinalWarning) {
-                              setDisciplinaryActionType('termination');
-                              setDisciplinaryActionDate(format(new Date(), 'yyyy-MM-dd'));
-                              setDisciplinaryDialogOpen(true);
+                              setCorrectiveActionType('termination');
+                              setCorrectiveActionDate(format(new Date(), 'yyyy-MM-dd'));
+                              setCorrectiveDialogOpen(true);
                             }
                           }}
                           data-testid="checkbox-termination"
@@ -572,15 +572,15 @@ export default function Attendance() {
                       {hasTermination && (
                         <div className="flex items-center gap-2">
                           <Badge variant="destructive">
-                            {format(new Date(disciplinaryActions?.find(a => a.actionType === 'termination')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
+                            {format(new Date(correctiveActions?.find(a => a.actionType === 'termination')?.actionDate + "T12:00:00"), "MMM d, yyyy")}
                           </Badge>
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-6 w-6 text-muted-foreground hover:text-destructive"
                             onClick={() => {
-                              const action = disciplinaryActions?.find(a => a.actionType === 'termination');
-                              if (action) handleDeleteDisciplinaryAction(action.id, action.actionType);
+                              const action = correctiveActions?.find(a => a.actionType === 'termination');
+                              if (action) handleDeleteCorrectiveAction(action.id, action.actionType);
                             }}
                             data-testid="button-delete-termination"
                           >
@@ -922,49 +922,49 @@ export default function Attendance() {
         </DialogContent>
       </Dialog>
 
-      {/* Disciplinary Action Date Dialog */}
-      <Dialog open={disciplinaryDialogOpen} onOpenChange={(open) => {
-        setDisciplinaryDialogOpen(open);
+      {/* Corrective Action Date Dialog */}
+      <Dialog open={correctiveDialogOpen} onOpenChange={(open) => {
+        setCorrectiveDialogOpen(open);
         if (!open) {
-          setDisciplinaryActionType(null);
-          setDisciplinaryActionDate("");
+          setCorrectiveActionType(null);
+          setCorrectiveActionDate("");
         }
       }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CheckSquare className="w-5 h-5 text-orange-500" />
-              Record {disciplinaryActionType === 'warning' ? 'Warning' : disciplinaryActionType === 'final_warning' ? 'Final Warning' : 'Termination'}
+              Record {correctiveActionType === 'warning' ? 'Warning' : correctiveActionType === 'final_warning' ? 'Final Warning' : 'Termination'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              {disciplinaryActionType === 'warning' && "Record that a warning was delivered to this employee."}
-              {disciplinaryActionType === 'final_warning' && "Record that a final warning was delivered to this employee."}
-              {disciplinaryActionType === 'termination' && "Record that termination was processed for this employee."}
+              {correctiveActionType === 'warning' && "Record that a warning was delivered to this employee."}
+              {correctiveActionType === 'final_warning' && "Record that a final warning was delivered to this employee."}
+              {correctiveActionType === 'termination' && "Record that termination was processed for this employee."}
             </p>
             <div className="space-y-2">
               <Label htmlFor="action-date">Date Delivered</Label>
               <Input
                 id="action-date"
                 type="date"
-                value={disciplinaryActionDate}
-                onChange={(e) => setDisciplinaryActionDate(e.target.value)}
-                data-testid="input-disciplinary-date"
+                value={correctiveActionDate}
+                onChange={(e) => setCorrectiveActionDate(e.target.value)}
+                data-testid="input-corrective-date"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDisciplinaryDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setCorrectiveDialogOpen(false)}>
               Cancel
             </Button>
             <Button 
-              onClick={handleDisciplinaryAction} 
-              disabled={!disciplinaryActionDate || createDisciplinaryAction.isPending}
-              variant={disciplinaryActionType === 'termination' ? 'destructive' : 'default'}
-              data-testid="button-confirm-disciplinary"
+              onClick={handleCorrectiveAction} 
+              disabled={!correctiveActionDate || createCorrectiveAction.isPending}
+              variant={correctiveActionType === 'termination' ? 'destructive' : 'default'}
+              data-testid="button-confirm-corrective"
             >
-              {createDisciplinaryAction.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              {createCorrectiveAction.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Confirm
             </Button>
           </DialogFooter>
