@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.4.0";
+export const APP_VERSION = "1.5.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.5.0",
+    date: "2026-02-02",
+    title: "Scheduling Flexibility & Session Management",
+    changes: [
+      { type: "feature", description: "Added tiered leadership scheduling - Store Manager, Assistant Manager, and Team Leads can flexibly cover leadership requirements" },
+      { type: "feature", description: "Added location enable/disable toggle to control which stores appear in scheduling" },
+      { type: "improvement", description: "Enhanced notification bell with prominent placement and label in sidebar" },
+      { type: "improvement", description: "Automatic redirect to login when session expires after server restart" },
+      { type: "improvement", description: "Updated favicon to official Goodwill Smiling G logo" },
+      { type: "fix", description: "Fixed schedule auto-generation failing for all stores" },
+    ],
+  },
   {
     version: "1.4.0",
     date: "2026-02-02",
