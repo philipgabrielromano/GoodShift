@@ -325,6 +325,7 @@ export default function Schedule() {
   const [draggedShift, setDraggedShift] = useState<Shift | null>(null);
   const [dropTarget, setDropTarget] = useState<{ empId: number; dayKey: string } | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
+  const [isCopyMode, setIsCopyMode] = useState(false);
   
   // Determine if user is admin
   const isAdmin = authStatus?.user?.role === "admin";
@@ -365,10 +366,30 @@ export default function Schedule() {
     });
   };
   
+  // Track modifier key for copy mode during drag
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") {
+        setIsCopyMode(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Control" || e.key === "Meta") {
+        setIsCopyMode(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
   // Handle drag and drop
   const handleDragStart = (e: React.DragEvent, shift: Shift) => {
     e.dataTransfer.setData("text/plain", JSON.stringify(shift));
-    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.effectAllowed = "copyMove";
     setDraggedShift(shift);
   };
   
@@ -379,7 +400,7 @@ export default function Schedule() {
   
   const handleDragOver = (e: React.DragEvent, empId: number, dayKey: string) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
+    e.dataTransfer.dropEffect = isCopyMode ? "copy" : "move";
     setDropTarget({ empId, dayKey });
   };
   
@@ -392,6 +413,7 @@ export default function Schedule() {
     if (!draggedShift) return;
     
     const shift = draggedShift;
+    const shouldCopy = isCopyMode;
     
     // Convert original times to timezone-aware dates to get correct wall-clock times
     const originalStartTZ = toZonedTime(new Date(shift.startTime), TIMEZONE);
@@ -418,33 +440,62 @@ export default function Schedule() {
     // Optimistic update: immediately update the cache
     const previousShifts = queryClient.getQueryData<Shift[]>(["/api/shifts"]);
     
-    if (previousShifts) {
-      const optimisticShifts = previousShifts.map(s => 
-        s.id === shift.id 
-          ? { ...s, employeeId: targetEmployeeId, startTime: newStartUTC.toISOString(), endTime: newEndUTC.toISOString() }
-          : s
-      );
-      queryClient.setQueryData(["/api/shifts"], optimisticShifts);
-    }
-    
     setDraggedShift(null);
     setDropTarget(null);
     
-    try {
-      await apiRequest("PUT", `/api/shifts/${shift.id}`, {
+    if (shouldCopy) {
+      // Copy mode: create a new shift
+      const tempId = -Date.now(); // Temporary negative ID for optimistic update
+      const newShiftOptimistic: Shift = {
+        id: tempId,
         employeeId: targetEmployeeId,
-        startTime: newStartUTC.toISOString(),
-        endTime: newEndUTC.toISOString(),
-      });
-      // Refetch to ensure we have the latest server state
-      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      toast({ title: "Shift Moved", description: "Shift has been moved successfully." });
-    } catch (error) {
-      // Rollback on error
+        startTime: newStartUTC,
+        endTime: newEndUTC,
+      };
+      
       if (previousShifts) {
-        queryClient.setQueryData(["/api/shifts"], previousShifts);
+        queryClient.setQueryData(["/api/shifts"], [...previousShifts, newShiftOptimistic]);
       }
-      toast({ variant: "destructive", title: "Error", description: "Failed to move shift. Changes have been reverted." });
+      
+      try {
+        await apiRequest("POST", "/api/shifts", {
+          employeeId: targetEmployeeId,
+          startTime: newStartUTC.toISOString(),
+          endTime: newEndUTC.toISOString(),
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+        toast({ title: "Shift Copied", description: "Shift has been copied successfully." });
+      } catch (error) {
+        if (previousShifts) {
+          queryClient.setQueryData(["/api/shifts"], previousShifts);
+        }
+        toast({ variant: "destructive", title: "Error", description: "Failed to copy shift. Changes have been reverted." });
+      }
+    } else {
+      // Move mode: update the existing shift
+      if (previousShifts) {
+        const optimisticShifts = previousShifts.map(s => 
+          s.id === shift.id 
+            ? { ...s, employeeId: targetEmployeeId, startTime: newStartUTC, endTime: newEndUTC }
+            : s
+        );
+        queryClient.setQueryData(["/api/shifts"], optimisticShifts);
+      }
+      
+      try {
+        await apiRequest("PUT", `/api/shifts/${shift.id}`, {
+          employeeId: targetEmployeeId,
+          startTime: newStartUTC.toISOString(),
+          endTime: newEndUTC.toISOString(),
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+        toast({ title: "Shift Moved", description: "Shift has been moved successfully." });
+      } catch (error) {
+        if (previousShifts) {
+          queryClient.setQueryData(["/api/shifts"], previousShifts);
+        }
+        toast({ variant: "destructive", title: "Error", description: "Failed to move shift. Changes have been reverted." });
+      }
     }
   };
   
@@ -1473,7 +1524,11 @@ export default function Schedule() {
                                           style={{ backgroundColor: getJobColor(emp.jobTitle) }}
                                           data-testid={`shift-${shift.id}`}
                                         >
-                                          <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                          {isCopyMode && draggedShift?.id === shift.id ? (
+                                            <Copy className="w-3 h-3 flex-shrink-0" />
+                                          ) : (
+                                            <GripVertical className="w-3 h-3 opacity-50 flex-shrink-0" />
+                                          )}
                                           <div className="flex flex-col leading-tight">
                                             <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
                                             <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
