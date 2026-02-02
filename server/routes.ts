@@ -956,7 +956,8 @@ export async function registerRoutes(
         
         // Helper to get appropriate shift time based on job
         // Include WV job codes in the checks
-        const donationPricerCodes = ['DONPRI', 'APPROC', 'DONPRWV', 'APWV'];
+        const donationPricerCodes = ['DONPRI', 'DONPRWV'];
+        const apparelProcessorCodes = ['APPROC', 'APWV'];
         const donorGreeterCodes = ['DONDOOR', 'WVDON'];
         
         const getFullShift = () => {
@@ -1101,7 +1102,8 @@ export async function registerRoutes(
       const allLeadershipCodes = [...storeManagerCodes, ...assistantManagerCodes, ...teamLeadCodes];
       
       const donorGreeterCodes = ['DONDOOR', 'WVDON'];
-      const donationPricerCodes = ['DONPRI', 'APPROC', 'DONPRWV', 'APWV'];
+      const donationPricerCodes = ['DONPRI', 'DONPRWV']; // Donation pricers only
+      const apparelProcessorCodes = ['APPROC', 'APWV']; // Apparel processors only
       const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
       
       // Categorize leadership by tier
@@ -1113,11 +1115,12 @@ export async function registerRoutes(
       const managers = employees.filter(emp => allLeadershipCodes.includes(emp.jobTitle) && emp.isActive);
       const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive);
       const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive);
+      const apparelProcessors = employees.filter(emp => apparelProcessorCodes.includes(emp.jobTitle) && emp.isActive);
       const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive);
       
       console.log(`[Scheduler] Total employees: ${employees.length}`);
       console.log(`[Scheduler] Leadership breakdown - Store Mgrs: ${storeManagers.length}, Asst Mgrs: ${assistantManagers.length}, Team Leads: ${teamLeads.length}`);
-      console.log(`[Scheduler] Other roles - Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
+      console.log(`[Scheduler] Other roles - Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Apparel: ${apparelProcessors.length}, Cashiers: ${cashiers.length}`);
       
       // Helper to get leadership tier priority (lower = higher priority)
       const getLeadershipTier = (emp: typeof employees[0]): number => {
@@ -1367,23 +1370,50 @@ export async function registerRoutes(
         // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority
         // (moved to Phase 1a-greeter section below)
 
-        // 1e. Donation Pricers - use short morning shifts for part-timers, full for full-timers
-        // Pricers don't need to be there all day, just early morning for pricing (shuffled for variety)
+        // 1e. Donation Pricers - MINIMUM 1 per day when available
+        // Pricers work early morning for pricing (shuffled for variety)
         const availablePricers = shuffleAndSort(
           donationPricers.filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
         );
         
-        // Schedule at least 2 pricers per day on early shifts
-        const minPricers = Math.min(2, availablePricers.length);
+        // Schedule at least 1 donation pricer per day (when available)
+        const minPricers = Math.min(1, availablePricers.length);
         for (let i = 0; i < minPricers; i++) {
           const pricer = availablePricers[i];
           // Part-timers (<=29h) get short morning shifts to maximize their weekly hours
           if (pricer.maxWeeklyHours <= 29 && canWorkShortShift(pricer, currentDay, dayIndex)) {
             scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
           } else if (canWorkFullShift(pricer, currentDay, dayIndex)) {
-            const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
-            scheduleShift(pricer, shift.start, shift.end, dayIndex);
+            scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
           }
+        }
+        
+        if (availablePricers.length === 0) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} has no available donation pricers`);
+        }
+        
+        // 1f. Apparel Processors - MINIMUM 2 per day when available
+        // Apparel processors work morning shifts for processing donations
+        const availableApparel = shuffleAndSort(
+          apparelProcessors.filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
+        );
+        
+        // Schedule at least 2 apparel processors per day (when available)
+        const minApparel = Math.min(2, availableApparel.length);
+        for (let i = 0; i < minApparel; i++) {
+          const processor = availableApparel[i];
+          // Part-timers (<=29h) get short morning shifts
+          if (processor.maxWeeklyHours <= 29 && canWorkShortShift(processor, currentDay, dayIndex)) {
+            scheduleShift(processor, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+          } else if (canWorkFullShift(processor, currentDay, dayIndex)) {
+            // Alternate between opener and early9 for variety
+            const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
+            scheduleShift(processor, shift.start, shift.end, dayIndex);
+          }
+        }
+        
+        if (availableApparel.length < 2) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} has only ${availableApparel.length} available apparel processors (need 2)`);
         }
       }
 
@@ -1657,7 +1687,7 @@ export async function registerRoutes(
           // Get all available employees who can work any shift today (shuffled for variety)
           // Sort by fewest days worked first (to spread evenly), then by priority
           // Include donor greeters for Saturday-priority additional staffing
-          const allAvailable = shuffleArray([...donorGreeters, ...donationPricers, ...cashiers])
+          const allAvailable = shuffleArray([...donorGreeters, ...donationPricers, ...apparelProcessors, ...cashiers])
             .filter(e => canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex))
             .sort((a, b) => {
               // Prefer employees who have worked fewer days (spread coverage evenly)
@@ -1681,8 +1711,8 @@ export async function registerRoutes(
               }
             } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
-              if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
-                // Donation pricers work morning shifts
+              if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
+                // Donation pricers and apparel processors work morning shifts
                 shift = additionalAssigned[dayIndex] % 2 === 0 ? shifts.opener : shifts.early9;
               } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
                 // Donor greeters work afternoon/closing shifts
@@ -1781,7 +1811,7 @@ export async function registerRoutes(
 
           // Find employees who can still work (either full or short shifts)
           // Shuffle first, then sort by fewest days worked for even distribution with variety
-          const underScheduled = shuffleArray([...managers, ...donorGreeters, ...donationPricers, ...cashiers])
+          const underScheduled = shuffleArray([...managers, ...donorGreeters, ...donationPricers, ...apparelProcessors, ...cashiers])
             .filter(e => {
               const canWork = canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex);
               if (!canWork) return false;
@@ -1840,7 +1870,7 @@ export async function registerRoutes(
             // Full-timers get full shifts only
             else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
-              if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
+              if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
                 shift = shifts.opener;
               } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
                 shift = shifts.closer;
@@ -1872,7 +1902,7 @@ export async function registerRoutes(
       // - 5.5h short shift for employees with 5.5h+ remaining
       // Note: Managers are excluded - they should only work full opener/closer shifts for coverage
       // IMPORTANT: Use Saturday-first ordering to maintain Saturday >= Sunday for greeters/cashiers
-      const allRetailEmployees = [...donorGreeters, ...donationPricers, ...cashiers];
+      const allRetailEmployees = [...donorGreeters, ...donationPricers, ...apparelProcessors, ...cashiers];
       
       // Track greeter/cashier counts for Phase 4 (continuing from Phase 3)
       const phase4GreetersByDay = { ...phase3GreetersByDay };
@@ -1916,7 +1946,7 @@ export async function registerRoutes(
             
             // Assign gap shift based on role
             let gapShift;
-            if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
+            if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
               gapShift = shifts.gapMorning;
             } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
               gapShift = shifts.gapEvening;
@@ -1951,7 +1981,7 @@ export async function registerRoutes(
             
             // Assign short shift based on role with variety for greeters
             let shortShift;
-            if (['DONPRI', 'APPROC', 'DONPRWV', 'APWV'].includes(emp.jobTitle)) {
+            if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
               shortShift = shifts.shortMorning;
             } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
               // Rotate greeter short shifts for variety: 10-3:30, 12-5:30, 3-8:30
