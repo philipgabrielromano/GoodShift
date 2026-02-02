@@ -415,20 +415,37 @@ export default function Schedule() {
     const newStartUTC = fromZonedTime(newStart, TIMEZONE);
     const newEndUTC = fromZonedTime(newEnd, TIMEZONE);
     
+    // Optimistic update: immediately update the cache
+    const previousShifts = queryClient.getQueryData<Shift[]>(["/api/shifts"]);
+    
+    if (previousShifts) {
+      const optimisticShifts = previousShifts.map(s => 
+        s.id === shift.id 
+          ? { ...s, employeeId: targetEmployeeId, startTime: newStartUTC.toISOString(), endTime: newEndUTC.toISOString() }
+          : s
+      );
+      queryClient.setQueryData(["/api/shifts"], optimisticShifts);
+    }
+    
+    setDraggedShift(null);
+    setDropTarget(null);
+    
     try {
       await apiRequest("PUT", `/api/shifts/${shift.id}`, {
         employeeId: targetEmployeeId,
         startTime: newStartUTC.toISOString(),
         endTime: newEndUTC.toISOString(),
       });
+      // Refetch to ensure we have the latest server state
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({ title: "Shift Moved", description: "Shift has been moved successfully." });
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to move shift." });
+      // Rollback on error
+      if (previousShifts) {
+        queryClient.setQueryData(["/api/shifts"], previousShifts);
+      }
+      toast({ variant: "destructive", title: "Error", description: "Failed to move shift. Changes have been reverted." });
     }
-    
-    setDraggedShift(null);
-    setDropTarget(null);
   };
   
   // Calculate scheduled hours per location for the current week (including PAL)
