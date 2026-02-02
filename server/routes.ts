@@ -731,9 +731,52 @@ export async function registerRoutes(
       });
       console.log(`[Scheduler] Found ${palEntries.length} PAL entries and ${utoEntries.length} UTO entries for the week`);
 
-      // Clear existing shifts for the week (batch delete for performance)
-      const deletedCount = await storage.deleteShiftsByDateRange(startDate, weekEndDate);
-      console.log(`[Scheduler] Cleared ${deletedCount} existing shifts`);
+      // Get existing shifts for the week - we'll preserve these and only fill gaps
+      const existingShifts = await storage.getShifts(startDate, weekEndDate);
+      console.log(`[Scheduler] Found ${existingShifts.length} existing shifts to preserve`);
+      
+      // Track which employee-day combinations already have shifts
+      const existingShiftsByEmpDay = new Set<string>();
+      const existingHoursByEmployee = new Map<number, number>();
+      const existingDaysByEmployee = new Map<number, Set<number>>();
+      
+      // Use timezone-aware calculation for weekStart to match how days are computed elsewhere
+      const weekStartZoned = toZonedTime(startDate, TIMEZONE);
+      const weekStartDay = weekStartZoned.getDate();
+      const weekStartMonth = weekStartZoned.getMonth();
+      const weekStartYear = weekStartZoned.getFullYear();
+      
+      for (const shift of existingShifts) {
+        // Convert shift start time to Eastern timezone for accurate day calculation
+        const shiftStartZoned = toZonedTime(new Date(shift.startTime), TIMEZONE);
+        
+        // Calculate day index based on calendar day in Eastern timezone
+        // This is more accurate than raw millisecond math which can be off due to DST
+        const shiftDay = shiftStartZoned.getDate();
+        const shiftMonth = shiftStartZoned.getMonth();
+        const shiftYear = shiftStartZoned.getFullYear();
+        
+        // Calculate days since week start
+        const weekStartDate = new Date(weekStartYear, weekStartMonth, weekStartDay);
+        const shiftDateOnly = new Date(shiftYear, shiftMonth, shiftDay);
+        const dayIndex = Math.round((shiftDateOnly.getTime() - weekStartDate.getTime()) / (24 * 60 * 60 * 1000));
+        
+        if (dayIndex >= 0 && dayIndex < 7) {
+          const key = `${shift.employeeId}-${dayIndex}`;
+          existingShiftsByEmpDay.add(key);
+          
+          // Calculate hours for this shift
+          const hours = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
+          const paidHours = hours >= 6 ? hours - 0.5 : hours; // Subtract unpaid lunch for 6+ hour shifts
+          
+          const currentHours = existingHoursByEmployee.get(shift.employeeId) || 0;
+          existingHoursByEmployee.set(shift.employeeId, currentHours + paidHours);
+          
+          const currentDays = existingDaysByEmployee.get(shift.employeeId) || new Set<number>();
+          currentDays.add(dayIndex);
+          existingDaysByEmployee.set(shift.employeeId, currentDays);
+        }
+      }
       
       // Collect shifts in memory first, then batch insert at the end for performance
       const pendingShifts: { employeeId: number; startTime: Date; endTime: Date }[] = [];
@@ -792,15 +835,24 @@ export async function registerRoutes(
           }
         }
         
-        // Pre-count both PAL hours and paid holiday hours
-        const preCountedHours = palHours + paidHolidayHours;
-        employeeState[emp.id] = { hoursScheduled: preCountedHours, daysWorked: 0, daysWorkedOn: new Set() };
+        // Include existing shift hours and days in the pre-counted totals
+        const existingHours = existingHoursByEmployee.get(emp.id) || 0;
+        const existingDays = existingDaysByEmployee.get(emp.id) || new Set<number>();
         
-        if (palHours > 0 || paidHolidayHours > 0) {
-          const parts = [];
-          if (palHours > 0) parts.push(`${palHours} PAL`);
-          if (paidHolidayHours > 0) parts.push(`${paidHolidayHours} holiday`);
-          console.log(`[Scheduler] ${emp.name}: ${parts.join(' + ')} hours pre-counted (total: ${preCountedHours})`);
+        // Pre-count PAL hours, paid holiday hours, AND existing shift hours
+        const preCountedHours = palHours + paidHolidayHours + existingHours;
+        employeeState[emp.id] = { 
+          hoursScheduled: preCountedHours, 
+          daysWorked: existingDays.size, 
+          daysWorkedOn: new Set(existingDays) 
+        };
+        
+        const parts = [];
+        if (palHours > 0) parts.push(`${palHours.toFixed(1)} PAL`);
+        if (paidHolidayHours > 0) parts.push(`${paidHolidayHours} holiday`);
+        if (existingHours > 0) parts.push(`${existingHours.toFixed(1)} existing`);
+        if (parts.length > 0) {
+          console.log(`[Scheduler] ${emp.name}: ${parts.join(' + ')} hours pre-counted (total: ${preCountedHours.toFixed(1)})`);
         }
       });
 
@@ -809,6 +861,10 @@ export async function registerRoutes(
       const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       
       const isOnTimeOff = (empId: number, day: Date, dayIndex: number) => {
+        // Check if employee already has an existing shift on this day (preserve manual assignments)
+        const existingKey = `${empId}-${dayIndex}`;
+        if (existingShiftsByEmpDay.has(existingKey)) return true;
+        
         // Check approved time-off requests
         const hasApprovedTimeOff = timeOff.some(to => 
           to.employeeId === empId && 
