@@ -1035,18 +1035,53 @@ export async function registerRoutes(
 
       // ========== CATEGORIZE EMPLOYEES ==========
       // Include both standard and WV (Weirton) job codes
-      const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
+      // Leadership positions are tiered for flexible coverage:
+      // - Tier 1: Store Manager (STSUPER/WVSTMNG) - highest priority
+      // - Tier 2: Assistant Manager (STASSTSP/WVSTAST) - second priority
+      // - Tier 3: Team Lead (STLDWKR/WVLDWRK) - can fill in when higher tiers unavailable
+      const storeManagerCodes = ['STSUPER', 'WVSTMNG'];
+      const assistantManagerCodes = ['STASSTSP', 'WVSTAST'];
+      const teamLeadCodes = ['STLDWKR', 'WVLDWRK'];
+      const allLeadershipCodes = [...storeManagerCodes, ...assistantManagerCodes, ...teamLeadCodes];
+      
       const donorGreeterCodes = ['DONDOOR', 'WVDON'];
       const donationPricerCodes = ['DONPRI', 'APPROC', 'DONPRWV', 'APWV'];
       const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
       
-      const managers = employees.filter(emp => managerCodes.includes(emp.jobTitle) && emp.isActive);
+      // Categorize leadership by tier
+      const storeManagers = employees.filter(emp => storeManagerCodes.includes(emp.jobTitle) && emp.isActive);
+      const assistantManagers = employees.filter(emp => assistantManagerCodes.includes(emp.jobTitle) && emp.isActive);
+      const teamLeads = employees.filter(emp => teamLeadCodes.includes(emp.jobTitle) && emp.isActive);
+      
+      // Combined leadership pool (all tiers) - used for flexible coverage
+      const managers = employees.filter(emp => allLeadershipCodes.includes(emp.jobTitle) && emp.isActive);
       const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive);
       const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive);
       const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive);
       
       console.log(`[Scheduler] Total employees: ${employees.length}`);
-      console.log(`[Scheduler] Managers: ${managers.length}, Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
+      console.log(`[Scheduler] Leadership breakdown - Store Mgrs: ${storeManagers.length}, Asst Mgrs: ${assistantManagers.length}, Team Leads: ${teamLeads.length}`);
+      console.log(`[Scheduler] Other roles - Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Cashiers: ${cashiers.length}`);
+      
+      // Helper to get leadership tier priority (lower = higher priority)
+      const getLeadershipTier = (emp: typeof employees[0]): number => {
+        if (storeManagerCodes.includes(emp.jobTitle)) return 1; // Store Manager
+        if (assistantManagerCodes.includes(emp.jobTitle)) return 2; // Assistant Manager
+        if (teamLeadCodes.includes(emp.jobTitle)) return 3; // Team Lead
+        return 99; // Not leadership
+      };
+      
+      // Sort leadership by tier (Store Mgr > Asst Mgr > Team Lead), then by priority
+      const sortLeadershipByTier = (a: typeof employees[0], b: typeof employees[0]) => {
+        const tierDiff = getLeadershipTier(a) - getLeadershipTier(b);
+        if (tierDiff !== 0) return tierDiff;
+        // Same tier - sort by full-time status and priority
+        const aIsFullTime = a.maxWeeklyHours >= 32;
+        const bIsFullTime = b.maxWeeklyHours >= 32;
+        if (aIsFullTime && !bIsFullTime) return -1;
+        if (!aIsFullTime && bIsFullTime) return 1;
+        return getEmployeePriority(a) - getEmployeePriority(b);
+      };
 
       // ========== SHIFT TIME DEFINITIONS ==========
       const getShiftTimes = (day: Date) => {
@@ -1124,6 +1159,12 @@ export async function registerRoutes(
       const shuffleAndSort = (empList: typeof employees) => {
         return shuffleArray(empList).sort(sortFullTimersFirst);
       };
+      
+      // Helper to shuffle leadership and sort by tier - ensures higher-tier leaders scheduled first
+      // but with randomness among same-tier employees for variety
+      const shuffleAndSortLeadership = (empList: typeof employees) => {
+        return shuffleArray(empList).sort(sortLeadershipByTier);
+      };
 
       // Phase 1a: Schedule managers, greeters, and pricers (in priority order for weekend coverage)
       for (const dayIndex of dayOrder) {
@@ -1144,10 +1185,22 @@ export async function registerRoutes(
         const saturdayManagerBonus = isSaturday ? 1 : 0;
         const managersToSchedule = managersRequired + saturdayManagerBonus;
 
-        // Get all available managers for today (shuffled for variety)
-        const availableManagers = shuffleAndSort(
+        // Get all available leadership for today, sorted by tier (Store Mgr > Asst Mgr > Team Lead)
+        // This ensures we use the best available leadership for coverage, with team leads
+        // filling in when store/assistant managers aren't available
+        const availableManagers = shuffleAndSortLeadership(
           managers.filter(m => canWorkFullShift(m, currentDay, dayIndex))
         );
+        
+        // Log leadership availability for debugging
+        const tierBreakdown = {
+          storeMgrs: availableManagers.filter(m => storeManagerCodes.includes(m.jobTitle)).length,
+          asstMgrs: availableManagers.filter(m => assistantManagerCodes.includes(m.jobTitle)).length,
+          teamLeads: availableManagers.filter(m => teamLeadCodes.includes(m.jobTitle)).length
+        };
+        if (tierBreakdown.storeMgrs + tierBreakdown.asstMgrs + tierBreakdown.teamLeads > 0) {
+          console.log(`[Scheduler] Day ${dayIndex} leadership available - Store Mgrs: ${tierBreakdown.storeMgrs}, Asst Mgrs: ${tierBreakdown.asstMgrs}, Team Leads: ${tierBreakdown.teamLeads}`);
+        }
         
         // Manager scheduling strategy:
         // - When 3+ managers available: 1 opener, 1 closer, 1 mid-shift (10-6:30)
