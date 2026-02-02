@@ -1182,8 +1182,12 @@ export async function registerRoutes(
       const closersRequired = settings.closersRequired ?? 2;
 
       // Day weights: Sat/Fri get more staff, but all days get coverage
-      // Process in order: Sat, Fri, then Sun-Thu to fill priority days first
-      const dayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat, Fri, Sun, Mon, Tue, Wed, Thu
+      // RANDOMIZE day order to prevent same managers always working same days
+      // This ensures managers don't always hit their max hours before Wed/Thu
+      const baseDayOrder = [0, 1, 2, 3, 4, 5, 6]; // Sun through Sat
+      const dayOrder = shuffleArray(baseDayOrder); // Randomize processing order
+      console.log(`[Scheduler] Day processing order (randomized): ${dayOrder.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}`);
+
       const dayMultiplier: Record<number, number> = {
         6: 1.3, // Saturday - 30% more staff
         5: 1.3, // Friday - 30% more staff  
@@ -1258,41 +1262,60 @@ export async function registerRoutes(
           console.log(`[Scheduler] Day ${dayIndex} leadership available - Store Mgrs: ${tierBreakdown.storeMgrs}, Asst Mgrs: ${tierBreakdown.asstMgrs}, Team Leads: ${tierBreakdown.teamLeads}`);
         }
         
-        // Manager scheduling strategy:
-        // - When 3+ managers available: 1 opener, 1 closer, 1 mid-shift (10-6:30)
-        // - When 2 managers: 1 opener, 1 closer
-        // - When 1 manager: opener
+        // Manager scheduling strategy with RANDOMIZED shift assignments:
+        // - When 3+ managers available: 1 opener, 1 closer, 1 mid-shift (randomized who gets which)
+        // - When 2 managers: 1 opener, 1 closer (randomized who gets which)
+        // - When 1 manager: randomly opener, closer, or mid
         const totalManagersForDay = Math.min(availableManagers.length, managersToSchedule * 2 + 1);
         
         let scheduledManagerCount = 0;
         
-        // 1a. Morning Manager(s) - opener shift
-        for (let i = 0; i < managersToSchedule && scheduledManagerCount < availableManagers.length; i++) {
-          const manager = availableManagers[scheduledManagerCount];
-          if (manager) {
-            scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
-            scheduledManagerCount++;
-          }
-        }
-
-        // 1b. Evening Manager(s) - closer shift
-        for (let i = 0; i < managersToSchedule && scheduledManagerCount < availableManagers.length; i++) {
-          const manager = availableManagers[scheduledManagerCount];
-          if (manager) {
-            scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
-            scheduledManagerCount++;
-          }
-        }
+        // Define all possible manager shift types with their times
+        const managerShiftTypes = [
+          { name: 'opener', start: shifts.opener.start, end: shifts.opener.end },
+          { name: 'closer', start: shifts.closer.start, end: shifts.closer.end },
+          { name: 'mid', start: shifts.mid10.start, end: shifts.mid10.end }
+        ];
         
-        // 1b-2. Third manager gets mid-shift (10-6:30) when 3+ managers available
-        // This ensures coverage across all hours of operation
-        if (scheduledManagerCount >= 2 && scheduledManagerCount < availableManagers.length) {
-          const thirdManager = availableManagers[scheduledManagerCount];
-          if (thirdManager) {
-            scheduleShift(thirdManager, shifts.mid10.start, shifts.mid10.end, dayIndex);
+        // Randomize the order of shift types for variety
+        const shuffledShiftTypes = shuffleArray([...managerShiftTypes]);
+        
+        // Schedule managers to randomized shift types
+        // 1 manager: gets the first random shift type
+        // 2 managers: one gets opener, one gets closer (but random which manager gets which)
+        // 3+ managers: opener, closer, and mid all get coverage
+        if (availableManagers.length >= 3 && managersToSchedule >= 1) {
+          // With 3+ managers, ensure all three shift types are covered
+          // But randomize which manager gets which shift
+          const shiftAssignments = shuffleArray(['opener', 'closer', 'mid']);
+          for (let i = 0; i < 3 && i < availableManagers.length; i++) {
+            const manager = availableManagers[i];
+            const shiftType = managerShiftTypes.find(s => s.name === shiftAssignments[i])!;
+            scheduleShift(manager, shiftType.start, shiftType.end, dayIndex);
+            console.log(`[Scheduler] Scheduled ${manager.name} as ${shiftAssignments[i]} manager (randomized)`);
             scheduledManagerCount++;
-            console.log(`[Scheduler] Scheduled 3rd manager ${thirdManager.name} on mid-shift (10-6:30)`);
           }
+        } else if (availableManagers.length === 2) {
+          // With 2 managers, randomly assign one opener and one closer
+          const openerFirst = Math.random() < 0.5;
+          const [first, second] = availableManagers;
+          if (openerFirst) {
+            scheduleShift(first, shifts.opener.start, shifts.opener.end, dayIndex);
+            scheduleShift(second, shifts.closer.start, shifts.closer.end, dayIndex);
+            console.log(`[Scheduler] Scheduled ${first.name} opener, ${second.name} closer (randomized)`);
+          } else {
+            scheduleShift(first, shifts.closer.start, shifts.closer.end, dayIndex);
+            scheduleShift(second, shifts.opener.start, shifts.opener.end, dayIndex);
+            console.log(`[Scheduler] Scheduled ${first.name} closer, ${second.name} opener (randomized)`);
+          }
+          scheduledManagerCount = 2;
+        } else if (availableManagers.length === 1) {
+          // With 1 manager, randomly pick opener, closer, or mid for variety
+          const soloShift = shuffledShiftTypes[0];
+          const manager = availableManagers[0];
+          scheduleShift(manager, soloShift.start, soloShift.end, dayIndex);
+          console.log(`[Scheduler] Solo manager ${manager.name} scheduled as ${soloShift.name} (randomized)`);
+          scheduledManagerCount = 1;
         }
 
         // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority
