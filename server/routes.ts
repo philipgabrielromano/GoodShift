@@ -955,11 +955,7 @@ export async function registerRoutes(
         const daysRemaining = maxDays - state.daysWorked;
         
         // Helper to get appropriate shift time based on job
-        // Include WV job codes in the checks
-        const donationPricerCodes = ['DONPRI', 'DONPRWV'];
-        const apparelProcessorCodes = ['APPROC', 'APWV'];
-        const donorGreeterCodes = ['DONDOOR', 'WVDON'];
-        
+        // Uses job code constants defined in the outer scope
         const getFullShift = () => {
           if (donationPricerCodes.includes(emp.jobTitle)) return shifts.opener;
           else if (donorGreeterCodes.includes(emp.jobTitle)) return shifts.closer;
@@ -1122,26 +1118,6 @@ export async function registerRoutes(
       console.log(`[Scheduler] Leadership breakdown - Store Mgrs: ${storeManagers.length}, Asst Mgrs: ${assistantManagers.length}, Team Leads: ${teamLeads.length}`);
       console.log(`[Scheduler] Other roles - Greeters: ${donorGreeters.length}, Pricers: ${donationPricers.length}, Apparel: ${apparelProcessors.length}, Cashiers: ${cashiers.length}`);
       
-      // Helper to get leadership tier priority (lower = higher priority)
-      const getLeadershipTier = (emp: typeof employees[0]): number => {
-        if (storeManagerCodes.includes(emp.jobTitle)) return 1; // Store Manager
-        if (assistantManagerCodes.includes(emp.jobTitle)) return 2; // Assistant Manager
-        if (teamLeadCodes.includes(emp.jobTitle)) return 3; // Team Lead
-        return 99; // Not leadership
-      };
-      
-      // Sort leadership by tier (Store Mgr > Asst Mgr > Team Lead), then by priority
-      const sortLeadershipByTier = (a: typeof employees[0], b: typeof employees[0]) => {
-        const tierDiff = getLeadershipTier(a) - getLeadershipTier(b);
-        if (tierDiff !== 0) return tierDiff;
-        // Same tier - sort by full-time status and priority
-        const aIsFullTime = a.maxWeeklyHours >= 32;
-        const bIsFullTime = b.maxWeeklyHours >= 32;
-        if (aIsFullTime && !bIsFullTime) return -1;
-        if (!aIsFullTime && bIsFullTime) return 1;
-        return getEmployeePriority(a) - getEmployeePriority(b);
-      };
-
       // ========== SHIFT TIME DEFINITIONS ==========
       const getShiftTimes = (day: Date) => {
         const dayOfWeek = day.getDay(); // 0 = Sunday
@@ -1196,6 +1172,12 @@ export async function registerRoutes(
         5: 1.3, // Friday - 30% more staff  
         0: 1.0, 1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0 // Weekdays - baseline
       };
+      
+      // Standard day order for priority scheduling: Saturday first (busiest), then Fri, Sun, Mon...
+      const saturdayFirstOrder = [6, 5, 0, 1, 2, 3, 4];
+      
+      // Short day names for logging (distinct from dayNames used for nonWorkingDays matching)
+      const shortDayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
       // ========== PHASE 1: MANDATORY COVERAGE (All 7 days except holidays) ==========
       // First pass: ensure every day has minimum required coverage
@@ -1221,12 +1203,6 @@ export async function registerRoutes(
       // Helper to shuffle and then sort - provides variety while respecting priorities
       const shuffleAndSort = (empList: typeof employees) => {
         return shuffleArray(empList).sort(sortFullTimersFirst);
-      };
-      
-      // Helper to shuffle leadership and sort by tier - ensures higher-tier leaders scheduled first
-      // but with randomness among same-tier employees for variety
-      const shuffleAndSortLeadership = (empList: typeof employees) => {
-        return shuffleArray(empList).sort(sortLeadershipByTier);
       };
 
       // ========== LEADERSHIP SCHEDULING - TWO-PASS APPROACH ==========
@@ -1255,7 +1231,7 @@ export async function registerRoutes(
       // PASS 1: Ensure every day gets at least ONE higher-tier manager
       // Process days in order, but spread managers across all days first
       const pass1DayOrder = shuffleArray([0, 1, 2, 3, 4, 5, 6]);
-      console.log(`[Scheduler] Pass 1 day order: ${pass1DayOrder.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}`);
+      console.log(`[Scheduler] Pass 1 day order: ${pass1DayOrder.map(d => shortDayNames[d]).join(', ')}`);
       
       for (const dayIndex of pass1DayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
@@ -1287,8 +1263,13 @@ export async function registerRoutes(
         }
       }
       
-      // PASS 2: Add second manager (opener/closer) and team leads
-      const pass2DayOrder = shuffleArray([0, 1, 2, 3, 4, 5, 6]);
+      // PASS 2: Fill gaps and add additional coverage
+      // Process days that NEED coverage first (days without higher-tier managers)
+      const uncoveredDays = [0, 1, 2, 3, 4, 5, 6].filter(d => !leadershipCoverage[d].hasHigherTier);
+      const coveredDays = [0, 1, 2, 3, 4, 5, 6].filter(d => leadershipCoverage[d].hasHigherTier);
+      const pass2DayOrder = [...shuffleArray(uncoveredDays), ...shuffleArray(coveredDays)];
+      
+      console.log(`[Scheduler] Pass 2 - Uncovered days: ${uncoveredDays.map(d => shortDayNames[d]).join(', ') || 'none'}`);
       
       for (const dayIndex of pass2DayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
@@ -1302,25 +1283,40 @@ export async function registerRoutes(
         // Find available higher-tier managers for this day
         const availableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
         
+        // FIRST: If this day has no higher-tier coverage, try to add one now
+        if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
+          const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
+          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+          const manager = availableHigherTier[0];
+          
+          scheduleShift(manager, shift.start, shift.end, dayIndex);
+          coverage[shiftType] = true;
+          coverage.hasHigherTier = true;
+          console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType} (filling gap)`);
+        }
+        
+        // Re-filter after potential scheduling
+        const stillAvailableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        
         // Add second higher-tier manager for the opposite shift if available
-        if (availableHigherTier.length > 0) {
+        if (stillAvailableHigherTier.length > 0) {
           if (coverage.opener && !coverage.closer) {
-            const manager = availableHigherTier[0];
+            const manager = stillAvailableHigherTier[0];
             scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
             coverage.closer = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as closer`);
           } else if (coverage.closer && !coverage.opener) {
-            const manager = availableHigherTier[0];
+            const manager = stillAvailableHigherTier[0];
             scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
             coverage.opener = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
           }
         }
         
-        // Add third higher-tier manager for mid shift if 2+ still available
-        const stillAvailableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
-        if (stillAvailableHigherTier.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
-          const manager = stillAvailableHigherTier[0];
+        // Add third higher-tier manager for mid shift if still available
+        const availableForMid = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        if (availableForMid.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
+          const manager = availableForMid[0];
           scheduleShift(manager, shifts.mid10.start, shifts.mid10.end, dayIndex);
           coverage.mid = true;
           console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as mid`);
@@ -1331,8 +1327,6 @@ export async function registerRoutes(
           const availableTeamLeads = allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex));
           
           for (const teamLead of availableTeamLeads) {
-            if (!canWorkFullShift(teamLead, currentDay, dayIndex)) continue;
-            
             // Fill opener, then closer, then mid
             if (!coverage.opener) {
               scheduleShift(teamLead, shifts.opener.start, shifts.opener.end, dayIndex);
@@ -1354,6 +1348,37 @@ export async function registerRoutes(
         if (!coverage.opener || !coverage.closer) {
           console.log(`[Scheduler] WARNING: Day ${dayIndex} missing coverage - opener: ${coverage.opener}, closer: ${coverage.closer}`);
         }
+      }
+      
+      // Final summary and validation of leadership coverage
+      console.log(`[Scheduler] Leadership coverage summary:`);
+      const uncoveredDaysAfterPass2: string[] = [];
+      let totalLeadershipShifts = 0;
+      for (let d = 0; d < 7; d++) {
+        const c = leadershipCoverage[d];
+        const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+        const isHolidayDay = isHoliday(currentDay);
+        
+        if (isHolidayDay) {
+          console.log(`[Scheduler]   ${shortDayNames[d]}: HOLIDAY - store closed`);
+          continue;
+        }
+        
+        console.log(`[Scheduler]   ${shortDayNames[d]}: opener=${c.opener}, closer=${c.closer}, mid=${c.mid}, hasHigherTier=${c.hasHigherTier}`);
+        
+        if (!c.hasHigherTier) {
+          uncoveredDaysAfterPass2.push(shortDayNames[d]);
+        }
+        if (c.opener) totalLeadershipShifts++;
+        if (c.closer) totalLeadershipShifts++;
+        if (c.mid) totalLeadershipShifts++;
+      }
+      
+      if (uncoveredDaysAfterPass2.length > 0) {
+        console.log(`[Scheduler] ERROR: ${uncoveredDaysAfterPass2.length} days have NO higher-tier manager coverage: ${uncoveredDaysAfterPass2.join(', ')}`);
+        console.log(`[Scheduler] This may indicate insufficient store managers/assistant managers, or too many time-off conflicts`);
+      } else {
+        console.log(`[Scheduler] SUCCESS: All days have higher-tier manager coverage (${totalLeadershipShifts} leadership shifts scheduled)`);
       }
       
       // Phase 1a: Schedule pricers and apparel processors
@@ -1419,7 +1444,7 @@ export async function registerRoutes(
       // Phase 1a-greeter: Schedule DONOR GREETERS with Saturday priority
       // Saturday is the busiest donation day - MUST have more greeters than Sunday
       // Process Saturday FIRST, then other days in priority order
-      const greeterDayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
+      const greeterDayOrder = saturdayFirstOrder; // Sat first, then Fri, Sun, Mon...
       
       // Determine targets based on pool size - if limited, reduce targets to ensure coverage across all days
       const totalGreeterPool = donorGreeters.length;
@@ -1455,7 +1480,7 @@ export async function registerRoutes(
       
       for (const dayIndex of greeterDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
+        const dayName = shortDayNames[dayIndex];
         
         // Skip holidays
         if (isHoliday(currentDay)) {
@@ -1564,7 +1589,7 @@ export async function registerRoutes(
       // Phase 1b: Schedule CASHIERS with Saturday priority
       // Saturday is the busiest sales day - MUST have more cashiers than Sunday
       // Process Saturday FIRST, then other days
-      const cashierDayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
+      const cashierDayOrder = saturdayFirstOrder; // Sat first, then Fri, Sun, Mon...
       const cashierTargets: Record<number, number> = {
         6: Math.max(openersRequired + 1, 3), // Saturday - busiest, needs extra cashiers
         5: openersRequired, // Friday
@@ -1579,7 +1604,7 @@ export async function registerRoutes(
       
       for (const dayIndex of cashierDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
+        const dayName = shortDayNames[dayIndex];
         
         // Skip holidays
         if (isHoliday(currentDay)) {
@@ -1638,7 +1663,7 @@ export async function registerRoutes(
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         if (isHoliday(currentDay)) continue;
         
-        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayIndex];
+        const dayName = shortDayNames[dayIndex];
         const target = cashierTargets[dayIndex] || openersRequired;
         const isSunday = dayIndex === 0;
         const maxForDay = isSunday ? Math.min(target, cashiersByDay[6]) : target;
@@ -1665,7 +1690,7 @@ export async function registerRoutes(
       }
       
       // Saturday-first day order for Phase 2 (matching Phase 1)
-      const phase2DayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat, Fri, Sun, Mon, Tue, Wed, Thu
+      const phase2DayOrder = saturdayFirstOrder; // Sat, Fri, Sun, Mon, Tue, Wed, Thu
       
       // Round-robin: keep cycling through days until all targets are met or no progress
       let phase2Progress = true;
@@ -1792,7 +1817,7 @@ export async function registerRoutes(
       const maxIterations = 50; // Prevent infinite loops
       
       // Use Saturday-first day order to ensure Saturday gets priority
-      const phase3DayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat first, then Fri, Sun, Mon...
+      const phase3DayOrder = saturdayFirstOrder; // Sat first, then Fri, Sun, Mon...
       
       while (madeProgress && iterations < maxIterations) {
         madeProgress = false;
@@ -1908,7 +1933,7 @@ export async function registerRoutes(
       const phase4CashiersByDay = { ...phase3CashiersByDay };
       
       // Use Saturday-first day order
-      const phase4DayOrder = [6, 5, 0, 1, 2, 3, 4];
+      const phase4DayOrder = saturdayFirstOrder;
       
       // Shuffle first, then sort by employees who are closest to max (smallest gap first)
       // This provides variety for employees with similar remaining hours
