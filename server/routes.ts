@@ -1245,77 +1245,128 @@ export async function registerRoutes(
         const saturdayManagerBonus = isSaturday ? 1 : 0;
         const managersToSchedule = managersRequired + saturdayManagerBonus;
 
-        // Get all available leadership for today, sorted by tier (Store Mgr > Asst Mgr > Team Lead)
-        // This ensures we use the best available leadership for coverage, with team leads
-        // filling in when store/assistant managers aren't available
-        const availableManagers = shuffleAndSortLeadership(
-          managers.filter(m => canWorkFullShift(m, currentDay, dayIndex))
+        // IMPORTANT: Team leads should NEVER run the store alone - they need a store manager
+        // or assistant manager on duty with them. Separate leadership into tiers:
+        // Tier 1: Store Managers and Assistant Managers (can run store independently)
+        // Tier 2: Team Leads (require Tier 1 supervision)
+        
+        const allAvailableLeadership = managers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        
+        // Separate higher-tier managers from team leads
+        const higherTierManagers = shuffleArray(
+          allAvailableLeadership.filter(m => 
+            storeManagerCodes.includes(m.jobTitle) || assistantManagerCodes.includes(m.jobTitle)
+          )
+        );
+        const teamLeadsOnly = shuffleArray(
+          allAvailableLeadership.filter(m => teamLeadCodes.includes(m.jobTitle))
         );
         
         // Log leadership availability for debugging
-        const tierBreakdown = {
-          storeMgrs: availableManagers.filter(m => storeManagerCodes.includes(m.jobTitle)).length,
-          asstMgrs: availableManagers.filter(m => assistantManagerCodes.includes(m.jobTitle)).length,
-          teamLeads: availableManagers.filter(m => teamLeadCodes.includes(m.jobTitle)).length
-        };
-        if (tierBreakdown.storeMgrs + tierBreakdown.asstMgrs + tierBreakdown.teamLeads > 0) {
-          console.log(`[Scheduler] Day ${dayIndex} leadership available - Store Mgrs: ${tierBreakdown.storeMgrs}, Asst Mgrs: ${tierBreakdown.asstMgrs}, Team Leads: ${tierBreakdown.teamLeads}`);
-        }
+        console.log(`[Scheduler] Day ${dayIndex} leadership - Store/Asst Mgrs: ${higherTierManagers.length}, Team Leads: ${teamLeadsOnly.length}`);
         
-        // Manager scheduling strategy with RANDOMIZED shift assignments:
-        // - When 3+ managers available: 1 opener, 1 closer, 1 mid-shift (randomized who gets which)
-        // - When 2 managers: 1 opener, 1 closer (randomized who gets which)
-        // - When 1 manager: randomly opener, closer, or mid
-        const totalManagersForDay = Math.min(availableManagers.length, managersToSchedule * 2 + 1);
+        // Track which shift periods have higher-tier manager coverage
+        // This determines when team leads can be scheduled
+        const higherTierCoverage = {
+          opener: false,  // 8:00-4:30 (covers morning)
+          closer: false,  // 12:00-8:30 (covers evening)
+          mid: false      // 10:00-6:30 (covers midday overlap)
+        };
         
         let scheduledManagerCount = 0;
         
         // Define all possible manager shift types with their times
         const managerShiftTypes = [
-          { name: 'opener', start: shifts.opener.start, end: shifts.opener.end },
-          { name: 'closer', start: shifts.closer.start, end: shifts.closer.end },
-          { name: 'mid', start: shifts.mid10.start, end: shifts.mid10.end }
+          { name: 'opener' as const, start: shifts.opener.start, end: shifts.opener.end },
+          { name: 'closer' as const, start: shifts.closer.start, end: shifts.closer.end },
+          { name: 'mid' as const, start: shifts.mid10.start, end: shifts.mid10.end }
         ];
         
-        // Randomize the order of shift types for variety
-        const shuffledShiftTypes = shuffleArray([...managerShiftTypes]);
-        
-        // Schedule managers to randomized shift types
-        // 1 manager: gets the first random shift type
-        // 2 managers: one gets opener, one gets closer (but random which manager gets which)
-        // 3+ managers: opener, closer, and mid all get coverage
-        if (availableManagers.length >= 3 && managersToSchedule >= 1) {
-          // With 3+ managers, ensure all three shift types are covered
-          // But randomize which manager gets which shift
-          const shiftAssignments = shuffleArray(['opener', 'closer', 'mid']);
-          for (let i = 0; i < 3 && i < availableManagers.length; i++) {
-            const manager = availableManagers[i];
-            const shiftType = managerShiftTypes.find(s => s.name === shiftAssignments[i])!;
-            scheduleShift(manager, shiftType.start, shiftType.end, dayIndex);
-            console.log(`[Scheduler] Scheduled ${manager.name} as ${shiftAssignments[i]} manager (randomized)`);
-            scheduledManagerCount++;
-          }
-        } else if (availableManagers.length === 2) {
-          // With 2 managers, randomly assign one opener and one closer
+        // PHASE 1: Schedule higher-tier managers FIRST (store managers and assistant managers)
+        // These are the only ones who can run the store independently
+        if (higherTierManagers.length >= 2) {
+          // With 2+ higher-tier managers: one opener, one closer (randomized)
           const openerFirst = Math.random() < 0.5;
-          const [first, second] = availableManagers;
+          const [first, second] = higherTierManagers;
           if (openerFirst) {
             scheduleShift(first, shifts.opener.start, shifts.opener.end, dayIndex);
             scheduleShift(second, shifts.closer.start, shifts.closer.end, dayIndex);
-            console.log(`[Scheduler] Scheduled ${first.name} opener, ${second.name} closer (randomized)`);
+            higherTierCoverage.opener = true;
+            higherTierCoverage.closer = true;
+            console.log(`[Scheduler] Higher-tier: ${first.name} opener, ${second.name} closer`);
           } else {
             scheduleShift(first, shifts.closer.start, shifts.closer.end, dayIndex);
             scheduleShift(second, shifts.opener.start, shifts.opener.end, dayIndex);
-            console.log(`[Scheduler] Scheduled ${first.name} closer, ${second.name} opener (randomized)`);
+            higherTierCoverage.opener = true;
+            higherTierCoverage.closer = true;
+            console.log(`[Scheduler] Higher-tier: ${first.name} closer, ${second.name} opener`);
           }
           scheduledManagerCount = 2;
-        } else if (availableManagers.length === 1) {
-          // With 1 manager, randomly pick opener, closer, or mid for variety
+          
+          // If there's a 3rd higher-tier manager, schedule them on mid shift
+          if (higherTierManagers.length >= 3) {
+            scheduleShift(higherTierManagers[2], shifts.mid10.start, shifts.mid10.end, dayIndex);
+            higherTierCoverage.mid = true;
+            console.log(`[Scheduler] Higher-tier: ${higherTierManagers[2].name} mid`);
+            scheduledManagerCount++;
+          }
+        } else if (higherTierManagers.length === 1) {
+          // With 1 higher-tier manager: they get a random shift
+          const shuffledShiftTypes = shuffleArray([...managerShiftTypes]);
           const soloShift = shuffledShiftTypes[0];
-          const manager = availableManagers[0];
+          const manager = higherTierManagers[0];
           scheduleShift(manager, soloShift.start, soloShift.end, dayIndex);
-          console.log(`[Scheduler] Solo manager ${manager.name} scheduled as ${soloShift.name} (randomized)`);
+          higherTierCoverage[soloShift.name] = true;
+          console.log(`[Scheduler] Solo higher-tier: ${manager.name} as ${soloShift.name}`);
           scheduledManagerCount = 1;
+        }
+        
+        // PHASE 2: Schedule team leads ONLY if there's higher-tier coverage for overlapping hours
+        // Team leads can only work shifts that overlap with a store manager or assistant manager
+        // Opener (8-4:30) overlaps with: mid (10-6:30)
+        // Closer (12-8:30) overlaps with: mid (10-6:30)
+        // Mid (10-6:30) overlaps with: opener (8-4:30) AND closer (12-8:30)
+        
+        for (const teamLead of teamLeadsOnly) {
+          // Check if we can schedule this team lead (they need overlapping higher-tier coverage)
+          
+          // Team lead can work opener if there's a closer or mid (they overlap 12-4:30)
+          if (!higherTierCoverage.opener && (higherTierCoverage.closer || higherTierCoverage.mid)) {
+            if (canWorkFullShift(teamLead, currentDay, dayIndex)) {
+              scheduleShift(teamLead, shifts.opener.start, shifts.opener.end, dayIndex);
+              console.log(`[Scheduler] Team lead ${teamLead.name} as opener (supervised by closer/mid)`);
+              scheduledManagerCount++;
+              continue; // Move to next team lead
+            }
+          }
+          
+          // Team lead can work closer if there's an opener or mid (they overlap 12-4:30 or 12-6:30)
+          if (!higherTierCoverage.closer && (higherTierCoverage.opener || higherTierCoverage.mid)) {
+            if (canWorkFullShift(teamLead, currentDay, dayIndex)) {
+              scheduleShift(teamLead, shifts.closer.start, shifts.closer.end, dayIndex);
+              console.log(`[Scheduler] Team lead ${teamLead.name} as closer (supervised by opener/mid)`);
+              scheduledManagerCount++;
+              continue;
+            }
+          }
+          
+          // Team lead can work mid if there's an opener or closer (overlaps with both)
+          if (!higherTierCoverage.mid && (higherTierCoverage.opener || higherTierCoverage.closer)) {
+            if (canWorkFullShift(teamLead, currentDay, dayIndex)) {
+              scheduleShift(teamLead, shifts.mid10.start, shifts.mid10.end, dayIndex);
+              console.log(`[Scheduler] Team lead ${teamLead.name} as mid (supervised by opener/closer)`);
+              scheduledManagerCount++;
+              continue;
+            }
+          }
+          
+          // If no suitable shift found for this team lead, skip them
+          console.log(`[Scheduler] Team lead ${teamLead.name} not scheduled - no overlapping higher-tier coverage`);
+        }
+        
+        // Log warning if no higher-tier managers available at all
+        if (higherTierManagers.length === 0) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} has no store managers or assistant managers available - team leads cannot be scheduled alone`);
         }
 
         // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority

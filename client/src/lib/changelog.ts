@@ -22,6 +22,7 @@ export const changelog: ChangelogEntry[] = [
       { type: "feature", description: "Schedule generation now fills gaps around existing shifts instead of overwriting" },
       { type: "improvement", description: "Randomized manager shift assignments - store managers now get variety in opener/closer/mid shifts" },
       { type: "improvement", description: "Randomized day processing order to spread manager coverage across all days of the week" },
+      { type: "improvement", description: "Team leads now only scheduled when a store manager or assistant manager has overlapping coverage" },
       { type: "improvement", description: "Enhanced notification bell with prominent placement and label in sidebar" },
       { type: "improvement", description: "Automatic redirect to login when session expires after server restart" },
       { type: "improvement", description: "Updated favicon to official Goodwill Smiling G logo" },
