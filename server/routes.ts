@@ -1311,45 +1311,57 @@ export async function registerRoutes(
             scheduledManagerCount++;
           }
         } else if (higherTierManagers.length === 1) {
-          // With 1 higher-tier manager: they get a random shift
-          const shuffledShiftTypes = shuffleArray([...managerShiftTypes]);
-          const soloShift = shuffledShiftTypes[0];
+          // With 1 higher-tier manager: they get opener OR closer (not mid) - we need opening/closing covered first
+          const openerOrCloser = Math.random() < 0.5 ? 'opener' : 'closer';
           const manager = higherTierManagers[0];
-          scheduleShift(manager, soloShift.start, soloShift.end, dayIndex);
-          higherTierCoverage[soloShift.name] = true;
-          console.log(`[Scheduler] Solo higher-tier: ${manager.name} as ${soloShift.name}`);
+          const shift = openerOrCloser === 'opener' ? shifts.opener : shifts.closer;
+          scheduleShift(manager, shift.start, shift.end, dayIndex);
+          higherTierCoverage[openerOrCloser] = true;
+          console.log(`[Scheduler] Solo higher-tier: ${manager.name} as ${openerOrCloser}`);
           scheduledManagerCount = 1;
         }
         
         // PHASE 2: Schedule team leads ONLY if there's at least one higher-tier manager on the schedule for this day
         // Rule: Team leads CAN open or close alone, but you can't have ONLY team leads running the store
         // At least one store manager or assistant manager must be scheduled somewhere on the day
+        // PRIORITY: Fill opener and closer FIRST, then mid shifts
         
         const hasHigherTierCoverage = higherTierCoverage.opener || higherTierCoverage.closer || higherTierCoverage.mid;
         
         if (hasHigherTierCoverage && teamLeadsOnly.length > 0) {
           // We have at least one store manager or assistant manager on this day
-          // Team leads can now fill remaining shift slots
+          // Team leads can now fill remaining shift slots - PRIORITIZE opener/closer
           
           for (const teamLead of teamLeadsOnly) {
             if (!canWorkFullShift(teamLead, currentDay, dayIndex)) continue;
             
-            // Find an unfilled shift for this team lead (randomize preference)
-            const availableShifts = shuffleArray(
-              managerShiftTypes.filter(s => !higherTierCoverage[s.name])
-            );
+            // Priority order: fill opener first, then closer, then mid
+            // This ensures every day has both an opener and closer before adding mid coverage
+            let assignedShift: typeof managerShiftTypes[0] | null = null;
             
-            if (availableShifts.length > 0) {
-              const shift = availableShifts[0];
-              scheduleShift(teamLead, shift.start, shift.end, dayIndex);
-              higherTierCoverage[shift.name] = true; // Mark as covered (by team lead)
-              console.log(`[Scheduler] Team lead ${teamLead.name} as ${shift.name} (store mgr/asst mgr also on schedule)`);
+            if (!higherTierCoverage.opener) {
+              assignedShift = managerShiftTypes.find(s => s.name === 'opener')!;
+            } else if (!higherTierCoverage.closer) {
+              assignedShift = managerShiftTypes.find(s => s.name === 'closer')!;
+            } else if (!higherTierCoverage.mid) {
+              assignedShift = managerShiftTypes.find(s => s.name === 'mid')!;
+            }
+            
+            if (assignedShift) {
+              scheduleShift(teamLead, assignedShift.start, assignedShift.end, dayIndex);
+              higherTierCoverage[assignedShift.name] = true;
+              console.log(`[Scheduler] Team lead ${teamLead.name} as ${assignedShift.name} (store mgr/asst mgr also on schedule)`);
               scheduledManagerCount++;
             }
           }
         } else if (!hasHigherTierCoverage && teamLeadsOnly.length > 0) {
           // No higher-tier managers available - team leads cannot run store alone together
           console.log(`[Scheduler] WARNING: Day ${dayIndex} has no store managers or assistant managers - team leads cannot run store alone`);
+        }
+        
+        // Final check: Log warning if we don't have both opener and closer coverage
+        if (!higherTierCoverage.opener || !higherTierCoverage.closer) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} missing coverage - opener: ${higherTierCoverage.opener}, closer: ${higherTierCoverage.closer}`);
         }
 
         // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority
