@@ -1689,7 +1689,7 @@ export async function registerRoutes(
           // Assign ONE employee per day per iteration (round-robin)
           for (const emp of underScheduled) {
             // Managers always get full shifts (opener or closer only)
-            if (managerCodes.includes(emp.jobTitle)) {
+            if (allLeadershipCodes.includes(emp.jobTitle)) {
               if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
               // Randomize opener vs closer for variety
               const shift = Math.random() < 0.5 ? shifts.opener : shifts.closer;
