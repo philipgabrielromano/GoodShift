@@ -1229,11 +1229,38 @@ export async function registerRoutes(
         return shuffleArray(empList).sort(sortLeadershipByTier);
       };
 
-      // Phase 1a: Schedule managers, greeters, and pricers (in priority order for weekend coverage)
-      for (const dayIndex of dayOrder) {
+      // ========== LEADERSHIP SCHEDULING - TWO-PASS APPROACH ==========
+      // Pass 1: Ensure EVERY day gets at least one higher-tier manager (store mgr or asst mgr)
+      // Pass 2: Add second manager and team leads for full coverage
+      // This prevents managers from hitting their 5-day max before all days are covered
+      
+      // Track coverage per day for leadership
+      const leadershipCoverage: Record<number, { opener: boolean; closer: boolean; mid: boolean; hasHigherTier: boolean }> = {};
+      for (let d = 0; d < 7; d++) {
+        leadershipCoverage[d] = { opener: false, closer: false, mid: false, hasHigherTier: false };
+      }
+      
+      // Get all higher-tier managers (store managers and assistant managers)
+      const allHigherTierManagers = shuffleArray(
+        managers.filter(m => 
+          (storeManagerCodes.includes(m.jobTitle) || assistantManagerCodes.includes(m.jobTitle)) && m.isActive
+        )
+      );
+      const allTeamLeads = shuffleArray(
+        managers.filter(m => teamLeadCodes.includes(m.jobTitle) && m.isActive)
+      );
+      
+      console.log(`[Scheduler] Leadership pool - Higher-tier: ${allHigherTierManagers.length}, Team Leads: ${allTeamLeads.length}`);
+      
+      // PASS 1: Ensure every day gets at least ONE higher-tier manager
+      // Process days in order, but spread managers across all days first
+      const pass1DayOrder = shuffleArray([0, 1, 2, 3, 4, 5, 6]);
+      console.log(`[Scheduler] Pass 1 day order: ${pass1DayOrder.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}`);
+      
+      for (const dayIndex of pass1DayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         
-        // Skip holidays - store is closed on Easter, Thanksgiving, Christmas
+        // Skip holidays
         const holidayName = isHoliday(currentDay);
         if (holidayName) {
           console.log(`[Scheduler] Skipping ${holidayName} - store is closed`);
@@ -1241,131 +1268,103 @@ export async function registerRoutes(
         }
         
         const shifts = getShiftTimes(currentDay);
-        const isSaturday = dayIndex === 6;
-        const isSunday = dayIndex === 0;
-
-        // On Saturdays, schedule more managers (at least 2 per shift if available)
-        const saturdayManagerBonus = isSaturday ? 1 : 0;
-        const managersToSchedule = managersRequired + saturdayManagerBonus;
-
-        // IMPORTANT: Team leads should NEVER run the store alone - they need a store manager
-        // or assistant manager on duty with them. Separate leadership into tiers:
-        // Tier 1: Store Managers and Assistant Managers (can run store independently)
-        // Tier 2: Team Leads (require Tier 1 supervision)
         
-        const allAvailableLeadership = managers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        // Find available higher-tier managers for this day
+        const availableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
         
-        // Separate higher-tier managers from team leads
-        const higherTierManagers = shuffleArray(
-          allAvailableLeadership.filter(m => 
-            storeManagerCodes.includes(m.jobTitle) || assistantManagerCodes.includes(m.jobTitle)
-          )
-        );
-        const teamLeadsOnly = shuffleArray(
-          allAvailableLeadership.filter(m => teamLeadCodes.includes(m.jobTitle))
-        );
-        
-        // Log leadership availability for debugging
-        console.log(`[Scheduler] Day ${dayIndex} leadership - Store/Asst Mgrs: ${higherTierManagers.length}, Team Leads: ${teamLeadsOnly.length}`);
-        
-        // Track which shift periods have higher-tier manager coverage
-        // This determines when team leads can be scheduled
-        const higherTierCoverage = {
-          opener: false,  // 8:00-4:30 (covers morning)
-          closer: false,  // 12:00-8:30 (covers evening)
-          mid: false      // 10:00-6:30 (covers midday overlap)
-        };
-        
-        let scheduledManagerCount = 0;
-        
-        // Define all possible manager shift types with their times
-        const managerShiftTypes = [
-          { name: 'opener' as const, start: shifts.opener.start, end: shifts.opener.end },
-          { name: 'closer' as const, start: shifts.closer.start, end: shifts.closer.end },
-          { name: 'mid' as const, start: shifts.mid10.start, end: shifts.mid10.end }
-        ];
-        
-        // PHASE 1: Schedule higher-tier managers FIRST (store managers and assistant managers)
-        // These are the only ones who can run the store independently
-        if (higherTierManagers.length >= 2) {
-          // With 2+ higher-tier managers: one opener, one closer (randomized)
-          const openerFirst = Math.random() < 0.5;
-          const [first, second] = higherTierManagers;
-          if (openerFirst) {
-            scheduleShift(first, shifts.opener.start, shifts.opener.end, dayIndex);
-            scheduleShift(second, shifts.closer.start, shifts.closer.end, dayIndex);
-            higherTierCoverage.opener = true;
-            higherTierCoverage.closer = true;
-            console.log(`[Scheduler] Higher-tier: ${first.name} opener, ${second.name} closer`);
-          } else {
-            scheduleShift(first, shifts.closer.start, shifts.closer.end, dayIndex);
-            scheduleShift(second, shifts.opener.start, shifts.opener.end, dayIndex);
-            higherTierCoverage.opener = true;
-            higherTierCoverage.closer = true;
-            console.log(`[Scheduler] Higher-tier: ${first.name} closer, ${second.name} opener`);
-          }
-          scheduledManagerCount = 2;
+        if (availableHigherTier.length > 0) {
+          // Randomly assign opener or closer for variety
+          const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
+          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+          const manager = availableHigherTier[0];
           
-          // If there's a 3rd higher-tier manager, schedule them on mid shift
-          if (higherTierManagers.length >= 3) {
-            scheduleShift(higherTierManagers[2], shifts.mid10.start, shifts.mid10.end, dayIndex);
-            higherTierCoverage.mid = true;
-            console.log(`[Scheduler] Higher-tier: ${higherTierManagers[2].name} mid`);
-            scheduledManagerCount++;
-          }
-        } else if (higherTierManagers.length === 1) {
-          // With 1 higher-tier manager: they get opener OR closer (not mid) - we need opening/closing covered first
-          const openerOrCloser = Math.random() < 0.5 ? 'opener' : 'closer';
-          const manager = higherTierManagers[0];
-          const shift = openerOrCloser === 'opener' ? shifts.opener : shifts.closer;
           scheduleShift(manager, shift.start, shift.end, dayIndex);
-          higherTierCoverage[openerOrCloser] = true;
-          console.log(`[Scheduler] Solo higher-tier: ${manager.name} as ${openerOrCloser}`);
-          scheduledManagerCount = 1;
+          leadershipCoverage[dayIndex][shiftType] = true;
+          leadershipCoverage[dayIndex].hasHigherTier = true;
+          console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
+        } else {
+          console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: No higher-tier managers available`);
+        }
+      }
+      
+      // PASS 2: Add second manager (opener/closer) and team leads
+      const pass2DayOrder = shuffleArray([0, 1, 2, 3, 4, 5, 6]);
+      
+      for (const dayIndex of pass2DayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        
+        // Skip holidays
+        if (isHoliday(currentDay)) continue;
+        
+        const shifts = getShiftTimes(currentDay);
+        const coverage = leadershipCoverage[dayIndex];
+        
+        // Find available higher-tier managers for this day
+        const availableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        
+        // Add second higher-tier manager for the opposite shift if available
+        if (availableHigherTier.length > 0) {
+          if (coverage.opener && !coverage.closer) {
+            const manager = availableHigherTier[0];
+            scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
+            coverage.closer = true;
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as closer`);
+          } else if (coverage.closer && !coverage.opener) {
+            const manager = availableHigherTier[0];
+            scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
+            coverage.opener = true;
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
+          }
         }
         
-        // PHASE 2: Schedule team leads ONLY if there's at least one higher-tier manager on the schedule for this day
-        // Rule: Team leads CAN open or close alone, but you can't have ONLY team leads running the store
-        // At least one store manager or assistant manager must be scheduled somewhere on the day
-        // PRIORITY: Fill opener and closer FIRST, then mid shifts
+        // Add third higher-tier manager for mid shift if 2+ still available
+        const stillAvailableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        if (stillAvailableHigherTier.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
+          const manager = stillAvailableHigherTier[0];
+          scheduleShift(manager, shifts.mid10.start, shifts.mid10.end, dayIndex);
+          coverage.mid = true;
+          console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as mid`);
+        }
         
-        const hasHigherTierCoverage = higherTierCoverage.opener || higherTierCoverage.closer || higherTierCoverage.mid;
-        
-        if (hasHigherTierCoverage && teamLeadsOnly.length > 0) {
-          // We have at least one store manager or assistant manager on this day
-          // Team leads can now fill remaining shift slots - PRIORITIZE opener/closer
+        // Add team leads ONLY if there's higher-tier coverage
+        if (coverage.hasHigherTier) {
+          const availableTeamLeads = allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex));
           
-          for (const teamLead of teamLeadsOnly) {
+          for (const teamLead of availableTeamLeads) {
             if (!canWorkFullShift(teamLead, currentDay, dayIndex)) continue;
             
-            // Priority order: fill opener first, then closer, then mid
-            // This ensures every day has both an opener and closer before adding mid coverage
-            let assignedShift: typeof managerShiftTypes[0] | null = null;
-            
-            if (!higherTierCoverage.opener) {
-              assignedShift = managerShiftTypes.find(s => s.name === 'opener')!;
-            } else if (!higherTierCoverage.closer) {
-              assignedShift = managerShiftTypes.find(s => s.name === 'closer')!;
-            } else if (!higherTierCoverage.mid) {
-              assignedShift = managerShiftTypes.find(s => s.name === 'mid')!;
-            }
-            
-            if (assignedShift) {
-              scheduleShift(teamLead, assignedShift.start, assignedShift.end, dayIndex);
-              higherTierCoverage[assignedShift.name] = true;
-              console.log(`[Scheduler] Team lead ${teamLead.name} as ${assignedShift.name} (store mgr/asst mgr also on schedule)`);
-              scheduledManagerCount++;
+            // Fill opener, then closer, then mid
+            if (!coverage.opener) {
+              scheduleShift(teamLead, shifts.opener.start, shifts.opener.end, dayIndex);
+              coverage.opener = true;
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Team lead ${teamLead.name} as opener`);
+            } else if (!coverage.closer) {
+              scheduleShift(teamLead, shifts.closer.start, shifts.closer.end, dayIndex);
+              coverage.closer = true;
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Team lead ${teamLead.name} as closer`);
+            } else if (!coverage.mid) {
+              scheduleShift(teamLead, shifts.mid10.start, shifts.mid10.end, dayIndex);
+              coverage.mid = true;
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Team lead ${teamLead.name} as mid`);
             }
           }
-        } else if (!hasHigherTierCoverage && teamLeadsOnly.length > 0) {
-          // No higher-tier managers available - team leads cannot run store alone together
-          console.log(`[Scheduler] WARNING: Day ${dayIndex} has no store managers or assistant managers - team leads cannot run store alone`);
         }
         
-        // Final check: Log warning if we don't have both opener and closer coverage
-        if (!higherTierCoverage.opener || !higherTierCoverage.closer) {
-          console.log(`[Scheduler] WARNING: Day ${dayIndex} missing coverage - opener: ${higherTierCoverage.opener}, closer: ${higherTierCoverage.closer}`);
+        // Log warning if missing coverage
+        if (!coverage.opener || !coverage.closer) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} missing coverage - opener: ${coverage.opener}, closer: ${coverage.closer}`);
         }
+      }
+      
+      // Phase 1a: Schedule pricers and apparel processors
+      for (const dayIndex of dayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        
+        // Skip holidays - store is closed on Easter, Thanksgiving, Christmas
+        const holidayName = isHoliday(currentDay);
+        if (holidayName) continue;
+        
+        const shifts = getShiftTimes(currentDay);
 
         // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority
         // (moved to Phase 1a-greeter section below)
