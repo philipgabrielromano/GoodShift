@@ -58,11 +58,11 @@ export function Navigation() {
     <>
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-64 h-screen border-r bg-card fixed left-0 top-0 z-50">
-        <div className="p-4 border-b flex flex-col items-center relative">
+        <div className="p-4 border-b flex flex-col items-center">
           <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-sidebar" />
           <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-sidebar">GoodShift</span>
-          <div className="absolute right-3 top-3">
-            <NotificationBell />
+          <div className="mt-3 w-full">
+            <NotificationBell showLabel />
           </div>
         </div>
         

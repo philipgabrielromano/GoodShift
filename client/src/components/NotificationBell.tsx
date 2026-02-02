@@ -26,7 +26,11 @@ function getThresholdLabel(threshold: 5 | 7 | 8) {
   }
 }
 
-export function NotificationBell() {
+interface NotificationBellProps {
+  showLabel?: boolean;
+}
+
+export function NotificationBell({ showLabel = false }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
   const { data: alerts = [], isLoading } = useOccurrenceAlerts();
@@ -43,24 +47,45 @@ export function NotificationBell() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className={`relative ${hasAlerts ? "animate-notification-glow" : ""}`}
-          data-testid="button-notifications"
-        >
-          <Bell className={`w-6 h-6 ${hasCritical ? "text-red-500" : hasAlerts ? "text-orange-500" : ""}`} />
-          {hasAlerts && (
-            <span 
-              className={`absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold shadow-lg ${
-                hasCritical ? "bg-red-500 text-white" : "bg-orange-500 text-white"
-              }`}
-              data-testid="badge-notification-count"
-            >
-              {alertCount > 9 ? "9+" : alertCount}
-            </span>
-          )}
-        </Button>
+        {showLabel ? (
+          <Button 
+            variant="outline" 
+            className={`w-full justify-start gap-2 relative ${hasAlerts ? "border-orange-300 dark:border-orange-700" : ""}`}
+            data-testid="button-notifications"
+          >
+            <Bell className={`w-5 h-5 ${hasCritical ? "text-red-500" : hasAlerts ? "text-orange-500" : ""}`} />
+            <span>Notifications</span>
+            {hasAlerts && (
+              <span 
+                className={`ml-auto flex h-5 min-w-5 items-center justify-center rounded-full text-xs font-bold px-1.5 ${
+                  hasCritical ? "bg-red-500 text-white" : "bg-orange-500 text-white"
+                }`}
+                data-testid="badge-notification-count"
+              >
+                {alertCount > 9 ? "9+" : alertCount}
+              </span>
+            )}
+          </Button>
+        ) : (
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className={`relative ${hasAlerts ? "animate-notification-glow" : ""}`}
+            data-testid="button-notifications"
+          >
+            <Bell className={`w-6 h-6 ${hasCritical ? "text-red-500" : hasAlerts ? "text-orange-500" : ""}`} />
+            {hasAlerts && (
+              <span 
+                className={`absolute -top-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full text-xs font-bold shadow-lg ${
+                  hasCritical ? "bg-red-500 text-white" : "bg-orange-500 text-white"
+                }`}
+                data-testid="badge-notification-count"
+              >
+                {alertCount > 9 ? "9+" : alertCount}
+              </span>
+            )}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0" data-testid="popover-notifications">
         <div className="p-3 border-b">
