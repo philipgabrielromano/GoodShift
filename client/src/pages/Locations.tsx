@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import type { Location } from "@shared/schema";
 
@@ -42,6 +43,25 @@ export default function Locations() {
   const handleCancel = () => {
     setEditingId(null);
     setEditingHours("");
+  };
+
+  const handleToggleActive = async (location: Location) => {
+    try {
+      await updateLocation.mutateAsync({ 
+        id: location.id, 
+        isActive: !location.isActive 
+      });
+      toast({ 
+        title: location.isActive ? "Location disabled" : "Location enabled", 
+        description: `${location.name} is now ${location.isActive ? "disabled" : "enabled"}.` 
+      });
+    } catch (error) {
+      toast({ 
+        variant: "destructive", 
+        title: "Error", 
+        description: "Failed to update location status." 
+      });
+    }
   };
 
   // Filter out generic "Location #" entries - only show real store names
@@ -139,9 +159,17 @@ export default function Locations() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={location.isActive ? "default" : "secondary"}>
-                        {location.isActive ? "Active" : "Inactive"}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={location.isActive}
+                          onCheckedChange={() => handleToggleActive(location)}
+                          disabled={updateLocation.isPending}
+                          data-testid={`switch-active-${location.id}`}
+                        />
+                        <Badge variant={location.isActive ? "default" : "secondary"}>
+                          {location.isActive ? "Active" : "Disabled"}
+                        </Badge>
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       {editingId === location.id ? (
