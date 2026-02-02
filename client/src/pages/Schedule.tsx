@@ -366,7 +366,7 @@ export default function Schedule() {
     });
   };
   
-  // Track modifier key for copy mode during drag
+  // Track modifier key for copy mode during drag - use both global listeners and event properties for robustness
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Control" || e.key === "Meta") {
@@ -378,11 +378,17 @@ export default function Schedule() {
         setIsCopyMode(false);
       }
     };
+    const handleBlur = () => {
+      // Reset copy mode if window loses focus to prevent stuck state
+      setIsCopyMode(false);
+    };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
     };
   }, []);
 
@@ -396,11 +402,18 @@ export default function Schedule() {
   const handleDragEnd = () => {
     setDraggedShift(null);
     setDropTarget(null);
+    setIsCopyMode(false); // Reset copy mode to prevent stuck state
   };
   
   const handleDragOver = (e: React.DragEvent, empId: number, dayKey: string) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = isCopyMode ? "copy" : "move";
+    // Use event properties for robust modifier detection
+    const copyMode = e.ctrlKey || e.metaKey;
+    e.dataTransfer.dropEffect = copyMode ? "copy" : "move";
+    // Sync state with event in case key events were missed
+    if (copyMode !== isCopyMode) {
+      setIsCopyMode(copyMode);
+    }
     setDropTarget({ empId, dayKey });
   };
   
@@ -413,7 +426,8 @@ export default function Schedule() {
     if (!draggedShift) return;
     
     const shift = draggedShift;
-    const shouldCopy = isCopyMode;
+    // Use event properties for robust detection - more reliable than state
+    const shouldCopy = e.ctrlKey || e.metaKey;
     
     // Convert original times to timezone-aware dates to get correct wall-clock times
     const originalStartTZ = toZonedTime(new Date(shift.startTime), TIMEZONE);

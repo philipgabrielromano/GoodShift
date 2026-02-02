@@ -18,6 +18,7 @@ export const changelog: ChangelogEntry[] = [
     changes: [
       { type: "feature", description: "Added tiered leadership scheduling - Store Manager, Assistant Manager, and Team Leads can flexibly cover leadership requirements" },
       { type: "feature", description: "Added location enable/disable toggle to control which stores appear in scheduling" },
+      { type: "feature", description: "Hold Ctrl/Cmd while dragging shifts to copy instead of move" },
       { type: "improvement", description: "Enhanced notification bell with prominent placement and label in sidebar" },
       { type: "improvement", description: "Automatic redirect to login when session expires after server restart" },
       { type: "improvement", description: "Updated favicon to official Goodwill Smiling G logo" },
