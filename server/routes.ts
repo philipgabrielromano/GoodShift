@@ -1396,20 +1396,59 @@ export async function registerRoutes(
 
         // 1e. Donation Pricers - MINIMUM 1 per day when available
         // Pricers work early morning for pricing (shuffled for variety)
+        // Include all shift types (full, short, gap) to maximize hours utilization
         const availablePricers = shuffleAndSort(
-          donationPricers.filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
+          donationPricers.filter(p => 
+            canWorkShortShift(p, currentDay, dayIndex) || 
+            canWorkFullShift(p, currentDay, dayIndex) ||
+            canWorkGapShift(p, currentDay, dayIndex)
+          )
         );
         
         // Schedule at least 1 donation pricer per day (when available)
-        const minPricers = Math.min(1, availablePricers.length);
-        for (let i = 0; i < minPricers; i++) {
-          const pricer = availablePricers[i];
-          // Part-timers (<=29h) get short morning shifts to maximize their weekly hours
-          if (pricer.maxWeeklyHours <= 29 && canWorkShortShift(pricer, currentDay, dayIndex)) {
-            scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
-          } else if (canWorkFullShift(pricer, currentDay, dayIndex)) {
-            scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
+        // Try all available pricers until we successfully schedule one
+        let pricerScheduled = false;
+        for (const pricer of availablePricers) {
+          if (pricerScheduled) break; // Only need 1 pricer per day
+          
+          // Part-timers use optimal shift selection to maximize weekly hours
+          if (isPartTime(pricer)) {
+            const bestShift = getBestShiftForPartTimer(pricer, currentDay, dayIndex, shifts);
+            if (bestShift) {
+              scheduleShift(pricer, bestShift.start, bestShift.end, dayIndex);
+              pricerScheduled = true;
+            } else {
+              // Fallback: try shifts in priority order if optimal selection fails
+              if (canWorkShortShift(pricer, currentDay, dayIndex)) {
+                scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+                pricerScheduled = true;
+              } else if (canWorkGapShift(pricer, currentDay, dayIndex)) {
+                scheduleShift(pricer, shifts.gapMorning.start, shifts.gapMorning.end, dayIndex);
+                pricerScheduled = true;
+              } else if (canWorkFullShift(pricer, currentDay, dayIndex)) {
+                scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
+                pricerScheduled = true;
+              }
+              // If still not scheduled, try next pricer
+            }
+          } else {
+            // Full-timers: prefer full opener shift, but fall back to shorter shifts if near max hours
+            if (canWorkFullShift(pricer, currentDay, dayIndex)) {
+              scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
+              pricerScheduled = true;
+            } else if (canWorkShortShift(pricer, currentDay, dayIndex)) {
+              scheduleShift(pricer, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+              pricerScheduled = true;
+            } else if (canWorkGapShift(pricer, currentDay, dayIndex)) {
+              scheduleShift(pricer, shifts.gapMorning.start, shifts.gapMorning.end, dayIndex);
+              pricerScheduled = true;
+            }
+            // If still not scheduled, try next pricer
           }
+        }
+        
+        if (availablePricers.length > 0 && !pricerScheduled) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} has ${availablePricers.length} available donation pricers but could not schedule any`);
         }
         
         if (availablePricers.length === 0) {
@@ -1418,22 +1457,65 @@ export async function registerRoutes(
         
         // 1f. Apparel Processors - MINIMUM 2 per day when available
         // Apparel processors work morning shifts for processing donations
+        // Include all shift types (full, short, gap) to maximize hours utilization
         const availableApparel = shuffleAndSort(
-          apparelProcessors.filter(p => canWorkShortShift(p, currentDay, dayIndex) || canWorkFullShift(p, currentDay, dayIndex))
+          apparelProcessors.filter(p => 
+            canWorkShortShift(p, currentDay, dayIndex) || 
+            canWorkFullShift(p, currentDay, dayIndex) ||
+            canWorkGapShift(p, currentDay, dayIndex)
+          )
         );
         
         // Schedule at least 2 apparel processors per day (when available)
-        const minApparel = Math.min(2, availableApparel.length);
-        for (let i = 0; i < minApparel; i++) {
-          const processor = availableApparel[i];
-          // Part-timers (<=29h) get short morning shifts
-          if (processor.maxWeeklyHours <= 29 && canWorkShortShift(processor, currentDay, dayIndex)) {
-            scheduleShift(processor, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
-          } else if (canWorkFullShift(processor, currentDay, dayIndex)) {
-            // Alternate between opener and early9 for variety
-            const shift = i % 2 === 0 ? shifts.opener : shifts.early9;
-            scheduleShift(processor, shift.start, shift.end, dayIndex);
+        // Try all available processors until we meet the minimum target
+        const targetApparel = 2;
+        let apparelScheduledCount = 0;
+        for (const processor of availableApparel) {
+          if (apparelScheduledCount >= targetApparel) break; // Met our target
+          
+          let scheduled = false;
+          
+          // Part-timers use optimal shift selection to maximize weekly hours
+          if (isPartTime(processor)) {
+            const bestShift = getBestShiftForPartTimer(processor, currentDay, dayIndex, shifts);
+            if (bestShift) {
+              scheduleShift(processor, bestShift.start, bestShift.end, dayIndex);
+              scheduled = true;
+            } else {
+              // Fallback: try shifts in priority order if optimal selection fails
+              if (canWorkShortShift(processor, currentDay, dayIndex)) {
+                scheduleShift(processor, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+                scheduled = true;
+              } else if (canWorkGapShift(processor, currentDay, dayIndex)) {
+                scheduleShift(processor, shifts.gapMorning.start, shifts.gapMorning.end, dayIndex);
+                scheduled = true;
+              } else if (canWorkFullShift(processor, currentDay, dayIndex)) {
+                const shift = apparelScheduledCount % 2 === 0 ? shifts.opener : shifts.early9;
+                scheduleShift(processor, shift.start, shift.end, dayIndex);
+                scheduled = true;
+              }
+              // If still not scheduled, try next processor
+            }
+          } else {
+            // Full-timers: prefer full shift with alternating times, but fall back to shorter shifts if near max hours
+            if (canWorkFullShift(processor, currentDay, dayIndex)) {
+              const shift = apparelScheduledCount % 2 === 0 ? shifts.opener : shifts.early9;
+              scheduleShift(processor, shift.start, shift.end, dayIndex);
+              scheduled = true;
+            } else if (canWorkShortShift(processor, currentDay, dayIndex)) {
+              scheduleShift(processor, shifts.shortMorning.start, shifts.shortMorning.end, dayIndex);
+              scheduled = true;
+            } else if (canWorkGapShift(processor, currentDay, dayIndex)) {
+              scheduleShift(processor, shifts.gapMorning.start, shifts.gapMorning.end, dayIndex);
+              scheduled = true;
+            }
+            // If still not scheduled, try next processor
           }
+          if (scheduled) apparelScheduledCount++;
+        }
+        
+        if (availableApparel.length > 0 && apparelScheduledCount < Math.min(targetApparel, availableApparel.length)) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} could only schedule ${apparelScheduledCount}/${targetApparel} apparel processors despite ${availableApparel.length} available`);
         }
         
         if (availableApparel.length < 2) {
