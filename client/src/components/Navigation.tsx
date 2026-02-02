@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import goodwillLogo from "@/assets/goodwill-logo.png";
 import { NotificationBell } from "./NotificationBell";
 import { queryClient } from "@/lib/queryClient";
+import { APP_VERSION } from "@/lib/changelog";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -19,6 +20,7 @@ interface AuthStatus {
 const viewerNavItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
   { href: "/attendance", label: "Attendance", icon: AlertTriangle },
+  { href: "/changelog", label: "Changelog", icon: ScrollText },
 ];
 
 // Items shown to managers and admins only
@@ -83,7 +85,10 @@ export function Navigation() {
           ))}
         </nav>
 
-        <div className="p-4 border-t">
+        <div className="p-4 border-t space-y-3">
+          <div className="text-center">
+            <span className="text-xs text-muted-foreground" data-testid="text-version-sidebar">v{APP_VERSION}</span>
+          </div>
           <div className="bg-muted/50 rounded p-4">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Current User</p>
             <div className="flex items-center gap-3">
@@ -145,8 +150,11 @@ export function Navigation() {
                 </Link>
               ))}
             </nav>
-            <div className="p-4 border-t mt-auto">
-              <div className="bg-muted/50 rounded p-3 mb-3">
+            <div className="p-4 border-t mt-auto space-y-3">
+              <div className="text-center">
+                <span className="text-xs text-muted-foreground" data-testid="text-version-mobile">v{APP_VERSION}</span>
+              </div>
+              <div className="bg-muted/50 rounded p-3">
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Current User</p>
                 <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
                 <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>

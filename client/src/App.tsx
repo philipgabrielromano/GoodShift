@@ -14,6 +14,7 @@ import Locations from "@/pages/Locations";
 import Shifts from "@/pages/Shifts";
 import Login from "@/pages/Login";
 import Attendance from "@/pages/Attendance";
+import Changelog from "@/pages/Changelog";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/locations" component={Locations} />
       <Route path="/shifts" component={Shifts} />
       <Route path="/settings" component={Settings} />
+      <Route path="/changelog" component={Changelog} />
       <Route component={NotFound} />
     </Switch>
   );
