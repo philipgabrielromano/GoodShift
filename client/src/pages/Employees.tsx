@@ -285,7 +285,8 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
       }
       onOpenChange(false);
     } catch (err) {
-      toast({ variant: "destructive", title: "Error", description: "Operation failed." });
+      const message = err instanceof Error ? err.message : "Operation failed.";
+      toast({ variant: "destructive", title: "Error", description: message });
     }
   };
 

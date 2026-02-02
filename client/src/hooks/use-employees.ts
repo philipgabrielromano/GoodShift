@@ -73,7 +73,10 @@ export function useUpdateEmployee() {
         body: JSON.stringify(updates),
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to update employee");
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({}));
+        throw new Error(error.message || "Failed to update employee");
+      }
       return api.employees.update.responses[200].parse(await res.json());
     },
     onSuccess: () => {
