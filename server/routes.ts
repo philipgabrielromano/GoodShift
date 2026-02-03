@@ -169,9 +169,13 @@ export async function registerRoutes(
         .filter(loc => user.locationIds.includes(String(loc.id)))
         .map(loc => loc.name);
       
+      console.log(`[API] Employee filter - User: ${user.email}, Role: ${user.role}, LocationIds: ${JSON.stringify(user.locationIds)}, Resolved location names: ${JSON.stringify(userLocationNames)}`);
+      
+      const beforeCount = employees.length;
       employees = employees.filter(emp => 
         emp.location && userLocationNames.includes(emp.location)
       );
+      console.log(`[API] Employee filter - Before: ${beforeCount}, After: ${employees.length}`);
     }
     
     // Viewers can only see employees for published schedules
