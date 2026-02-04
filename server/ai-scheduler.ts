@@ -114,7 +114,8 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   const targetHours = Math.min(totalAvailableHours, totalEmployeeCapacity);
 
   // Fetch existing shifts for the week to respect manually-entered shifts
-  const weekEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  // Use 8 days to ensure we capture all Saturday shifts (which may end past midnight UTC)
+  const weekEnd = new Date(startDate.getTime() + 8 * 24 * 60 * 60 * 1000);
   const existingShifts = await storage.getShifts(startDate, weekEnd);
   
   // Build maps of existing shift hours and days per employee
@@ -164,6 +165,17 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
     }
   }
   
+  // Log existing shifts for debugging
+  console.log(`[AI Scheduler] Found ${existingShifts.length} existing shifts for week starting ${weekStartStr}`);
+  if (existingShifts.length > 0) {
+    existingShifts.forEach(shift => {
+      const emp = employees.find(e => e.id === shift.employeeId);
+      const shiftDate = new Date(shift.startTime);
+      const dayDiff = Math.floor((shiftDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+      console.log(`  - ${emp?.name || 'Unknown'} (ID: ${shift.employeeId}): Day ${dayDiff}, ${shift.startTime} - ${shift.endTime}`);
+    });
+  }
+  
   // Build summary of existing shifts for the AI prompt
   const existingShiftsSummary = (() => {
     const entries: string[] = [];
@@ -176,6 +188,8 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
     });
     return entries.length > 0 ? entries.join('\n') : 'None - no pre-filled shifts';
   })();
+  
+  console.log(`[AI Scheduler] Existing shifts summary for AI:\n${existingShiftsSummary}`);
 
   const prompt = `You are an expert retail store scheduler. Generate a FULL weekly schedule that MAXIMIZES hour usage.
 
@@ -422,10 +436,14 @@ Respond with a JSON object:
     const createdShifts = [];
     let skippedDuplicates = 0;
     
+    console.log(`[AI Scheduler] existingShiftDays set contains ${existingShiftDays.size} entries:`, Array.from(existingShiftDays));
+    
     for (const shift of aiResponse.shifts) {
       // Skip if employee already has a shift on this day (pre-filled)
       const shiftKey = `${shift.employeeId}-${shift.dayIndex}`;
       if (existingShiftDays.has(shiftKey)) {
+        const emp = employees.find(e => e.id === shift.employeeId);
+        console.log(`[AI Scheduler] Skipping duplicate: ${emp?.name || 'Unknown'} (${shiftKey}) - already has pre-filled shift`);
         skippedDuplicates++;
         continue;
       }
