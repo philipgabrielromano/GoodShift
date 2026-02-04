@@ -756,6 +756,15 @@ export async function registerRoutes(
       const timeOff = await storage.getTimeOffRequests();
       const locations = await storage.getLocations();
       
+      // Get station limits from the selected location (0 = unlimited, use reasonable defaults)
+      const selectedLocation = location ? locations.find(l => l.name === location) : null;
+      const apparelStationLimit = selectedLocation?.apparelProcessorStations || 0; // 0 = unlimited
+      const pricerStationLimit = selectedLocation?.donationPricingStations || 0; // 0 = unlimited
+      // Use limit if set (>0), otherwise default to 2 for apparel, 1 for pricers
+      const maxApparelStations = apparelStationLimit > 0 ? apparelStationLimit : 2;
+      const maxPricerStations = pricerStationLimit > 0 ? pricerStationLimit : 1;
+      console.log(`[Scheduler] Station limits for ${location || 'all locations'}: Apparel=${maxApparelStations}, Pricers=${maxPricerStations}`);
+      
       // Fetch PAL (Paid Annual Leave) and UTO (Unpaid Time Off) entries for the week
       const weekEndDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       const startDateStr = startDate.toISOString().split('T')[0];
@@ -1513,61 +1522,83 @@ export async function registerRoutes(
         // ========== DONATION/WARES PRICERS - CHECK EXISTING FIRST ==========
         // Count existing pricer shifts from templates before scheduling new ones
         const existingPricerShifts = countExistingShiftsForRole(pricerIds, dayIndex);
-        let pricerMorningScheduled = existingPricerShifts > 0;
+        const targetPricers = maxPricerStations; // Use location-specific station limit
+        let pricerMorningCount = existingPricerShifts;
+        let fulltimePricersScheduled = 0; // Track how many full-time workers filled stations
         
         if (existingPricerShifts > 0) {
           console.log(`[Scheduler] Day ${dayIndex}: Found ${existingPricerShifts} existing pricer shift(s) from template`);
         }
         
-        // Only schedule new pricers if no existing coverage
-        if (!pricerMorningScheduled) {
-          // STEP 1: Schedule FULLTIME pricers on OPENER shifts first
+        // Only schedule new pricers if existing coverage is insufficient
+        if (pricerMorningCount < targetPricers) {
+          // STEP 1: Schedule FULLTIME pricers on OPENER shifts first (FULL shifts only)
           const fulltimePricers = shuffleAndSort(
             donationPricers.filter(p => !isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
           );
           
           for (const pricer of fulltimePricers) {
-            if (pricerMorningScheduled) break;
+            if (pricerMorningCount >= targetPricers) break;
             scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
-            pricerMorningScheduled = true;
-            console.log(`[Scheduler] Day ${dayIndex}: FT Pricer ${pricer.name} scheduled as opener (8-4:30)`);
+            pricerMorningCount++;
+            fulltimePricersScheduled++;
+            console.log(`[Scheduler] Day ${dayIndex}: FT Pricer ${pricer.name} scheduled as opener (FULL shift)`);
           }
           
-          // STEP 2: If no fulltime pricer available, try part-timer on morning shift
-          if (!pricerMorningScheduled) {
+          // STEP 2: If still need more coverage, schedule part-timers
+          // IMPORTANT: Part-timers should get FULL shifts when filling station seats
+          // Only use SHORT shifts if stations are already full with full-time workers
+          if (pricerMorningCount < targetPricers) {
+            // Part-timers filling unfilled stations - prioritize FULL shifts
             const parttimePricers = shuffleAndSort(
-              donationPricers.filter(p => 
-                isPartTime(p) && (
-                  canWorkShortShift(p, currentDay, dayIndex) || 
-                  canWorkFullShift(p, currentDay, dayIndex) ||
-                  canWorkGapShift(p, currentDay, dayIndex)
-                )
-              )
+              donationPricers.filter(p => isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
             );
             
             for (const pricer of parttimePricers) {
-              if (pricerMorningScheduled) break;
-              const bestShift = getBestShiftForPartTimer(pricer, currentDay, dayIndex, shifts);
-              if (bestShift) {
-                scheduleShift(pricer, bestShift.start, bestShift.end, dayIndex);
-                pricerMorningScheduled = true;
-                console.log(`[Scheduler] Day ${dayIndex}: PT Pricer ${pricer.name} scheduled on morning shift`);
+              if (pricerMorningCount >= targetPricers) break;
+              // Give part-timers FULL shifts when filling station seats
+              scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
+              pricerMorningCount++;
+              console.log(`[Scheduler] Day ${dayIndex}: PT Pricer ${pricer.name} scheduled as opener (FULL shift - station not filled by FT)`);
+            }
+            
+            // If still need coverage and no one can work full shift, try shorter shifts
+            if (pricerMorningCount < targetPricers) {
+              const parttimePricersShort = shuffleAndSort(
+                donationPricers.filter(p => 
+                  isPartTime(p) && !canWorkFullShift(p, currentDay, dayIndex) && (
+                    canWorkShortShift(p, currentDay, dayIndex) ||
+                    canWorkGapShift(p, currentDay, dayIndex)
+                  )
+                )
+              );
+              
+              for (const pricer of parttimePricersShort) {
+                if (pricerMorningCount >= targetPricers) break;
+                const bestShift = getBestShiftForPartTimer(pricer, currentDay, dayIndex, shifts);
+                if (bestShift) {
+                  scheduleShift(pricer, bestShift.start, bestShift.end, dayIndex);
+                  pricerMorningCount++;
+                  console.log(`[Scheduler] Day ${dayIndex}: PT Pricer ${pricer.name} scheduled (shorter shift - can't work full)`);
+                }
               }
             }
           }
           
-          if (!pricerMorningScheduled) {
-            console.log(`[Scheduler] WARNING: Day ${dayIndex} has no available donation/wares pricers for morning`);
+          if (pricerMorningCount < targetPricers) {
+            console.log(`[Scheduler] WARNING: Day ${dayIndex} could only schedule ${pricerMorningCount}/${targetPricers} donation pricers for morning`);
           }
         }
         
+        const pricerMorningScheduled = pricerMorningCount > 0;
         morningPricerByDay.set(dayIndex, pricerMorningScheduled);
         
         // ========== APPAREL PROCESSORS - CHECK EXISTING FIRST ==========
         // Count existing apparel shifts from templates before scheduling new ones
         const existingApparelShifts = countExistingShiftsForRole(apparelIds, dayIndex);
-        const targetApparel = 2;
+        const targetApparel = maxApparelStations; // Use location-specific station limit
         let apparelMorningCount = existingApparelShifts;
+        let fulltimeApparelScheduled = 0; // Track how many full-time workers filled stations
         
         if (existingApparelShifts > 0) {
           console.log(`[Scheduler] Day ${dayIndex}: Found ${existingApparelShifts} existing apparel shift(s) from template`);
@@ -1575,39 +1606,58 @@ export async function registerRoutes(
         
         // Only schedule new apparel processors if existing coverage is insufficient
         if (apparelMorningCount < targetApparel) {
-          // STEP 1: Schedule FULLTIME apparel processors on OPENER/EARLY9 shifts first
+          // STEP 1: Schedule FULLTIME apparel processors on OPENER/EARLY9 shifts first (FULL shifts only)
           const fulltimeApparel = shuffleAndSort(
             apparelProcessors.filter(p => !isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
           );
           
-          // First schedule fulltime apparel processors on morning shifts
+          // First schedule fulltime apparel processors on FULL morning shifts
           for (const processor of fulltimeApparel) {
             if (apparelMorningCount >= targetApparel) break;
             const shift = apparelMorningCount % 2 === 0 ? shifts.opener : shifts.early9;
             scheduleShift(processor, shift.start, shift.end, dayIndex);
             apparelMorningCount++;
-            console.log(`[Scheduler] Day ${dayIndex}: FT Apparel ${processor.name} scheduled as ${(apparelMorningCount - existingApparelShifts) === 1 ? 'opener' : 'early9'}`);
+            fulltimeApparelScheduled++;
+            console.log(`[Scheduler] Day ${dayIndex}: FT Apparel ${processor.name} scheduled as ${(apparelMorningCount - existingApparelShifts) === 1 ? 'opener' : 'early9'} (FULL shift)`);
           }
           
-          // STEP 2: If still need more morning coverage, try part-timers on morning shifts
+          // STEP 2: If still need more coverage, schedule part-timers
+          // IMPORTANT: Part-timers should get FULL shifts when filling station seats
+          // Only use SHORT shifts if stations are already full with full-time workers
           if (apparelMorningCount < targetApparel) {
+            // Part-timers filling unfilled stations - prioritize FULL shifts
             const parttimeApparel = shuffleAndSort(
-              apparelProcessors.filter(p => 
-                isPartTime(p) && (
-                  canWorkShortShift(p, currentDay, dayIndex) || 
-                  canWorkFullShift(p, currentDay, dayIndex) ||
-                  canWorkGapShift(p, currentDay, dayIndex)
-                )
-              )
+              apparelProcessors.filter(p => isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
             );
             
             for (const processor of parttimeApparel) {
               if (apparelMorningCount >= targetApparel) break;
-              const bestShift = getBestShiftForPartTimer(processor, currentDay, dayIndex, shifts);
-              if (bestShift) {
-                scheduleShift(processor, bestShift.start, bestShift.end, dayIndex);
-                apparelMorningCount++;
-                console.log(`[Scheduler] Day ${dayIndex}: PT Apparel ${processor.name} scheduled on morning shift`);
+              // Give part-timers FULL shifts when filling station seats
+              const shift = apparelMorningCount % 2 === 0 ? shifts.opener : shifts.early9;
+              scheduleShift(processor, shift.start, shift.end, dayIndex);
+              apparelMorningCount++;
+              console.log(`[Scheduler] Day ${dayIndex}: PT Apparel ${processor.name} scheduled as ${apparelMorningCount === 1 ? 'opener' : 'early9'} (FULL shift - station not filled by FT)`);
+            }
+            
+            // If still need coverage and no one can work full shift, try shorter shifts
+            if (apparelMorningCount < targetApparel) {
+              const parttimeApparelShort = shuffleAndSort(
+                apparelProcessors.filter(p => 
+                  isPartTime(p) && !canWorkFullShift(p, currentDay, dayIndex) && (
+                    canWorkShortShift(p, currentDay, dayIndex) ||
+                    canWorkGapShift(p, currentDay, dayIndex)
+                  )
+                )
+              );
+              
+              for (const processor of parttimeApparelShort) {
+                if (apparelMorningCount >= targetApparel) break;
+                const bestShift = getBestShiftForPartTimer(processor, currentDay, dayIndex, shifts);
+                if (bestShift) {
+                  scheduleShift(processor, bestShift.start, bestShift.end, dayIndex);
+                  apparelMorningCount++;
+                  console.log(`[Scheduler] Day ${dayIndex}: PT Apparel ${processor.name} scheduled (shorter shift - can't work full)`);
+                }
               }
             }
           }
