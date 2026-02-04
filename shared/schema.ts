@@ -111,6 +111,8 @@ export const locations = pgTable("locations", {
   name: text("name").notNull().unique(), // Store name from UKG
   weeklyHoursLimit: integer("weekly_hours_limit").notNull().default(0), // Hours allocated to this store
   isActive: boolean("is_active").notNull().default(true),
+  apparelProcessorStations: integer("apparel_processor_stations").notNull().default(0), // Max apparel processors per day (0 = unlimited)
+  donationPricingStations: integer("donation_pricing_stations").notNull().default(0), // Max donation pricing associates per day (0 = unlimited)
 });
 
 // Shift presets - preconfigured shift times that can be quickly applied
