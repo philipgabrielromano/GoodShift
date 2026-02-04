@@ -1412,8 +1412,15 @@ export default function Schedule() {
 
               {/* Grouped Employee Rows - sorted by job priority */}
               {Object.entries(
-                (employees || [])
-                  .filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation))
+                (() => {
+                  const filtered = (employees || []).filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation));
+                  console.log('[Schedule Debug] selectedLocation:', selectedLocation, 'employees:', employees?.length, 'filtered:', filtered.length);
+                  if (filtered.length === 0 && selectedLocation !== "all") {
+                    const sampleEmp = employees?.[0];
+                    console.log('[Schedule Debug] Sample emp.location:', sampleEmp?.location, 'vs selectedLocation:', selectedLocation);
+                  }
+                  return filtered;
+                })()
                   .reduce((acc, emp) => {
                     if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
                     acc[emp.jobTitle].push(emp);
