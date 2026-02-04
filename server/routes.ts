@@ -48,6 +48,7 @@ function requireManager(req: Request, res: Response, next: NextFunction) {
 }
 
 // Helper function to check if HR notification should be sent for occurrence thresholds
+// Sends emails to managers assigned to the employee's store location
 // addedOccurrenceValue: the value of the occurrence just added (used to detect crossing vs already over)
 async function checkAndSendHRNotification(
   employeeId: number, 
@@ -55,11 +56,6 @@ async function checkAndSendHRNotification(
   appUrl: string
 ): Promise<void> {
   try {
-    const settings = await storage.getGlobalSettings();
-    if (!settings?.hrNotificationEmail) {
-      return; // No HR email configured
-    }
-
     const employee = await storage.getEmployee(employeeId);
     if (!employee) {
       return;
@@ -72,7 +68,6 @@ async function checkAndSendHRNotification(
     const startDate = oneYearAgo.toISOString().split('T')[0];
     const endDate = now.toISOString().split('T')[0];
     const currentYear = now.getFullYear();
-    const yearStart = `${currentYear}-01-01`;
 
     // Get occurrences and adjustments
     const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
@@ -119,6 +114,49 @@ async function checkAndSendHRNotification(
     if (threshold) {
       console.log(`[HR Notification] Employee ${employee.name} crossed ${threshold}-point threshold (${previousTally.toFixed(1)} -> ${netTally.toFixed(1)})`);
       
+      // Find the managers for this employee's store location
+      const managerEmails: string[] = [];
+      
+      if (employee.location) {
+        // Get all locations to find the location ID by name
+        const locations = await storage.getLocations();
+        const employeeLocation = locations.find(loc => loc.name === employee.location);
+        
+        if (employeeLocation) {
+          // Get all users and find managers assigned to this location
+          const users = await storage.getUsers();
+          const storeManagers = users.filter(user => 
+            user.isActive && 
+            (user.role === 'manager' || user.role === 'admin') &&
+            user.locationIds?.includes(String(employeeLocation.id))
+          );
+          
+          storeManagers.forEach(manager => {
+            if (manager.email) {
+              managerEmails.push(manager.email);
+            }
+          });
+          
+          console.log(`[HR Notification] Found ${storeManagers.length} managers for location "${employee.location}": ${managerEmails.join(', ') || 'none'}`);
+        } else {
+          console.log(`[HR Notification] Could not find location ID for "${employee.location}"`);
+        }
+      }
+      
+      // If no store managers found, fall back to global HR email from settings
+      if (managerEmails.length === 0) {
+        const settings = await storage.getGlobalSettings();
+        if (settings?.hrNotificationEmail) {
+          managerEmails.push(settings.hrNotificationEmail);
+          console.log(`[HR Notification] No store managers found, falling back to HR email: ${settings.hrNotificationEmail}`);
+        }
+      }
+      
+      if (managerEmails.length === 0) {
+        console.log('[HR Notification] No recipients configured, skipping email');
+        return;
+      }
+      
       const emailData: OccurrenceAlertEmailData = {
         employeeId: employee.id,
         employeeName: employee.name,
@@ -130,7 +168,10 @@ async function checkAndSendHRNotification(
         appUrl
       };
 
-      await sendOccurrenceAlertEmail(settings.hrNotificationEmail, emailData);
+      // Send email to each manager
+      for (const email of managerEmails) {
+        await sendOccurrenceAlertEmail(email, emailData);
+      }
     }
   } catch (error) {
     console.error('[HR Notification] Failed to check/send notification:', error);
