@@ -3,6 +3,7 @@ import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
+import { useLocations } from "@/hooks/use-locations";
 import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, subDays, format, differenceInCalendarDays } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -96,13 +97,14 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
   const { data: roles } = useRoleRequirements();
   const { data: settings } = useGlobalSettings();
   const { data: timeOff } = useTimeOffRequests();
+  const { data: locations } = useLocations();
 
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }).map((_, i) => addDays(parseISO(start), i));
   }, [start]);
 
   const issues = useMemo(() => {
-    if (!employees || !shifts || !roles || !settings || !timeOff || !prevWeekShifts) return [];
+    if (!employees || !shifts || !roles || !settings || !timeOff || !prevWeekShifts || !locations) return [];
     
     const newIssues: Issue[] = [];
     let totalWeeklyHours = 0;
@@ -418,6 +420,75 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       }
     });
 
+    // Check 5b: Production Station Limits (per day)
+    // Apparel Processor job codes: APPROC, APWV
+    // Donation Pricing job codes: DONPRI, DONPRWV
+    const apparelProcessorCodes = ['APPROC', 'APWV'];
+    const donationPricerCodes = ['DONPRI', 'DONPRWV'];
+    
+    weekDays.forEach(day => {
+      // Skip holidays
+      const holidayName = isHoliday(day);
+      if (holidayName) return;
+      
+      const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
+      const dayLabel = format(day, "EEE, MMM d");
+      
+      // Count apparel processors and donation pricers for this day
+      const apparelProcessorCount = dayShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp && apparelProcessorCodes.includes(emp.jobTitle);
+      }).length;
+      
+      const donationPricerCount = dayShifts.filter(s => {
+        const emp = employees.find(e => e.id === s.employeeId);
+        return emp && donationPricerCodes.includes(emp.jobTitle);
+      }).length;
+      
+      // Get employees scheduled for this day to find their location
+      const employeesOnDay = dayShifts.map(s => employees.find(e => e.id === s.employeeId)).filter(Boolean);
+      const locationSet = new Set(employeesOnDay.map(e => e?.location).filter((loc): loc is string => typeof loc === 'string'));
+      const uniqueLocations = Array.from(locationSet);
+      
+      // Check each location's limits
+      uniqueLocations.forEach(locationName => {
+        const location = locations.find(l => l.name === locationName);
+        if (!location) return;
+        
+        const apparelLimit = location.apparelProcessorStations ?? 0;
+        const donationLimit = location.donationPricingStations ?? 0;
+        
+        // Count employees for this specific location
+        const locationApparelCount = dayShifts.filter(s => {
+          const emp = employees.find(e => e.id === s.employeeId);
+          return emp && emp.location === locationName && apparelProcessorCodes.includes(emp.jobTitle);
+        }).length;
+        
+        const locationDonationCount = dayShifts.filter(s => {
+          const emp = employees.find(e => e.id === s.employeeId);
+          return emp && emp.location === locationName && donationPricerCodes.includes(emp.jobTitle);
+        }).length;
+        
+        // Check apparel processor limit
+        if (apparelLimit > 0 && locationApparelCount > apparelLimit) {
+          newIssues.push({
+            type: "warning",
+            category: "staffing",
+            message: `${dayLabel}: ${locationName} has ${locationApparelCount} apparel processors (max ${apparelLimit} stations)`
+          });
+        }
+        
+        // Check donation pricer limit
+        if (donationLimit > 0 && locationDonationCount > donationLimit) {
+          newIssues.push({
+            type: "warning",
+            category: "staffing",
+            message: `${dayLabel}: ${locationName} has ${locationDonationCount} donation pricers (max ${donationLimit} stations)`
+          });
+        }
+      });
+    });
+
     // Check 6: Clopening detection (closing shift followed by opening shift next day)
     employees.forEach(emp => {
       const empShifts = shifts
@@ -623,7 +694,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     });
 
     return newIssues;
-  }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, start, end]);
+  }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, locations, start, end]);
 
   // Track expanded state for each category
   const [expandedCategories, setExpandedCategories] = useState<Record<IssueCategory, boolean>>({

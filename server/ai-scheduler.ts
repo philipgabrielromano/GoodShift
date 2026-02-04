@@ -213,6 +213,32 @@ Available shift lengths: Full (8h), Short (5.5h), Gap (5h)
 - At least 1 Cashier (CASHSLS or CSHSLSWV) on closing shift
 - Fill mid-shifts to maximize coverage and hour usage
 
+## Production Station Limits (MAX employees per day by role)
+${(() => {
+  // Get station limits from locations being scheduled
+  const stationLimits: { location: string; apparelMax: number; donationMax: number }[] = [];
+  for (const loc of activeLocations) {
+    const apparelMax = loc.apparelProcessorStations ?? 0;
+    const donationMax = loc.donationPricingStations ?? 0;
+    if (apparelMax > 0 || donationMax > 0) {
+      stationLimits.push({ location: loc.name, apparelMax, donationMax });
+    }
+  }
+  if (stationLimits.length === 0) {
+    return 'No station limits configured - schedule freely based on hours and coverage needs.';
+  }
+  return stationLimits.map(s => {
+    const limits: string[] = [];
+    if (s.apparelMax > 0) limits.push(`Apparel Processors: max ${s.apparelMax}/day`);
+    if (s.donationMax > 0) limits.push(`Donation Pricing: max ${s.donationMax}/day`);
+    return `- ${s.location}: ${limits.join(', ')}`;
+  }).join('\n');
+})()}
+
+**IMPORTANT**: Do NOT schedule more Apparel Processors (APPROC, APWV) than the station limit per day.
+Do NOT schedule more Donation Pricing Associates (DONPRI, DONPRWV) than the station limit per day.
+If station limit is 0 or not set, there is no limit.
+
 ## Labor Allocation (percentage of hours by category)
 - Cashiering (CASHSLS, CSHSLSWV): ${settings.cashieringPercent ?? 40}%
 - Donation Pricing (DONPRI, DONPRWV, APPROC, APWV): ${settings.donationPricingPercent ?? 35}%
@@ -350,7 +376,8 @@ Respond with a JSON object:
 8. STSUPER and WVSTMNG (Store Manager) count as manager for opening/closing coverage
 9. Prioritize manager coverage (one manager opening, one closing each day)
 10. Ensure donor greeter and cashier coverage (one opening, one closing each day)
-11. An employee should not work both opener AND closer on the same day`;
+11. An employee should not work both opener AND closer on the same day
+12. **RESPECT STATION LIMITS** - Do NOT schedule more Apparel Processors or Donation Pricing Associates per day than the configured station limits`;
 
   try {
     const response = await openai.chat.completions.create({

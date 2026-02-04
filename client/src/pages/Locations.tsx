@@ -18,31 +18,45 @@ export default function Locations() {
   
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");
+  const [editingApparelStations, setEditingApparelStations] = useState<string>("");
+  const [editingDonationStations, setEditingDonationStations] = useState<string>("");
 
   const handleEdit = (location: Location) => {
     setEditingId(location.id);
     setEditingHours(location.weeklyHoursLimit.toString());
+    setEditingApparelStations((location.apparelProcessorStations ?? 0).toString());
+    setEditingDonationStations((location.donationPricingStations ?? 0).toString());
   };
 
   const handleSave = async (id: number) => {
     const hours = parseInt(editingHours);
-    if (isNaN(hours) || hours < 0) {
-      toast({ variant: "destructive", title: "Invalid hours", description: "Please enter a valid number of hours." });
+    const apparelStations = parseInt(editingApparelStations);
+    const donationStations = parseInt(editingDonationStations);
+    
+    if (isNaN(hours) || hours < 0 || isNaN(apparelStations) || apparelStations < 0 || isNaN(donationStations) || donationStations < 0) {
+      toast({ variant: "destructive", title: "Invalid values", description: "Please enter valid numbers (0 or greater)." });
       return;
     }
     
     try {
-      await updateLocation.mutateAsync({ id, weeklyHoursLimit: hours });
-      toast({ title: "Hours updated", description: "Store hours have been saved." });
+      await updateLocation.mutateAsync({ 
+        id, 
+        weeklyHoursLimit: hours,
+        apparelProcessorStations: apparelStations,
+        donationPricingStations: donationStations
+      });
+      toast({ title: "Settings updated", description: "Store settings have been saved." });
       setEditingId(null);
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Failed to update store hours." });
+      toast({ variant: "destructive", title: "Error", description: "Failed to update store settings." });
     }
   };
 
   const handleCancel = () => {
     setEditingId(null);
     setEditingHours("");
+    setEditingApparelStations("");
+    setEditingDonationStations("");
   };
 
   const handleToggleActive = async (location: Location) => {
@@ -116,9 +130,9 @@ export default function Locations() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Store Hours Allocation</CardTitle>
+          <CardTitle>Store Settings</CardTitle>
           <CardDescription>
-            Set the weekly hours budget for each store location. Managers will see these hours when scheduling.
+            Configure weekly hours budget and production station limits for each store. Station limits control the max number of employees that can be scheduled per day for that role (0 = unlimited).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -127,6 +141,8 @@ export default function Locations() {
               <TableRow>
                 <TableHead>Store Name</TableHead>
                 <TableHead>Weekly Hours</TableHead>
+                <TableHead>Apparel Stations</TableHead>
+                <TableHead>Donation Stations</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -134,7 +150,7 @@ export default function Locations() {
             <TableBody>
               {displayedLocations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     No locations found. Locations will be added automatically when employees are synced from UKG.
                   </TableCell>
                 </TableRow>
@@ -156,6 +172,34 @@ export default function Locations() {
                         />
                       ) : (
                         <span className="font-mono">{location.weeklyHoursLimit}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingId === location.id ? (
+                        <Input
+                          type="number"
+                          value={editingApparelStations}
+                          onChange={(e) => setEditingApparelStations(e.target.value)}
+                          className="w-20"
+                          min="0"
+                          data-testid={`input-apparel-stations-${location.id}`}
+                        />
+                      ) : (
+                        <span className="font-mono">{location.apparelProcessorStations ?? 0}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingId === location.id ? (
+                        <Input
+                          type="number"
+                          value={editingDonationStations}
+                          onChange={(e) => setEditingDonationStations(e.target.value)}
+                          className="w-20"
+                          min="0"
+                          data-testid={`input-donation-stations-${location.id}`}
+                        />
+                      ) : (
+                        <span className="font-mono">{location.donationPricingStations ?? 0}</span>
                       )}
                     </TableCell>
                     <TableCell>
