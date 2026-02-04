@@ -8,9 +8,26 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.5.0";
+export const APP_VERSION = "1.6.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.6.0",
+    date: "2026-02-04",
+    title: "Production Controls & Manager Tools",
+    changes: [
+      { type: "feature", description: "Added production station limits per location - configure maximum Apparel Processors and Donation Pricers per day" },
+      { type: "feature", description: "AI scheduler now respects production station limits when generating schedules" },
+      { type: "feature", description: "Schedule validator warns when daily station limits are exceeded" },
+      { type: "feature", description: "Store-specific manager notifications - occurrence threshold alerts now go to managers assigned to that store" },
+      { type: "feature", description: "Managers can now access the Locations page to view and edit settings for their assigned stores" },
+      { type: "feature", description: "Managers can now use quick shift presets when adding shifts" },
+      { type: "feature", description: "Added 'Days Off' column to employee list showing non-working days at a glance" },
+      { type: "feature", description: "Inline editable Max Hours field in employee list for quick adjustments (0-40)" },
+      { type: "improvement", description: "HR email notifications fall back to global HR email if no store managers are configured" },
+      { type: "fix", description: "Schedule validator now correctly shows issues only for the currently selected week" },
+    ],
+  },
   {
     version: "1.5.0",
     date: "2026-02-02",
