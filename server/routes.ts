@@ -823,6 +823,19 @@ export async function registerRoutes(
         }
       }
       
+      // Helper to count existing shifts for a role on a specific day
+      // Used to recognize template-applied shifts as coverage
+      const countExistingShiftsForRole = (roleEmployeeIds: number[], dayIndex: number): number => {
+        let count = 0;
+        for (const empId of roleEmployeeIds) {
+          const key = `${empId}-${dayIndex}`;
+          if (existingShiftsByEmpDay.has(key)) {
+            count++;
+          }
+        }
+        return count;
+      };
+      
       // Collect shifts in memory first, then batch insert at the end for performance
       const pendingShifts: { employeeId: number; startTime: Date; endTime: Date }[] = [];
 
@@ -1271,6 +1284,7 @@ export async function registerRoutes(
       // Pass 1: Ensure EVERY day gets at least one higher-tier manager (store mgr or asst mgr)
       // Pass 2: Add second manager and team leads for full coverage
       // This prevents managers from hitting their 5-day max before all days are covered
+      // IMPORTANT: Recognize existing template shifts as fulfilling coverage requirements
       
       // Track coverage per day for leadership
       const leadershipCoverage: Record<number, { opener: boolean; closer: boolean; mid: boolean; hasHigherTier: boolean }> = {};
@@ -1287,6 +1301,28 @@ export async function registerRoutes(
       const allTeamLeads = shuffleArray(
         managers.filter(m => teamLeadCodes.includes(m.jobTitle) && m.isActive)
       );
+      
+      // Build ID arrays for existing shift lookup
+      const higherTierIds = allHigherTierManagers.map(m => m.id);
+      const teamLeadIds = allTeamLeads.map(m => m.id);
+      const allManagerIds = managers.map(m => m.id);
+      
+      // Check for existing leadership shifts from templates
+      for (let d = 0; d < 7; d++) {
+        const existingHigherTier = countExistingShiftsForRole(higherTierIds, d);
+        const existingTeamLeads = countExistingShiftsForRole(teamLeadIds, d);
+        const totalExistingLeadership = existingHigherTier + existingTeamLeads;
+        
+        if (existingHigherTier > 0) {
+          leadershipCoverage[d].hasHigherTier = true;
+          // Mark opener/closer as covered if we have existing shifts (we don't know which slot, so be conservative)
+          leadershipCoverage[d].opener = true;
+          console.log(`[Scheduler] Day ${d}: Found ${existingHigherTier} existing higher-tier manager shift(s) from template`);
+        }
+        if (existingTeamLeads > 0) {
+          console.log(`[Scheduler] Day ${d}: Found ${existingTeamLeads} existing team lead shift(s) from template`);
+        }
+      }
       
       console.log(`[Scheduler] Leadership pool - Higher-tier: ${allHigherTierManagers.length}, Team Leads: ${allTeamLeads.length}`);
       
@@ -1306,6 +1342,12 @@ export async function registerRoutes(
         }
         
         const shifts = getShiftTimes(currentDay);
+        
+        // Skip if this day already has higher-tier coverage from template
+        if (leadershipCoverage[dayIndex].hasHigherTier) {
+          console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: Already covered by template shift(s)`);
+          continue;
+        }
         
         // Find available higher-tier managers for this day
         const availableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
@@ -1446,10 +1488,15 @@ export async function registerRoutes(
       // Phase 1a: Schedule pricers and apparel processors with MORNING PRIORITY
       // STRATEGY: First fill station seats with fulltime workers on OPENER shifts (8-4:30)
       // Then schedule part-timers on AFTERNOON shifts (4:30-8:30) to extend coverage
+      // IMPORTANT: Recognize existing template shifts as fulfilling coverage requirements
       
       // Track morning production coverage per day for afternoon scheduling
       const morningPricerByDay = new Map<number, boolean>();
       const morningApparelByDay = new Map<number, number>(); // Count of morning apparel processors
+      
+      // Build arrays of employee IDs by role for efficient lookup
+      const pricerIds = donationPricers.map(p => p.id);
+      const apparelIds = apparelProcessors.map(p => p.id);
       
       for (const dayIndex of dayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
@@ -1463,95 +1510,114 @@ export async function registerRoutes(
         // 1c-1d. Donor greeters are scheduled after this loop to ensure Saturday priority
         // (moved to Phase 1a-greeter section below)
 
-        // ========== DONATION/WARES PRICERS - MORNING FIRST ==========
-        // STEP 1: Schedule FULLTIME pricers on OPENER shifts first
-        const fulltimePricers = shuffleAndSort(
-          donationPricers.filter(p => !isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
-        );
+        // ========== DONATION/WARES PRICERS - CHECK EXISTING FIRST ==========
+        // Count existing pricer shifts from templates before scheduling new ones
+        const existingPricerShifts = countExistingShiftsForRole(pricerIds, dayIndex);
+        let pricerMorningScheduled = existingPricerShifts > 0;
         
-        let pricerMorningScheduled = false;
-        for (const pricer of fulltimePricers) {
-          if (pricerMorningScheduled) break;
-          scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
-          pricerMorningScheduled = true;
-          console.log(`[Scheduler] Day ${dayIndex}: FT Pricer ${pricer.name} scheduled as opener (8-4:30)`);
+        if (existingPricerShifts > 0) {
+          console.log(`[Scheduler] Day ${dayIndex}: Found ${existingPricerShifts} existing pricer shift(s) from template`);
         }
         
-        // STEP 2: If no fulltime pricer available, try part-timer on morning shift
+        // Only schedule new pricers if no existing coverage
         if (!pricerMorningScheduled) {
-          const parttimePricers = shuffleAndSort(
-            donationPricers.filter(p => 
-              isPartTime(p) && (
-                canWorkShortShift(p, currentDay, dayIndex) || 
-                canWorkFullShift(p, currentDay, dayIndex) ||
-                canWorkGapShift(p, currentDay, dayIndex)
-              )
-            )
+          // STEP 1: Schedule FULLTIME pricers on OPENER shifts first
+          const fulltimePricers = shuffleAndSort(
+            donationPricers.filter(p => !isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
           );
           
-          for (const pricer of parttimePricers) {
+          for (const pricer of fulltimePricers) {
             if (pricerMorningScheduled) break;
-            const bestShift = getBestShiftForPartTimer(pricer, currentDay, dayIndex, shifts);
-            if (bestShift) {
-              scheduleShift(pricer, bestShift.start, bestShift.end, dayIndex);
-              pricerMorningScheduled = true;
-              console.log(`[Scheduler] Day ${dayIndex}: PT Pricer ${pricer.name} scheduled on morning shift`);
+            scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
+            pricerMorningScheduled = true;
+            console.log(`[Scheduler] Day ${dayIndex}: FT Pricer ${pricer.name} scheduled as opener (8-4:30)`);
+          }
+          
+          // STEP 2: If no fulltime pricer available, try part-timer on morning shift
+          if (!pricerMorningScheduled) {
+            const parttimePricers = shuffleAndSort(
+              donationPricers.filter(p => 
+                isPartTime(p) && (
+                  canWorkShortShift(p, currentDay, dayIndex) || 
+                  canWorkFullShift(p, currentDay, dayIndex) ||
+                  canWorkGapShift(p, currentDay, dayIndex)
+                )
+              )
+            );
+            
+            for (const pricer of parttimePricers) {
+              if (pricerMorningScheduled) break;
+              const bestShift = getBestShiftForPartTimer(pricer, currentDay, dayIndex, shifts);
+              if (bestShift) {
+                scheduleShift(pricer, bestShift.start, bestShift.end, dayIndex);
+                pricerMorningScheduled = true;
+                console.log(`[Scheduler] Day ${dayIndex}: PT Pricer ${pricer.name} scheduled on morning shift`);
+              }
             }
+          }
+          
+          if (!pricerMorningScheduled) {
+            console.log(`[Scheduler] WARNING: Day ${dayIndex} has no available donation/wares pricers for morning`);
           }
         }
         
         morningPricerByDay.set(dayIndex, pricerMorningScheduled);
         
-        if (!pricerMorningScheduled) {
-          console.log(`[Scheduler] WARNING: Day ${dayIndex} has no available donation/wares pricers for morning`);
-        }
-        
-        // ========== APPAREL PROCESSORS - MORNING FIRST ==========
-        // STEP 1: Schedule FULLTIME apparel processors on OPENER/EARLY9 shifts first
-        const fulltimeApparel = shuffleAndSort(
-          apparelProcessors.filter(p => !isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
-        );
-        
+        // ========== APPAREL PROCESSORS - CHECK EXISTING FIRST ==========
+        // Count existing apparel shifts from templates before scheduling new ones
+        const existingApparelShifts = countExistingShiftsForRole(apparelIds, dayIndex);
         const targetApparel = 2;
-        let apparelMorningCount = 0;
+        let apparelMorningCount = existingApparelShifts;
         
-        // First schedule fulltime apparel processors on morning shifts
-        for (const processor of fulltimeApparel) {
-          if (apparelMorningCount >= targetApparel) break;
-          const shift = apparelMorningCount % 2 === 0 ? shifts.opener : shifts.early9;
-          scheduleShift(processor, shift.start, shift.end, dayIndex);
-          apparelMorningCount++;
-          console.log(`[Scheduler] Day ${dayIndex}: FT Apparel ${processor.name} scheduled as ${apparelMorningCount === 1 ? 'opener' : 'early9'}`);
+        if (existingApparelShifts > 0) {
+          console.log(`[Scheduler] Day ${dayIndex}: Found ${existingApparelShifts} existing apparel shift(s) from template`);
         }
         
-        // STEP 2: If still need more morning coverage, try part-timers on morning shifts
+        // Only schedule new apparel processors if existing coverage is insufficient
         if (apparelMorningCount < targetApparel) {
-          const parttimeApparel = shuffleAndSort(
-            apparelProcessors.filter(p => 
-              isPartTime(p) && (
-                canWorkShortShift(p, currentDay, dayIndex) || 
-                canWorkFullShift(p, currentDay, dayIndex) ||
-                canWorkGapShift(p, currentDay, dayIndex)
-              )
-            )
+          // STEP 1: Schedule FULLTIME apparel processors on OPENER/EARLY9 shifts first
+          const fulltimeApparel = shuffleAndSort(
+            apparelProcessors.filter(p => !isPartTime(p) && canWorkFullShift(p, currentDay, dayIndex))
           );
           
-          for (const processor of parttimeApparel) {
+          // First schedule fulltime apparel processors on morning shifts
+          for (const processor of fulltimeApparel) {
             if (apparelMorningCount >= targetApparel) break;
-            const bestShift = getBestShiftForPartTimer(processor, currentDay, dayIndex, shifts);
-            if (bestShift) {
-              scheduleShift(processor, bestShift.start, bestShift.end, dayIndex);
-              apparelMorningCount++;
-              console.log(`[Scheduler] Day ${dayIndex}: PT Apparel ${processor.name} scheduled on morning shift`);
+            const shift = apparelMorningCount % 2 === 0 ? shifts.opener : shifts.early9;
+            scheduleShift(processor, shift.start, shift.end, dayIndex);
+            apparelMorningCount++;
+            console.log(`[Scheduler] Day ${dayIndex}: FT Apparel ${processor.name} scheduled as ${(apparelMorningCount - existingApparelShifts) === 1 ? 'opener' : 'early9'}`);
+          }
+          
+          // STEP 2: If still need more morning coverage, try part-timers on morning shifts
+          if (apparelMorningCount < targetApparel) {
+            const parttimeApparel = shuffleAndSort(
+              apparelProcessors.filter(p => 
+                isPartTime(p) && (
+                  canWorkShortShift(p, currentDay, dayIndex) || 
+                  canWorkFullShift(p, currentDay, dayIndex) ||
+                  canWorkGapShift(p, currentDay, dayIndex)
+                )
+              )
+            );
+            
+            for (const processor of parttimeApparel) {
+              if (apparelMorningCount >= targetApparel) break;
+              const bestShift = getBestShiftForPartTimer(processor, currentDay, dayIndex, shifts);
+              if (bestShift) {
+                scheduleShift(processor, bestShift.start, bestShift.end, dayIndex);
+                apparelMorningCount++;
+                console.log(`[Scheduler] Day ${dayIndex}: PT Apparel ${processor.name} scheduled on morning shift`);
+              }
             }
+          }
+          
+          if (apparelMorningCount < targetApparel) {
+            console.log(`[Scheduler] WARNING: Day ${dayIndex} could only schedule ${apparelMorningCount}/${targetApparel} apparel processors for morning (${existingApparelShifts} from template)`);
           }
         }
         
         morningApparelByDay.set(dayIndex, apparelMorningCount);
-        
-        if (apparelMorningCount < targetApparel) {
-          console.log(`[Scheduler] WARNING: Day ${dayIndex} could only schedule ${apparelMorningCount}/${targetApparel} apparel processors for morning`);
-        }
       }
       
       // Phase 1a-afternoon: Schedule AFTERNOON production shifts to extend station coverage
@@ -1605,7 +1671,11 @@ export async function registerRoutes(
       // Phase 1a-greeter: Schedule DONOR GREETERS with Saturday priority
       // Saturday is the busiest donation day - MUST have more greeters than Sunday
       // Process Saturday FIRST, then other days in priority order
+      // IMPORTANT: Recognize existing template shifts as fulfilling coverage requirements
       const greeterDayOrder = saturdayFirstOrder; // Sat first, then Fri, Sun, Mon...
+      
+      // Build array of greeter IDs for existing shift lookup
+      const greeterIds = donorGreeters.map(g => g.id);
       
       // Determine targets based on pool size - if limited, reduce targets to ensure coverage across all days
       const totalGreeterPool = donorGreeters.length;
@@ -1635,7 +1705,15 @@ export async function registerRoutes(
       };
       
       // Track scheduled greeters per day to ensure Saturday >= Sunday
+      // Initialize with existing template shifts counted
       const greetersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+      for (let d = 0; d < 7; d++) {
+        const existingCount = countExistingShiftsForRole(greeterIds, d);
+        greetersByDay[d] = existingCount;
+        if (existingCount > 0) {
+          console.log(`[Scheduler] Day ${d}: Found ${existingCount} existing greeter shift(s) from template`);
+        }
+      }
       
       console.log(`[Scheduler] Total donor greeters available: ${totalGreeterPool}, using ${totalGreeterPool >= 4 ? 'standard' : 'limited pool'} targets`);
       
@@ -1656,15 +1734,24 @@ export async function registerRoutes(
         // For Sunday: don't schedule more greeters than Saturday has
         const maxForDay = isSunday ? Math.min(target, greetersByDay[6]) : target;
         
+        // Check if existing shifts already meet the target
+        if (greetersByDay[dayIndex] >= maxForDay) {
+          console.log(`[Scheduler] Greeter ${dayName}: Target ${maxForDay} already met by ${greetersByDay[dayIndex]} existing template shift(s)`);
+          continue;
+        }
+        
+        // Calculate how many more greeters we need
+        const stillNeeded = maxForDay - greetersByDay[dayIndex];
+        
         // Get available greeters for this day (shuffled for variety)
         const availableGreeters = shuffleAndSort(
           donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
         );
         
-        console.log(`[Scheduler] Greeter ${dayName}: target=${target}, maxForDay=${maxForDay}, available=${availableGreeters.length}, satCount=${greetersByDay[6]}`);
+        console.log(`[Scheduler] Greeter ${dayName}: target=${target}, maxForDay=${maxForDay}, existing=${greetersByDay[dayIndex]}, stillNeeded=${stillNeeded}, available=${availableGreeters.length}, satCount=${greetersByDay[6]}`);
         
-        // For Saturday with 2+ greeters: explicitly schedule opener + closer
-        if (dayIndex === 6 && availableGreeters.length >= 2) {
+        // For Saturday with 2+ available greeters and need 2+ more: explicitly schedule opener + closer
+        if (dayIndex === 6 && availableGreeters.length >= 2 && stillNeeded >= 2) {
           // Schedule first greeter as opener
           scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
           greetersByDay[dayIndex]++;
@@ -1686,10 +1773,11 @@ export async function registerRoutes(
         }
         
         // For other days or Saturday with only 1 available: schedule what we can
-        const actualTarget = Math.min(maxForDay, availableGreeters.length);
+        // Use stillNeeded to account for existing template shifts
+        const actualTarget = Math.min(stillNeeded, availableGreeters.length);
         
         if (actualTarget === 0) {
-          console.log(`[Scheduler] Greeter ${dayName}: No available greeters, skipping`);
+          console.log(`[Scheduler] Greeter ${dayName}: No available greeters to fill remaining ${stillNeeded} slots`);
           continue;
         }
         
@@ -1750,6 +1838,7 @@ export async function registerRoutes(
       // Phase 1b: Schedule CASHIERS with Saturday priority
       // Saturday is the busiest sales day - MUST have more cashiers than Sunday
       // Process Saturday FIRST, then other days
+      // IMPORTANT: Recognize existing template shifts as fulfilling coverage requirements
       const cashierDayOrder = saturdayFirstOrder; // Sat first, then Fri, Sun, Mon...
       const cashierTargets: Record<number, number> = {
         6: Math.max(openersRequired + 1, 3), // Saturday - busiest, needs extra cashiers
@@ -1758,8 +1847,19 @@ export async function registerRoutes(
         1: openersRequired, 2: openersRequired, 3: openersRequired, 4: openersRequired
       };
       
+      // Build array of cashier IDs for existing shift lookup
+      const cashierIds = cashiers.map(c => c.id);
+      
       // Track scheduled cashiers per day to ensure Saturday >= Sunday
+      // Initialize with existing template shifts counted
       const cashiersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+      for (let d = 0; d < 7; d++) {
+        const existingCount = countExistingShiftsForRole(cashierIds, d);
+        cashiersByDay[d] = existingCount;
+        if (existingCount > 0) {
+          console.log(`[Scheduler] Day ${d}: Found ${existingCount} existing cashier shift(s) from template`);
+        }
+      }
       
       console.log(`[Scheduler] Total cashiers available: ${cashiers.length}`);
       
@@ -1780,10 +1880,19 @@ export async function registerRoutes(
         // For Sunday: don't schedule more cashiers than Saturday has
         const maxForDay = isSunday ? Math.min(baseTarget, cashiersByDay[6]) : baseTarget;
         
-        console.log(`[Scheduler] Cashier ${dayName}: baseTarget=${baseTarget}, maxForDay=${maxForDay}, satCount=${cashiersByDay[6]}`);
+        // Check if existing shifts already meet the target
+        if (cashiersByDay[dayIndex] >= maxForDay) {
+          console.log(`[Scheduler] Cashier ${dayName}: Target ${maxForDay} already met by ${cashiersByDay[dayIndex]} existing template shift(s)`);
+          continue;
+        }
+        
+        // Calculate how many more cashiers we need
+        const stillNeeded = maxForDay - cashiersByDay[dayIndex];
+        
+        console.log(`[Scheduler] Cashier ${dayName}: baseTarget=${baseTarget}, maxForDay=${maxForDay}, existing=${cashiersByDay[dayIndex]}, stillNeeded=${stillNeeded}, satCount=${cashiersByDay[6]}`);
         
         // Schedule opening cashiers (shuffled for variety)
-        const openingTarget = Math.ceil(maxForDay / 2);
+        const openingTarget = Math.ceil(stillNeeded / 2);
         const availableOpeners = shuffleAndSort(
           cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex))
         );
@@ -1799,7 +1908,8 @@ export async function registerRoutes(
         }
         
         // Schedule closing cashiers (shuffled for variety)
-        const closingTarget = maxForDay - openingTarget;
+        // Use stillNeeded minus openers we already scheduled
+        const closingTarget = stillNeeded - openersScheduled;
         const availableClosers = shuffleAndSort(
           cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex))
         );
