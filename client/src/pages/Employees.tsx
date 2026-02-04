@@ -95,7 +95,12 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
   const updateEmployee = useUpdateEmployee();
   const toggleScheduleVisibility = useToggleScheduleVisibility();
   const { toast } = useToast();
+  const [hoursValue, setHoursValue] = useState(String(employee.maxWeeklyHours));
   const isPartTime = (employee.maxWeeklyHours || 40) < 32;
+
+  useEffect(() => {
+    setHoursValue(String(employee.maxWeeklyHours));
+  }, [employee.maxWeeklyHours]);
 
   const handleDelete = async () => {
     if (confirm("Are you sure? This will delete all shifts for this employee.")) {
@@ -110,6 +115,22 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
       toast({ title: "Updated", description: "Preferred days updated." });
     } catch {
       toast({ variant: "destructive", title: "Error", description: "Failed to update." });
+    }
+  };
+
+  const handleHoursBlur = async () => {
+    const hours = parseInt(hoursValue);
+    if (isNaN(hours) || hours < 0 || hours > 60) {
+      setHoursValue(String(employee.maxWeeklyHours));
+      return;
+    }
+    if (hours === employee.maxWeeklyHours) return;
+    try {
+      await updateEmployee.mutateAsync({ id: employee.id, maxWeeklyHours: hours });
+      toast({ title: "Updated", description: "Max hours updated." });
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update." });
+      setHoursValue(String(employee.maxWeeklyHours));
     }
   };
 
@@ -163,7 +184,16 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
         )}
       </div>
       <div className="text-sm">
-        {employee.maxWeeklyHours}h
+        <Input
+          type="number"
+          className="h-7 w-16 text-xs text-center"
+          value={hoursValue}
+          min={0}
+          max={60}
+          onChange={(e) => setHoursValue(e.target.value)}
+          onBlur={handleHoursBlur}
+          data-testid={`input-hours-${employee.id}`}
+        />
       </div>
       <div className="text-sm text-muted-foreground">
         {employee.nonWorkingDays && employee.nonWorkingDays.length > 0 ? (
