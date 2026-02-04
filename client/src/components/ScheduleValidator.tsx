@@ -82,14 +82,30 @@ interface ScheduleValidatorProps {
 }
 
 export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorProps) {
-  // Use provided weekStart or default to current week (Sunday = 0)
-  const baseDate = weekStart || new Date();
-  const start = startOfWeek(baseDate, { weekStartsOn: 0 }).toISOString();
-  const end = endOfWeek(baseDate, { weekStartsOn: 0 }).toISOString();
-
-  // Calculate previous week for consecutive days check across schedule boundaries
-  const prevWeekStart = subDays(parseISO(start), 7).toISOString();
-  const prevWeekEnd = subDays(parseISO(end), 7).toISOString();
+  // Memoize date calculations to ensure stable values when weekStart changes
+  const { start, end, prevWeekStart, prevWeekEnd, weekDays } = useMemo(() => {
+    const baseDate = weekStart || new Date();
+    const weekStartDate = startOfWeek(baseDate, { weekStartsOn: 0 });
+    const weekEndDate = endOfWeek(baseDate, { weekStartsOn: 0 });
+    
+    const startStr = weekStartDate.toISOString();
+    const endStr = weekEndDate.toISOString();
+    
+    // Calculate previous week for consecutive days check across schedule boundaries
+    const prevStart = subDays(weekStartDate, 7).toISOString();
+    const prevEnd = subDays(weekEndDate, 7).toISOString();
+    
+    // Calculate week days array
+    const days = Array.from({ length: 7 }).map((_, i) => addDays(weekStartDate, i));
+    
+    return {
+      start: startStr,
+      end: endStr,
+      prevWeekStart: prevStart,
+      prevWeekEnd: prevEnd,
+      weekDays: days
+    };
+  }, [weekStart?.getTime()]);
 
   const { data: employees } = useEmployees();
   const { data: shifts } = useShifts(start, end);
@@ -98,10 +114,6 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
   const { data: settings } = useGlobalSettings();
   const { data: timeOff } = useTimeOffRequests();
   const { data: locations } = useLocations();
-
-  const weekDays = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, i) => addDays(parseISO(start), i));
-  }, [start]);
 
   const issues = useMemo(() => {
     if (!employees || !shifts || !roles || !settings || !timeOff || !prevWeekShifts || !locations) return [];
