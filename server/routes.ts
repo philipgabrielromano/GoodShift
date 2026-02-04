@@ -2505,12 +2505,13 @@ export async function registerRoutes(
   });
 
   // === Shift Presets ===
-  app.get(api.shiftPresets.list.path, requireAdmin, async (req, res) => {
+  // Managers need read access to use quick shifts when adding shifts
+  app.get(api.shiftPresets.list.path, requireManager, async (req, res) => {
     const presets = await storage.getShiftPresets();
     res.json(presets);
   });
 
-  app.get(api.shiftPresets.get.path, requireAdmin, async (req, res) => {
+  app.get(api.shiftPresets.get.path, requireManager, async (req, res) => {
     const preset = await storage.getShiftPreset(Number(req.params.id));
     if (!preset) return res.status(404).json({ message: "Shift preset not found" });
     res.json(preset);
