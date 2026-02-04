@@ -26,12 +26,12 @@ const viewerNavItems = [
 // Items shown to managers and admins only
 const managerNavItems = [
   { href: "/employees", label: "Employees", icon: Users },
+  { href: "/locations", label: "Locations", icon: MapPin },
 ];
 
 // Items shown to admins only
 const adminNavItems = [
   { href: "/users", label: "Users", icon: Shield },
-  { href: "/locations", label: "Locations", icon: MapPin },
   { href: "/shifts", label: "Shifts", icon: Clock },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
