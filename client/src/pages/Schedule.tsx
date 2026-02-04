@@ -1410,15 +1410,13 @@ export default function Schedule() {
                 </div>
               </div>
 
-              {/* Debug info - remove after fixing */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="p-2 bg-yellow-100 dark:bg-yellow-900 text-xs mb-2" data-testid="debug-filter-info">
-                  <div>Selected Location: "{selectedLocation}"</div>
-                  <div>Total employees from API: {employees?.length || 0}</div>
-                  <div>After location filter: {(employees || []).filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation)).length}</div>
-                  <div>Sample locations: {Array.from(new Set((employees || []).slice(0, 10).map(e => e.location))).join(", ")}</div>
-                </div>
-              )}
+              {/* Debug info - shows always for now to debug */}
+              <div className="p-2 bg-yellow-100 dark:bg-yellow-900 text-xs mb-2 border border-yellow-500" data-testid="debug-filter-info">
+                <div><strong>DEBUG:</strong> Selected Location: "{selectedLocation}"</div>
+                <div>Total employees from API: {employees?.length || 0}</div>
+                <div>After location filter: {(employees || []).filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation)).length}</div>
+                <div>Employees matching Foxboro: {(employees || []).filter(emp => emp.location === "Foxboro Store").length}</div>
+              </div>
 
               {/* Grouped Employee Rows - sorted by job priority */}
               {Object.entries(
