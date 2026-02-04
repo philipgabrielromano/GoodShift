@@ -113,6 +113,70 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   const totalEmployeeCapacity = activeEmployees.reduce((sum, e) => sum + (e.maxWeeklyHours || 40), 0);
   const targetHours = Math.min(totalAvailableHours, totalEmployeeCapacity);
 
+  // Fetch existing shifts for the week to respect manually-entered shifts
+  const weekEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const existingShifts = await storage.getShifts(startDate, weekEnd);
+  
+  // Build maps of existing shift hours and days per employee
+  const existingHoursByEmployee = new Map<number, number>();
+  const existingDaysByEmployee = new Map<number, { dayIndex: number; shiftType: string; hours: number }[]>();
+  
+  // Helper to classify shift type based on start time
+  function classifyShiftType(startTime: Date, endTime: Date): string {
+    const startHour = startTime.getHours();
+    const duration = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+    
+    if (duration >= 7.5) {
+      if (startHour <= 8) return 'opener';
+      if (startHour <= 9) return 'mid1';
+      if (startHour <= 10) return 'mid2';
+      if (startHour <= 11) return 'mid3';
+      return 'closer';
+    } else if (duration >= 5) {
+      if (startHour <= 10) return 'short_open';
+      return 'short_close';
+    }
+    return 'custom';
+  }
+  
+  for (const shift of existingShifts) {
+    const shiftStart = new Date(shift.startTime);
+    const shiftEnd = new Date(shift.endTime);
+    
+    // Calculate hours (paid hours, subtracting 30 min lunch for 8+ hour shifts)
+    const clockHours = (shiftEnd.getTime() - shiftStart.getTime()) / (1000 * 60 * 60);
+    const paidHours = clockHours >= 6 ? clockHours - 0.5 : clockHours;
+    
+    // Add to employee's existing hours
+    const currentHours = existingHoursByEmployee.get(shift.employeeId) || 0;
+    existingHoursByEmployee.set(shift.employeeId, currentHours + paidHours);
+    
+    // Calculate day index (0-6)
+    const dayDiff = Math.floor((shiftStart.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+    if (dayDiff >= 0 && dayDiff < 7) {
+      const days = existingDaysByEmployee.get(shift.employeeId) || [];
+      days.push({ 
+        dayIndex: dayDiff, 
+        shiftType: classifyShiftType(shiftStart, shiftEnd),
+        hours: paidHours 
+      });
+      existingDaysByEmployee.set(shift.employeeId, days);
+    }
+  }
+  
+  // Build summary of existing shifts for the AI prompt
+  const existingShiftsSummary = (() => {
+    const entries: string[] = [];
+    existingDaysByEmployee.forEach((days, empId) => {
+      const emp = employees.find(e => e.id === empId);
+      if (!emp) return;
+      const totalHours = existingHoursByEmployee.get(empId) || 0;
+      const daysList = days.map(d => `Day ${d.dayIndex} (${d.shiftType}, ${d.hours}h)`).join(', ');
+      entries.push(`- ${emp.name} (ID: ${empId}): Pre-filled ${totalHours}h total on: ${daysList}`);
+    });
+    return entries.length > 0 ? entries.join('\n') : 'None - no pre-filled shifts';
+  })();
+
   const prompt = `You are an expert retail store scheduler. Generate a FULL weekly schedule that MAXIMIZES hour usage.
 
 ## CRITICAL GOAL
@@ -169,14 +233,20 @@ Available shift lengths: Full (8h), Short (5.5h), Gap (5h)
 - STLDWKR, WVLDWRK (Team Lead)
 
 ## ALL EMPLOYEES - SCHEDULE EACH ONE (${activeEmployees.length} total)
-Note: "Available Hours" = Max Hours minus PAL hours (PAL counts as paid time). Schedule only the Available Hours.
+Note: "Available Hours" = Max Hours minus PAL hours minus Pre-filled hours. Schedule only the Available Hours.
 
 ${activeEmployees.map(e => {
   const maxHours = e.maxWeeklyHours || 40;
   const palHours = palHoursByEmployee.get(e.id) || 0;
-  const availableHours = Math.max(0, maxHours - palHours);
-  const palNote = palHours > 0 ? `, PAL Hours: ${palHours}, Available Hours: ${availableHours}` : '';
-  return `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max Hours/Week: ${maxHours}${palNote}, Preferred Days/Week: ${e.preferredDaysPerWeek || 5}`;
+  const prefilledHours = existingHoursByEmployee.get(e.id) || 0;
+  const availableHours = Math.max(0, maxHours - palHours - prefilledHours);
+  const existingDays = existingDaysByEmployee.get(e.id) || [];
+  const blockedDays = existingDays.map(d => d.dayIndex);
+  let notes = '';
+  if (palHours > 0) notes += `, PAL: ${palHours}h`;
+  if (prefilledHours > 0) notes += `, Pre-filled: ${prefilledHours}h (Days: ${blockedDays.join(',')})`;
+  if (notes || palHours > 0 || prefilledHours > 0) notes += `, Available: ${availableHours}h`;
+  return `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max: ${maxHours}h${notes}, Pref Days: ${e.preferredDaysPerWeek || 5}`;
 }).join('\n')}
 
 ## APPROVED TIME OFF (Do NOT schedule these employees on these days)
@@ -227,24 +297,32 @@ ${(() => {
   }).join('\n');
 })()}
 
+## PRE-FILLED SHIFTS (Already scheduled - DO NOT DUPLICATE or OVERRIDE)
+These shifts were manually entered and must be respected. The employee is already scheduled for these shifts.
+DO NOT schedule these employees on days they already have shifts. Count their pre-filled hours toward their weekly total.
+
+${existingShiftsSummary}
+
 ## SCHEDULING RULES
 1. Full shifts = 8 PAID hours, Short shifts = 5.5 PAID hours, Gap shifts = 5 PAID hours
-2. **MAXIMIZE each employee's hours** - Get as close to their Available Hours (maxWeeklyHours minus PAL) as possible!
-3. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32)**: Schedule to fill their Available Hours (40 minus any PAL hours)
-   - Example: If employee has 8h PAL, schedule 32h of regular work (4 full shifts)
-4. **PART-TIME EMPLOYEES** can work up to 5 days with flexible 5+ hour shifts:
+2. **RESPECT PRE-FILLED SHIFTS** - Do NOT schedule employees who already have a shift on a given day
+3. **COUNT PRE-FILLED HOURS** - Pre-filled shift hours count toward the employee's weekly total
+4. **MAXIMIZE each employee's hours** - Get as close to their Available Hours (maxWeeklyHours minus PAL minus pre-filled hours) as possible!
+5. **FULL-TIME EMPLOYEES (maxWeeklyHours >= 32)**: Schedule to fill their Available Hours
+   - Example: If employee has 8h PAL and 16h pre-filled shifts, schedule only 16h more work (2 full shifts)
+6. **PART-TIME EMPLOYEES** can work up to 5 days with flexible 5+ hour shifts:
    - Use any combination of full (8h), short (5.5h), and gap (5h) shifts to reach Available Hours
-   - NEVER exceed Available Hours (maxWeeklyHours minus PAL)
-5. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory
-6. **RESPECT preferred days per week** - Each employee has a preferredDaysPerWeek (4 or 5). Do not exceed this limit.
-7. An employee can only work ONE shift per day (no doubles)
-8. Never exceed an employee's Available Hours (maxWeeklyHours minus PAL hours)
-9. Never schedule someone on approved time off days
-10. **NEVER schedule on PAL days** - Employee is on Paid Annual Leave, counts as paid time
-11. **NEVER schedule on UTO days** - Employee is on Unpaid Time Off, unavailable
-12. **NEVER schedule ANYONE on holidays** - Store is closed on Easter, Thanksgiving, and Christmas
-13. Generate shifts for ALL 7 days EXCEPT holidays (Sunday=0 through Saturday=6)
-14. STSUPER and WVSTMNG (Store Manager) count as manager coverage for opener/closer requirements
+   - NEVER exceed Available Hours (maxWeeklyHours minus PAL minus pre-filled)
+7. **EVERY employee MUST have AT LEAST 2 days off per week** - This is mandatory (pre-filled days count as work days)
+8. **RESPECT preferred days per week** - Each employee has a preferredDaysPerWeek (4 or 5). Pre-filled days count toward this limit.
+9. An employee can only work ONE shift per day (no doubles)
+10. Never exceed an employee's Available Hours (maxWeeklyHours minus PAL hours minus pre-filled hours)
+11. Never schedule someone on approved time off days
+12. **NEVER schedule on PAL days** - Employee is on Paid Annual Leave, counts as paid time
+13. **NEVER schedule on UTO days** - Employee is on Unpaid Time Off, unavailable
+14. **NEVER schedule ANYONE on holidays** - Store is closed on Easter, Thanksgiving, and Christmas
+15. Generate shifts for ALL 7 days EXCEPT holidays (Sunday=0 through Saturday=6)
+16. STSUPER and WVSTMNG (Store Manager) count as manager coverage for opener/closer requirements
 
 ## OUTPUT FORMAT
 
@@ -260,20 +338,18 @@ Respond with a JSON object:
   "totalHoursScheduled": 850
 }
 
-## IMPORTANT RULES
-1. **FULL-TIME (maxWeeklyHours >= 32)**: Schedule to their Available Hours (40 minus PAL hours)
-   - If employee has 8h PAL, schedule only 32h (4 full shifts), NOT 40h
-2. **PART-TIMERS**: Flexible scheduling - can work 3-5 days with various shift lengths:
-   - Use full (8h), short (5.5h), or gap (5h) shifts to reach their Available Hours
-   - Spreading hours across 5 shorter days is allowed and sometimes preferred
-3. Never exceed an employee's Available Hours (maxWeeklyHours minus PAL)
-4. **Minimum 2 days off per employee** - No exceptions
-5. Never schedule an employee on a day they have approved time off
-6. **NEVER schedule on PAL or UTO days** - These are blocked days
-7. STSUPER and WVSTMNG (Store Manager) count as manager for opening/closing coverage
-8. Prioritize manager coverage (one manager opening, one closing each day)
-9. Ensure donor greeter coverage (one opening, one closing each day)
-10. Ensure cashier coverage (one opening, one closing each day)
+## IMPORTANT RULES (SUMMARY)
+1. **Available Hours = maxWeeklyHours minus PAL hours minus Pre-filled hours**
+   - If employee has 8h PAL and 16h pre-filled, schedule only 16h more (2 full shifts)
+2. **NEVER schedule employees on days they already have a pre-filled shift** - One shift per day only
+3. **FULL-TIME (maxWeeklyHours >= 32)**: Schedule to their Available Hours
+4. **PART-TIMERS**: Flexible scheduling - can work 3-5 days with various shift lengths
+5. Never exceed an employee's Available Hours
+6. **Minimum 2 days off per employee** (pre-filled days count as work days) - No exceptions
+7. Never schedule on approved time off, PAL, or UTO days
+8. STSUPER and WVSTMNG (Store Manager) count as manager for opening/closing coverage
+9. Prioritize manager coverage (one manager opening, one closing each day)
+10. Ensure donor greeter and cashier coverage (one opening, one closing each day)
 11. An employee should not work both opener AND closer on the same day`;
 
   try {
@@ -293,11 +369,15 @@ Respond with a JSON object:
     const content = response.choices[0]?.message?.content || "{}";
     const aiResponse: AIScheduleResponse = JSON.parse(content);
 
-    const weekEndMs = startDate.getTime() + 7 * 24 * 60 * 60 * 1000;
-    const weekEndDate = new Date(weekEndMs);
-    const existingShifts = await storage.getShifts(startDate, weekEndDate);
+    // Build a set of (employeeId, dayIndex) pairs that already have shifts
+    // We will NOT delete existing shifts - only add new ones around them
+    const existingShiftDays = new Set<string>();
     for (const shift of existingShifts) {
-      await storage.deleteShift(shift.id);
+      const shiftDate = new Date(shift.startTime);
+      const dayDiff = Math.floor((shiftDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+      if (dayDiff >= 0 && dayDiff < 7) {
+        existingShiftDays.add(`${shift.employeeId}-${dayDiff}`);
+      }
     }
 
     const shiftTimes: Record<string, { startHour: number; startMin: number; endHour: number; endMin: number }> = {
@@ -313,7 +393,16 @@ Respond with a JSON object:
     };
 
     const createdShifts = [];
+    let skippedDuplicates = 0;
+    
     for (const shift of aiResponse.shifts) {
+      // Skip if employee already has a shift on this day (pre-filled)
+      const shiftKey = `${shift.employeeId}-${shift.dayIndex}`;
+      if (existingShiftDays.has(shiftKey)) {
+        skippedDuplicates++;
+        continue;
+      }
+      
       const dayMs = startDate.getTime() + shift.dayIndex * 24 * 60 * 60 * 1000;
       const currentDay = new Date(dayMs);
       
@@ -329,11 +418,25 @@ Respond with a JSON object:
         endTime: shiftEnd,
       });
       createdShifts.push(createdShift);
+      
+      // Mark this day as now having a shift to prevent duplicates within AI response
+      existingShiftDays.add(shiftKey);
+    }
+    
+    if (skippedDuplicates > 0) {
+      console.log(`[AI Scheduler] Skipped ${skippedDuplicates} duplicate shifts for employees with pre-filled days`);
     }
 
+    // Include info about preserved pre-filled shifts
+    const preservedCount = existingShifts.length;
+    let reasoning = aiResponse.reasoning || "Schedule generated successfully";
+    if (preservedCount > 0) {
+      reasoning = `Preserved ${preservedCount} pre-filled shift(s) and scheduled around them. ${reasoning}`;
+    }
+    
     return {
       shifts: createdShifts,
-      reasoning: aiResponse.reasoning || "Schedule generated successfully",
+      reasoning,
       warnings: aiResponse.warnings || [],
     };
   } catch (error) {
