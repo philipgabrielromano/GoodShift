@@ -163,7 +163,7 @@ export default function Locations() {
                 <TableHead>Store Name</TableHead>
                 <TableHead>Weekly Hours</TableHead>
                 <TableHead>Apparel Stations</TableHead>
-                <TableHead>Donation Stations</TableHead>
+                <TableHead>Wares/Shoes Stations</TableHead>
                 {isAdmin && <TableHead>Status</TableHead>}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>

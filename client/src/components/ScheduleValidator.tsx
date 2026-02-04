@@ -490,12 +490,12 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
           });
         }
         
-        // Check donation pricer limit
+        // Check wares/shoes pricer limit
         if (donationLimit > 0 && locationDonationCount > donationLimit) {
           newIssues.push({
             type: "warning",
             category: "staffing",
-            message: `${dayLabel}: ${locationName} has ${locationDonationCount} donation pricers (max ${donationLimit} stations)`
+            message: `${dayLabel}: ${locationName} has ${locationDonationCount} wares/shoes pricers (max ${donationLimit} stations)`
           });
         }
       });

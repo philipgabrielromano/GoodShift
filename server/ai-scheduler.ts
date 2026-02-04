@@ -20,7 +20,7 @@ interface ScheduleShift {
   employeeId: number;
   employeeName: string;
   jobTitle: string;
-  shiftType: "opener" | "mid1" | "mid2" | "mid3" | "closer" | "short_open" | "short_close" | "gap_open" | "gap_close";
+  shiftType: "opener" | "mid1" | "mid2" | "mid3" | "closer" | "short_open" | "short_close" | "gap_open" | "gap_close" | "prod_afternoon";
   dayIndex: number;
 }
 
@@ -214,8 +214,13 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 - **gap_open**: 8:00 AM - 1:00 PM (5 paid hours)
 - **gap_close**: 3:30 PM - 8:30 PM (5 paid hours)
 
-**PART-TIMER FLEXIBILITY**: Part-timers can work up to 5 days with flexible 5+ hour shifts.
-Available shift lengths: Full (8h), Short (5.5h), Gap (5h)
+### Production Afternoon Shift (4 clock hours = 4 PAID hours, no lunch break)
+- **prod_afternoon**: 4:30 PM - 8:30 PM (4 paid hours)
+  - Use this for PRODUCTION roles (APPROC, APWV, DONPRI, DONPRWV) to extend station coverage after the morning person leaves
+  - Ideal for part-timers who can cover the afternoon at a production station
+
+**PART-TIMER FLEXIBILITY**: Part-timers can work up to 5 days with flexible 4-5.5 hour shifts.
+Available shift lengths: Full (8h), Short (5.5h), Gap (5h), Production Afternoon (4h)
 
 ## Daily Coverage Requirements (EVERY DAY, 7 days)
 - Openers Required: ${settings.openersRequired ?? 2}
@@ -249,9 +254,13 @@ ${(() => {
   }).join('\n');
 })()}
 
-**IMPORTANT**: Do NOT schedule more Apparel Processors (APPROC, APWV) than the station limit per day.
-Do NOT schedule more Donation Pricing Associates (DONPRI, DONPRWV) than the station limit per day.
-If station limit is 0 or not set, there is no limit.
+**IMPORTANT PRODUCTION STATION SCHEDULING STRATEGY**:
+1. **PRIORITIZE FULLTIME MORNING COVERAGE**: Schedule fulltime Apparel Processors and Donation Pricers (Wares/Shoes) on OPENER shifts (8:00 AM - 4:30 PM) FIRST. Fill available station seats with fulltime employees in the morning.
+2. **AFTERNOON COVERAGE WITH PART-TIMERS**: After filling morning stations with fulltime workers, schedule part-time processors on **prod_afternoon** shifts (4:30 PM - 8:30 PM) to cover the same stations after the fulltime person leaves.
+3. **STATION LIMIT STRATEGY**: The station limit applies to simultaneous workers at any given time, NOT total per day. A station can be covered by one opener (8-4:30) AND one prod_afternoon worker (4:30-8:30).
+4. Do NOT schedule more Apparel Processors (APPROC, APWV) than the station limit at the same time.
+5. Do NOT schedule more Donation Pricing/Wares/Shoes Associates (DONPRI, DONPRWV) than the station limit at the same time.
+6. If station limit is 0 or not set, there is no limit.
 
 ## Labor Allocation (percentage of hours by category)
 - Cashiering (CASHSLS, CSHSLSWV): ${settings.cashieringPercent ?? 40}%
@@ -431,6 +440,7 @@ Respond with a JSON object:
       short_close: { startHour: 15, startMin: 0, endHour: 20, endMin: 30 },
       gap_open: { startHour: 8, startMin: 0, endHour: 13, endMin: 0 },
       gap_close: { startHour: 15, startMin: 30, endHour: 20, endMin: 30 },
+      prod_afternoon: { startHour: 16, startMin: 30, endHour: 20, endMin: 30 },
     };
 
     const createdShifts = [];
