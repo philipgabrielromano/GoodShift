@@ -120,7 +120,7 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
 
   const handleHoursBlur = async () => {
     const hours = parseInt(hoursValue);
-    if (isNaN(hours) || hours < 0 || hours > 60) {
+    if (isNaN(hours) || hours < 0 || hours > 40) {
       setHoursValue(String(employee.maxWeeklyHours));
       return;
     }
@@ -189,7 +189,7 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           className="h-7 w-16 text-xs text-center"
           value={hoursValue}
           min={0}
-          max={60}
+          max={40}
           onChange={(e) => setHoursValue(e.target.value)}
           onBlur={handleHoursBlur}
           data-testid={`input-hours-${employee.id}`}
