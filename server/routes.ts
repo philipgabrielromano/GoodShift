@@ -2468,10 +2468,28 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.locations.update.path, requireAdmin, async (req, res) => {
+  app.put(api.locations.update.path, requireAuth, async (req, res) => {
     try {
+      const user = (req.session as any)?.user as { id: number; role: string; locationIds?: string[] };
+      const locationId = Number(req.params.id);
       const input = api.locations.update.input.parse(req.body);
-      const location = await storage.updateLocation(Number(req.params.id), input);
+      
+      // Managers can only update their assigned locations
+      if (user.role === "manager") {
+        const userLocationIds = user.locationIds || [];
+        if (!userLocationIds.includes(String(locationId))) {
+          return res.status(403).json({ message: "You can only update your assigned locations" });
+        }
+        // Managers cannot change isActive status
+        if (input.isActive !== undefined) {
+          return res.status(403).json({ message: "Only admins can enable or disable locations" });
+        }
+      } else if (user.role !== "admin") {
+        // Viewers cannot update locations at all
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+      
+      const location = await storage.updateLocation(locationId, input);
       res.json(location);
     } catch (err) {
       if (err instanceof z.ZodError) {

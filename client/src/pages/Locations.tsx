@@ -9,12 +9,25 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
+
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string; locationIds?: string[] } | null;
+}
 
 export default function Locations() {
   const { toast } = useToast();
   const { data: locations, isLoading } = useLocations();
   const updateLocation = useUpdateLocation();
+  
+  const { data: authStatus } = useQuery<AuthStatus>({
+    queryKey: ["/api/auth/status"],
+  });
+  
+  const isAdmin = authStatus?.user?.role === "admin";
+  const userLocationIds = authStatus?.user?.locationIds || [];
   
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");
@@ -79,7 +92,15 @@ export default function Locations() {
   };
 
   // Filter out generic "Location #" entries - only show real store names
-  const displayedLocations = locations?.filter(l => !/^Location \d+$/.test(l.name)) || [];
+  // For managers, also filter to only show their assigned locations
+  const displayedLocations = (locations?.filter(l => {
+    // Filter out generic location names
+    if (/^Location \d+$/.test(l.name)) return false;
+    // Admins see all locations
+    if (isAdmin) return true;
+    // Managers only see their assigned locations
+    return userLocationIds.includes(String(l.id));
+  }) || []);
   
   const totalHours = displayedLocations.reduce((sum, loc) => sum + loc.weeklyHoursLimit, 0);
   const activeLocations = displayedLocations.filter(loc => loc.isActive).length;
@@ -143,14 +164,14 @@ export default function Locations() {
                 <TableHead>Weekly Hours</TableHead>
                 <TableHead>Apparel Stations</TableHead>
                 <TableHead>Donation Stations</TableHead>
-                <TableHead>Status</TableHead>
+                {isAdmin && <TableHead>Status</TableHead>}
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {displayedLocations.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-8">
                     No locations found. Locations will be added automatically when employees are synced from UKG.
                   </TableCell>
                 </TableRow>
@@ -202,19 +223,21 @@ export default function Locations() {
                         <span className="font-mono">{location.donationPricingStations ?? 0}</span>
                       )}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={location.isActive}
-                          onCheckedChange={() => handleToggleActive(location)}
-                          disabled={updateLocation.isPending}
-                          data-testid={`switch-active-${location.id}`}
-                        />
-                        <Badge variant={location.isActive ? "default" : "secondary"}>
-                          {location.isActive ? "Active" : "Disabled"}
-                        </Badge>
-                      </div>
-                    </TableCell>
+                    {isAdmin && (
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={location.isActive}
+                            onCheckedChange={() => handleToggleActive(location)}
+                            disabled={updateLocation.isPending}
+                            data-testid={`switch-active-${location.id}`}
+                          />
+                          <Badge variant={location.isActive ? "default" : "secondary"}>
+                            {location.isActive ? "Active" : "Disabled"}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       {editingId === location.id ? (
                         <div className="flex justify-end gap-2">
