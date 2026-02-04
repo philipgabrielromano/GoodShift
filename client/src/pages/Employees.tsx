@@ -54,11 +54,12 @@ export default function Employees() {
         </div>
       ) : (
         <div className="bg-card rounded border shadow-sm overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_80px_80px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
+          <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_100px_80px_80px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
             <div>Name</div>
             <div>Job Title</div>
             <div>Location</div>
             <div>Hours</div>
+            <div>Days Off</div>
             <div>Days/Wk</div>
             <div>Status</div>
             <div></div>
@@ -130,7 +131,7 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
   };
 
   return (
-    <div className={`grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate ${employee.isHiddenFromSchedule ? 'opacity-60' : ''}`} data-testid={`row-employee-${employee.id}`}>
+    <div className={`grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_100px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate ${employee.isHiddenFromSchedule ? 'opacity-60' : ''}`} data-testid={`row-employee-${employee.id}`}>
       <div className="flex items-center gap-3 min-w-0">
         <div 
           className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0 relative" 
@@ -161,12 +162,17 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           <span className="text-muted-foreground/50">-</span>
         )}
       </div>
-      <div className="text-sm flex items-center gap-1">
+      <div className="text-sm">
         {employee.maxWeeklyHours}h
-        {employee.nonWorkingDays && employee.nonWorkingDays.length > 0 && (
-          <span className="text-muted-foreground" title={`Off: ${employee.nonWorkingDays.join(', ')}`}>
-            <CalendarOff className="w-3 h-3" />
+      </div>
+      <div className="text-sm text-muted-foreground">
+        {employee.nonWorkingDays && employee.nonWorkingDays.length > 0 ? (
+          <span className="flex items-center gap-1" title={employee.nonWorkingDays.join(', ')}>
+            <CalendarOff className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">{employee.nonWorkingDays.map(d => d.substring(0, 3)).join(', ')}</span>
           </span>
+        ) : (
+          <span className="text-muted-foreground/50">-</span>
         )}
       </div>
       <div className="text-sm">
