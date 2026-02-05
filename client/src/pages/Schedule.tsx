@@ -1430,12 +1430,9 @@ export default function Schedule() {
                           </div>
                           <div className="overflow-hidden min-w-0">
                             <p className="font-semibold truncate text-sm">{emp.name}</p>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={isFT ? "default" : "secondary"} className="text-[10px] px-1 py-0" data-testid={`badge-status-${emp.id}`}>
-                                {isFT ? "FT" : "PT"}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground" data-testid={`text-max-hours-${emp.id}`}>{emp.maxWeeklyHours || 40}h max</span>
-                            </div>
+                            <span className="text-xs text-muted-foreground" data-testid={`text-max-hours-${emp.id}`}>
+                              {emp.maxWeeklyHours || 40}h max, {isFT ? "FT" : "PT"}
+                            </span>
                           </div>
                         </div>
                         
