@@ -760,22 +760,25 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
 
   if (!issues.length) {
     return (
-      <Card className="border-green-200 bg-green-50/50">
-        <CardContent className="pt-6 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
-            <CheckCircle2 className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="font-semibold text-green-900">Schedule Valid</p>
-            <p className="text-sm text-green-700">All constraints met.</p>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="sticky top-4 z-40">
+        <Card className="border-green-200 bg-green-50/50">
+          <CardContent className="pt-6 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="font-semibold text-green-900">Schedule Valid</p>
+              <p className="text-sm text-green-700">All constraints met.</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <Card className="border-border shadow-sm">
+    <div className="sticky top-4 z-40">
+      <Card className="border-border shadow-sm max-h-[calc(100vh-6rem)] overflow-y-auto">
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <AlertCircle className="w-5 h-5 text-orange-500" />
@@ -876,5 +879,6 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 }
