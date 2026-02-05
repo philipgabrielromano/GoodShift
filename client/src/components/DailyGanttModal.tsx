@@ -90,7 +90,7 @@ export function DailyGanttModal({ open, onClose, selectedDate, shifts, employees
     return `${start} - ${end}`;
   };
 
-  const timeMarkers = [];
+  const timeMarkers: { hour: number; label: string; left: string }[] = [];
   for (let hour = START_HOUR; hour <= END_HOUR; hour++) {
     const label = hour === 12 ? "12pm" : hour < 12 ? `${hour}am` : `${hour - 12}pm`;
     const leftPercent = ((hour - START_HOUR) / TOTAL_HOURS) * 100;

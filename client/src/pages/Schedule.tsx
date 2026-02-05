@@ -12,6 +12,7 @@ import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings
 import { ShiftDialog } from "@/components/ShiftDialog";
 import { OccurrenceDialog } from "@/components/OccurrenceDialog";
 import { ScheduleValidator, RemediationData } from "@/components/ScheduleValidator";
+import { DailyGanttModal } from "@/components/DailyGanttModal";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -557,6 +558,8 @@ export default function Schedule() {
 
   const [isManualGenerating, setIsManualGenerating] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [ganttModalOpen, setGanttModalOpen] = useState(false);
+  const [ganttSelectedDate, setGanttSelectedDate] = useState<Date | null>(null);
   const [isCopying, setIsCopying] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
   const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false);
@@ -1301,10 +1304,19 @@ export default function Schedule() {
                   const holidayName = isHoliday(dayEST);
                   
                   return (
-                    <div key={day.toString()} className={cn(
-                      "p-2 text-center border-r",
-                      holidayName && "bg-destructive/10"
-                    )}>
+                    <div 
+                      key={day.toString()} 
+                      className={cn(
+                        "p-2 text-center border-r cursor-pointer hover-elevate transition-colors",
+                        holidayName && "bg-destructive/10"
+                      )}
+                      onClick={() => {
+                        setGanttSelectedDate(day);
+                        setGanttModalOpen(true);
+                      }}
+                      data-testid={`day-header-${formatInTimeZone(day, TIMEZONE, "EEE")}`}
+                      title="Click to view daily coverage"
+                    >
                       <div className="text-sm font-semibold text-foreground">{formatInTimeZone(day, TIMEZONE, "EEE")}</div>
                       <div className={cn(
                         "text-xs w-7 h-7 flex items-center justify-center rounded-full mx-auto",
@@ -1612,6 +1624,19 @@ export default function Schedule() {
           employeeId={occurrenceEmpId}
           employeeName={occurrenceEmpName}
           occurrenceDate={occurrenceDate}
+        />
+      )}
+
+      {ganttSelectedDate && (
+        <DailyGanttModal
+          open={ganttModalOpen}
+          onClose={() => {
+            setGanttModalOpen(false);
+            setGanttSelectedDate(null);
+          }}
+          selectedDate={ganttSelectedDate}
+          shifts={shifts || []}
+          employees={employees || []}
         />
       )}
 
