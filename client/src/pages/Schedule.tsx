@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
-import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Sparkles, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { cn, getJobTitle, isHoliday, getCanonicalJobCode } from "@/lib/utils";
@@ -555,9 +555,7 @@ export default function Schedule() {
     }
   };
 
-  const [isAIGenerating, setIsAIGenerating] = useState(false);
   const [isManualGenerating, setIsManualGenerating] = useState(false);
-  const [aiReasoning, setAIReasoning] = useState<string | null>(null);
   const [isClearing, setIsClearing] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
@@ -823,28 +821,6 @@ export default function Schedule() {
     }
   };
 
-  const handleAIGenerate = async () => {
-    setIsAIGenerating(true);
-    setAIReasoning(null);
-    try {
-      const response = await apiRequest("POST", "/api/schedule/generate-ai", { weekStart: weekStart.toISOString() });
-      const result = await response.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      setAIReasoning(result.reasoning);
-      playFanfare();
-      toast({ 
-        title: "AI Schedule Generated", 
-        description: result.warnings?.length > 0 
-          ? `Generated with ${result.warnings.length} warning(s)` 
-          : "AI optimized schedule created successfully."
-      });
-    } catch (error) {
-      toast({ variant: "destructive", title: "AI Generation Failed", description: "Could not generate AI schedule. Try the standard scheduler." });
-    } finally {
-      setIsAIGenerating(false);
-    }
-  };
-
   const handleClearSchedule = async () => {
     if (!confirm("Are you sure you want to clear all shifts for this week? This cannot be undone.")) {
       return;
@@ -1074,7 +1050,7 @@ export default function Schedule() {
           <Button 
             variant="outline" 
             onClick={handleManualGenerate} 
-            disabled={isManualGenerating || isAIGenerating}
+            disabled={isManualGenerating}
             data-testid="button-generate-schedule"
             className="border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950 animate-[pulse-glow_2s_ease-in-out_infinite] hover:animate-none"
             style={{
@@ -1243,29 +1219,6 @@ export default function Schedule() {
           {/* Schedule Validator */}
           <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />
           
-          {/* AI Reasoning Display */}
-          {aiReasoning && (
-            <Card className="border-accent/30 bg-accent/5">
-              <CardHeader className="pb-2 px-3 pt-3">
-                <CardTitle className="text-xs flex items-center gap-2">
-                  <Sparkles className="w-3 h-3 text-accent" />
-                  AI Reasoning
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-3 pb-3">
-                <p className="text-xs text-muted-foreground">{aiReasoning}</p>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="mt-2 text-xs h-6 px-2"
-                  onClick={() => setAIReasoning(null)}
-                  data-testid="button-dismiss-reasoning"
-                >
-                  Dismiss
-                </Button>
-              </CardContent>
-            </Card>
-          )}
         </div>
         
         {/* Main Content Area */}
@@ -1273,7 +1226,7 @@ export default function Schedule() {
         {/* Main Schedule Grid */}
         <div className="bg-card rounded border shadow-sm overflow-hidden relative">
           {/* Generation Loading Overlay - positioned at top */}
-          {(isAIGenerating || isManualGenerating) && (
+          {isManualGenerating && (
             <div className="absolute top-0 left-0 right-0 bg-primary/95 backdrop-blur-sm z-50 flex items-center justify-center gap-4 py-4 px-6 shadow-lg" data-testid="overlay-generating">
               <div className="relative">
                 <div className="w-8 h-8 border-3 border-primary-foreground/30 rounded-full"></div>
@@ -1281,12 +1234,10 @@ export default function Schedule() {
               </div>
               <div className="text-center">
                 <p className="text-base font-semibold text-primary-foreground">
-                  {isAIGenerating ? "AI Generating Schedule..." : "Generating Schedule..."}
+                  Generating Schedule...
                 </p>
                 <p className="text-xs text-primary-foreground/80">
-                  {isAIGenerating 
-                    ? "AI is analyzing employee availability, coverage requirements, and labor allocation..." 
-                    : "Creating schedule based on coverage rules and employee constraints..."}
+                  Creating schedule based on coverage rules and employee constraints...
                 </p>
               </div>
             </div>

@@ -8,16 +8,27 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.6.0";
+export const APP_VERSION = "1.6.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.6.1",
+    date: "2026-02-05",
+    title: "Scheduler Improvements",
+    changes: [
+      { type: "improvement", description: "Two-phase production scheduling - ensures minimum coverage for all days before prioritizing busy days (Fri/Sat/Sun)" },
+      { type: "improvement", description: "Fixed production day ordering - Phase 1 uses fixed order to guarantee all days get minimum coverage" },
+      { type: "improvement", description: "Streamlined schedule generation - removed AI scheduler in favor of optimized rule-based scheduler" },
+      { type: "feature", description: "Dark mode support with persistent user preference" },
+    ],
+  },
   {
     version: "1.6.0",
     date: "2026-02-04",
     title: "Production Controls & Manager Tools",
     changes: [
       { type: "feature", description: "Added production station limits per location - configure maximum Apparel Processors and Donation Pricers per day" },
-      { type: "feature", description: "AI scheduler now respects production station limits when generating schedules" },
+      { type: "feature", description: "Scheduler respects production station limits when generating schedules" },
       { type: "feature", description: "Schedule validator warns when daily station limits are exceeded" },
       { type: "feature", description: "Store-specific manager notifications - occurrence threshold alerts now go to managers assigned to that store" },
       { type: "feature", description: "Managers can now access the Locations page to view and edit settings for their assigned stores" },
