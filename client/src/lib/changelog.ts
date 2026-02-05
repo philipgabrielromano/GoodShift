@@ -16,10 +16,12 @@ export const changelog: ChangelogEntry[] = [
     date: "2026-02-05",
     title: "Scheduler Improvements",
     changes: [
+      { type: "feature", description: "Daily Coverage view - click any day header to see a Gantt chart visualization of all shifts for that day" },
       { type: "improvement", description: "Two-phase production scheduling - ensures minimum coverage for all days before prioritizing busy days (Fri/Sat/Sun)" },
       { type: "improvement", description: "Fixed production day ordering - Phase 1 uses fixed order to guarantee all days get minimum coverage" },
       { type: "improvement", description: "Streamlined schedule generation - removed AI scheduler in favor of optimized rule-based scheduler" },
       { type: "feature", description: "Dark mode support with persistent user preference" },
+      { type: "improvement", description: "Employee info in schedule now shows configured max hours and status (e.g., '24h max, PT')" },
     ],
   },
   {
