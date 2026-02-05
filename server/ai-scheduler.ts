@@ -255,12 +255,41 @@ ${(() => {
 })()}
 
 **IMPORTANT PRODUCTION STATION SCHEDULING STRATEGY**:
-1. **PRIORITIZE FULLTIME MORNING COVERAGE**: Schedule fulltime Apparel Processors and Donation Pricers (Wares/Shoes) on OPENER shifts (8:00 AM - 4:30 PM) FIRST. Fill available station seats with fulltime employees in the morning.
-2. **AFTERNOON COVERAGE WITH PART-TIMERS**: After filling morning stations with fulltime workers, schedule part-time processors on **prod_afternoon** shifts (4:30 PM - 8:30 PM) to cover the same stations after the fulltime person leaves.
-3. **STATION LIMIT STRATEGY**: The station limit applies to simultaneous workers at any given time, NOT total per day. A station can be covered by one opener (8-4:30) AND one prod_afternoon worker (4:30-8:30).
-4. Do NOT schedule more Apparel Processors (APPROC, APWV) than the station limit at the same time.
-5. Do NOT schedule more Donation Pricing/Wares/Shoes Associates (DONPRI, DONPRWV) than the station limit at the same time.
-6. If station limit is 0 or not set, there is no limit.
+
+## CRITICAL: FRIDAY, SATURDAY, SUNDAY ARE BUSIEST DAYS
+These three days (dayIndex 4=Friday, 5=Saturday, 6=Sunday) require MORE production staff than other days of the week. Always schedule more processors on Fri/Sat/Sun.
+
+## TWO-PHASE SCHEDULING FOR PRODUCTION WORKERS:
+
+### PHASE 1: MINIMUM COVERAGE (ALL DAYS)
+First, ensure EVERY day of the week (Mon-Sun) has minimum station coverage:
+- Schedule at least 1 fulltime Apparel Processor per day (opener shift 8:00 AM - 4:30 PM)
+- Schedule at least 1 fulltime Donation Pricer per day (opener shift 8:00 AM - 4:30 PM)
+- Cover all 7 days at this minimum level BEFORE adding extra shifts
+
+### PHASE 2: PRIORITY STAFFING (BUSY DAYS FIRST)
+After all days have minimum coverage, add additional production shifts in this priority order:
+1. **FRIDAY (dayIndex 4)** - Add more processors up to station limit
+2. **SATURDAY (dayIndex 5)** - Add more processors up to station limit  
+3. **SUNDAY (dayIndex 6)** - Add more processors up to station limit
+4. **Monday-Thursday** - Add remaining processors if hours/stations available
+
+### SHIFT TYPES FOR PRODUCTION:
+- **Fulltime workers**: OPENER shifts (8:00 AM - 4:30 PM) for morning station coverage
+- **Part-time workers**: 
+  - OPENER shifts if they can work full shifts
+  - **prod_afternoon** shifts (4:30 PM - 8:30 PM) to extend station coverage after fulltime workers leave
+
+### STATION LIMIT RULES:
+- Station limit applies to simultaneous workers at any given time, NOT total per day
+- A station can be covered by one opener (8-4:30) AND one prod_afternoon worker (4:30-8:30)
+- Do NOT schedule more Apparel Processors (APPROC, APWV) than the station limit at the same time
+- Do NOT schedule more Donation Pricing/Wares/Shoes Associates (DONPRI, DONPRWV) than the station limit at the same time
+- If station limit is 0 or not set, there is no limit
+
+### EXPECTED RESULT:
+- Fri/Sat/Sun should have MORE production workers than Mon-Thu
+- All days should have at least minimum coverage before any day gets extra staff
 
 ## Labor Allocation (percentage of hours by category)
 - Cashiering (CASHSLS, CSHSLSWV): ${settings.cashieringPercent ?? 40}%
@@ -400,7 +429,8 @@ Respond with a JSON object:
 9. Prioritize manager coverage (one manager opening, one closing each day)
 10. Ensure donor greeter and cashier coverage (one opening, one closing each day)
 11. An employee should not work both opener AND closer on the same day
-12. **RESPECT STATION LIMITS** - Do NOT schedule more Apparel Processors or Donation Pricing Associates per day than the configured station limits`;
+12. **RESPECT STATION LIMITS** - Do NOT schedule more Apparel Processors or Donation Pricing Associates per day than the configured station limits
+13. **PRODUCTION SCHEDULING PRIORITY** - Fri/Sat/Sun are busiest days. First ensure all days have minimum production coverage, then add extra processors to Fri/Sat/Sun before Mon-Thu`;
 
   try {
     const response = await openai.chat.completions.create({
