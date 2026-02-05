@@ -1241,7 +1241,7 @@ export default function Schedule() {
           })()}
           
           {/* Schedule Validator */}
-          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} />
+          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />
           
           {/* AI Reasoning Display */}
           {aiReasoning && (

@@ -79,9 +79,10 @@ interface Issue {
 interface ScheduleValidatorProps {
   onRemediate?: (remediation: RemediationData) => void;
   weekStart?: Date;
+  selectedLocation?: string;
 }
 
-export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorProps) {
+export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: ScheduleValidatorProps) {
   // Memoize date calculations to ensure stable values when weekStart changes
   const { start, end, prevWeekStart, prevWeekEnd, weekDays } = useMemo(() => {
     const baseDate = weekStart || new Date();
@@ -121,9 +122,24 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     const newIssues: Issue[] = [];
     let totalWeeklyHours = 0;
     
+    // Filter employees and shifts by selected location
+    const filteredEmployees = selectedLocation && selectedLocation !== "all"
+      ? employees.filter(emp => emp.location === selectedLocation)
+      : employees;
+    
+    const filteredEmployeeIds = new Set(filteredEmployees.map(e => e.id));
+    
+    const filteredShifts = selectedLocation && selectedLocation !== "all"
+      ? shifts.filter(s => filteredEmployeeIds.has(s.employeeId))
+      : shifts;
+    
+    const filteredPrevWeekShifts = selectedLocation && selectedLocation !== "all"
+      ? prevWeekShifts.filter(s => filteredEmployeeIds.has(s.employeeId))
+      : prevWeekShifts;
+    
     // Check 1: Employee max hours
-    employees.forEach(emp => {
-      const empShifts = shifts.filter(s => s.employeeId === emp.id);
+    filteredEmployees.forEach(emp => {
+      const empShifts = filteredShifts.filter(s => s.employeeId === emp.id);
       const hours = empShifts.reduce((acc, s) => {
         const start = new Date(s.startTime);
         const end = new Date(s.endTime);
@@ -151,10 +167,10 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
 
     // Check 3: Role requirements
     roles.forEach(role => {
-      const roleEmployees = employees.filter(e => e.jobTitle === role.jobTitle);
+      const roleEmployees = filteredEmployees.filter(e => e.jobTitle === role.jobTitle);
       const roleIds = roleEmployees.map(e => e.id);
       
-      const roleShifts = shifts.filter(s => roleIds.includes(s.employeeId));
+      const roleShifts = filteredShifts.filter(s => roleIds.includes(s.employeeId));
       const roleHours = roleShifts.reduce((acc, s) => {
         const start = new Date(s.startTime);
         const end = new Date(s.endTime);
@@ -180,7 +196,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       const holidayName = isHoliday(day);
       if (holidayName) return;
       
-      const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
+      const dayShifts = filteredShifts.filter(s => isSameDay(s.startTime, day));
       const isSunday = day.getDay() === 0;
       
       // Closing shift times differ on Sunday (store closes at 7:30pm)
@@ -208,7 +224,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       // Include WV (Weirton) variants: WVSTMNG, WVSTAST, WVLDWRK
       const managerCodes = ['STSUPER', 'STASSTSP', 'STLDWKR', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
       const managerShifts = dayShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && managerCodes.includes(emp.jobTitle);
       });
       
@@ -265,7 +281,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       // Include WV variant: WVDON
       const donorGreeterCodes = ['DONDOOR', 'WVDON'];
       const donorGreeterShifts = dayShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && donorGreeterCodes.includes(emp.jobTitle);
       });
       
@@ -305,7 +321,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       // Include WV variant: CSHSLSWV
       const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
       const cashierShifts = dayShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && cashierCodes.includes(emp.jobTitle);
       });
       
@@ -370,16 +386,16 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     const sundayDate = weekDays.find(d => d.getDay() === 0);
     
     if (saturdayDate && sundayDate) {
-      const satShifts = shifts.filter(s => isSameDay(s.startTime, saturdayDate));
-      const sunShifts = shifts.filter(s => isSameDay(s.startTime, sundayDate));
+      const satShifts = filteredShifts.filter(s => isSameDay(s.startTime, saturdayDate));
+      const sunShifts = filteredShifts.filter(s => isSameDay(s.startTime, sundayDate));
       
       const satGreeters = satShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && donorGreeterCodes.includes(emp.jobTitle);
       }).length;
       
       const sunGreeters = sunShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && donorGreeterCodes.includes(emp.jobTitle);
       }).length;
       
@@ -394,12 +410,12 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       // Also check cashiers - Saturday should have >= cashiers as Sunday
       const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
       const satCashiers = satShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && cashierCodes.includes(emp.jobTitle);
       }).length;
       
       const sunCashiers = sunShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && cashierCodes.includes(emp.jobTitle);
       }).length;
       
@@ -413,8 +429,8 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     }
 
     // Check 5: Time off conflicts
-    shifts.forEach(shift => {
-      const emp = employees.find(e => e.id === shift.employeeId);
+    filteredShifts.forEach(shift => {
+      const emp = filteredEmployees.find(e => e.id === shift.employeeId);
       if (!emp) return;
 
       const conflicts = timeOff.filter(req => 
@@ -443,22 +459,22 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
       const holidayName = isHoliday(day);
       if (holidayName) return;
       
-      const dayShifts = shifts.filter(s => isSameDay(s.startTime, day));
+      const dayShifts = filteredShifts.filter(s => isSameDay(s.startTime, day));
       const dayLabel = format(day, "EEE, MMM d");
       
       // Count apparel processors and donation pricers for this day
       const apparelProcessorCount = dayShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && apparelProcessorCodes.includes(emp.jobTitle);
       }).length;
       
       const donationPricerCount = dayShifts.filter(s => {
-        const emp = employees.find(e => e.id === s.employeeId);
+        const emp = filteredEmployees.find(e => e.id === s.employeeId);
         return emp && donationPricerCodes.includes(emp.jobTitle);
       }).length;
       
       // Get employees scheduled for this day to find their location
-      const employeesOnDay = dayShifts.map(s => employees.find(e => e.id === s.employeeId)).filter(Boolean);
+      const employeesOnDay = dayShifts.map(s => filteredEmployees.find(e => e.id === s.employeeId)).filter(Boolean);
       const locationSet = new Set(employeesOnDay.map(e => e?.location).filter((loc): loc is string => typeof loc === 'string'));
       const uniqueLocations = Array.from(locationSet);
       
@@ -472,12 +488,12 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
         
         // Count employees for this specific location
         const locationApparelCount = dayShifts.filter(s => {
-          const emp = employees.find(e => e.id === s.employeeId);
+          const emp = filteredEmployees.find(e => e.id === s.employeeId);
           return emp && emp.location === locationName && apparelProcessorCodes.includes(emp.jobTitle);
         }).length;
         
         const locationDonationCount = dayShifts.filter(s => {
-          const emp = employees.find(e => e.id === s.employeeId);
+          const emp = filteredEmployees.find(e => e.id === s.employeeId);
           return emp && emp.location === locationName && donationPricerCodes.includes(emp.jobTitle);
         }).length;
         
@@ -502,8 +518,8 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     });
 
     // Check 6: Clopening detection (closing shift followed by opening shift next day)
-    employees.forEach(emp => {
-      const empShifts = shifts
+    filteredEmployees.forEach(emp => {
+      const empShifts = filteredShifts
         .filter(s => s.employeeId === emp.id)
         .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
       
@@ -543,10 +559,10 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     // This applies to both part-time and full-time employees
     // Include WV variant: WVDON
     const donorGreeterJobCodes = ['DONDOOR', 'WVDON'];
-    const donorGreeters = employees.filter(emp => donorGreeterJobCodes.includes(emp.jobTitle) && emp.isActive);
+    const donorGreeters = filteredEmployees.filter(emp => donorGreeterJobCodes.includes(emp.jobTitle) && emp.isActive);
     
     donorGreeters.forEach(greeter => {
-      const greeterShifts = shifts.filter(s => s.employeeId === greeter.id);
+      const greeterShifts = filteredShifts.filter(s => s.employeeId === greeter.id);
       
       if (greeterShifts.length < 2) return; // Need at least 2 shifts to check variety
       
@@ -598,10 +614,10 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     // Check 8: Manager closing shift limit (max 3 closes per week)
     // Include WV variants: WVSTMNG, WVSTAST, WVLDWRK
     const managerJobCodes = ['STSUPER', 'STASSTSP', 'STLDWRK', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
-    const managers = employees.filter(emp => managerJobCodes.includes(emp.jobTitle) && emp.isActive);
+    const managers = filteredEmployees.filter(emp => managerJobCodes.includes(emp.jobTitle) && emp.isActive);
     
     managers.forEach(manager => {
-      const managerShifts = shifts.filter(s => s.employeeId === manager.id);
+      const managerShifts = filteredShifts.filter(s => s.employeeId === manager.id);
       
       let closingCount = 0;
       
@@ -629,11 +645,11 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     });
 
     // Check 9: Holiday shifts (store is closed on Easter, Thanksgiving, Christmas)
-    shifts.forEach(shift => {
+    filteredShifts.forEach(shift => {
       const shiftDate = new Date(shift.startTime);
       const holidayName = isHoliday(shiftDate);
       if (holidayName) {
-        const emp = employees.find(e => e.id === shift.employeeId);
+        const emp = filteredEmployees.find(e => e.id === shift.employeeId);
         const empName = emp?.name || "Unknown";
         newIssues.push({
           type: "error",
@@ -645,13 +661,13 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
 
     // Check 10: Consecutive days worked (more than 5 days in a row)
     // This checks across schedule boundaries by looking at previous week's shifts
-    employees.forEach(emp => {
+    filteredEmployees.forEach(emp => {
       // Get all shift dates for this employee from both weeks
-      const currentWeekDates = shifts
+      const currentWeekDates = filteredShifts
         .filter(s => s.employeeId === emp.id)
         .map(s => format(new Date(s.startTime), 'yyyy-MM-dd'));
       
-      const prevWeekDates = prevWeekShifts
+      const prevWeekDates = filteredPrevWeekShifts
         .filter(s => s.employeeId === emp.id)
         .map(s => format(new Date(s.startTime), 'yyyy-MM-dd'));
       
@@ -706,7 +722,7 @@ export function ScheduleValidator({ onRemediate, weekStart }: ScheduleValidatorP
     });
 
     return newIssues;
-  }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, locations, start, end]);
+  }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, locations, start, end, selectedLocation]);
 
   // Track expanded state for each category
   const [expandedCategories, setExpandedCategories] = useState<Record<IssueCategory, boolean>>({
