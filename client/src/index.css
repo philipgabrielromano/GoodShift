@@ -51,6 +51,43 @@
   --chart-5: 73 64% 52%; /* Lime #B2D235 */
 }
 
+.dark {
+  --background: 220 15% 10%;
+  --foreground: 0 0% 95%;
+  
+  --card: 220 15% 13%;
+  --card-foreground: 0 0% 95%;
+  
+  --popover: 220 15% 13%;
+  --popover-foreground: 0 0% 95%;
+  
+  --primary: 209 100% 45%; /* Brighter blue for dark mode */
+  --primary-foreground: 0 0% 100%;
+  
+  --secondary: 220 10% 20%;
+  --secondary-foreground: 0 0% 90%;
+  
+  --muted: 220 10% 18%;
+  --muted-foreground: 220 5% 55%;
+  
+  --accent: 154 48% 45%; /* Teal adjusted for dark mode */
+  --accent-foreground: 0 0% 100%;
+  
+  --destructive: 359 70% 55%;
+  --destructive-foreground: 0 0% 100%;
+  
+  --border: 220 10% 22%;
+  --input: 220 10% 22%;
+  --ring: 209 100% 45%;
+  
+  /* Chart colors for dark mode */
+  --chart-1: 209 100% 50%;
+  --chart-2: 154 48% 55%;
+  --chart-3: 36 82% 55%;
+  --chart-4: 211 50% 60%;
+  --chart-5: 73 64% 55%;
+}
+
 @layer base {
   body {
     @apply bg-background text-foreground antialiased;
@@ -65,7 +102,7 @@
 
 @layer components {
   .glass-panel {
-    @apply bg-white/80 backdrop-blur-md border border-white/20 shadow-xl shadow-black/5;
+    @apply bg-card/80 backdrop-blur-md border border-border/20 shadow-xl shadow-black/5 dark:shadow-black/20;
   }
   
   .card-hover {

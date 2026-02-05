@@ -648,7 +648,7 @@ export default function Attendance() {
                                   href={occurrence.documentUrl} 
                                   target="_blank" 
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                                  className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
                                   data-testid={`link-document-${occurrence.id}`}
                                 >
                                   <FileText className="h-3 w-3" />

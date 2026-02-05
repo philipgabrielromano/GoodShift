@@ -31,34 +31,34 @@ const categoryConfig: Record<IssueCategory, {
   hours: { 
     label: "Hours & Limits", 
     icon: Clock,
-    bgColor: "bg-blue-50",
-    borderColor: "border-blue-200",
-    textColor: "text-blue-800",
-    headerBg: "bg-blue-100"
+    bgColor: "bg-blue-50 dark:bg-blue-950/50",
+    borderColor: "border-blue-200 dark:border-blue-800",
+    textColor: "text-blue-800 dark:text-blue-300",
+    headerBg: "bg-blue-100 dark:bg-blue-900/50"
   },
   staffing: { 
     label: "Staffing Coverage", 
     icon: Users,
-    bgColor: "bg-purple-50",
-    borderColor: "border-purple-200",
-    textColor: "text-purple-800",
-    headerBg: "bg-purple-100"
+    bgColor: "bg-purple-50 dark:bg-purple-950/50",
+    borderColor: "border-purple-200 dark:border-purple-800",
+    textColor: "text-purple-800 dark:text-purple-300",
+    headerBg: "bg-purple-100 dark:bg-purple-900/50"
   },
   quality: { 
     label: "Schedule Quality", 
     icon: AlertTriangle,
-    bgColor: "bg-amber-50",
-    borderColor: "border-amber-200",
-    textColor: "text-amber-800",
-    headerBg: "bg-amber-100"
+    bgColor: "bg-amber-50 dark:bg-amber-950/50",
+    borderColor: "border-amber-200 dark:border-amber-800",
+    textColor: "text-amber-800 dark:text-amber-300",
+    headerBg: "bg-amber-100 dark:bg-amber-900/50"
   },
   conflicts: { 
     label: "Conflicts & Holidays", 
     icon: Calendar,
-    bgColor: "bg-red-50",
-    borderColor: "border-red-200",
-    textColor: "text-red-800",
-    headerBg: "bg-red-100"
+    bgColor: "bg-red-50 dark:bg-red-950/50",
+    borderColor: "border-red-200 dark:border-red-800",
+    textColor: "text-red-800 dark:text-red-300",
+    headerBg: "bg-red-100 dark:bg-red-900/50"
   }
 };
 
@@ -761,14 +761,14 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
   if (!issues.length) {
     return (
       <div className="sticky top-4 z-40">
-        <Card className="border-green-200 bg-green-50/50">
+        <Card className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/50">
           <CardContent className="pt-6 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-600">
+            <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center text-green-600 dark:text-green-400">
               <CheckCircle2 className="w-6 h-6" />
             </div>
             <div>
-              <p className="font-semibold text-green-900">Schedule Valid</p>
-              <p className="text-sm text-green-700">All constraints met.</p>
+              <p className="font-semibold text-green-900 dark:text-green-100">Schedule Valid</p>
+              <p className="text-sm text-green-700 dark:text-green-400">All constraints met.</p>
             </div>
           </CardContent>
         </Card>

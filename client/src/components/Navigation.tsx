@@ -7,6 +7,7 @@ import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import goodwillLogo from "@/assets/goodwill-logo.png";
 import { NotificationBell } from "./NotificationBell";
+import { ThemeToggle } from "./ThemeToggle";
 import { queryClient } from "@/lib/queryClient";
 import { APP_VERSION } from "@/lib/changelog";
 
@@ -92,11 +93,12 @@ export function Navigation() {
           <div className="bg-muted/50 rounded p-4">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Current User</p>
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-purple-600"></div>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-primary"></div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
                 <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
               </div>
+              <ThemeToggle />
               <Button
                 variant="ghost"
                 size="icon"
@@ -155,7 +157,10 @@ export function Navigation() {
                 <span className="text-xs text-muted-foreground" data-testid="text-version-mobile">v{APP_VERSION}</span>
               </div>
               <div className="bg-muted/50 rounded p-3">
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Current User</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Current User</p>
+                  <ThemeToggle />
+                </div>
                 <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
                 <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
               </div>

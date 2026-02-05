@@ -3,6 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { Navigation } from "@/components/Navigation";
 import NotFound from "@/pages/not-found";
 import Schedule from "@/pages/Schedule";
@@ -60,7 +61,7 @@ function AuthenticatedApp() {
   return (
     <div className="min-h-screen bg-background text-foreground flex">
       <Navigation />
-      <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 min-h-screen bg-muted/10">
+      <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 min-h-screen bg-background">
         <Router />
       </main>
     </div>
@@ -70,10 +71,12 @@ function AuthenticatedApp() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AuthenticatedApp />
-        <Toaster />
-      </TooltipProvider>
+      <ThemeProvider>
+        <TooltipProvider>
+          <AuthenticatedApp />
+          <Toaster />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
