@@ -1365,8 +1365,15 @@ export async function registerRoutes(
         const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         
         if (availableHigherTier.length > 0) {
-          const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
-          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+          const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
+          let shift;
+          if (shiftType === 'opener') {
+            shift = shifts.opener;
+          } else if (shiftType === 'closer') {
+            shift = shifts.closer;
+          } else {
+            shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
+          }
           const manager = availableHigherTier[0];
           
           scheduleShift(manager, shift.start, shift.end, dayIndex);
@@ -1400,8 +1407,15 @@ export async function registerRoutes(
         
         // FIRST: If this day has no higher-tier coverage, try to add one now
         if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
-          const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
-          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+          const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
+          let shift;
+          if (shiftType === 'opener') {
+            shift = shifts.opener;
+          } else if (shiftType === 'closer') {
+            shift = shifts.closer;
+          } else {
+            shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
+          }
           const manager = availableHigherTier[0];
           
           scheduleShift(manager, shift.start, shift.end, dayIndex);
@@ -1426,10 +1440,17 @@ export async function registerRoutes(
             coverage.opener = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
           } else if (!coverage.opener && !coverage.closer) {
-            // Neither slot filled yet - randomly pick one
-            const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
+            // Neither slot filled yet - randomly pick any type
+            const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
             const manager = stillAvailableHigherTier[0];
-            const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+            let shift;
+            if (shiftType === 'opener') {
+              shift = shifts.opener;
+            } else if (shiftType === 'closer') {
+              shift = shifts.closer;
+            } else {
+              shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
+            }
             scheduleShift(manager, shift.start, shift.end, dayIndex);
             coverage[shiftType] = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
