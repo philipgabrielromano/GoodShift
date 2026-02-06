@@ -64,14 +64,14 @@ export default function ShiftTrades() {
   const { data: allShifts = [] } = useQuery<Shift[]>({
     queryKey: ["/api/shifts"],
   });
+  const { data: myEmployeeData } = useQuery<{ employee: Employee | null }>({
+    queryKey: ["/api/my-employee"],
+  });
 
   const userRole = authStatus?.user?.role ?? "viewer";
   const isManagerOrAdmin = userRole === "manager" || userRole === "admin";
 
-  const currentEmployee = useMemo(() => {
-    if (!authStatus?.user?.email) return null;
-    return employees.find(e => e.email.toLowerCase() === authStatus.user!.email.toLowerCase()) || null;
-  }, [authStatus, employees]);
+  const currentEmployee = myEmployeeData?.employee || null;
 
   useEffect(() => {
     if (currentEmployee && !altEmailInitialized) {
@@ -210,7 +210,7 @@ export default function ShiftTrades() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-3">
-              Trade notifications are sent to your sign-in email ({authStatus?.user?.email}). You can also receive them at an additional email address.
+              Notifications (schedule updates, shift trades, etc.) are sent to your sign-in email ({authStatus?.user?.email}). You can also receive them at an additional email address.
             </p>
             <div className="flex items-center gap-2">
               <Input
