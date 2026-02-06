@@ -1361,11 +1361,10 @@ export async function registerRoutes(
           continue;
         }
         
-        // Find available higher-tier managers for this day
-        const availableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        // Find available higher-tier managers for this day (re-shuffle for variety)
+        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         
         if (availableHigherTier.length > 0) {
-          // Randomly assign opener or closer for variety
           const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
           const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
           const manager = availableHigherTier[0];
@@ -1396,8 +1395,8 @@ export async function registerRoutes(
         const shifts = getShiftTimes(currentDay);
         const coverage = leadershipCoverage[dayIndex];
         
-        // Find available higher-tier managers for this day
-        const availableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        // Find available higher-tier managers for this day (re-shuffle for variety)
+        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         
         // FIRST: If this day has no higher-tier coverage, try to add one now
         if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
@@ -1411,8 +1410,8 @@ export async function registerRoutes(
           console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType} (filling gap)`);
         }
         
-        // Re-filter after potential scheduling
-        const stillAvailableHigherTier = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        // Re-filter and re-shuffle after potential scheduling
+        const stillAvailableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         
         // Add second higher-tier manager for the opposite shift if available
         if (stillAvailableHigherTier.length > 0) {
@@ -1426,34 +1425,52 @@ export async function registerRoutes(
             scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
             coverage.opener = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
+          } else if (!coverage.opener && !coverage.closer) {
+            // Neither slot filled yet - randomly pick one
+            const shiftType = Math.random() < 0.5 ? 'opener' : 'closer';
+            const manager = stillAvailableHigherTier[0];
+            const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+            scheduleShift(manager, shift.start, shift.end, dayIndex);
+            coverage[shiftType] = true;
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
           }
         }
         
         // Add third higher-tier manager for mid shift if still available
-        const availableForMid = allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+        const availableForMid = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         if (availableForMid.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
+          const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
           const manager = availableForMid[0];
-          scheduleShift(manager, shifts.mid10.start, shifts.mid10.end, dayIndex);
+          scheduleShift(manager, midShift.start, midShift.end, dayIndex);
           coverage.mid = true;
           console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as mid`);
         }
         
         // Add team leads ONLY if there's higher-tier coverage
         if (coverage.hasHigherTier) {
-          const availableTeamLeads = allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex));
+          const availableTeamLeads = shuffleArray(allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
           
           for (const teamLead of availableTeamLeads) {
-            // Fill opener, then closer, then mid
-            if (!coverage.opener) {
+            // Build list of unfilled slots, then randomly pick one
+            const openSlots: string[] = [];
+            if (!coverage.opener) openSlots.push('opener');
+            if (!coverage.closer) openSlots.push('closer');
+            if (!coverage.mid) openSlots.push('mid');
+            
+            if (openSlots.length === 0) break;
+            
+            const chosenSlot = randomPick(openSlots);
+            if (chosenSlot === 'opener') {
               scheduleShift(teamLead, shifts.opener.start, shifts.opener.end, dayIndex);
               coverage.opener = true;
               console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Team lead ${teamLead.name} as opener`);
-            } else if (!coverage.closer) {
+            } else if (chosenSlot === 'closer') {
               scheduleShift(teamLead, shifts.closer.start, shifts.closer.end, dayIndex);
               coverage.closer = true;
               console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Team lead ${teamLead.name} as closer`);
-            } else if (!coverage.mid) {
-              scheduleShift(teamLead, shifts.mid10.start, shifts.mid10.end, dayIndex);
+            } else {
+              const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
+              scheduleShift(teamLead, midShift.start, midShift.end, dayIndex);
               coverage.mid = true;
               console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Team lead ${teamLead.name} as mid`);
             }
