@@ -200,40 +200,46 @@ export default function ShiftTrades() {
         </div>
       </div>
 
-      {currentEmployee && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Mail className="w-4 h-4" />
-              Notification Preferences
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground mb-3">
-              Notifications (schedule updates, shift trades, etc.) are sent to your sign-in email ({authStatus?.user?.email}). You can also receive them at an additional email address.
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="w-4 h-4" />
+            Notification Preferences
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {currentEmployee ? (
+            <>
+              <p className="text-xs text-muted-foreground mb-3">
+                Notifications (schedule updates, shift trades, etc.) are sent to your sign-in email ({authStatus?.user?.email}). You can also receive them at an additional email address.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="email"
+                  placeholder="Alternate notification email"
+                  value={altEmail}
+                  onChange={e => setAltEmail(e.target.value)}
+                  className="flex-1"
+                  data-testid="input-alternate-email"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSaveAltEmail}
+                  disabled={altEmailSaving}
+                  data-testid="button-save-alternate-email"
+                >
+                  <Save className="w-4 h-4 mr-1" />
+                  {altEmailSaving ? "Saving..." : "Save"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Your sign-in email ({authStatus?.user?.email}) is not linked to an employee record yet. Once your account is linked, you'll be able to set an alternate notification email here.
             </p>
-            <div className="flex items-center gap-2">
-              <Input
-                type="email"
-                placeholder="Alternate notification email"
-                value={altEmail}
-                onChange={e => setAltEmail(e.target.value)}
-                className="flex-1"
-                data-testid="input-alternate-email"
-              />
-              <Button
-                size="sm"
-                onClick={handleSaveAltEmail}
-                disabled={altEmailSaving}
-                data-testid="button-save-alternate-email"
-              >
-                <Save className="w-4 h-4 mr-1" />
-                {altEmailSaving ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       {isManagerOrAdmin && pendingManagerTrades.length > 0 && (
         <Card className="border-amber-300 dark:border-amber-700">
