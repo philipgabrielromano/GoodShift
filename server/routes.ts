@@ -1404,15 +1404,9 @@ export async function registerRoutes(
         const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         
         if (availableHigherTier.length > 0) {
-          const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
-          let shift;
-          if (shiftType === 'opener') {
-            shift = shifts.opener;
-          } else if (shiftType === 'closer') {
-            shift = shifts.closer;
-          } else {
-            shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
-          }
+          // Pass 1: ALWAYS assign opener or closer (never mid) to guarantee critical coverage
+          const shiftType = randomPick(['opener', 'closer'] as const);
+          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
           const manager = availableHigherTier[0];
           
           scheduleShift(manager, shift.start, shift.end, dayIndex);
@@ -1445,16 +1439,10 @@ export async function registerRoutes(
         const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         
         // FIRST: If this day has no higher-tier coverage, try to add one now
+        // Always assign opener or closer (not mid) to guarantee critical slot coverage
         if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
-          const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
-          let shift;
-          if (shiftType === 'opener') {
-            shift = shifts.opener;
-          } else if (shiftType === 'closer') {
-            shift = shifts.closer;
-          } else {
-            shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
-          }
+          const shiftType = randomPick(['opener', 'closer'] as const);
+          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
           const manager = availableHigherTier[0];
           
           scheduleShift(manager, shift.start, shift.end, dayIndex);
@@ -1479,17 +1467,10 @@ export async function registerRoutes(
             coverage.opener = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
           } else if (!coverage.opener && !coverage.closer) {
-            // Neither slot filled yet - randomly pick any type
-            const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
+            // Neither slot filled yet - assign opener or closer to guarantee critical coverage
+            const shiftType = randomPick(['opener', 'closer'] as const);
             const manager = stillAvailableHigherTier[0];
-            let shift;
-            if (shiftType === 'opener') {
-              shift = shifts.opener;
-            } else if (shiftType === 'closer') {
-              shift = shifts.closer;
-            } else {
-              shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
-            }
+            const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
             scheduleShift(manager, shift.start, shift.end, dayIndex);
             coverage[shiftType] = true;
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
@@ -1540,6 +1521,38 @@ export async function registerRoutes(
         // Log warning if missing coverage
         if (!coverage.opener || !coverage.closer) {
           console.log(`[Scheduler] WARNING: Day ${dayIndex} missing coverage - opener: ${coverage.opener}, closer: ${coverage.closer}`);
+        }
+      }
+      
+      // PASS 3 (FALLBACK): If any day is still missing opener or closer,
+      // override random off days to guarantee coverage - coverage is more important than variety
+      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        if (isHoliday(currentDay)) continue;
+        
+        const coverage = leadershipCoverage[dayIndex];
+        if (coverage.opener && coverage.closer) continue; // Already fully covered
+        
+        const shifts = getShiftTimes(currentDay);
+        
+        // Try higher-tier managers first, then team leads - using canWorkFullShift (ignoring random off days)
+        const allLeadership = shuffleArray([...allHigherTierManagers, ...allTeamLeads]);
+        
+        for (const mgr of allLeadership) {
+          if (coverage.opener && coverage.closer) break;
+          if (!canWorkFullShift(mgr, currentDay, dayIndex)) continue;
+          
+          if (!coverage.opener) {
+            scheduleShift(mgr, shifts.opener.start, shifts.opener.end, dayIndex);
+            coverage.opener = true;
+            coverage.hasHigherTier = true;
+            console.log(`[Scheduler] Pass 3 FALLBACK - Day ${dayIndex}: ${mgr.name} as opener (overriding off day for coverage)`);
+          } else if (!coverage.closer) {
+            scheduleShift(mgr, shifts.closer.start, shifts.closer.end, dayIndex);
+            coverage.closer = true;
+            coverage.hasHigherTier = true;
+            console.log(`[Scheduler] Pass 3 FALLBACK - Day ${dayIndex}: ${mgr.name} as closer (overriding off day for coverage)`);
+          }
         }
       }
       
