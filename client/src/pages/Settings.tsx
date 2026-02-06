@@ -4,12 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
+import type { Employee } from "@shared/schema";
 
 export default function Settings() {
   const { toast } = useToast();
@@ -18,6 +19,9 @@ export default function Settings() {
   
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [hrEmail, setHrEmail] = useState<string>("");
+  const [altEmail, setAltEmail] = useState("");
+  const [altEmailSaving, setAltEmailSaving] = useState(false);
+  const [altEmailInitialized, setAltEmailInitialized] = useState(false);
   
   useEffect(() => {
     if (settings?.hrNotificationEmail) {
@@ -25,9 +29,38 @@ export default function Settings() {
     }
   }, [settings?.hrNotificationEmail]);
 
-  const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string } | null; ssoConfigured: boolean }>({
+  const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string; role: string } | null; ssoConfigured: boolean }>({
     queryKey: ["/api/auth/status"],
   });
+
+  const { data: myEmployeeData } = useQuery<{ employee: Employee | null }>({
+    queryKey: ["/api/my-employee"],
+  });
+
+  const currentEmployee = myEmployeeData?.employee || null;
+  const userRole = authStatus?.user?.role ?? "viewer";
+  const isAdmin = userRole === "admin";
+
+  useEffect(() => {
+    if (currentEmployee && !altEmailInitialized) {
+      setAltEmail(currentEmployee.alternateEmail || "");
+      setAltEmailInitialized(true);
+    }
+  }, [currentEmployee, altEmailInitialized]);
+
+  const handleSaveAltEmail = async () => {
+    setAltEmailSaving(true);
+    try {
+      await apiRequest("PATCH", "/api/my-employee/alternate-email", { alternateEmail: altEmail });
+      toast({ title: "Saved", description: "Alternate notification email updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-employee"] });
+    } catch (error: any) {
+      toast({ title: "Error", description: error?.message || "Failed to save email", variant: "destructive" });
+    } finally {
+      setAltEmailSaving(false);
+    }
+  };
 
   const { data: ukgStatus } = useQuery<{ configured: boolean; connected: boolean }>({
     queryKey: ["/api/ukg/status"],
@@ -131,9 +164,63 @@ export default function Settings() {
     <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
       <div>
         <h1 className="text-3xl font-bold font-display">Settings</h1>
-        <p className="text-muted-foreground mt-1">Configure global constraints and requirements.</p>
+        <p className="text-muted-foreground mt-1">
+          {isAdmin ? "Configure global constraints and requirements." : "Manage your notification preferences."}
+        </p>
       </div>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="w-5 h-5" />
+            Notification Preferences
+          </CardTitle>
+          <CardDescription>
+            Choose where you receive notifications from GoodShift.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {currentEmployee ? (
+            <div className="space-y-4">
+              <div className="p-3 bg-muted/30 rounded border space-y-1">
+                <p className="text-sm font-medium">Sign-in email</p>
+                <p className="text-sm text-muted-foreground">{authStatus?.user?.email}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="alt-email">Alternate notification email</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="alt-email"
+                    type="email"
+                    placeholder="Enter an additional email address"
+                    value={altEmail}
+                    onChange={e => setAltEmail(e.target.value)}
+                    className="flex-1"
+                    data-testid="input-alternate-email"
+                  />
+                  <Button
+                    onClick={handleSaveAltEmail}
+                    disabled={altEmailSaving}
+                    data-testid="button-save-alternate-email"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {altEmailSaving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Notifications (schedule updates, shift trades, etc.) will be sent to both your sign-in email and this alternate email.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Your sign-in email ({authStatus?.user?.email}) is not linked to an employee record yet. Once your account is linked, you'll be able to set an alternate notification email here.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {isAdmin && <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -333,6 +420,7 @@ export default function Settings() {
           )}
         </CardContent>
       </Card>
+      </>}
     </div>
   );
 }

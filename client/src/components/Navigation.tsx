@@ -22,6 +22,7 @@ const viewerNavItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
   { href: "/trades", label: "Shift Trades", icon: ArrowLeftRight },
   { href: "/attendance", label: "Attendance", icon: AlertTriangle },
+  { href: "/settings", label: "Settings", icon: Settings },
   { href: "/changelog", label: "Changelog", icon: ScrollText },
 ];
 
@@ -35,7 +36,6 @@ const managerNavItems = [
 const adminNavItems = [
   { href: "/users", label: "Users", icon: Shield },
   { href: "/shifts", label: "Shifts", icon: Clock },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Navigation() {
