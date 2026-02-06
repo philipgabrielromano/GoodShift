@@ -131,7 +131,18 @@ function getESTWeekStart(date: Date): Date {
 export default function Schedule() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const [currentDate, setCurrentDate] = useState(new Date());
+  
+  const getInitialDate = () => {
+    const params = new URLSearchParams(window.location.search);
+    const weekParam = params.get("week");
+    if (weekParam) {
+      const parsed = new Date(weekParam);
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date();
+  };
+  
+  const [currentDate, setCurrentDate] = useState(getInitialDate);
   
   // Get auth status for location-based filtering
   const { data: authStatus } = useQuery<AuthStatus>({
@@ -141,6 +152,7 @@ export default function Schedule() {
   // Calculate week boundaries in EST
   const weekStart = useMemo(() => getESTWeekStart(currentDate), [currentDate]);
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
+  
   const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart]);
 
   const { data: shifts, isLoading: shiftsLoading } = useShifts(
@@ -328,7 +340,10 @@ export default function Schedule() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [draggedShift, setDraggedShift] = useState<Shift | null>(null);
   const [dropTarget, setDropTarget] = useState<{ empId: number; dayKey: string } | null>(null);
-  const [selectedLocation, setSelectedLocation] = useState<string>("all");
+  const [selectedLocation, setSelectedLocation] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("location") || "all";
+  });
   const [isCopyMode, setIsCopyMode] = useState(false);
   
   // Determine if user is admin
@@ -353,10 +368,29 @@ export default function Schedule() {
   // Set default location for non-admins when data loads
   useEffect(() => {
     if (!isAdmin && userLocations.length > 0 && selectedLocation === "all") {
-      // Default to first assigned location for non-admins
       setSelectedLocation(userLocations[0].name);
     }
   }, [isAdmin, userLocations, selectedLocation]);
+  
+  useEffect(() => {
+    const weekKey = format(weekStart, "yyyy-MM-dd");
+    const params = new URLSearchParams(window.location.search);
+    let changed = false;
+    if (params.get("week") !== weekKey) {
+      params.set("week", weekKey);
+      changed = true;
+    }
+    if (selectedLocation && selectedLocation !== "all" && params.get("location") !== selectedLocation) {
+      params.set("location", selectedLocation);
+      changed = true;
+    } else if (selectedLocation === "all" && params.has("location")) {
+      params.delete("location");
+      changed = true;
+    }
+    if (changed) {
+      window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+    }
+  }, [weekStart, selectedLocation]);
   
   const toggleGroupCollapse = (jobTitle: string) => {
     setCollapsedGroups(prev => {
