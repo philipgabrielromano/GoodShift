@@ -849,6 +849,9 @@ export async function registerRoutes(
       const pendingShifts: { employeeId: number; startTime: Date; endTime: Date }[] = [];
 
       // ========== RANDOMIZATION FOR SHIFT VARIETY ==========
+      // Helper to pick a random element from an array
+      const randomPick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+
       // Fisher-Yates shuffle to randomize employee order each generation
       // This ensures employees don't always get the same shifts (opener vs closer)
       const shuffleArray = <T>(array: T[]): T[] => {
@@ -2105,14 +2108,11 @@ export async function registerRoutes(
             } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
               if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
-                // Donation pricers and apparel processors work morning shifts
-                shift = additionalAssigned[dayIndex] % 2 === 0 ? shifts.opener : shifts.early9;
+                shift = randomPick([shifts.opener, shifts.early9]);
               } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
-                // Donor greeters work afternoon/closing shifts
-                shift = additionalAssigned[dayIndex] % 2 === 0 ? shifts.closer : shifts.mid11;
+                shift = randomPick([shifts.closer, shifts.mid11]);
               } else {
-                // Cashiers and others rotate through shifts
-                shift = shiftRotation[additionalAssigned[dayIndex] % shiftRotation.length];
+                shift = randomPick(shiftRotation);
               }
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               additionalAssigned[dayIndex]++;
@@ -2264,11 +2264,11 @@ export async function registerRoutes(
             else if (canWorkFullShift(emp, currentDay, dayIndex)) {
               let shift;
               if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
-                shift = shifts.opener;
+                shift = randomPick([shifts.opener, shifts.early9]);
               } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
-                shift = shifts.closer;
+                shift = randomPick([shifts.closer, shifts.mid11]);
               } else {
-                shift = shifts.mid10;
+                shift = randomPick([shifts.opener, shifts.early9, shifts.mid10, shifts.mid11, shifts.closer]);
               }
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
@@ -2337,14 +2337,14 @@ export async function registerRoutes(
             
             const shifts = getShiftTimes(currentDay);
             
-            // Assign gap shift based on role
+            // Assign gap shift based on role with randomness
             let gapShift;
             if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
               gapShift = shifts.gapMorning;
             } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
-              gapShift = shifts.gapEvening;
+              gapShift = randomPick([shifts.gapMid, shifts.gapEvening]);
             } else {
-              gapShift = shifts.gapMid;
+              gapShift = randomPick([shifts.gapMorning, shifts.gapMid, shifts.gapEvening]);
             }
             
             scheduleShift(emp, gapShift.start, gapShift.end, dayIndex);
@@ -2372,17 +2372,14 @@ export async function registerRoutes(
             
             const shifts = getShiftTimes(currentDay);
             
-            // Assign short shift based on role with variety for greeters
+            // Assign short shift based on role with randomness
             let shortShift;
             if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
-              shortShift = shifts.shortMorning;
+              shortShift = randomPick([shifts.shortMorning, shifts.shortMid10]);
             } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
-              // Rotate greeter short shifts for variety: 10-3:30, 12-5:30, 3-8:30
-              const greeterShortOptions = [shifts.shortMid10, shifts.shortMid12, shifts.shortEvening];
-              const rotationIndex = (employeeState[emp.id].daysWorked + emp.id) % greeterShortOptions.length;
-              shortShift = greeterShortOptions[rotationIndex];
+              shortShift = randomPick([shifts.shortMid10, shifts.shortMid12, shifts.shortEvening]);
             } else {
-              shortShift = shifts.shortMid;
+              shortShift = randomPick([shifts.shortMorning, shifts.shortMid, shifts.shortMid10]);
             }
             
             scheduleShift(emp, shortShift.start, shortShift.end, dayIndex);
