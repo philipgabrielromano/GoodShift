@@ -36,7 +36,7 @@ export interface IStorage {
   createShiftsBatch(shiftsData: InsertShift[]): Promise<Shift[]>;
   updateShift(id: number, shift: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
-  deleteShiftsByDateRange(start: Date, end: Date): Promise<number>;
+  deleteShiftsByDateRange(start: Date, end: Date, location?: string): Promise<number>;
 
   // Time Off
   getTimeOffRequests(): Promise<TimeOffRequest[]>;
@@ -211,7 +211,22 @@ export class DatabaseStorage implements IStorage {
     await db.delete(shifts).where(eq(shifts.id, id));
   }
 
-  async deleteShiftsByDateRange(start: Date, end: Date): Promise<number> {
+  async deleteShiftsByDateRange(start: Date, end: Date, location?: string): Promise<number> {
+    if (location) {
+      const locationEmployees = await db.select({ id: employees.id })
+        .from(employees)
+        .where(eq(employees.location, location));
+      const empIds = locationEmployees.map(e => e.id);
+      if (empIds.length === 0) return 0;
+      const result = await db.delete(shifts)
+        .where(and(
+          gte(shifts.startTime, start),
+          lte(shifts.startTime, end),
+          inArray(shifts.employeeId, empIds)
+        ))
+        .returning({ id: shifts.id });
+      return result.length;
+    }
     const result = await db.delete(shifts)
       .where(and(gte(shifts.startTime, start), lte(shifts.startTime, end)))
       .returning({ id: shifts.id });

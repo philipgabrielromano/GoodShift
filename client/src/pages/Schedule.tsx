@@ -886,14 +886,18 @@ export default function Schedule() {
   };
 
   const handleClearSchedule = async () => {
-    if (!confirm("Are you sure you want to clear all shifts for this week? This cannot be undone.")) {
+    const locationLabel = selectedLocation === "all" ? "ALL locations" : selectedLocation;
+    if (!confirm(`Are you sure you want to clear shifts for ${locationLabel} this week? This cannot be undone.`)) {
       return;
     }
     setIsClearing(true);
     try {
-      await apiRequest("POST", "/api/schedule/clear", { weekStart: weekStart.toISOString() });
+      await apiRequest("POST", "/api/schedule/clear", {
+        weekStart: weekStart.toISOString(),
+        location: selectedLocation !== "all" ? selectedLocation : undefined,
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      toast({ title: "Schedule Cleared", description: "All shifts for this week have been removed." });
+      toast({ title: "Schedule Cleared", description: `Shifts for ${locationLabel} this week have been removed.` });
     } catch (error) {
       toast({ variant: "destructive", title: "Clear Failed", description: "Could not clear the schedule." });
     } finally {

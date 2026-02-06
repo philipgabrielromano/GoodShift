@@ -2519,17 +2519,18 @@ export async function registerRoutes(
     }
   });
 
-  // Clear schedule for a week
+  // Clear schedule for a week (optionally filtered by location)
   app.post("/api/schedule/clear", async (req, res) => {
     try {
       const { weekStart } = api.schedule.generate.input.parse(req.body);
+      const location = req.body.location as string | undefined;
       const startDate = new Date(weekStart);
       const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       
-      // Use batch delete for performance (single DB query instead of N queries)
-      const deletedCount = await storage.deleteShiftsByDateRange(startDate, endDate);
+      const deletedCount = await storage.deleteShiftsByDateRange(startDate, endDate, location);
       
-      res.json({ message: `Cleared ${deletedCount} shifts`, deletedCount });
+      const locationLabel = location || "all locations";
+      res.json({ message: `Cleared ${deletedCount} shifts for ${locationLabel}`, deletedCount });
     } catch (err) {
       console.error("Clear schedule error:", err);
       if (err instanceof z.ZodError) {
