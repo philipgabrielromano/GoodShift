@@ -1452,9 +1452,13 @@ export default function Schedule() {
               .sort(([a], [b]) => getJobPriority(a) - getJobPriority(b))
               .map(([jobTitle, groupEmployees]) => {
                 const isCollapsed = collapsedGroups.has(jobTitle);
-                const groupShiftCount = shifts?.filter(s => 
+                const groupTotalHours = shifts?.filter(s => 
                   groupEmployees.some(e => e.id === s.employeeId)
-                ).length || 0;
+                ).reduce((sum, shift) => {
+                  const startTime = new Date(shift.startTime);
+                  const endTime = new Date(shift.endTime);
+                  return sum + calculatePaidHours(startTime, endTime);
+                }, 0) || 0;
                 
                 return (
                   <div key={jobTitle} className="border-b last:border-b-0">
@@ -1468,8 +1472,8 @@ export default function Schedule() {
                         <span>{getJobTitle(jobTitle)}</span>
                         <Badge variant="secondary" className="ml-2">{groupEmployees.length}</Badge>
                       </div>
-                      {groupShiftCount > 0 && (
-                        <Badge variant="outline">{groupShiftCount} shifts</Badge>
+                      {groupTotalHours > 0 && (
+                        <Badge variant="outline">{groupTotalHours.toFixed(1)} hrs</Badge>
                       )}
                     </button>
                     
