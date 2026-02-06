@@ -22,6 +22,7 @@ export const changelog: ChangelogEntry[] = [
       { type: "improvement", description: "Team lead slot assignment randomized - team leads now randomly fill opener, closer, or mid slots instead of always filling in a fixed order" },
       { type: "improvement", description: "Mid-shift variety for managers - mid shifts now randomly vary between 9am, 10am, and 11am start times" },
       { type: "fix", description: "Fixed manager day repetition - managers no longer get assigned to the same days every time the schedule is generated" },
+      { type: "feature", description: "Clickable employee names - click any employee name in the schedule to jump to their configuration page, pre-filtered to that employee" },
     ],
   },
   {
