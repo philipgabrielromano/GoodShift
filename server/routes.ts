@@ -2281,8 +2281,13 @@ export async function registerRoutes(
 
           // Find employees who can still work (either full or short shifts)
           // Shuffle first, then sort by fewest days worked for even distribution with variety
+          // IMPORTANT: Leadership employees must respect their random off days
           const underScheduled = shuffleArray([...managers, ...donorGreeters, ...donationPricers, ...apparelProcessors, ...cashiers])
             .filter(e => {
+              // Leadership must respect random off days
+              if (allLeadershipCodes.includes(e.jobTitle)) {
+                if (!canManagerWorkDay(e, currentDay, dayIndex)) return false;
+              }
               const canWork = canWorkShortShift(e, currentDay, dayIndex) || canWorkFullShift(e, currentDay, dayIndex);
               if (!canWork) return false;
               
@@ -2313,11 +2318,19 @@ export async function registerRoutes(
 
           // Assign ONE employee per day per iteration (round-robin)
           for (const emp of underScheduled) {
-            // Managers always get full shifts (opener or closer only)
+            // Managers always get full shifts with random shift types
             if (allLeadershipCodes.includes(emp.jobTitle)) {
-              if (!canWorkFullShift(emp, currentDay, dayIndex)) continue;
-              // Randomize opener vs closer for variety
-              const shift = Math.random() < 0.5 ? shifts.opener : shifts.closer;
+              if (!canManagerWorkDay(emp, currentDay, dayIndex)) continue;
+              // Randomize shift type for variety (opener, closer, or mid)
+              const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
+              let shift;
+              if (shiftType === 'opener') {
+                shift = shifts.opener;
+              } else if (shiftType === 'closer') {
+                shift = shifts.closer;
+              } else {
+                shift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
+              }
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               madeProgress = true;
               break; // Move to next day (round-robin)
