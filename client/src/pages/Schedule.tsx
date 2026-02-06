@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { format, addDays, isSameDay, addWeeks, subWeeks, getISOWeek, startOfWeek as startOfWeekDate, setHours, setMinutes, differenceInMinutes, addMinutes } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
@@ -28,6 +28,7 @@ import type { Shift, ScheduleTemplate } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import fanfareSound from "@assets/zelda-tp-item-fanfare_1769708907750.mp3";
 import goodwillLogo from "@/assets/goodwill-logo.png";
 import latoRegularUrl from "@/assets/Lato-Regular.ttf";
@@ -128,6 +129,7 @@ function getESTWeekStart(date: Date): Date {
 
 export default function Schedule() {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [currentDate, setCurrentDate] = useState(new Date());
   
   // Get auth status for location-based filtering
@@ -1441,7 +1443,11 @@ export default function Schedule() {
                             {emp.name.substring(0, 2).toUpperCase()}
                           </div>
                           <div className="overflow-hidden min-w-0">
-                            <p className="font-semibold truncate text-sm">{emp.name}</p>
+                            <p 
+                              className="font-semibold truncate text-sm cursor-pointer hover:text-primary hover:underline transition-colors"
+                              data-testid={`link-employee-${emp.id}`}
+                              onClick={() => setLocation(`/employees?search=${encodeURIComponent(emp.name)}`)}
+                            >{emp.name}</p>
                             <span className="text-xs text-muted-foreground" data-testid={`text-max-hours-${emp.id}`}>
                               {emp.maxWeeklyHours || 40}h max, {isFT ? "FT" : "PT"}
                             </span>
