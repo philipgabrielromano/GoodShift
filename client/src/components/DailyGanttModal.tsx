@@ -101,7 +101,7 @@ export function DailyGanttModal({ open, onClose, selectedDate, shifts, employees
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle data-testid="gantt-modal-title">Daily Coverage - {dateStr}</DialogTitle>
         </DialogHeader>
