@@ -5,6 +5,19 @@ import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
 import { useTimeOffRequests } from "@/hooks/use-time-off";
 import { useLocations } from "@/hooks/use-locations";
 import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, subDays, format, differenceInCalendarDays } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+
+const TIMEZONE = "America/New_York";
+
+function getETHoursMinutes(date: Date): { hours: number; minutes: number; totalMinutes: number } {
+  const timeStr = formatInTimeZone(date, TIMEZONE, "HH:mm");
+  const [h, m] = timeStr.split(":").map(Number);
+  return { hours: h, minutes: m, totalMinutes: h * 60 + m };
+}
+
+function formatTimeET(date: Date): string {
+  return formatInTimeZone(date, TIMEZONE, "HH:mm");
+}
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState } from "react";
@@ -208,21 +221,19 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       // On other days, must match exact opener times (default 8:00-16:30)
       const openerShifts = dayShifts.filter(s => {
         if (isSunday) {
-          const startHour = s.startTime.getHours();
-          const startMin = s.startTime.getMinutes();
-          const totalStartMinutes = startHour * 60 + startMin;
-          return totalStartMinutes <= 10 * 60; // 10:00 AM or before
+          const { totalMinutes } = getETHoursMinutes(s.startTime);
+          return totalMinutes <= 10 * 60;
         }
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === (settings.managerMorningStart || "08:00") && 
                endStr === (settings.managerMorningEnd || "16:30");
       });
       
       // Count closers (Sunday: 11:00-19:30, Other days: 12:00-20:30)
       const closerShifts = dayShifts.filter(s => {
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === closerStartTime && endStr === closerEndTime;
       });
       
@@ -237,20 +248,18 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       
       const openingManagers = managerShifts.filter(s => {
         if (isSunday) {
-          const startHour = s.startTime.getHours();
-          const startMin = s.startTime.getMinutes();
-          const totalStartMinutes = startHour * 60 + startMin;
-          return totalStartMinutes <= 10 * 60;
+          const { totalMinutes } = getETHoursMinutes(s.startTime);
+          return totalMinutes <= 10 * 60;
         }
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === (settings.managerMorningStart || "08:00") && 
                endStr === (settings.managerMorningEnd || "16:30");
       }).length;
       
       const closingManagers = managerShifts.filter(s => {
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === closerStartTime && endStr === closerEndTime;
       }).length;
 
@@ -300,21 +309,19 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       
       const openingGreeter = donorGreeterShifts.some(s => {
         if (isSunday) {
-          const startHour = s.startTime.getHours();
-          const startMin = s.startTime.getMinutes();
-          const totalStartMinutes = startHour * 60 + startMin;
-          return totalStartMinutes <= 10 * 60;
+          const { totalMinutes } = getETHoursMinutes(s.startTime);
+          return totalMinutes <= 10 * 60;
         }
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === (settings.managerMorningStart || "08:00") && 
                endStr === (settings.managerMorningEnd || "16:30");
       });
       
       // Donor greeter closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
       const closingGreeter = donorGreeterShifts.some(s => {
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === closerStartTime && endStr === closerEndTime;
       });
       
@@ -346,21 +353,19 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       
       const openingCashier = cashierShifts.some(s => {
         if (isSunday) {
-          const startHour = s.startTime.getHours();
-          const startMin = s.startTime.getMinutes();
-          const totalStartMinutes = startHour * 60 + startMin;
-          return totalStartMinutes <= 10 * 60;
+          const { totalMinutes } = getETHoursMinutes(s.startTime);
+          return totalMinutes <= 10 * 60;
         }
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === (settings.managerMorningStart || "08:00") && 
                endStr === (settings.managerMorningEnd || "16:30");
       });
       
       // Cashier closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
       const closingCashier = cashierShifts.some(s => {
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return startStr === closerStartTime && endStr === closerEndTime;
       });
       
@@ -390,8 +395,8 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       ];
       
       const midShiftsScheduled = dayShifts.filter(s => {
-        const startStr = format(s.startTime, "HH:mm");
-        const endStr = format(s.endTime, "HH:mm");
+        const startStr = formatTimeET(s.startTime);
+        const endStr = formatTimeET(s.endTime);
         return midShiftTimes.some(mid => startStr === mid.start && endStr === mid.end);
       });
       
@@ -555,13 +560,11 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
         const currentEnd = new Date(currentShift.endTime);
         const nextStart = new Date(nextShift.startTime);
         
-        // Check if current shift ends late (7:30pm or later) and next shift starts early (8am-9am)
-        const currentEndHour = currentEnd.getHours();
-        const currentEndMinute = currentEnd.getMinutes();
-        const nextStartHour = nextStart.getHours();
+        const currentEndET = getETHoursMinutes(currentEnd);
+        const nextStartET = getETHoursMinutes(nextStart);
         
-        const isClosingShift = (currentEndHour > 19) || (currentEndHour === 19 && currentEndMinute >= 30);
-        const isOpeningShift = nextStartHour >= 8 && nextStartHour <= 9;
+        const isClosingShift = (currentEndET.hours > 19) || (currentEndET.hours === 19 && currentEndET.minutes >= 30);
+        const isOpeningShift = nextStartET.hours >= 8 && nextStartET.hours <= 10;
         
         // Check if they're on consecutive calendar days (not just 24h apart)
         const currentDate = new Date(currentShift.startTime);
@@ -596,8 +599,8 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       let midShiftCount = 0;
       
       greeterShifts.forEach(shift => {
-        const startStr = format(shift.startTime, "HH:mm");
-        const endStr = format(shift.endTime, "HH:mm");
+        const startStr = formatTimeET(shift.startTime);
+        const endStr = formatTimeET(shift.endTime);
         const shiftDay = new Date(shift.startTime);
         const isSunday = shiftDay.getDay() === 0;
         
@@ -647,8 +650,8 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       let closingCount = 0;
       
       managerShifts.forEach(shift => {
-        const startStr = format(shift.startTime, "HH:mm");
-        const endStr = format(shift.endTime, "HH:mm");
+        const startStr = formatTimeET(shift.startTime);
+        const endStr = formatTimeET(shift.endTime);
         const shiftDay = new Date(shift.startTime);
         const isSunday = shiftDay.getDay() === 0;
         
