@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
-import goodwillLogo from "@/assets/goodwill-logo.png";
+import goodshiftLogo from "@assets/2_1770387977850.png";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "./ThemeToggle";
 import { queryClient } from "@/lib/queryClient";
@@ -61,8 +61,7 @@ export function Navigation() {
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex flex-col w-64 h-screen border-r bg-card fixed left-0 top-0 z-50">
         <div className="p-4 border-b flex flex-col items-center">
-          <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-sidebar" />
-          <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-sidebar">GoodShift</span>
+          <img src={goodshiftLogo} alt="GoodShift" className="h-12 w-auto" data-testid="img-logo-sidebar" />
           <div className="mt-3 w-full">
             <NotificationBell showLabel />
           </div>
@@ -118,7 +117,7 @@ export function Navigation() {
 
       {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-card/80 backdrop-blur-md z-50 flex items-center px-4 justify-between">
-        <img src={goodwillLogo} alt="Goodwill" className="h-8 w-auto" />
+        <img src={goodshiftLogo} alt="GoodShift" className="h-8 w-auto" />
         
         <div className="flex items-center gap-2">
           <NotificationBell />
@@ -131,8 +130,7 @@ export function Navigation() {
           </SheetTrigger>
           <SheetContent side="left" className="w-64 p-0">
             <div className="p-4 border-b flex flex-col items-center">
-              <img src={goodwillLogo} alt="Goodwill" className="h-12 w-auto" data-testid="img-logo-mobile" />
-              <span className="text-lg font-bold text-foreground mt-1" style={{ fontFamily: "'Lato', sans-serif" }} data-testid="text-brand-mobile">GoodShift</span>
+              <img src={goodshiftLogo} alt="GoodShift" className="h-12 w-auto" data-testid="img-logo-mobile" />
             </div>
             <nav className="flex-1 p-4 space-y-2">
               {navItems.map((item) => (

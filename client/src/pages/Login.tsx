@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import goodwillLogo from "@/assets/goodwill-logo.png";
+import goodshiftLogo from "@assets/2_1770387977850.png";
 
 function MicrosoftIcon({ className }: { className?: string }) {
   return (
@@ -22,8 +22,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4" data-testid="login-page">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-4">
-          <img src={goodwillLogo} alt="Goodwill" className="mx-auto h-16 w-auto" />
-          <CardTitle className="text-2xl">GoodShift</CardTitle>
+          <img src={goodshiftLogo} alt="GoodShift" className="mx-auto h-16 w-auto" />
           <CardDescription>
             Employee scheduling and workforce management
           </CardDescription>
