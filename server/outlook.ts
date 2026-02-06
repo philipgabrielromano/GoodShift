@@ -265,6 +265,66 @@ export async function sendTradeNotificationEmail(
   }
 }
 
+export interface SchedulePublishEmailData {
+  recipientName: string;
+  weekStartDate: string;
+  locationName: string;
+  appUrl: string;
+}
+
+export async function sendSchedulePublishEmail(
+  toEmail: string,
+  data: SchedulePublishEmailData
+): Promise<boolean> {
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for schedule publish notification');
+      return false;
+    }
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #00539F; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">New Schedule Posted</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>Hi ${data.recipientName},</p>
+      <p>A new schedule has been posted for the week of <strong>${data.weekStartDate}</strong> at <strong>${data.locationName}</strong>.</p>
+      <p>Please log in to GoodShift to view your upcoming shifts.</p>
+      
+      <p style="margin-top: 24px;">
+        <a href="${data.appUrl}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          View My Schedule
+        </a>
+      </p>
+      
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated notification from GoodShift. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const message = {
+      subject: `GoodShift: New Schedule Posted - Week of ${data.weekStartDate}`,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent schedule publish notification to ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error('[Outlook] Failed to send schedule publish email:', error);
+    return false;
+  }
+}
+
 export async function testOutlookConnection(): Promise<{ success: boolean; error?: string; senderEmail?: string }> {
   try {
     const client = getGraphClient();

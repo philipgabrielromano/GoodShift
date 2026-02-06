@@ -6,10 +6,10 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { ukgClient } from "./ukg";
 import { RETAIL_JOB_CODES } from "@shared/schema";
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { toZonedTime, fromZonedTime, formatInTimeZone } from "date-fns-tz";
 import { isHoliday, getPaidHolidaysInRange, isEligibleForPaidHoliday } from "./holidays";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { sendOccurrenceAlertEmail, sendTradeNotificationEmail, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
+import { sendOccurrenceAlertEmail, sendTradeNotificationEmail, sendSchedulePublishEmail, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
 
 const TIMEZONE = "America/New_York";
 
@@ -2941,6 +2941,53 @@ export async function registerRoutes(
       
       const published = await storage.publishSchedule(weekStart, user.id);
       res.json({ message: "Schedule published", published });
+
+      // Send email notifications asynchronously (don't block the response)
+      (async () => {
+        try {
+          const allShifts = await storage.getShifts();
+          const employees = await storage.getEmployees();
+
+          // Find shifts for this week using startTime
+          const weekStartDate = new Date(weekStart);
+          const weekEndDate = new Date(weekStartDate);
+          weekEndDate.setDate(weekEndDate.getDate() + 7);
+
+          const weekShifts = allShifts.filter(s => {
+            const shiftStart = new Date(s.startTime);
+            return shiftStart >= weekStartDate && shiftStart < weekEndDate;
+          });
+
+          // Get unique employee IDs with shifts this week
+          const scheduledEmployeeIds = Array.from(new Set(weekShifts.map(s => s.employeeId)));
+
+          // Format the week start for display
+          const displayDate = formatInTimeZone(weekStartDate, TIMEZONE, "MMMM d, yyyy");
+          const appUrl = "https://goodshift.goodwillgoodskills.org";
+
+          let emailsSent = 0;
+          for (const empId of scheduledEmployeeIds) {
+            const emp = employees.find(e => e.id === empId);
+            if (!emp) continue;
+
+            const emails = await getNotificationEmails(emp);
+            const locationName = emp.location || "your store";
+
+            for (const email of emails) {
+              await sendSchedulePublishEmail(email, {
+                recipientName: emp.name.split(",").reverse().join(" ").trim(),
+                weekStartDate: displayDate,
+                locationName,
+                appUrl,
+              });
+              emailsSent++;
+            }
+          }
+          console.log(`[Schedule Publish] Sent ${emailsSent} notification emails for week of ${weekStart}`);
+        } catch (emailError) {
+          console.error("[Schedule Publish] Error sending notification emails:", emailError);
+        }
+      })();
     } catch (error) {
       console.error("Error publishing schedule:", error);
       res.status(500).json({ message: "Failed to publish schedule" });

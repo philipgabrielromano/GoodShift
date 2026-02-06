@@ -777,13 +777,15 @@ export default function Schedule() {
   };
 
   const [isPublishing, setIsPublishing] = useState(false);
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
 
   const handlePublishSchedule = async () => {
+    setPublishConfirmOpen(false);
     setIsPublishing(true);
     try {
       await apiRequest("POST", "/api/schedule/publish", { weekStart: weekStartStr });
       refetchPublishStatus();
-      toast({ title: "Schedule Published", description: "This week's schedule is now visible to all employees." });
+      toast({ title: "Schedule Published", description: "This week's schedule is now visible to all employees. Email notifications are being sent." });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Publish Failed", description: error?.message || "Could not publish schedule." });
     } finally {
@@ -1071,7 +1073,7 @@ export default function Schedule() {
             </Button>
           ) : (
             <Button
-              onClick={handlePublishSchedule}
+              onClick={() => setPublishConfirmOpen(true)}
               disabled={isPublishing}
               data-testid="button-publish-schedule"
             >
@@ -1688,6 +1690,25 @@ export default function Schedule() {
         weekStart={weekStart}
         weekEnd={weekEnd}
       />
+
+      <Dialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Publish Schedule</DialogTitle>
+            <DialogDescription>
+              This will notify ALL scheduled employees that a new schedule has been posted. Are you sure you want to publish?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPublishConfirmOpen(false)} data-testid="button-cancel-publish">
+              Cancel
+            </Button>
+            <Button onClick={handlePublishSchedule} data-testid="button-confirm-publish">
+              Yes, Publish
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
         <DialogContent>
