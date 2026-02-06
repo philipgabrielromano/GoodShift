@@ -1868,32 +1868,39 @@ export async function registerRoutes(
       // Build array of greeter IDs for existing shift lookup
       const greeterIds = donorGreeters.map(g => g.id);
       
-      // Determine targets based on pool size - if limited, reduce targets to ensure coverage across all days
+      // Determine targets based on pool size
+      // PRIORITY: Every day should have opener + closer coverage before adding mid-shifts
       const totalGreeterPool = donorGreeters.length;
-      const workDaysCount = 6; // Assuming 6 working days per week
       
-      // Calculate adaptive targets based on pool size
-      // With 2 greeters doing 5 days each = 10 greeter-days available
-      // We want to spread coverage so all days get at least 1 greeter if possible
-      // When 4+ greeters: allow 3+ on busy days for mid-shift coverage
-      const greeterTargets: Record<number, number> = totalGreeterPool >= 4 ? {
-        6: Math.min(4, totalGreeterPool), // Saturday - busiest donation day, allow 4 for opener/mid/mid/closer
-        5: 3, // Friday - allow mid-shift
-        0: 3, // Sunday - must not exceed Saturday, allow mid-shift
-        1: 3, 2: 3, 3: 3, 4: 3 // Weekdays - allow mid-shift when available
-      } : totalGreeterPool >= 3 ? {
-        // 3 greeters: opener + closer + mid on Saturday
-        6: 3, // Saturday gets full coverage
-        5: 2, // Friday
-        0: 2, // Sunday
-        1: 2, 2: 2, 3: 2, 4: 2 // Weekdays
-      } : {
-        // Limited pool: prioritize having coverage every day with opener+closer on Saturday
-        6: Math.min(2, totalGreeterPool), // Saturday gets opener+closer if 2+ greeters
-        5: 1, // Friday - 1 greeter
-        0: 1, // Sunday - 1 greeter (will be capped to Saturday's count)
-        1: 1, 2: 1, 3: 1, 4: 1 // Weekdays - 1 greeter each
-      };
+      // Calculate total available greeter-days
+      const greeterMaxDays = donorGreeters.reduce((sum, g) => sum + getMaxDays(g), 0);
+      console.log(`[Scheduler] Greeter capacity: ${totalGreeterPool} greeters × avg ${(greeterMaxDays / Math.max(totalGreeterPool, 1)).toFixed(1)} days = ${greeterMaxDays} greeter-days`);
+      
+      // Calculate adaptive targets: every day gets 2 (opener+closer) if capacity allows
+      // Then add mid-shifts for busy days with remaining capacity
+      const nonHolidayDays = [0,1,2,3,4,5,6].filter(d => {
+        const day = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+        return !isHoliday(day);
+      });
+      const baseNeeded = nonHolidayDays.length * 2; // opener+closer for every day
+      const extraCapacity = Math.max(0, greeterMaxDays - baseNeeded);
+      
+      const greeterTargets: Record<number, number> = {};
+      for (const d of nonHolidayDays) {
+        // Base: 2 per day (opener + closer) if we have enough capacity, else 1
+        greeterTargets[d] = greeterMaxDays >= baseNeeded ? 2 : Math.max(1, Math.floor(greeterMaxDays / nonHolidayDays.length));
+      }
+      // Add mid-shifts on busy days if extra capacity exists
+      if (extraCapacity >= 1) greeterTargets[6] = (greeterTargets[6] || 2) + 1; // Saturday
+      if (extraCapacity >= 2) greeterTargets[5] = (greeterTargets[5] || 2) + 1; // Friday
+      if (extraCapacity >= 3) greeterTargets[0] = (greeterTargets[0] || 2) + 1; // Sunday
+      // Distribute remaining extra to weekdays
+      if (extraCapacity >= 4) {
+        const weekdays = [1, 2, 3, 4];
+        for (let i = 0; i < Math.min(extraCapacity - 3, weekdays.length); i++) {
+          greeterTargets[weekdays[i]] = (greeterTargets[weekdays[i]] || 2) + 1;
+        }
+      }
       
       // Track scheduled greeters per day to ensure Saturday >= Sunday
       // Initialize with existing template shifts counted
@@ -1906,125 +1913,88 @@ export async function registerRoutes(
         }
       }
       
-      console.log(`[Scheduler] Total donor greeters available: ${totalGreeterPool}, using ${totalGreeterPool >= 4 ? 'standard' : 'limited pool'} targets`);
+      console.log(`[Scheduler] Total donor greeters available: ${totalGreeterPool}, targets: ${JSON.stringify(greeterTargets)}`);
       
+      // ROUND-ROBIN APPROACH: Ensures every day gets coverage before any day gets extras
+      // Round 1: Every day gets an OPENER (Saturday-first)
+      // Round 2: Every day gets a CLOSER (Saturday-first)
+      // Round 3: Add mid-shifts where targets allow (Saturday-first)
+      
+      // Round 1: Schedule 1 opener per day
       for (const dayIndex of greeterDayOrder) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const dayName = shortDayNames[dayIndex];
-        
-        // Skip holidays
-        if (isHoliday(currentDay)) {
-          console.log(`[Scheduler] Greeter ${dayName}: Skipping - holiday`);
+        if (isHoliday(currentDay)) continue;
+        if (greetersByDay[dayIndex] >= 1) {
+          console.log(`[Scheduler] Greeter R1 ${dayName}: Already has coverage from template`);
           continue;
         }
         
         const shifts = getShiftTimes(currentDay);
-        const target = greeterTargets[dayIndex] || 1;
-        const isSunday = dayIndex === 0;
-        
-        // For Sunday: don't schedule more greeters than Saturday has
-        const maxForDay = isSunday ? Math.min(target, greetersByDay[6]) : target;
-        
-        // Check if existing shifts already meet the target
-        if (greetersByDay[dayIndex] >= maxForDay) {
-          console.log(`[Scheduler] Greeter ${dayName}: Target ${maxForDay} already met by ${greetersByDay[dayIndex]} existing template shift(s)`);
-          continue;
-        }
-        
-        // Calculate how many more greeters we need
-        const stillNeeded = maxForDay - greetersByDay[dayIndex];
-        
-        // Get available greeters for this day (shuffled for variety)
         const availableGreeters = shuffleAndSort(
           donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
         );
         
-        console.log(`[Scheduler] Greeter ${dayName}: target=${target}, maxForDay=${maxForDay}, existing=${greetersByDay[dayIndex]}, stillNeeded=${stillNeeded}, available=${availableGreeters.length}, satCount=${greetersByDay[6]}`);
-        
-        // For Saturday with 2+ available greeters and need 2+ more: explicitly schedule opener + closer
-        if (dayIndex === 6 && availableGreeters.length >= 2 && stillNeeded >= 2) {
-          // Schedule first greeter as opener
+        if (availableGreeters.length > 0) {
           scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
           greetersByDay[dayIndex]++;
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[0].name} as opener`);
-          
-          // Schedule second greeter as closer
-          scheduleShift(availableGreeters[1], shifts.closer.start, shifts.closer.end, dayIndex);
-          greetersByDay[dayIndex]++;
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[1].name} as closer`);
-          
-          // If 3+ greeters and target allows, schedule additional
-          if (availableGreeters.length >= 3 && maxForDay >= 3) {
-            scheduleShift(availableGreeters[2], shifts.mid10.start, shifts.mid10.end, dayIndex);
-            greetersByDay[dayIndex]++;
-            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[2].name} as mid`);
-          }
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${greetersByDay[dayIndex]} greeters (opener+closer mode)`);
-          continue;
-        }
-        
-        // For other days or Saturday with only 1 available: schedule what we can
-        // Use stillNeeded to account for existing template shifts
-        const actualTarget = Math.min(stillNeeded, availableGreeters.length);
-        
-        if (actualTarget === 0) {
-          console.log(`[Scheduler] Greeter ${dayName}: No available greeters to fill remaining ${stillNeeded} slots`);
-          continue;
-        }
-        
-        // When 3+ greeters: 1 opener, 1 closer, 1+ mid-shift (like managers)
-        // When 2 greeters: 1 opener, 1 closer
-        // When 1 greeter: 1 opener
-        if (actualTarget >= 3) {
-          // Schedule 1 opener
-          scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
-          greetersByDay[dayIndex]++;
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[0].name} as opener`);
-          
-          // Schedule 1 closer
-          scheduleShift(availableGreeters[1], shifts.closer.start, shifts.closer.end, dayIndex);
-          greetersByDay[dayIndex]++;
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[1].name} as closer`);
-          
-          // Schedule remaining as mid-shift (10-6:30) for coverage across all hours
-          for (let i = 2; i < actualTarget && i < availableGreeters.length; i++) {
-            scheduleShift(availableGreeters[i], shifts.mid10.start, shifts.mid10.end, dayIndex);
-            greetersByDay[dayIndex]++;
-            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as mid-shift (10-6:30)`);
-          }
-          
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled 1 opener, 1 closer, ${actualTarget - 2} mid-shift, total=${greetersByDay[dayIndex]}`);
+          console.log(`[Scheduler] Greeter R1 ${dayName}: ${availableGreeters[0].name} as opener`);
         } else {
-          // Schedule opening greeters (half of target, rounded up)
-          const openingTarget = Math.ceil(actualTarget / 2);
-          let openersScheduled = 0;
-          for (let i = 0; i < openingTarget && i < availableGreeters.length; i++) {
-            scheduleShift(availableGreeters[i], shifts.opener.start, shifts.opener.end, dayIndex);
-            greetersByDay[dayIndex]++;
-            openersScheduled++;
-            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${availableGreeters[i].name} as opener`);
-          }
-          
-          // Get remaining available greeters for closing (re-filter after scheduling openers, shuffled)
-          const closingGreeters = shuffleAndSort(
-            donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
-          );
-          
-          // Schedule closing greeters
-          const closingTarget = actualTarget - openersScheduled;
-          let closersScheduled = 0;
-          for (let i = 0; i < closingTarget && i < closingGreeters.length; i++) {
-            scheduleShift(closingGreeters[i], shifts.closer.start, shifts.closer.end, dayIndex);
-            greetersByDay[dayIndex]++;
-            closersScheduled++;
-            console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${closingGreeters[i].name} as closer`);
-          }
-          
-          console.log(`[Scheduler] Greeter ${dayName}: Scheduled ${openersScheduled} openers, ${closersScheduled} closers, total=${greetersByDay[dayIndex]}`);
+          console.log(`[Scheduler] Greeter R1 ${dayName}: No greeters available for opener`);
         }
       }
       
-      console.log(`[Scheduler] FINAL Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}, Wed=${greetersByDay[3]}, Thu=${greetersByDay[4]}`);
+      // Round 2: Schedule 1 closer per day (to ensure opener+closer coverage everywhere)
+      for (const dayIndex of greeterDayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const dayName = shortDayNames[dayIndex];
+        if (isHoliday(currentDay)) continue;
+        
+        const isSunday = dayIndex === 0;
+        // For Sunday: don't exceed Saturday's greeter count
+        if (isSunday && greetersByDay[0] >= greetersByDay[6]) continue;
+        
+        if (greetersByDay[dayIndex] >= (greeterTargets[dayIndex] || 2)) continue;
+        
+        const shifts = getShiftTimes(currentDay);
+        const availableGreeters = shuffleAndSort(
+          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+        );
+        
+        if (availableGreeters.length > 0) {
+          scheduleShift(availableGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
+          greetersByDay[dayIndex]++;
+          console.log(`[Scheduler] Greeter R2 ${dayName}: ${availableGreeters[0].name} as closer`);
+        } else {
+          console.log(`[Scheduler] Greeter R2 ${dayName}: No greeters available for closer`);
+        }
+      }
+      
+      // Round 3: Add mid-shifts where targets allow (Saturday-first priority)
+      for (const dayIndex of greeterDayOrder) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const dayName = shortDayNames[dayIndex];
+        if (isHoliday(currentDay)) continue;
+        
+        const target = greeterTargets[dayIndex] || 2;
+        const isSunday = dayIndex === 0;
+        if (isSunday && greetersByDay[0] >= greetersByDay[6]) continue;
+        
+        while (greetersByDay[dayIndex] < target) {
+          const shifts = getShiftTimes(currentDay);
+          const availableGreeters = shuffleAndSort(
+            donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+          );
+          
+          if (availableGreeters.length === 0) break;
+          
+          scheduleShift(availableGreeters[0], shifts.mid10.start, shifts.mid10.end, dayIndex);
+          greetersByDay[dayIndex]++;
+          console.log(`[Scheduler] Greeter R3 ${dayName}: ${availableGreeters[0].name} as mid-shift`);
+        }
+      }
+      
+      console.log(`[Scheduler] FINAL Donor greeters by day: Sat=${greetersByDay[6]}, Sun=${greetersByDay[0]}, Fri=${greetersByDay[5]}, Mon=${greetersByDay[1]}, Tue=${greetersByDay[2]}, Wed=${greetersByDay[3]}, Thu=${greetersByDay[4]}`);
 
       // Phase 1b: Schedule CASHIERS with Saturday priority
       // Saturday is the busiest sales day - MUST have more cashiers than Sunday
