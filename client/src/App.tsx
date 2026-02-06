@@ -16,6 +16,7 @@ import Shifts from "@/pages/Shifts";
 import Login from "@/pages/Login";
 import Attendance from "@/pages/Attendance";
 import Changelog from "@/pages/Changelog";
+import ShiftTrades from "@/pages/ShiftTrades";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -36,6 +37,7 @@ function Router() {
       <Route path="/shifts" component={Shifts} />
       <Route path="/settings" component={Settings} />
       <Route path="/changelog" component={Changelog} />
+      <Route path="/trades" component={ShiftTrades} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -8,9 +8,23 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.7.0";
+export const APP_VERSION = "1.8.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.8.0",
+    date: "2026-02-06",
+    title: "Shift Trading",
+    changes: [
+      { type: "feature", description: "Shift trading - employees can request to swap shifts with coworkers who share the same job title" },
+      { type: "feature", description: "Two-step trade approval - peer must accept the trade first, then a manager approves before shifts are swapped" },
+      { type: "feature", description: "Trade notifications - in-app notification bell shows trade requests, approvals, and declines with tabs for Trades and Attendance alerts" },
+      { type: "feature", description: "Email notifications sent at each trade step (request, peer response, manager decision) via Outlook integration" },
+      { type: "feature", description: "Shift Trades page - dedicated page to view, filter, and manage all trade requests with manager approval queue" },
+      { type: "feature", description: "Visual trade indicators - tradeable shifts on the schedule glow for viewers with matching job titles" },
+      { type: "improvement", description: "Automatic conflict detection prevents overlapping trades and self-trading" },
+    ],
+  },
   {
     version: "1.7.0",
     date: "2026-02-06",

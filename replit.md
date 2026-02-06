@@ -28,7 +28,7 @@ Preferred communication style: Simple, everyday language.
 - **Schema**: Defined in `shared/schema.ts`
 - **Migrations**: Drizzle Kit
 
-**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`.
+**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`.
 
 ### Shared Code
 The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod insert schemas) and `routes.ts` (API contract definitions) to ensure type safety across the full stack.
@@ -57,6 +57,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Corrective Action Tracking**: Records progressive corrective actions (warning at 5+ occurrences, final warning at 7+, termination at 8+) with date delivered and occurrence count at time of action. Server-side validation enforces proper progression sequence. Alerts auto-suppress once the appropriate corrective action is recorded.
 - **Store-Specific Manager Notifications**: When an employee crosses an occurrence threshold (5, 7, or 8 points), the system sends email notifications to managers assigned to that employee's store location. Falls back to global HR email if no store managers are configured.
 - **Hide from Schedule**: Managers can hide terminated employees from the schedule view and auto-generate while UKG admin processes complete. Hidden employees have visual indicators in the Employees list and don't appear on schedules.
+- **Shift Trading**: Employees can request to swap shifts with coworkers who share the same job title. Requires two-step approval: peer accepts the trade, then a manager approves. Shifts are automatically swapped on the schedule upon final approval. In-app notifications (via tabbed NotificationBell) and email notifications (via Outlook) are sent at each step. Dedicated Shift Trades page for viewing, filtering, and managing all trade requests.
 - **Changelog**: Version history page accessible to all authenticated users, displaying features, improvements, and fixes across all releases. Version number displayed in sidebar footer.
 
 ## External Dependencies

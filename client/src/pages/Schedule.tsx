@@ -11,6 +11,7 @@ import { useLocations } from "@/hooks/use-locations";
 import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import { ShiftDialog } from "@/components/ShiftDialog";
 import { OccurrenceDialog } from "@/components/OccurrenceDialog";
+import { ShiftTradeDialog } from "@/components/ShiftTradeDialog";
 import { ScheduleValidator, RemediationData } from "@/components/ScheduleValidator";
 import { DailyGanttModal } from "@/components/DailyGanttModal";
 import { Button } from "@/components/ui/button";
@@ -853,6 +854,23 @@ export default function Schedule() {
   const [occurrenceEmpId, setOccurrenceEmpId] = useState<number | undefined>(undefined);
   const [occurrenceEmpName, setOccurrenceEmpName] = useState<string>("");
   const [occurrenceDate, setOccurrenceDate] = useState<string>("");
+  
+  // Shift trade dialog state
+  const [tradeDialogOpen, setTradeDialogOpen] = useState(false);
+  const [tradeTargetShift, setTradeTargetShift] = useState<Shift | null>(null);
+  const [tradeTargetEmployee, setTradeTargetEmployee] = useState<any>(null);
+  
+  // Find the current user's employee record (for viewers to identify their shifts)
+  const currentEmployee = useMemo(() => {
+    if (!authStatus?.user?.email || !employees) return null;
+    return employees.find(e => e.email.toLowerCase() === authStatus.user!.email.toLowerCase()) || null;
+  }, [authStatus, employees]);
+  
+  // Get the current user's shifts for this week
+  const myShifts = useMemo(() => {
+    if (!currentEmployee || !shifts) return [];
+    return shifts.filter(s => s.employeeId === currentEmployee.id);
+  }, [currentEmployee, shifts]);
 
   const handlePrevWeek = () => setCurrentDate(subWeeks(currentDate, 1));
   const handleNextWeek = () => setCurrentDate(addWeeks(currentDate, 1));
@@ -864,7 +882,17 @@ export default function Schedule() {
     setDialogOpen(true);
   };
 
-  const handleEditShift = (shift: Shift) => {
+  const handleEditShift = (shift: Shift, shiftEmployee?: any) => {
+    // Viewers: if clicking someone else's shift, open trade dialog
+    if (userRole === "viewer" && currentEmployee && shift.employeeId !== currentEmployee.id && shiftEmployee) {
+      // Check job title match
+      if (currentEmployee.jobTitle === shiftEmployee.jobTitle) {
+        setTradeTargetShift(shift);
+        setTradeTargetEmployee(shiftEmployee);
+        setTradeDialogOpen(true);
+        return;
+      }
+    }
     setSelectedShift(shift);
     setDialogOpen(true);
   };
@@ -1499,8 +1527,12 @@ export default function Schedule() {
                                           draggable
                                           onDragStart={(e) => handleDragStart(e, shift)}
                                           onDragEnd={handleDragEnd}
-                                          onClick={(e) => { e.stopPropagation(); handleEditShift(shift); }}
-                                          className="cursor-grab active:cursor-grabbing p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1"
+                                          onClick={(e) => { e.stopPropagation(); handleEditShift(shift, emp); }}
+                                          className={`p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1 ${
+                                            userRole === "viewer" && currentEmployee && shift.employeeId !== currentEmployee.id && currentEmployee.jobTitle === emp.jobTitle
+                                              ? "cursor-pointer ring-1 ring-white/30 hover:ring-white/60"
+                                              : "cursor-grab active:cursor-grabbing"
+                                          }`}
                                           style={{ backgroundColor: getJobColor(emp.jobTitle) }}
                                           data-testid={`shift-${shift.id}`}
                                         >
@@ -1522,7 +1554,7 @@ export default function Schedule() {
                                       </ContextMenuTrigger>
                                       <ContextMenuContent>
                                         <ContextMenuItem 
-                                          onClick={() => handleEditShift(shift)}
+                                          onClick={() => handleEditShift(shift, emp)}
                                           data-testid={`context-edit-shift-${shift.id}`}
                                         >
                                           Edit Shift
@@ -1645,6 +1677,17 @@ export default function Schedule() {
           employees={employees || []}
         />
       )}
+
+      <ShiftTradeDialog
+        open={tradeDialogOpen}
+        onOpenChange={setTradeDialogOpen}
+        targetShift={tradeTargetShift}
+        targetEmployee={tradeTargetEmployee}
+        currentEmployee={currentEmployee}
+        myShifts={myShifts}
+        weekStart={weekStart}
+        weekEnd={weekEnd}
+      />
 
       <Dialog open={saveTemplateDialogOpen} onOpenChange={setSaveTemplateDialogOpen}>
         <DialogContent>

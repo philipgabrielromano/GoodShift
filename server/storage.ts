@@ -14,9 +14,11 @@ import {
   shiftPresets, type ShiftPreset, type InsertShiftPreset,
   occurrences, type Occurrence, type InsertOccurrence,
   occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment,
-  correctiveActions, type CorrectiveAction, type InsertCorrectiveAction
+  correctiveActions, type CorrectiveAction, type InsertCorrectiveAction,
+  shiftTrades, type ShiftTrade, type InsertShiftTrade,
+  notifications, type Notification, type InsertNotification
 } from "@shared/schema";
-import { eq, and, gte, lte, lt, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, lt, inArray, or, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -113,6 +115,20 @@ export interface IStorage {
   getAllCorrectiveActions(): Promise<CorrectiveAction[]>;
   createCorrectiveAction(action: InsertCorrectiveAction): Promise<CorrectiveAction>;
   deleteCorrectiveAction(id: number): Promise<void>;
+
+  // Shift Trades
+  getShiftTrades(filters?: { employeeId?: number; status?: string }): Promise<ShiftTrade[]>;
+  getShiftTrade(id: number): Promise<ShiftTrade | undefined>;
+  createShiftTrade(trade: InsertShiftTrade): Promise<ShiftTrade>;
+  updateShiftTrade(id: number, trade: Partial<InsertShiftTrade>): Promise<ShiftTrade>;
+  deleteShiftTrade(id: number): Promise<void>;
+
+  // Notifications
+  getNotifications(userId: number): Promise<Notification[]>;
+  getUnreadNotificationCount(userId: number): Promise<number>;
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationRead(id: number): Promise<Notification>;
+  markAllNotificationsRead(userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -588,6 +604,80 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCorrectiveAction(id: number): Promise<void> {
     await db.delete(correctiveActions).where(eq(correctiveActions.id, id));
+  }
+
+  // Shift Trades
+  async getShiftTrades(filters?: { employeeId?: number; status?: string }): Promise<ShiftTrade[]> {
+    const conditions = [];
+    if (filters?.employeeId) {
+      conditions.push(or(
+        eq(shiftTrades.requesterId, filters.employeeId),
+        eq(shiftTrades.responderId, filters.employeeId)
+      ));
+    }
+    if (filters?.status) {
+      conditions.push(eq(shiftTrades.status, filters.status));
+    }
+    if (conditions.length > 0) {
+      return await db.select().from(shiftTrades)
+        .where(and(...conditions))
+        .orderBy(desc(shiftTrades.createdAt));
+    }
+    return await db.select().from(shiftTrades).orderBy(desc(shiftTrades.createdAt));
+  }
+
+  async getShiftTrade(id: number): Promise<ShiftTrade | undefined> {
+    const [trade] = await db.select().from(shiftTrades).where(eq(shiftTrades.id, id));
+    return trade;
+  }
+
+  async createShiftTrade(trade: InsertShiftTrade): Promise<ShiftTrade> {
+    const [newTrade] = await db.insert(shiftTrades).values(trade).returning();
+    return newTrade;
+  }
+
+  async updateShiftTrade(id: number, trade: Partial<InsertShiftTrade>): Promise<ShiftTrade> {
+    const [updated] = await db.update(shiftTrades)
+      .set({ ...trade, updatedAt: new Date() })
+      .where(eq(shiftTrades.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteShiftTrade(id: number): Promise<void> {
+    await db.delete(shiftTrades).where(eq(shiftTrades.id, id));
+  }
+
+  // Notifications
+  async getNotifications(userId: number): Promise<Notification[]> {
+    return await db.select().from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt));
+  }
+
+  async getUnreadNotificationCount(userId: number): Promise<number> {
+    const result = await db.select().from(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    return result.length;
+  }
+
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const [newNotification] = await db.insert(notifications).values(notification).returning();
+    return newNotification;
+  }
+
+  async markNotificationRead(id: number): Promise<Notification> {
+    const [updated] = await db.update(notifications)
+      .set({ isRead: true })
+      .where(eq(notifications.id, id))
+      .returning();
+    return updated;
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<void> {
+    await db.update(notifications)
+      .set({ isRead: true })
+      .where(eq(notifications.userId, userId));
   }
 }
 

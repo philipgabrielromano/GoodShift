@@ -355,6 +355,70 @@ export type InsertOccurrence = z.infer<typeof insertOccurrenceSchema>;
 export type OccurrenceAdjustment = typeof occurrenceAdjustments.$inferSelect;
 export type InsertOccurrenceAdjustment = z.infer<typeof insertOccurrenceAdjustmentSchema>;
 
+// === SHIFT TRADING ===
+
+export const SHIFT_TRADE_STATUSES = ["pending_peer", "pending_manager", "approved", "declined_peer", "declined_manager", "cancelled"] as const;
+export type ShiftTradeStatus = typeof SHIFT_TRADE_STATUSES[number];
+
+export const shiftTrades = pgTable("shift_trades", {
+  id: serial("id").primaryKey(),
+  requesterId: integer("requester_id").notNull(),
+  responderId: integer("responder_id").notNull(),
+  requesterShiftId: integer("requester_shift_id").notNull(),
+  responderShiftId: integer("responder_shift_id").notNull(),
+  status: text("status").notNull().default("pending_peer"),
+  requesterNote: text("requester_note"),
+  responderNote: text("responder_note"),
+  managerNote: text("manager_note"),
+  reviewedBy: integer("reviewed_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const shiftTradesRelations = relations(shiftTrades, ({ one }) => ({
+  requester: one(employees, {
+    fields: [shiftTrades.requesterId],
+    references: [employees.id],
+    relationName: "tradeRequester",
+  }),
+  responder: one(employees, {
+    fields: [shiftTrades.responderId],
+    references: [employees.id],
+    relationName: "tradeResponder",
+  }),
+}));
+
+export const insertShiftTradeSchema = createInsertSchema(shiftTrades).omit({ id: true, createdAt: true, updatedAt: true });
+export type ShiftTrade = typeof shiftTrades.$inferSelect;
+export type InsertShiftTrade = z.infer<typeof insertShiftTradeSchema>;
+
+// === NOTIFICATIONS ===
+
+export const NOTIFICATION_TYPES = ["trade_requested", "trade_peer_approved", "trade_pending_manager", "trade_approved", "trade_declined"] as const;
+export type NotificationType = typeof NOTIFICATION_TYPES[number];
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  relatedTradeId: integer("related_trade_id"),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
+}));
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
 // === CHAT TABLES FOR AI INTEGRATION ===
 
 import { sql } from "drizzle-orm";

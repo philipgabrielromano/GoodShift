@@ -154,6 +154,117 @@ export async function sendOccurrenceAlertEmail(
   }
 }
 
+// Shift trade notification email
+export interface TradeNotificationEmailData {
+  recipientName: string;
+  requesterName: string;
+  responderName?: string;
+  requesterShiftDate: string;
+  requesterShiftTime: string;
+  responderShiftDate: string;
+  responderShiftTime: string;
+  action: "requested" | "pending_manager" | "approved" | "declined";
+  appUrl: string;
+}
+
+function getTradeActionDetails(action: TradeNotificationEmailData["action"]): { subject: string; heading: string; body: string; color: string } {
+  switch (action) {
+    case "requested":
+      return {
+        subject: "Shift Trade Request",
+        heading: "New Shift Trade Request",
+        body: "Someone would like to trade shifts with you. Please review the details below and respond.",
+        color: "#3b82f6",
+      };
+    case "pending_manager":
+      return {
+        subject: "Shift Trade Needs Your Approval",
+        heading: "Shift Trade Pending Approval",
+        body: "Both employees have agreed to a shift trade. Please review and approve or decline.",
+        color: "#f59e0b",
+      };
+    case "approved":
+      return {
+        subject: "Shift Trade Approved",
+        heading: "Shift Trade Approved",
+        body: "Your shift trade has been approved by a manager. The schedule has been updated automatically.",
+        color: "#22c55e",
+      };
+    case "declined":
+      return {
+        subject: "Shift Trade Declined",
+        heading: "Shift Trade Declined",
+        body: "Unfortunately, the shift trade was declined.",
+        color: "#ef4444",
+      };
+  }
+}
+
+export async function sendTradeNotificationEmail(
+  toEmail: string,
+  data: TradeNotificationEmailData
+): Promise<boolean> {
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for trade notification');
+      return false;
+    }
+
+    const details = getTradeActionDetails(data.action);
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: ${details.color}; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">${details.heading}</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>Hi ${data.recipientName},</p>
+      <p>${details.body}</p>
+      
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.requesterName}'s Shift:</strong></td>
+          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.requesterShiftDate}<br>${data.requesterShiftTime}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.responderName || "Trade Partner"}'s Shift:</strong></td>
+          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.responderShiftDate}<br>${data.responderShiftTime}</td>
+        </tr>
+      </table>
+      
+      <p>
+        <a href="${data.appUrl}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          Open GoodShift
+        </a>
+      </p>
+      
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated notification from GoodShift. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const message = {
+      subject: `GoodShift: ${details.subject} - ${data.requesterName}`,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent trade notification (${data.action}) to ${toEmail}`);
+    return true;
+  } catch (error) {
+    console.error('[Outlook] Failed to send trade notification:', error);
+    return false;
+  }
+}
+
 export async function testOutlookConnection(): Promise<{ success: boolean; error?: string; senderEmail?: string }> {
   try {
     const client = getGraphClient();
