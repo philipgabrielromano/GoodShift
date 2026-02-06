@@ -204,8 +204,15 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       const closerStartTime = isSunday ? "11:00" : (settings.managerEveningStart || "12:00");
       const closerEndTime = isSunday ? "19:30" : (settings.managerEveningEnd || "20:30");
       
-      // Count openers (8:00am - 4:30pm shifts)
+      // Count openers - on Sunday, any shift starting at 10am or before counts as an opener
+      // On other days, must match exact opener times (default 8:00-16:30)
       const openerShifts = dayShifts.filter(s => {
+        if (isSunday) {
+          const startHour = s.startTime.getHours();
+          const startMin = s.startTime.getMinutes();
+          const totalStartMinutes = startHour * 60 + startMin;
+          return totalStartMinutes <= 10 * 60; // 10:00 AM or before
+        }
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
         return startStr === (settings.managerMorningStart || "08:00") && 
@@ -229,6 +236,12 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       });
       
       const openingManagers = managerShifts.filter(s => {
+        if (isSunday) {
+          const startHour = s.startTime.getHours();
+          const startMin = s.startTime.getMinutes();
+          const totalStartMinutes = startHour * 60 + startMin;
+          return totalStartMinutes <= 10 * 60;
+        }
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
         return startStr === (settings.managerMorningStart || "08:00") && 
