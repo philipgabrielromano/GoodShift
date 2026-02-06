@@ -1338,6 +1338,45 @@ export async function registerRoutes(
       
       console.log(`[Scheduler] Leadership pool - Higher-tier: ${allHigherTierManagers.length}, Team Leads: ${allTeamLeads.length}`);
       
+      // ========== PRE-SELECT RANDOM DAYS OFF FOR EACH MANAGER ==========
+      // This ensures managers don't always end up on the same days each generation.
+      // For each manager, randomly pick which days they'll be "off" (up to 7 - maxDays).
+      // Only picks from days that aren't already blocked by time-off, non-working days, etc.
+      const managerRandomOffDays = new Map<number, Set<number>>();
+      
+      for (const mgr of [...allHigherTierManagers, ...allTeamLeads]) {
+        const maxDays = getMaxDays(mgr);
+        // Find which days this manager could potentially work (not blocked by time-off etc.)
+        const potentialDays: number[] = [];
+        for (let d = 0; d < 7; d++) {
+          const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+          if (isHoliday(currentDay)) continue;
+          if (isOnTimeOff(mgr.id, currentDay, d)) continue;
+          potentialDays.push(d);
+        }
+        
+        // If they have more potential days than their maxDays allows, randomly pick days off
+        const daysToRemove = potentialDays.length - maxDays;
+        const offDays = new Set<number>();
+        if (daysToRemove > 0) {
+          const shuffledPotential = shuffleArray(potentialDays);
+          for (let i = 0; i < daysToRemove; i++) {
+            offDays.add(shuffledPotential[i]);
+          }
+        }
+        managerRandomOffDays.set(mgr.id, offDays);
+        if (offDays.size > 0) {
+          console.log(`[Scheduler] ${mgr.name}: Random days off = ${Array.from(offDays).map(d => shortDayNames[d]).join(', ')}`);
+        }
+      }
+      
+      // Enhanced availability check for managers that includes random days off
+      const canManagerWorkDay = (mgr: typeof employees[0], currentDay: Date, dayIndex: number) => {
+        const offDays = managerRandomOffDays.get(mgr.id);
+        if (offDays && offDays.has(dayIndex)) return false;
+        return canWorkFullShift(mgr, currentDay, dayIndex);
+      };
+      
       // PASS 1: Ensure every day gets at least ONE higher-tier manager
       // Process days in order, but spread managers across all days first
       const pass1DayOrder = shuffleArray([0, 1, 2, 3, 4, 5, 6]);
@@ -1361,8 +1400,8 @@ export async function registerRoutes(
           continue;
         }
         
-        // Find available higher-tier managers for this day (re-shuffle for variety)
-        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+        // Find available higher-tier managers for this day using random off days
+        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         
         if (availableHigherTier.length > 0) {
           const shiftType = randomPick(['opener', 'closer', 'mid'] as const);
@@ -1402,8 +1441,8 @@ export async function registerRoutes(
         const shifts = getShiftTimes(currentDay);
         const coverage = leadershipCoverage[dayIndex];
         
-        // Find available higher-tier managers for this day (re-shuffle for variety)
-        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+        // Find available higher-tier managers for this day using random off days
+        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         
         // FIRST: If this day has no higher-tier coverage, try to add one now
         if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
@@ -1425,7 +1464,7 @@ export async function registerRoutes(
         }
         
         // Re-filter and re-shuffle after potential scheduling
-        const stillAvailableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+        const stillAvailableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         
         // Add second higher-tier manager for the opposite shift if available
         if (stillAvailableHigherTier.length > 0) {
@@ -1458,7 +1497,7 @@ export async function registerRoutes(
         }
         
         // Add third higher-tier manager for mid shift if still available
-        const availableForMid = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+        const availableForMid = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         if (availableForMid.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
           const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
           const manager = availableForMid[0];
@@ -1469,7 +1508,7 @@ export async function registerRoutes(
         
         // Add team leads ONLY if there's higher-tier coverage
         if (coverage.hasHigherTier) {
-          const availableTeamLeads = shuffleArray(allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+          const availableTeamLeads = shuffleArray(allTeamLeads.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
           
           for (const teamLead of availableTeamLeads) {
             // Build list of unfilled slots, then randomly pick one
