@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.8.0";
+export const APP_VERSION = "1.8.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.8.1",
+    date: "2026-02-06",
+    title: "Scheduling & Export Improvements",
+    changes: [
+      { type: "improvement", description: "Production scheduling redesigned - Phase 1 now fills ALL station slots every day up to the configured limit before Phase 2 adds extra shifts on Friday and Saturday" },
+      { type: "improvement", description: "Sunday opener shifts now start at 10:00 AM instead of 8:00 AM, including short morning and gap morning shifts" },
+      { type: "improvement", description: "Schedule view now shows total paid hours per position group instead of shift count" },
+      { type: "improvement", description: "Exported PDF schedules now display PAL (Paid Annual Leave) days and include PAL hours in weekly totals" },
+      { type: "improvement", description: "Settings page reorganized with role-based visibility - viewers see only notification preferences" },
+      { type: "fix", description: "Schedule no longer loses selected week and location on page refresh - selections persist in URL" },
+    ],
+  },
   {
     version: "1.8.0",
     date: "2026-02-06",
