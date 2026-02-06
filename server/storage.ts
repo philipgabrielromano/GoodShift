@@ -188,7 +188,17 @@ export class DatabaseStorage implements IStorage {
 
   async createShiftsBatch(shiftsData: InsertShift[]): Promise<Shift[]> {
     if (shiftsData.length === 0) return [];
-    const newShifts = await db.insert(shifts).values(shiftsData).returning();
+    const validated = shiftsData.filter(s => {
+      const start = new Date(s.startTime).getTime();
+      const end = new Date(s.endTime).getTime();
+      if (isNaN(start) || isNaN(end) || end <= start) {
+        console.error(`[Storage] Rejecting invalid shift: emp=${s.employeeId} start=${s.startTime} end=${s.endTime}`);
+        return false;
+      }
+      return true;
+    });
+    if (validated.length === 0) return [];
+    const newShifts = await db.insert(shifts).values(validated).returning();
     return newShifts;
   }
 

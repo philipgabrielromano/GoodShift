@@ -92,16 +92,31 @@ function getJobPriority(jobTitle: string): number {
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
 function calculatePaidHours(startTime: Date, endTime: Date): number {
-  const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-  // If 6+ hours, subtract 0.5 hours for unpaid lunch
+  const startMs = startTime.getTime();
+  const endMs = endTime.getTime();
+  if (isNaN(startMs) || isNaN(endMs)) {
+    console.error('[Schedule] Invalid shift timestamps:', { startTime, endTime });
+    return 0;
+  }
+  const clockHours = (endMs - startMs) / (1000 * 60 * 60);
+  if (clockHours < 0) {
+    console.error('[Schedule] Negative shift duration detected:', {
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      clockHours
+    });
+    return 0;
+  }
   return clockHours >= 6 ? clockHours - 0.5 : clockHours;
 }
 
 // Calculate effective work hours (excluding all breaks and lunches)
 // For production calculations - hours actually worked without breaks
 function calculateEffectiveHours(startTime: Date, endTime: Date): number {
+  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) return 0;
   const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-  const paidHours = clockHours >= 6 ? clockHours - 0.5 : clockHours; // Subtract unpaid lunch
+  if (clockHours < 0) return 0;
+  const paidHours = clockHours >= 6 ? clockHours - 0.5 : clockHours;
   
   // Now calculate effective hours based on paid hours:
   // 8+ hours: 7 hours effective (2x15min breaks + 30min lunch = 1 hour total break time)

@@ -330,10 +330,18 @@ export async function registerRoutes(
     try {
       // Coerce dates from strings if necessary (though Zod usually handles this if schema is set up right)
       // The schema expects dates/timestamps.
+      const startTime = new Date(req.body.startTime);
+      const endTime = new Date(req.body.endTime);
+      if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+        return res.status(400).json({ message: "Invalid shift timestamps" });
+      }
+      if (endTime.getTime() <= startTime.getTime()) {
+        return res.status(400).json({ message: "Shift end time must be after start time" });
+      }
       const input = api.shifts.create.input.parse({
         ...req.body,
-        startTime: new Date(req.body.startTime),
-        endTime: new Date(req.body.endTime)
+        startTime,
+        endTime
       });
       const shift = await storage.createShift(input);
       res.status(201).json(shift);
@@ -350,6 +358,9 @@ export async function registerRoutes(
        const body = { ...req.body };
        if (body.startTime) body.startTime = new Date(body.startTime);
        if (body.endTime) body.endTime = new Date(body.endTime);
+       if (body.startTime && body.endTime && body.endTime.getTime() <= body.startTime.getTime()) {
+         return res.status(400).json({ message: "Shift end time must be after start time" });
+       }
 
       const input = api.shifts.update.input.parse(body);
       const shift = await storage.updateShift(Number(req.params.id), input);
@@ -2450,9 +2461,20 @@ export async function registerRoutes(
       });
 
       // ========== BATCH INSERT ALL SHIFTS ==========
-      // This is much faster than individual inserts (single DB round-trip vs 100+ individual calls)
-      console.log(`[Scheduler] Batch inserting ${pendingShifts.length} shifts...`);
-      const insertedShifts = await storage.createShiftsBatch(pendingShifts);
+      const validShifts = pendingShifts.filter(s => {
+        const start = new Date(s.startTime).getTime();
+        const end = new Date(s.endTime).getTime();
+        if (isNaN(start) || isNaN(end) || end <= start) {
+          console.error(`[Scheduler] Discarding invalid shift: employee=${s.employeeId}, start=${s.startTime}, end=${s.endTime}`);
+          return false;
+        }
+        return true;
+      });
+      if (validShifts.length !== pendingShifts.length) {
+        console.warn(`[Scheduler] Filtered out ${pendingShifts.length - validShifts.length} invalid shifts`);
+      }
+      console.log(`[Scheduler] Batch inserting ${validShifts.length} shifts...`);
+      const insertedShifts = await storage.createShiftsBatch(validShifts);
       
       console.log(`[Scheduler] COMPLETE: ${insertedShifts.length} shifts, ${getTotalScheduledHours()} total hours`);
       res.status(201).json(insertedShifts);
