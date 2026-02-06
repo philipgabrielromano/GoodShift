@@ -42,9 +42,10 @@ interface DailyGanttModalProps {
   selectedDate: Date;
   shifts: Shift[];
   employees: Employee[];
+  selectedLocation?: string;
 }
 
-export function DailyGanttModal({ open, onClose, selectedDate, shifts, employees }: DailyGanttModalProps) {
+export function DailyGanttModal({ open, onClose, selectedDate, shifts, employees, selectedLocation }: DailyGanttModalProps) {
   const START_HOUR = 7;
   const END_HOUR = 20;
   const TOTAL_HOURS = END_HOUR - START_HOUR;
@@ -52,7 +53,12 @@ export function DailyGanttModal({ open, onClose, selectedDate, shifts, employees
   const dayShifts = shifts.filter(s => {
     const shiftDate = formatInTimeZone(s.startTime, TIMEZONE, "yyyy-MM-dd");
     const selectedDateStr = formatInTimeZone(selectedDate, TIMEZONE, "yyyy-MM-dd");
-    return shiftDate === selectedDateStr;
+    if (shiftDate !== selectedDateStr) return false;
+    if (selectedLocation && selectedLocation !== "all") {
+      const emp = employees.find(e => e.id === s.employeeId);
+      if (emp?.location !== selectedLocation) return false;
+    }
+    return true;
   });
 
   const shiftsWithEmployees = dayShifts

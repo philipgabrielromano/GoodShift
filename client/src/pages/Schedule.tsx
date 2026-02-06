@@ -679,7 +679,7 @@ export default function Schedule() {
     // Filter employees by location if selected and exclude hidden employees
     const filteredEmployees = employees.filter(emp => {
       if (emp.isHiddenFromSchedule) return false;
-      if (!selectedLocation) return true;
+      if (!selectedLocation || selectedLocation === "all") return true;
       return emp.location === selectedLocation;
     }).sort((a, b) => {
       const priorityA = getJobPriority(a.jobTitle);
@@ -757,7 +757,7 @@ export default function Schedule() {
     
     const totalScheduledHours = shifts.reduce((sum, s) => {
       const emp = employees.find(e => e.id === s.employeeId);
-      if (selectedLocation && emp?.location !== selectedLocation) return sum;
+      if (selectedLocation && selectedLocation !== "all" && emp?.location !== selectedLocation) return sum;
       return sum + calculatePaidHours(new Date(s.startTime), new Date(s.endTime));
     }, 0);
     
@@ -1335,18 +1335,25 @@ export default function Schedule() {
                   const dayDateStr = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
                   const dayHours = shifts?.reduce((sum, shift) => {
                     const shiftDateStr = formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd");
-                    if (shiftDateStr === dayDateStr) {
-                      const startTime = new Date(shift.startTime);
-                      const endTime = new Date(shift.endTime);
-                      return sum + calculatePaidHours(startTime, endTime);
+                    if (shiftDateStr !== dayDateStr) return sum;
+                    if (selectedLocation !== "all") {
+                      const emp = employees?.find(e => e.id === shift.employeeId);
+                      if (emp?.location !== selectedLocation) return sum;
                     }
-                    return sum;
+                    const startTime = new Date(shift.startTime);
+                    const endTime = new Date(shift.endTime);
+                    return sum + calculatePaidHours(startTime, endTime);
                   }, 0) || 0;
                   
                   // Calculate estimated production for pricers (APPROC and DONPRI)
                   const dayShifts = shifts?.filter(s => {
                     const shiftDateStr = formatInTimeZone(s.startTime, TIMEZONE, "yyyy-MM-dd");
-                    return shiftDateStr === dayDateStr;
+                    if (shiftDateStr !== dayDateStr) return false;
+                    if (selectedLocation !== "all") {
+                      const emp = employees?.find(e => e.id === s.employeeId);
+                      if (emp?.location !== selectedLocation) return false;
+                    }
+                    return true;
                   }) || [];
                   
                   // Get apparel pricer production (APPROC, APWV for WV)
@@ -1758,6 +1765,7 @@ export default function Schedule() {
           selectedDate={ganttSelectedDate}
           shifts={shifts || []}
           employees={employees || []}
+          selectedLocation={selectedLocation}
         />
       )}
 
