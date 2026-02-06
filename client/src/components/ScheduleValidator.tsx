@@ -299,6 +299,12 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       });
       
       const openingGreeter = donorGreeterShifts.some(s => {
+        if (isSunday) {
+          const startHour = s.startTime.getHours();
+          const startMin = s.startTime.getMinutes();
+          const totalStartMinutes = startHour * 60 + startMin;
+          return totalStartMinutes <= 10 * 60;
+        }
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
         return startStr === (settings.managerMorningStart || "08:00") && 
@@ -339,6 +345,12 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       });
       
       const openingCashier = cashierShifts.some(s => {
+        if (isSunday) {
+          const startHour = s.startTime.getHours();
+          const startMin = s.startTime.getMinutes();
+          const totalStartMinutes = startHour * 60 + startMin;
+          return totalStartMinutes <= 10 * 60;
+        }
         const startStr = format(s.startTime, "HH:mm");
         const endStr = format(s.endTime, "HH:mm");
         return startStr === (settings.managerMorningStart || "08:00") && 
