@@ -8,15 +8,27 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.6.1";
+export const APP_VERSION = "1.7.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.7.0",
+    date: "2026-02-06",
+    title: "Schedule Variety & Daily Coverage",
+    changes: [
+      { type: "feature", description: "Daily Coverage Gantt chart - click any day header to visualize all shifts for that day on a 7am-8pm timeline with position-colored bars" },
+      { type: "improvement", description: "Schedule variety - each generation now produces a different valid schedule by randomizing shift type assignments and employee selection across all phases" },
+      { type: "improvement", description: "Leadership scheduling variety - managers and team leads are now distributed across different days and shift types each generation instead of always landing on the same days" },
+      { type: "improvement", description: "Team lead slot assignment randomized - team leads now randomly fill opener, closer, or mid slots instead of always filling in a fixed order" },
+      { type: "improvement", description: "Mid-shift variety for managers - mid shifts now randomly vary between 9am, 10am, and 11am start times" },
+      { type: "fix", description: "Fixed manager day repetition - managers no longer get assigned to the same days every time the schedule is generated" },
+    ],
+  },
   {
     version: "1.6.1",
     date: "2026-02-05",
     title: "Scheduler Improvements",
     changes: [
-      { type: "feature", description: "Daily Coverage view - click any day header to see a Gantt chart visualization of all shifts for that day" },
       { type: "improvement", description: "Two-phase production scheduling - ensures minimum coverage for all days before prioritizing busy days (Fri/Sat/Sun)" },
       { type: "improvement", description: "Fixed production day ordering - Phase 1 uses fixed order to guarantee all days get minimum coverage" },
       { type: "improvement", description: "Streamlined schedule generation - removed AI scheduler in favor of optimized rule-based scheduler" },
