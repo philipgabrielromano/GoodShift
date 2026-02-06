@@ -17,7 +17,7 @@ export const changelog: ChangelogEntry[] = [
     title: "Scheduling & Export Improvements",
     changes: [
       { type: "improvement", description: "Production scheduling redesigned - Phase 1 now fills ALL station slots every day up to the configured limit before Phase 2 adds extra shifts on Friday and Saturday" },
-      { type: "improvement", description: "Sunday opener shifts now start at 10:00 AM instead of 8:00 AM, including short morning and gap morning shifts" },
+      { type: "improvement", description: "Sunday opener shifts now start at 10:00 AM by default, with flexible validation - any shift starting at 10am or before counts as an opener on Sundays" },
       { type: "improvement", description: "Schedule view now shows total paid hours per position group instead of shift count" },
       { type: "improvement", description: "Exported PDF schedules now display PAL (Paid Annual Leave) days and include PAL hours in weekly totals" },
       { type: "improvement", description: "Settings page reorganized with role-based visibility - viewers see only notification preferences" },
