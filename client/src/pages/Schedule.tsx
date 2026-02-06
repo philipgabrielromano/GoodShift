@@ -704,15 +704,22 @@ export default function Schedule() {
       
       const dayData = weekDays.map(day => {
         const dayShift = empShifts.find(s => isSameDay(new Date(s.startTime), day));
+        const dateStr = format(day, "yyyy-MM-dd");
+        const palKey = `${emp.id}-${dateStr}`;
+        const palEntry = palByEmpDate.get(palKey);
+        
         if (dayShift) {
           const start = new Date(dayShift.startTime);
           const end = new Date(dayShift.endTime);
           const hours = calculatePaidHours(start, end);
           weeklyHours += hours;
-          // Shorter time format to fit columns: "8a-4:30p" instead of "8:00AM-4:30PM"
           const startStr = format(start, "ha").toLowerCase().replace(":00", "");
           const endStr = format(end, "h:mma").toLowerCase();
           return `${startStr}-${endStr}`;
+        }
+        if (palEntry) {
+          weeklyHours += palEntry.hoursDecimal;
+          return "PAL";
         }
         return "-";
       });
