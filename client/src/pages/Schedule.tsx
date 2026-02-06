@@ -1459,30 +1459,66 @@ export default function Schedule() {
               .sort(([a], [b]) => getJobPriority(a) - getJobPriority(b))
               .map(([jobTitle, groupEmployees]) => {
                 const isCollapsed = collapsedGroups.has(jobTitle);
-                const groupTotalHours = shifts?.filter(s => 
+                const groupShifts = shifts?.filter(s => 
                   groupEmployees.some(e => e.id === s.employeeId)
-                ).reduce((sum, shift) => {
+                ) || [];
+                const groupTotalHours = groupShifts.reduce((sum, shift) => {
                   const startTime = new Date(shift.startTime);
                   const endTime = new Date(shift.endTime);
                   return sum + calculatePaidHours(startTime, endTime);
-                }, 0) || 0;
+                }, 0);
+                
+                const groupDailyHours = weekDays.map(day => {
+                  const dayEST = toZonedTime(day, TIMEZONE);
+                  let dayTotal = 0;
+                  for (const shift of groupShifts) {
+                    const shiftStartEST = toZonedTime(shift.startTime, TIMEZONE);
+                    if (isSameDay(shiftStartEST, dayEST)) {
+                      dayTotal += calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime));
+                    }
+                  }
+                  for (const emp of groupEmployees) {
+                    const dateStr = format(day, "yyyy-MM-dd");
+                    const palKey = `${emp.id}-${dateStr}`;
+                    const palEntry = palByEmpDate.get(palKey);
+                    if (palEntry) {
+                      dayTotal += palEntry.hoursDecimal;
+                    }
+                  }
+                  return dayTotal;
+                });
                 
                 return (
                   <div key={jobTitle} className="border-b last:border-b-0">
-                    <button
-                      onClick={() => toggleGroupCollapse(jobTitle)}
-                      className="w-full bg-muted/20 px-4 py-2 font-bold text-xs uppercase tracking-wider text-muted-foreground border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50"
-                      data-testid={`button-toggle-group-${jobTitle}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {isCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        <span>{getJobTitle(jobTitle)}</span>
-                        <Badge variant="secondary" className="ml-2">{groupEmployees.length}</Badge>
+                    <div className="bg-muted/20 border-b">
+                      <button
+                        onClick={() => toggleGroupCollapse(jobTitle)}
+                        className="w-full px-4 py-2 font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        data-testid={`button-toggle-group-${jobTitle}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {isCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          <span>{getJobTitle(jobTitle)}</span>
+                          <Badge variant="secondary" className="ml-2">{groupEmployees.length}</Badge>
+                        </div>
+                        {groupTotalHours > 0 && (
+                          <Badge variant="outline">{groupTotalHours.toFixed(1)} hrs</Badge>
+                        )}
+                      </button>
+                      <div className="grid" style={{ gridTemplateColumns: "200px repeat(7, 120px) 80px" }}>
+                        <div />
+                        {groupDailyHours.map((dayHrs, i) => (
+                          <div 
+                            key={i} 
+                            className="px-2 pb-1.5 text-center text-[10px] font-semibold text-muted-foreground"
+                            data-testid={`group-daily-hours-${jobTitle}-${i}`}
+                          >
+                            {dayHrs > 0 ? `${dayHrs.toFixed(1)}h` : ""}
+                          </div>
+                        ))}
+                        <div />
                       </div>
-                      {groupTotalHours > 0 && (
-                        <Badge variant="outline">{groupTotalHours.toFixed(1)} hrs</Badge>
-                      )}
-                    </button>
+                    </div>
                     
                     {!isCollapsed && (groupEmployees || []).map(emp => {
                       // Calculate total paid hours for this employee (subtract lunch for 6+ hour shifts)
