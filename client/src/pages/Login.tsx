@@ -22,7 +22,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4" data-testid="login-page">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center space-y-4">
-          <img src={goodshiftLogo} alt="GoodShift" className="mx-auto h-24 w-auto" />
+          <img src={goodshiftLogo} alt="GoodShift" className="mx-auto w-64 h-auto" />
           <CardDescription>
             Employee scheduling and workforce management
           </CardDescription>
