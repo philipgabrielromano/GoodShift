@@ -13,6 +13,15 @@ import { sendOccurrenceAlertEmail, sendTradeNotificationEmail, testOutlookConnec
 
 const TIMEZONE = "America/New_York";
 
+async function getNotificationEmails(employee: { email: string; alternateEmail?: string | null }): Promise<string[]> {
+  const emails = new Set<string>();
+  const user = await storage.getUserByEmail(employee.email);
+  if (user?.email) emails.add(user.email.toLowerCase());
+  if (employee.alternateEmail) emails.add(employee.alternateEmail.toLowerCase());
+  if (emails.size === 0 && employee.email) emails.add(employee.email.toLowerCase());
+  return Array.from(emails);
+}
+
 // Create a date with specific time in EST timezone
 function createESTTime(baseDate: Date, hours: number, minutes: number = 0): Date {
   const zonedDate = toZonedTime(baseDate, TIMEZONE);
@@ -3022,6 +3031,35 @@ export async function registerRoutes(
     }
   });
 
+  // PATCH /api/my-employee/alternate-email - Employee updates their own alternate notification email
+  app.patch("/api/my-employee/alternate-email", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (!user?.email) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { alternateEmail } = req.body;
+      const employees = await storage.getEmployees();
+      const linkedEmployee = employees.find(e => e.email && e.email.toLowerCase() === user.email.toLowerCase());
+
+      if (!linkedEmployee) {
+        return res.status(404).json({ message: "No linked employee found for your account" });
+      }
+
+      const emailValue = alternateEmail?.trim() || null;
+      if (emailValue && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+        return res.status(400).json({ message: "Invalid email format" });
+      }
+
+      const updated = await storage.updateEmployee(linkedEmployee.id, { alternateEmail: emailValue });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating alternate email:", error);
+      res.status(500).json({ message: "Failed to update alternate email" });
+    }
+  });
+
   // === Occurrences ===
   // Get occurrences for an employee within a date range
   app.get("/api/occurrences/:employeeId", requireAuth, async (req, res) => {
@@ -3681,11 +3719,12 @@ export async function registerRoutes(
         });
       }
 
-      // Send email to responder
+      // Send email to responder (SSO email + alternate email)
       try {
-        if (responder.email) {
-          const appUrl = `${req.protocol}://${req.get("host")}`;
-          await sendTradeNotificationEmail(responder.email, {
+        const responderEmails = await getNotificationEmails(responder);
+        const appUrl = `${req.protocol}://${req.get("host")}`;
+        for (const email of responderEmails) {
+          await sendTradeNotificationEmail(email, {
             recipientName: responder.name,
             requesterName: requester.name,
             requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
@@ -3755,7 +3794,7 @@ export async function registerRoutes(
               isRead: false,
             });
 
-            // Send email to manager
+            // Send email to manager (use their user account email)
             try {
               const appUrl = `${req.protocol}://${req.get("host")}`;
               const requesterShift = (await storage.getShifts()).find(s => s.id === trade.requesterShiftId);
@@ -3855,20 +3894,23 @@ export async function registerRoutes(
               isRead: false,
             });
           }
-          // Email notification
+          // Email notification (SSO email + alternate email)
           try {
             const appUrl = `${req.protocol}://${req.get("host")}`;
-            await sendTradeNotificationEmail(emp.email, {
-              recipientName: emp.name,
-              requesterName: requester?.name || "Employee",
-              responderName: responder?.name || "Employee",
-              requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-              requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-              responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-              responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-              action: "approved",
-              appUrl,
-            });
+            const empEmails = await getNotificationEmails(emp);
+            for (const email of empEmails) {
+              await sendTradeNotificationEmail(email, {
+                recipientName: emp.name,
+                requesterName: requester?.name || "Employee",
+                responderName: responder?.name || "Employee",
+                requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+                requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+                responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
+                responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+                action: "approved",
+                appUrl,
+              });
+            }
           } catch (emailErr) {
             console.error("[ShiftTrade] Approval email failed:", emailErr);
           }

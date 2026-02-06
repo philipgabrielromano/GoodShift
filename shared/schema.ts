@@ -21,6 +21,7 @@ export const employees = pgTable("employees", {
   preferredDaysPerWeek: integer("preferred_days_per_week").default(5), // 4 or 5 days per week for scheduling
   nonWorkingDays: text("non_working_days").array(), // Days employee doesn't work (e.g., ["Sunday", "Saturday"])
   hireDate: date("hire_date"), // Date employee was hired, from UKG
+  alternateEmail: text("alternate_email"), // Optional alternate email for notifications
 });
 
 export const timeOffRequests = pgTable("time_off_requests", {

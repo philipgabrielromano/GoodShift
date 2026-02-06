@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { formatInTimeZone } from "date-fns-tz";
-import { ArrowLeftRight, Check, X, Clock, User, Filter } from "lucide-react";
+import { ArrowLeftRight, Check, X, Clock, User, Filter, Mail, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,6 +51,9 @@ export default function ShiftTrades() {
   const [isResponding, setIsResponding] = useState(false);
   const [respondAction, setRespondAction] = useState<"approve" | "decline">("approve");
   const [respondType, setRespondType] = useState<"peer" | "manager">("peer");
+  const [altEmail, setAltEmail] = useState("");
+  const [altEmailSaving, setAltEmailSaving] = useState(false);
+  const [altEmailInitialized, setAltEmailInitialized] = useState(false);
 
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: trades = [], isLoading: tradesLoading } = useQuery<ShiftTrade[]>({
@@ -68,6 +72,27 @@ export default function ShiftTrades() {
     if (!authStatus?.user?.email) return null;
     return employees.find(e => e.email.toLowerCase() === authStatus.user!.email.toLowerCase()) || null;
   }, [authStatus, employees]);
+
+  useEffect(() => {
+    if (currentEmployee && !altEmailInitialized) {
+      setAltEmail(currentEmployee.alternateEmail || "");
+      setAltEmailInitialized(true);
+    }
+  }, [currentEmployee, altEmailInitialized]);
+
+  const handleSaveAltEmail = async () => {
+    setAltEmailSaving(true);
+    try {
+      await apiRequest("PATCH", "/api/my-employee/alternate-email", { alternateEmail: altEmail });
+      toast({ title: "Saved", description: "Alternate notification email updated." });
+      queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-employee"] });
+    } catch (error: any) {
+      toast({ title: "Error", description: error?.message || "Failed to save email", variant: "destructive" });
+    } finally {
+      setAltEmailSaving(false);
+    }
+  };
 
   const getEmployee = (id: number) => employees.find(e => e.id === id);
   const getShift = (id: number) => allShifts.find(s => s.id === id);
@@ -174,6 +199,41 @@ export default function ShiftTrades() {
           </Select>
         </div>
       </div>
+
+      {currentEmployee && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Mail className="w-4 h-4" />
+              Notification Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground mb-3">
+              Trade notifications are sent to your sign-in email ({authStatus?.user?.email}). You can also receive them at an additional email address.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input
+                type="email"
+                placeholder="Alternate notification email"
+                value={altEmail}
+                onChange={e => setAltEmail(e.target.value)}
+                className="flex-1"
+                data-testid="input-alternate-email"
+              />
+              <Button
+                size="sm"
+                onClick={handleSaveAltEmail}
+                disabled={altEmailSaving}
+                data-testid="button-save-alternate-email"
+              >
+                <Save className="w-4 h-4 mr-1" />
+                {altEmailSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {isManagerOrAdmin && pendingManagerTrades.length > 0 && (
         <Card className="border-amber-300 dark:border-amber-700">
