@@ -728,8 +728,8 @@ export default function Schedule() {
           const end = new Date(dayShift.endTime);
           const hours = calculatePaidHours(start, end);
           weeklyHours += hours;
-          const startStr = format(start, "ha").toLowerCase().replace(":00", "");
-          const endStr = format(end, "h:mma").toLowerCase();
+          const startStr = formatInTimeZone(start, TIMEZONE, "h:mma").toLowerCase();
+          const endStr = formatInTimeZone(end, TIMEZONE, "h:mma").toLowerCase();
           return `${startStr}-${endStr}`;
         }
         if (palEntry) {
