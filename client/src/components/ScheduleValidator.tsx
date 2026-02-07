@@ -308,14 +308,11 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       });
       
       const openingGreeter = donorGreeterShifts.some(s => {
+        const { totalMinutes } = getETHoursMinutes(s.startTime);
         if (isSunday) {
-          const { totalMinutes } = getETHoursMinutes(s.startTime);
           return totalMinutes <= 10 * 60;
         }
-        const startStr = formatTimeET(s.startTime);
-        const endStr = formatTimeET(s.endTime);
-        return startStr === (settings.managerMorningStart || "08:00") && 
-               endStr === (settings.managerMorningEnd || "16:30");
+        return totalMinutes <= 8 * 60 + 45;
       });
       
       // Donor greeter closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
