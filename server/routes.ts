@@ -2555,15 +2555,32 @@ export async function registerRoutes(
   // Clear schedule for a week (optionally filtered by location)
   app.post("/api/schedule/clear", async (req, res) => {
     try {
-      const { weekStart } = api.schedule.generate.input.parse(req.body);
-      const location = req.body.location as string | undefined;
-      const startDate = new Date(weekStart);
+      const parsed = api.schedule.generate.input.parse(req.body);
+      const location = parsed.location;
+      const startDate = new Date(parsed.weekStart);
       const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      console.log(`[Clear Schedule] Clearing shifts for week ${parsed.weekStart}, location: ${location || "ALL"}`);
       
       const deletedCount = await storage.deleteShiftsByDateRange(startDate, endDate, location);
       
+      console.log(`[Clear Schedule] Deleted ${deletedCount} shifts`);
+      
+      // Auto-unpublish the schedule when clearing
+      // Use formatInTimeZone to get consistent date format
+      const weekStartDate = formatInTimeZone(startDate, TIMEZONE, "yyyy-MM-dd");
+      const wasPublished = await storage.isSchedulePublished(weekStartDate);
+      if (wasPublished) {
+        await storage.unpublishSchedule(weekStartDate);
+        console.log(`[Clear Schedule] Auto-unpublished schedule for week ${weekStartDate}`);
+      }
+      
       const locationLabel = location || "all locations";
-      res.json({ message: `Cleared ${deletedCount} shifts for ${locationLabel}`, deletedCount });
+      res.json({ 
+        message: `Cleared ${deletedCount} shifts for ${locationLabel}`, 
+        deletedCount,
+        unpublished: wasPublished
+      });
     } catch (err) {
       console.error("Clear schedule error:", err);
       if (err instanceof z.ZodError) {

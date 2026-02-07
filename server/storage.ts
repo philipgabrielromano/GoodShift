@@ -221,14 +221,14 @@ export class DatabaseStorage implements IStorage {
       const result = await db.delete(shifts)
         .where(and(
           gte(shifts.startTime, start),
-          lte(shifts.startTime, end),
+          lt(shifts.startTime, end),
           inArray(shifts.employeeId, empIds)
         ))
         .returning({ id: shifts.id });
       return result.length;
     }
     const result = await db.delete(shifts)
-      .where(and(gte(shifts.startTime, start), lte(shifts.startTime, end)))
+      .where(and(gte(shifts.startTime, start), lt(shifts.startTime, end)))
       .returning({ id: shifts.id });
     return result.length;
   }

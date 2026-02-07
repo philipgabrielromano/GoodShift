@@ -892,12 +892,15 @@ export default function Schedule() {
     }
     setIsClearing(true);
     try {
-      await apiRequest("POST", "/api/schedule/clear", {
+      const res = await apiRequest("POST", "/api/schedule/clear", {
         weekStart: weekStart.toISOString(),
         location: selectedLocation !== "all" ? selectedLocation : undefined,
       });
+      const result = await res.json();
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      toast({ title: "Schedule Cleared", description: `Shifts for ${locationLabel} this week have been removed.` });
+      queryClient.invalidateQueries({ queryKey: ["/api/schedule/published"] });
+      const unpublishMsg = result.unpublished ? " Schedule has been unpublished." : "";
+      toast({ title: "Schedule Cleared", description: `Shifts for ${locationLabel} this week have been removed.${unpublishMsg}` });
     } catch (error) {
       toast({ variant: "destructive", title: "Clear Failed", description: "Could not clear the schedule." });
     } finally {
