@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.8.1";
+export const APP_VERSION = "1.8.5";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.8.5",
+    date: "2026-02-07",
+    title: "Validation & Export Fixes",
+    changes: [
+      { type: "improvement", description: "Opening cashier validation relaxed - cashiers starting at or before 8:45 AM now count as openers instead of requiring exact 8:00 AM start" },
+      { type: "improvement", description: "Opening donor door attendant validation relaxed - attendants starting at or before 8:45 AM now count as openers" },
+      { type: "fix", description: "PDF export now displays correct shift times in Eastern Time - previously showed times shifted by the browser's local timezone offset" },
+    ],
+  },
   {
     version: "1.8.1",
     date: "2026-02-06",
