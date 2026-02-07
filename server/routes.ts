@@ -591,7 +591,6 @@ export async function registerRoutes(
       
       // Convert patterns back to shifts
       const newShifts = patterns.map((pattern: any) => {
-        // Calculate the actual date for this day of week
         const shiftDate = new Date(targetWeekStart);
         const currentDay = shiftDate.getDay();
         const daysToAdd = pattern.dayOfWeek - currentDay;
@@ -603,6 +602,10 @@ export async function registerRoutes(
         const endTime = new Date(shiftDate);
         endTime.setHours(pattern.endHour, pattern.endMinute, 0, 0);
         
+        if (endTime <= startTime) {
+          endTime.setDate(endTime.getDate() + 1);
+        }
+        
         return {
           employeeId: pattern.employeeId,
           startTime,
@@ -610,6 +613,7 @@ export async function registerRoutes(
         };
       });
       
+      console.log(`[Template Apply] Template "${template.name}" has ${patterns.length} patterns, generated ${newShifts.length} shifts (${newShifts.filter((s: any) => new Date(s.endTime) > new Date(s.startTime)).length} valid)`);
       const created = await storage.createShiftsBatch(newShifts);
       res.json({ message: `Applied template with ${created.length} shifts`, count: created.length });
     } catch (err) {
