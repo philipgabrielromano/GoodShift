@@ -70,6 +70,16 @@ export function setupAuth(app: Express) {
 
   const csrfProtection = csurf({ cookie: false });
 
+  // Apply CSRF protection to all non-safe HTTP methods that use the session cookie.
+  // Safe methods (GET, HEAD, OPTIONS) are skipped to avoid breaking existing read-only endpoints.
+  app.use((req, res, next) => {
+    const method = req.method.toUpperCase();
+    if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
+      return next();
+    }
+    return csrfProtection(req, res, next);
+  });
+
   // Endpoint to obtain a CSRF token for use in state-changing requests
   app.get("/api/auth/csrf-token", csrfProtection, (req, res) => {
     res.json({ csrfToken: req.csrfToken() });
