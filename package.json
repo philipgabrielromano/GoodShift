@@ -90,7 +90,8 @@
     "ws": "^8.18.0",
     "zod": "^3.25.76",
     "zod-validation-error": "^3.5.4",
-    "csurf": "^1.11.0"
+    "csurf": "^1.11.0",
+    "express-rate-limit": "^8.2.1"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.4.4",
