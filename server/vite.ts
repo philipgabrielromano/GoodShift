@@ -5,8 +5,14 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
+import rateLimit from "express-rate-limit";
 
 const viteLogger = createLogger();
+
+const staticHtmlLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+});
 
 export async function setupVite(server: Server, app: Express) {
   const serverOptions = {
@@ -31,7 +37,7 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("/{*path}", async (req, res, next) => {
+  app.use("/{*path}", staticHtmlLimiter, async (req, res, next) => {
     const url = req.originalUrl;
 
     try {
