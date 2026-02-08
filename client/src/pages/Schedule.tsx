@@ -1331,7 +1331,7 @@ export default function Schedule() {
           })()}
           
           {/* Schedule Validator */}
-          <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />
+          {userRole !== "viewer" && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />}
           
         </div>
         
