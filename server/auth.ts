@@ -2,6 +2,7 @@ import { ConfidentialClientApplication, Configuration, AuthorizationCodeRequest 
 import type { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
 import crypto from "crypto";
+import csurf from "csurf";
 import { storage } from "./storage";
 
 declare module "express-session" {
@@ -66,6 +67,13 @@ export function setupAuth(app: Express) {
       },
     })
   );
+
+  const csrfProtection = csurf({ cookie: false });
+
+  // Endpoint to obtain a CSRF token for use in state-changing requests
+  app.get("/api/auth/csrf-token", csrfProtection, (req, res) => {
+    res.json({ csrfToken: req.csrfToken() });
+  });
 
   app.get("/api/auth/status", (req, res) => {
     res.json({
