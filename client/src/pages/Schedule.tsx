@@ -1080,7 +1080,7 @@ export default function Schedule() {
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
       <div className="flex flex-col items-center gap-4">
         <div className="flex flex-col md:flex-row items-center gap-4">
-          {/* Location dropdown: Admins can switch between all locations, others see their assigned location */}
+          {/* Location dropdown: Admins see all locations, others see their assigned locations */}
           {isAdmin ? (
             <Select value={selectedLocation} onValueChange={setSelectedLocation}>
               <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
@@ -1091,6 +1091,20 @@ export default function Schedule() {
                 <SelectItem value="all">All Locations</SelectItem>
                 {(locations || [])
                   .filter(l => l.isActive && !/^Location \d+$/.test(l.name))
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(loc => (
+                    <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          ) : userLocations.length > 1 ? (
+            <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+              <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
+                <MapPin className="w-4 h-4 mr-2 text-muted-foreground" />
+                <SelectValue placeholder="Select Location" />
+              </SelectTrigger>
+              <SelectContent>
+                {userLocations
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
