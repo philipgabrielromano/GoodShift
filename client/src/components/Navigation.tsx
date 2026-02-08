@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
-import goodshiftLogo from "@assets/2_1770387977850.png";
+import goodshiftLogo from "@assets/goodshift_1770590279218.png";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "./ThemeToggle";
 import { queryClient } from "@/lib/queryClient";

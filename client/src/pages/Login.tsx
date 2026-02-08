@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import goodshiftLogo from "@assets/2_1770387977850.png";
+import goodshiftLogo from "@assets/goodshift_1770590279218.png";
 
 function MicrosoftIcon({ className }: { className?: string }) {
   return (

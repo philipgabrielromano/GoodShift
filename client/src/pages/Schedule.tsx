@@ -31,7 +31,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import fanfareSound from "@assets/zelda-tp-item-fanfare_1769708907750.mp3";
-import goodwillLogo from "@/assets/goodwill-logo.png";
+import goodwillLogo from "@assets/goodshift_1770590279218.png";
 import latoRegularUrl from "@/assets/Lato-Regular.ttf";
 import latoBoldUrl from "@/assets/Lato-Bold.ttf";
 
