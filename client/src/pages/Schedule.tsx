@@ -958,6 +958,8 @@ export default function Schedule() {
         return;
       }
     }
+    // Viewers cannot edit shifts
+    if (userRole === "viewer") return;
     setSelectedShift(shift);
     setDialogOpen(true);
   };
@@ -1629,6 +1631,7 @@ export default function Schedule() {
                               onDragLeave={handleDragLeave}
                               onDrop={(e) => handleDrop(e, emp.id, day)}
                             >
+                              {userRole !== "viewer" && (
                               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                                 <Button 
                                   variant="ghost" 
@@ -1637,6 +1640,7 @@ export default function Schedule() {
                                   onClick={() => handleAddShift(day, emp.id)}
                                 />
                               </div>
+                              )}
 
                               <div className="space-y-1 relative z-10">
                                 {dayShifts?.map(shift => {
@@ -1650,14 +1654,14 @@ export default function Schedule() {
                                     <ContextMenu key={shift.id}>
                                       <ContextMenuTrigger>
                                         <div 
-                                          draggable
-                                          onDragStart={(e) => handleDragStart(e, shift)}
-                                          onDragEnd={handleDragEnd}
+                                          draggable={userRole !== "viewer"}
+                                          onDragStart={(e) => userRole !== "viewer" && handleDragStart(e, shift)}
+                                          onDragEnd={userRole !== "viewer" ? handleDragEnd : undefined}
                                           onClick={(e) => { e.stopPropagation(); handleEditShift(shift, emp); }}
                                           className={`p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1 ${
                                             userRole === "viewer" && currentEmployee && shift.employeeId !== currentEmployee.id && currentEmployee.jobTitle === emp.jobTitle
                                               ? "cursor-pointer ring-1 ring-white/30 hover:ring-white/60"
-                                              : "cursor-grab active:cursor-grabbing"
+                                              : userRole === "viewer" ? "cursor-default" : "cursor-grab active:cursor-grabbing"
                                           }`}
                                           style={{ backgroundColor: getJobColor(emp.jobTitle) }}
                                           data-testid={`shift-${shift.id}`}
@@ -1679,12 +1683,14 @@ export default function Schedule() {
                                         </div>
                                       </ContextMenuTrigger>
                                       <ContextMenuContent>
-                                        <ContextMenuItem 
-                                          onClick={() => handleEditShift(shift, emp)}
-                                          data-testid={`context-edit-shift-${shift.id}`}
-                                        >
-                                          Edit Shift
-                                        </ContextMenuItem>
+                                        {(userRole === 'admin' || userRole === 'manager') && (
+                                          <ContextMenuItem 
+                                            onClick={() => handleEditShift(shift, emp)}
+                                            data-testid={`context-edit-shift-${shift.id}`}
+                                          >
+                                            Edit Shift
+                                          </ContextMenuItem>
+                                        )}
                                         {(userRole === 'admin' || userRole === 'manager') && (
                                           <ContextMenuItem 
                                             onClick={() => handleAddOccurrence(emp.id, emp.name, day)}
