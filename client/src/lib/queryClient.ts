@@ -23,17 +23,64 @@ async function throwIfResNotOk(res: Response, redirectOnUnauthorized: boolean = 
   }
 }
 
+let csrfToken: string | null = null;
+
+async function getCsrfToken(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  const res = await fetch("/api/auth/csrf-token", { credentials: "include" });
+  if (res.ok) {
+    const data = await res.json();
+    csrfToken = data.csrfToken;
+    return csrfToken!;
+  }
+  return "";
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (data) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const upperMethod = method.toUpperCase();
+  if (upperMethod !== "GET" && upperMethod !== "HEAD" && upperMethod !== "OPTIONS") {
+    const token = await getCsrfToken();
+    if (token) {
+      headers["CSRF-Token"] = token;
+    }
+  }
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
+
+  if (res.status === 403) {
+    const text = await res.text();
+    if (text.includes("csrf")) {
+      csrfToken = null;
+      const retryToken = await getCsrfToken();
+      const retryHeaders: Record<string, string> = { ...headers };
+      if (retryToken) {
+        retryHeaders["CSRF-Token"] = retryToken;
+      }
+      const retryRes = await fetch(url, {
+        method,
+        headers: retryHeaders,
+        body: data ? JSON.stringify(data) : undefined,
+        credentials: "include",
+      });
+      await throwIfResNotOk(retryRes);
+      return retryRes;
+    }
+    throw new Error(`${res.status}: ${text}`);
+  }
 
   await throwIfResNotOk(res);
   return res;
