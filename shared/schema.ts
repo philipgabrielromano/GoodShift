@@ -104,6 +104,7 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   microsoftId: text("microsoft_id"), // Microsoft 365 user ID
   createdAt: timestamp("created_at").defaultNow(),
+  lastLoginAt: timestamp("last_login_at"),
 });
 
 // Locations table for store-specific settings
