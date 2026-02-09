@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { User, InsertUser } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
 export function useUsers() {
   return useQuery<User[]>({
@@ -33,13 +34,7 @@ export function useCreateUser() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (user: InsertUser) => {
-      const res = await fetch(api.users.create.path, {
-        method: api.users.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(user),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to create user");
+      const res = await apiRequest(api.users.create.method, api.users.create.path, user);
       return res.json() as Promise<User>;
     },
     onSuccess: () => {
@@ -53,13 +48,7 @@ export function useUpdateUser() {
   return useMutation({
     mutationFn: async ({ id, ...user }: Partial<InsertUser> & { id: number }) => {
       const url = buildUrl(api.users.update.path, { id });
-      const res = await fetch(url, {
-        method: api.users.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(user),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to update user");
+      const res = await apiRequest(api.users.update.method, url, user);
       return res.json() as Promise<User>;
     },
     onSuccess: () => {
@@ -73,11 +62,7 @@ export function useDeleteUser() {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.users.delete.path, { id });
-      const res = await fetch(url, {
-        method: api.users.delete.method,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to delete user");
+      await apiRequest(api.users.delete.method, url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.users.list.path] });

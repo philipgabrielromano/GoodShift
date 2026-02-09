@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
-import type { Employee, InsertEmployee } from "@shared/schema";
+import type { InsertEmployee } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
-// Fetch all employees
 export function useEmployees(options?: { retailOnly?: boolean; enabled?: boolean }) {
   const retailOnly = options?.retailOnly ?? false;
   const enabled = options?.enabled ?? true;
@@ -22,7 +22,6 @@ export function useEmployees(options?: { retailOnly?: boolean; enabled?: boolean
   });
 }
 
-// Fetch single employee
 export function useEmployee(id: number) {
   return useQuery({
     queryKey: [api.employees.get.path, id],
@@ -38,21 +37,11 @@ export function useEmployee(id: number) {
   });
 }
 
-// Create employee
 export function useCreateEmployee() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (employee: InsertEmployee) => {
-      const res = await fetch(api.employees.create.path, {
-        method: api.employees.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(employee),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to create employee");
-      }
+      const res = await apiRequest(api.employees.create.method, api.employees.create.path, employee);
       return api.employees.create.responses[201].parse(await res.json());
     },
     onSuccess: () => {
@@ -61,22 +50,12 @@ export function useCreateEmployee() {
   });
 }
 
-// Update employee
 export function useUpdateEmployee() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & Partial<InsertEmployee>) => {
       const url = buildUrl(api.employees.update.path, { id });
-      const res = await fetch(url, {
-        method: api.employees.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(error.message || "Failed to update employee");
-      }
+      const res = await apiRequest(api.employees.update.method, url, updates);
       return api.employees.update.responses[200].parse(await res.json());
     },
     onSuccess: () => {
@@ -85,17 +64,12 @@ export function useUpdateEmployee() {
   });
 }
 
-// Delete employee
 export function useDeleteEmployee() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.employees.delete.path, { id });
-      const res = await fetch(url, {
-        method: api.employees.delete.method,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to delete employee");
+      await apiRequest(api.employees.delete.method, url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.employees.list.path] });
@@ -103,22 +77,12 @@ export function useDeleteEmployee() {
   });
 }
 
-// Toggle employee schedule visibility (manager/admin only)
 export function useToggleScheduleVisibility() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, isHiddenFromSchedule }: { id: number; isHiddenFromSchedule: boolean }) => {
       const url = buildUrl(api.employees.toggleScheduleVisibility.path, { id });
-      const res = await fetch(url, {
-        method: api.employees.toggleScheduleVisibility.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isHiddenFromSchedule }),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(error.message || "Failed to update visibility");
-      }
+      const res = await apiRequest(api.employees.toggleScheduleVisibility.method, url, { isHiddenFromSchedule });
       return api.employees.toggleScheduleVisibility.responses[200].parse(await res.json());
     },
     onSuccess: () => {

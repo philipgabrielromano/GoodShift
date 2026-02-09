@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { ShiftPreset, InsertShiftPreset } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
 export function useShiftPresets() {
   return useQuery({
@@ -33,16 +34,7 @@ export function useCreateShiftPreset() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (preset: InsertShiftPreset) => {
-      const res = await fetch(api.shiftPresets.create.path, {
-        method: api.shiftPresets.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(preset),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to create shift preset");
-      }
+      const res = await apiRequest(api.shiftPresets.create.method, api.shiftPresets.create.path, preset);
       return await res.json() as ShiftPreset;
     },
     onSuccess: () => {
@@ -56,13 +48,7 @@ export function useUpdateShiftPreset() {
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & Partial<InsertShiftPreset>) => {
       const url = buildUrl(api.shiftPresets.update.path, { id });
-      const res = await fetch(url, {
-        method: api.shiftPresets.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to update shift preset");
+      const res = await apiRequest(api.shiftPresets.update.method, url, updates);
       return await res.json() as ShiftPreset;
     },
     onSuccess: () => {
@@ -76,11 +62,7 @@ export function useDeleteShiftPreset() {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.shiftPresets.delete.path, { id });
-      const res = await fetch(url, {
-        method: api.shiftPresets.delete.method,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to delete shift preset");
+      await apiRequest(api.shiftPresets.delete.method, url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.shiftPresets.list.path] });

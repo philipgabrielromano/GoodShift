@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
-import type { RoleRequirement, InsertRoleRequirement, InsertGlobalSettings } from "@shared/schema";
+import type { InsertRoleRequirement, InsertGlobalSettings } from "@shared/schema";
+import { apiRequest } from "@/lib/queryClient";
 
-// Role Requirements
 export function useRoleRequirements() {
   return useQuery({
     queryKey: [api.roleRequirements.list.path],
@@ -19,13 +19,7 @@ export function useCreateRoleRequirement() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (req: InsertRoleRequirement) => {
-      const res = await fetch(api.roleRequirements.create.path, {
-        method: api.roleRequirements.create.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to create role requirement");
+      const res = await apiRequest(api.roleRequirements.create.method, api.roleRequirements.create.path, req);
       return api.roleRequirements.create.responses[201].parse(await res.json());
     },
     onSuccess: () => {
@@ -39,11 +33,7 @@ export function useDeleteRoleRequirement() {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.roleRequirements.delete.path, { id });
-      const res = await fetch(url, {
-        method: api.roleRequirements.delete.method,
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to delete role requirement");
+      await apiRequest(api.roleRequirements.delete.method, url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.roleRequirements.list.path] });
@@ -51,7 +41,6 @@ export function useDeleteRoleRequirement() {
   });
 }
 
-// Global Settings
 export function useGlobalSettings() {
   return useQuery({
     queryKey: [api.globalSettings.get.path],
@@ -68,13 +57,7 @@ export function useUpdateGlobalSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (settings: InsertGlobalSettings) => {
-      const res = await fetch(api.globalSettings.update.path, {
-        method: api.globalSettings.update.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to update settings");
+      const res = await apiRequest(api.globalSettings.update.method, api.globalSettings.update.path, settings);
       return api.globalSettings.update.responses[200].parse(await res.json());
     },
     onSuccess: () => {
