@@ -210,6 +210,8 @@ export function setupAuth(app: Express) {
           return res.redirect("/?error=account_disabled");
         }
 
+        await storage.updateUser(user.id, { lastLoginAt: new Date() });
+
         req.session.user = {
           id: user.id,
           microsoftId,
