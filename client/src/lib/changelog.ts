@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.8.5";
+export const APP_VERSION = "1.8.6";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.8.6",
+    date: "2026-02-11",
+    title: "Admin Tools & Backend Improvements",
+    changes: [
+      { type: "feature", description: "UKG API credentials can now be configured directly from the Settings page by admins, replacing manual environment variable setup" },
+      { type: "feature", description: "UKG diagnostics panel added for monitoring sync health, API connectivity, and performance metrics" },
+      { type: "feature", description: "Email logging system tracks all outgoing emails for admin review, providing visibility into notification delivery" },
+      { type: "improvement", description: "Backend routes refactored into focused modules for better maintainability - UKG, occurrences, and shift trades each have dedicated route files" },
+    ],
+  },
   {
     version: "1.8.5",
     date: "2026-02-07",
