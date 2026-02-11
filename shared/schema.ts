@@ -65,6 +65,10 @@ export const globalSettings = pgTable("global_settings", {
   managersRequired: integer("managers_required").notNull().default(1),
   // HR notification email for occurrence alerts
   hrNotificationEmail: text("hr_notification_email"),
+  // UKG API credentials (overrides environment variables when set)
+  ukgApiUrl: text("ukg_api_url"),
+  ukgUsername: text("ukg_username"),
+  ukgPassword: text("ukg_password"),
 });
 
 // Retail job codes that are scheduleable

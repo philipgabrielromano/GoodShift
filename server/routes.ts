@@ -195,6 +195,17 @@ export async function registerRoutes(
   // Register object storage routes for PDF document uploads
   registerObjectStorageRoutes(app);
 
+  // Load UKG credentials from database settings (overrides env vars if set)
+  try {
+    const settings = await storage.getGlobalSettings();
+    if (settings.ukgApiUrl && settings.ukgUsername && settings.ukgPassword) {
+      ukgClient.updateCredentials(settings.ukgApiUrl, settings.ukgUsername, settings.ukgPassword);
+      console.log("[UKG] Loaded credentials from database settings");
+    }
+  } catch (err) {
+    console.error("[UKG] Failed to load credentials from database:", err);
+  }
+
   // === Employees ===
   app.get(api.employees.list.path, async (req, res) => {
     const user = (req.session as any)?.user;
@@ -2651,6 +2662,39 @@ export async function registerRoutes(
         success: false, 
         message: err instanceof Error ? err.message : String(err) 
       });
+    }
+  });
+
+  app.get("/api/ukg/credentials", requireAdmin, async (req, res) => {
+    const settings = await storage.getGlobalSettings();
+    res.json({
+      ukgApiUrl: settings.ukgApiUrl || process.env.UKG_API_URL || "",
+      ukgUsername: settings.ukgUsername || process.env.UKG_USERNAME || "",
+      hasPassword: !!(settings.ukgPassword || process.env.UKG_PASSWORD),
+    });
+  });
+
+  app.post("/api/ukg/credentials", requireAdmin, async (req, res) => {
+    try {
+      const { ukgApiUrl, ukgUsername, ukgPassword } = req.body;
+      if (!ukgApiUrl || !ukgUsername) {
+        return res.status(400).json({ message: "API URL and username are required" });
+      }
+      const settings = await storage.getGlobalSettings();
+      const effectivePassword = ukgPassword || settings.ukgPassword || process.env.UKG_PASSWORD || "";
+      if (!effectivePassword) {
+        return res.status(400).json({ message: "Password is required" });
+      }
+      const updateData: any = { ukgApiUrl, ukgUsername };
+      if (ukgPassword) {
+        updateData.ukgPassword = ukgPassword;
+      }
+      await storage.updateGlobalSettings(updateData);
+      ukgClient.updateCredentials(ukgApiUrl, ukgUsername, effectivePassword);
+      res.json({ success: true, message: "UKG credentials updated successfully" });
+    } catch (err) {
+      console.error("Failed to update UKG credentials:", err);
+      res.status(500).json({ message: "Failed to update credentials" });
     }
   });
 

@@ -178,17 +178,35 @@ class UKGClient {
     };
   }
 
+  private credentialsFromDb = false;
+
+  updateCredentials(apiUrl: string, username: string, password: string) {
+    let url = apiUrl || "";
+    if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
+      url = `https://${url}`;
+    }
+    if (url.endsWith("/")) {
+      url = url.slice(0, -1);
+    }
+    this.baseUrl = url;
+    this.username = username || "";
+    this.password = password || "";
+    this.lastError = null;
+    this.cachedLocations = null;
+    this.jobCache.clear();
+    this.locationCache.clear();
+    this.credentialsFromDb = true;
+  }
+
   private getAuthHeaders(): Record<string, string> {
     const preEncodedAuth = process.env.UKG_AUTH_HEADER;
     let authHeader: string;
     
-    if (preEncodedAuth) {
-      console.log("UKG: Using pre-encoded auth header from UKG_AUTH_HEADER");
-      authHeader = preEncodedAuth.startsWith("Basic ") ? preEncodedAuth : `Basic ${preEncodedAuth}`;
-    } else {
-      console.log("UKG: Using username/password for auth (UKG_AUTH_HEADER not set)");
+    if (this.credentialsFromDb || !preEncodedAuth) {
       const basicAuth = Buffer.from(`${this.username}:${this.password}`).toString("base64");
       authHeader = `Basic ${basicAuth}`;
+    } else {
+      authHeader = preEncodedAuth.startsWith("Basic ") ? preEncodedAuth : `Basic ${preEncodedAuth}`;
     }
     
     return {

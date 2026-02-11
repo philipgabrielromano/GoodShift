@@ -133,6 +133,39 @@ export default function Settings() {
   const [ukgApiError, setUkgApiError] = useState<string | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showEmailLogs, setShowEmailLogs] = useState(false);
+  const [showCredentials, setShowCredentials] = useState(false);
+  const [ukgApiUrl, setUkgApiUrl] = useState("");
+  const [ukgUsername, setUkgUsername] = useState("");
+  const [ukgPassword, setUkgPassword] = useState("");
+
+  const { data: ukgCredentials } = useQuery<{ ukgApiUrl: string; ukgUsername: string; hasPassword: boolean }>({
+    queryKey: ["/api/ukg/credentials"],
+    enabled: isAdmin,
+  });
+
+  useEffect(() => {
+    if (ukgCredentials) {
+      setUkgApiUrl(ukgCredentials.ukgApiUrl);
+      setUkgUsername(ukgCredentials.ukgUsername);
+    }
+  }, [ukgCredentials]);
+
+  const saveCredentials = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ukg/credentials", { ukgApiUrl, ukgUsername, ukgPassword });
+      return res.json();
+    },
+    onSuccess: (data: { success: boolean; message: string }) => {
+      toast({ title: "Credentials Saved", description: data.message });
+      setUkgPassword("");
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/credentials"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/stores"] });
+    },
+    onError: () => {
+      toast({ variant: "destructive", title: "Save Failed", description: "Could not save UKG credentials" });
+    },
+  });
 
   const { data: ukgDiagnostics, refetch: refetchDiagnostics } = useQuery<UKGDiagnostics>({
     queryKey: ["/api/ukg/diagnostics"],
@@ -425,10 +458,74 @@ export default function Settings() {
             </div>
           )}
 
-          {!ukgStatus?.configured && (
+          {!ukgStatus?.configured && !isAdmin && (
             <p className="text-sm text-muted-foreground">
-              To enable UKG integration, please configure the UKG service account credentials in your environment variables (UKG_API_URL, UKG_USERNAME, UKG_PASSWORD, UKG_API_KEY).
+              UKG integration is not configured. Contact an administrator to set up credentials.
             </p>
+          )}
+
+          {isAdmin && (
+            <div className="space-y-3 pt-2 border-t">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-sm font-medium">API Credentials</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCredentials(!showCredentials)}
+                  data-testid="button-toggle-ukg-credentials"
+                >
+                  {showCredentials ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+                  {showCredentials ? "Hide" : "Edit Credentials"}
+                </Button>
+              </div>
+
+              {showCredentials && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="ukg-api-url">API URL</Label>
+                    <Input
+                      id="ukg-api-url"
+                      data-testid="input-ukg-api-url"
+                      placeholder="https://your-ukg-instance.com/api"
+                      value={ukgApiUrl}
+                      onChange={(e) => setUkgApiUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ukg-username">Username</Label>
+                    <Input
+                      id="ukg-username"
+                      data-testid="input-ukg-username"
+                      placeholder="API username"
+                      value={ukgUsername}
+                      onChange={(e) => setUkgUsername(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ukg-password">Password</Label>
+                    <Input
+                      id="ukg-password"
+                      data-testid="input-ukg-password"
+                      type="password"
+                      placeholder={ukgCredentials?.hasPassword ? "Leave blank to keep current password" : "API password"}
+                      value={ukgPassword}
+                      onChange={(e) => setUkgPassword(e.target.value)}
+                    />
+                    {ukgCredentials?.hasPassword && !ukgPassword && (
+                      <p className="text-xs text-muted-foreground">A password is already saved. Enter a new one only if you want to change it.</p>
+                    )}
+                  </div>
+                  <Button
+                    onClick={() => saveCredentials.mutate()}
+                    disabled={saveCredentials.isPending || !ukgApiUrl || !ukgUsername || (!ukgPassword && !ukgCredentials?.hasPassword)}
+                    data-testid="button-save-ukg-credentials"
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    {saveCredentials.isPending ? "Saving..." : "Save Credentials"}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
