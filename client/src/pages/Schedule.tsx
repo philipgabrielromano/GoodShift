@@ -343,6 +343,8 @@ export default function Schedule() {
           regularHours: existing.regularHours + entry.regularHours,
           overtimeHours: existing.overtimeHours + entry.overtimeHours,
           totalHours: existing.totalHours + entry.totalHours,
+          clockIn: entry.clockIn && (!existing.clockIn || entry.clockIn < existing.clockIn) ? entry.clockIn : existing.clockIn,
+          clockOut: entry.clockOut && (!existing.clockOut || entry.clockOut > existing.clockOut) ? entry.clockOut : existing.clockOut,
         });
       } else {
         map.set(key, entry);
@@ -1675,8 +1677,15 @@ export default function Schedule() {
                                             <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
                                             <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
                                             {actualHours && (
-                                              <span className="text-[9px] opacity-80 mt-0.5 border-t border-white/30 pt-0.5">
-                                                Worked: {actualHours.totalHours.toFixed(1)}h
+                                              <span className="text-[9px] opacity-80 mt-0.5 border-t border-white/30 pt-0.5" data-testid={`text-worked-hours-${shift.id}`}>
+                                                {actualHours.totalHours.toFixed(1)}h
+                                                {actualHours.clockIn && actualHours.clockOut && (
+                                                  <span className="block">
+                                                    {(() => { try { return formatInTimeZone(actualHours.clockIn, TIMEZONE, "h:mma"); } catch { return ""; } })()}
+                                                    {" - "}
+                                                    {(() => { try { return formatInTimeZone(actualHours.clockOut, TIMEZONE, "h:mma"); } catch { return ""; } })()}
+                                                  </span>
+                                                )}
                                               </span>
                                             )}
                                           </div>

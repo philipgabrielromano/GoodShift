@@ -14,6 +14,7 @@ import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
 import { registerOccurrenceRoutes } from "./routes/occurrences";
 import { registerShiftTradeRoutes } from "./routes/shift-trades";
+import { registerReportRoutes } from "./routes/reports";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -1049,6 +1050,8 @@ export async function registerRoutes(
   registerOccurrenceRoutes(app);
 
   registerShiftTradeRoutes(app);
+
+  registerReportRoutes(app);
 
   // === SEED DATA ===
   await seedDatabase();

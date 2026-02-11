@@ -1,6 +1,6 @@
 import { ukgClient } from "./ukg";
 import { storage } from "./storage";
-import type { InsertTimeClockEntry } from "@shared/schema";
+import type { InsertTimeClockEntry, InsertTimeClockPunch } from "@shared/schema";
 
 let employeeSyncInterval: NodeJS.Timeout | null = null;
 let timeClockSyncInterval: NodeJS.Timeout | null = null;
@@ -206,6 +206,28 @@ async function syncTimeClockFromUKG(): Promise<void> {
           paycodeId: entry.paycodeId || 0, // 2 = PAL (Paid Annual Leave), 4 = Unpaid Time Off
         });
       }
+    }
+
+    // Store individual punch records for variance report
+    const rawPunches: InsertTimeClockPunch[] = timeClockData
+      .filter(entry => entry.clockIn || entry.clockOut)
+      .map(entry => ({
+        ukgEmployeeId: entry.employeeId,
+        workDate: entry.date,
+        clockIn: entry.clockIn || null,
+        clockOut: entry.clockOut || null,
+        regularHours: Math.round((entry.regularHours || 0) * 60),
+        overtimeHours: Math.round((entry.overtimeHours || 0) * 60),
+        totalHours: Math.round((entry.totalHours || 0) * 60),
+        locationId: entry.locationId || null,
+        jobId: entry.jobId || null,
+        paycodeId: entry.paycodeId || 0,
+      }));
+
+    if (rawPunches.length > 0) {
+      await storage.deleteTimeClockPunches(startDate, endDate);
+      const punchCount = await storage.insertTimeClockPunches(rawPunches);
+      console.log(`[Scheduler] Stored ${punchCount} individual punch records`);
     }
 
     // Convert aggregated map to array for storage

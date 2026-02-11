@@ -150,6 +150,21 @@ export const timeClockEntries = pgTable("time_clock_entries", {
   employeeDateIdx: uniqueIndex("time_clock_employee_date_idx").on(table.ukgEmployeeId, table.workDate),
 }));
 
+export const timeClockPunches = pgTable("time_clock_punches", {
+  id: serial("id").primaryKey(),
+  ukgEmployeeId: text("ukg_employee_id").notNull(),
+  workDate: date("work_date").notNull(),
+  clockIn: text("clock_in"),
+  clockOut: text("clock_out"),
+  regularHours: integer("regular_hours").notNull().default(0),
+  overtimeHours: integer("overtime_hours").notNull().default(0),
+  totalHours: integer("total_hours").notNull().default(0),
+  locationId: integer("location_id"),
+  jobId: integer("job_id"),
+  paycodeId: integer("paycode_id").notNull().default(0),
+  syncedAt: timestamp("synced_at").defaultNow(),
+});
+
 // === RELATIONS ===
 
 export const employeesRelations = relations(employees, ({ many }) => ({
@@ -182,6 +197,7 @@ export const insertUserSchema = createInsertSchema(users).omit({ id: true, creat
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ id: true });
 export const insertTimeClockEntrySchema = createInsertSchema(timeClockEntries).omit({ id: true, syncedAt: true });
+export const insertTimeClockPunchSchema = createInsertSchema(timeClockPunches).omit({ id: true, syncedAt: true });
 
 // === EXPLICIT API CONTRACT TYPES ===
 
@@ -220,6 +236,10 @@ export type InsertShiftPreset = z.infer<typeof insertShiftPresetSchema>;
 // Time Clock Entry Types
 export type TimeClockEntry = typeof timeClockEntries.$inferSelect;
 export type InsertTimeClockEntry = z.infer<typeof insertTimeClockEntrySchema>;
+
+// Time Clock Punch Types (individual punch pairs)
+export type TimeClockPunch = typeof timeClockPunches.$inferSelect;
+export type InsertTimeClockPunch = z.infer<typeof insertTimeClockPunchSchema>;
 
 // Complex Types for UI
 export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };

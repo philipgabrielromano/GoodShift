@@ -17,6 +17,8 @@ import Login from "@/pages/Login";
 import Attendance from "@/pages/Attendance";
 import Changelog from "@/pages/Changelog";
 import ShiftTrades from "@/pages/ShiftTrades";
+import OccurrenceReport from "@/pages/OccurrenceReport";
+import VarianceReport from "@/pages/VarianceReport";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -38,6 +40,8 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/changelog" component={Changelog} />
       <Route path="/trades" component={ShiftTrades} />
+      <Route path="/reports/occurrences" component={OccurrenceReport} />
+      <Route path="/reports/variance" component={VarianceReport} />
       <Route component={NotFound} />
     </Switch>
   );

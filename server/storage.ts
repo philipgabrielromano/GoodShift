@@ -9,6 +9,7 @@ import {
   users, type User, type InsertUser,
   locations, type Location, type InsertLocation,
   timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry,
+  timeClockPunches, type TimeClockPunch, type InsertTimeClockPunch,
   scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate,
   publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule,
   shiftPresets, type ShiftPreset, type InsertShiftPreset,
@@ -79,6 +80,11 @@ export interface IStorage {
   getLastTimeClockSyncDate(): Promise<string | null>;
   getEmployeeCount(): Promise<number>;
   getTimeClockEntryCount(): Promise<number>;
+
+  // Time Clock Punches (individual punch pairs)
+  getTimeClockPunches(startDate: string, endDate: string): Promise<TimeClockPunch[]>;
+  insertTimeClockPunches(punches: InsertTimeClockPunch[]): Promise<number>;
+  deleteTimeClockPunches(startDate: string, endDate: string): Promise<void>;
 
   // Schedule Templates
   getScheduleTemplates(): Promise<ScheduleTemplate[]>;
@@ -470,6 +476,34 @@ export class DatabaseStorage implements IStorage {
   async getTimeClockEntryCount(): Promise<number> {
     const [result] = await db.select({ count: sql<number>`count(*)` }).from(timeClockEntries);
     return Number(result?.count ?? 0);
+  }
+
+  async getTimeClockPunches(startDate: string, endDate: string): Promise<TimeClockPunch[]> {
+    return await db.select().from(timeClockPunches)
+      .where(and(
+        gte(timeClockPunches.workDate, startDate),
+        lte(timeClockPunches.workDate, endDate)
+      ));
+  }
+
+  async insertTimeClockPunches(punches: InsertTimeClockPunch[]): Promise<number> {
+    if (punches.length === 0) return 0;
+    let inserted = 0;
+    const batchSize = 100;
+    for (let i = 0; i < punches.length; i += batchSize) {
+      const batch = punches.slice(i, i + batchSize);
+      await db.insert(timeClockPunches).values(batch);
+      inserted += batch.length;
+    }
+    return inserted;
+  }
+
+  async deleteTimeClockPunches(startDate: string, endDate: string): Promise<void> {
+    await db.delete(timeClockPunches)
+      .where(and(
+        gte(timeClockPunches.workDate, startDate),
+        lte(timeClockPunches.workDate, endDate)
+      ));
   }
 
   // Schedule Templates

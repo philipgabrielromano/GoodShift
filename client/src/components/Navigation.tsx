@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -32,6 +32,12 @@ const managerNavItems = [
   { href: "/locations", label: "Locations", icon: MapPin },
 ];
 
+// Report items shown to managers and admins
+const reportNavItems = [
+  { href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList },
+  { href: "/reports/variance", label: "Variance Report", icon: FileBarChart },
+];
+
 // Items shown to admins only
 const adminNavItems = [
   { href: "/users", label: "Users", icon: Shield },
@@ -56,6 +62,23 @@ export function Navigation() {
     ...(isAdmin ? adminNavItems : []),
   ];
 
+  const renderNavItem = (item: typeof viewerNavItems[0], prefix: string = "nav") => (
+    <Link key={item.href} href={item.href}>
+      <div 
+        data-testid={`link-${prefix}-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+        className={clsx(
+          "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer group",
+          (location === item.href || (item.href !== "/" && location.startsWith(item.href)))
+            ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
+            : "text-muted-foreground hover-elevate"
+        )}
+      >
+        <item.icon className={clsx("w-5 h-5", (location === item.href || (item.href !== "/" && location.startsWith(item.href))) ? "text-primary-foreground" : "text-muted-foreground")} />
+        {item.label}
+      </div>
+    </Link>
+  );
+
   return (
     <>
       {/* Desktop Sidebar */}
@@ -67,23 +90,16 @@ export function Navigation() {
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2">
-          {navItems.map((item) => (
-            <Link key={item.href} href={item.href}>
-              <div 
-                data-testid={`link-nav-${item.label.toLowerCase()}`}
-                className={clsx(
-                  "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer group",
-                  location === item.href 
-                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <item.icon className={clsx("w-5 h-5", location === item.href ? "text-primary-foreground" : "text-muted-foreground group-hover:text-foreground")} />
-                {item.label}
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+          {navItems.map((item) => renderNavItem(item, "nav"))}
+          {isManagerOrAdmin && (
+            <>
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-reports-heading">Reports</p>
               </div>
-            </Link>
-          ))}
+              {reportNavItems.map((item) => renderNavItem(item, "nav"))}
+            </>
+          )}
         </nav>
 
         <div className="p-4 border-t space-y-3">
@@ -132,17 +148,17 @@ export function Navigation() {
             <div className="p-4 border-b flex flex-col items-center">
               <img src={goodshiftLogo} alt="GoodShift" className="w-48 h-auto" data-testid="img-logo-mobile" />
             </div>
-            <nav className="flex-1 p-4 space-y-2">
+            <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
               {navItems.map((item) => (
                 <Link key={item.href} href={item.href}>
                   <div 
                     onClick={() => setMobileOpen(false)}
-                    data-testid={`link-mobile-nav-${item.label.toLowerCase()}`}
+                    data-testid={`link-mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
                     className={clsx(
                       "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
-                      location === item.href 
+                      (location === item.href || (item.href !== "/" && location.startsWith(item.href)))
                         ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        : "text-muted-foreground hover-elevate"
                     )}
                   >
                     <item.icon className="w-5 h-5" />
@@ -150,6 +166,30 @@ export function Navigation() {
                   </div>
                 </Link>
               ))}
+              {isManagerOrAdmin && (
+                <>
+                  <div className="pt-3 pb-1 px-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>
+                  </div>
+                  {reportNavItems.map((item) => (
+                    <Link key={item.href} href={item.href}>
+                      <div 
+                        onClick={() => setMobileOpen(false)}
+                        data-testid={`link-mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                        className={clsx(
+                          "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
+                          location.startsWith(item.href)
+                            ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
+                            : "text-muted-foreground hover-elevate"
+                        )}
+                      >
+                        <item.icon className="w-5 h-5" />
+                        {item.label}
+                      </div>
+                    </Link>
+                  ))}
+                </>
+              )}
             </nav>
             <div className="p-4 border-t mt-auto space-y-3">
               <div className="text-center">
