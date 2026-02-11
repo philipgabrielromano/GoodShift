@@ -4,6 +4,7 @@
 import { Client } from '@microsoft/microsoft-graph-client';
 import { ClientSecretCredential } from '@azure/identity';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
+import { storage } from './storage';
 
 let graphClient: Client | null = null;
 
@@ -147,9 +148,26 @@ export async function sendOccurrenceAlertEmail(
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });
     
     console.log(`[Outlook] Sent occurrence alert email for ${data.employeeName} to ${toEmail} from ${senderEmail}`);
+    await storage.createEmailLog({
+      type: "occurrence_alert",
+      recipientEmail: toEmail,
+      subject: message.subject,
+      status: "sent",
+      employeeName: data.employeeName,
+      relatedId: data.employeeId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Outlook] Failed to send occurrence alert email:', error);
+    void storage.createEmailLog({
+      type: "occurrence_alert",
+      recipientEmail: toEmail,
+      subject: `Attendance Alert: ${data.employeeName} - ${getThresholdLabel(data.threshold)}`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.employeeName,
+      relatedId: data.employeeId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return false;
   }
 }
@@ -204,6 +222,7 @@ export async function sendTradeNotificationEmail(
   toEmail: string,
   data: TradeNotificationEmailData
 ): Promise<boolean> {
+  const details = getTradeActionDetails(data.action);
   try {
     const client = getGraphClient();
     const senderEmail = process.env.HR_SENDER_EMAIL;
@@ -211,8 +230,6 @@ export async function sendTradeNotificationEmail(
       console.error('[Outlook] HR_SENDER_EMAIL not configured for trade notification');
       return false;
     }
-
-    const details = getTradeActionDetails(data.action);
 
     const emailBody = `
 <html>
@@ -258,9 +275,24 @@ export async function sendTradeNotificationEmail(
 
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });
     console.log(`[Outlook] Sent trade notification (${data.action}) to ${toEmail}`);
+    await storage.createEmailLog({
+      type: "shift_trade",
+      recipientEmail: toEmail,
+      subject: message.subject,
+      status: "sent",
+      employeeName: data.recipientName,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Outlook] Failed to send trade notification:', error);
+    void storage.createEmailLog({
+      type: "shift_trade",
+      recipientEmail: toEmail,
+      subject: `GoodShift: ${details.subject} - ${data.requesterName}`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.recipientName,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return false;
   }
 }
@@ -318,9 +350,24 @@ export async function sendSchedulePublishEmail(
 
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });
     console.log(`[Outlook] Sent schedule publish notification to ${toEmail}`);
+    await storage.createEmailLog({
+      type: "schedule_publish",
+      recipientEmail: toEmail,
+      subject: message.subject,
+      status: "sent",
+      employeeName: data.recipientName,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Outlook] Failed to send schedule publish email:', error);
+    void storage.createEmailLog({
+      type: "schedule_publish",
+      recipientEmail: toEmail,
+      subject: `GoodShift: New Schedule Posted - Week of ${data.weekStartDate}`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.recipientName,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return false;
   }
 }
@@ -389,9 +436,22 @@ export async function sendTestEmail(toEmail: string): Promise<{ success: boolean
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });
     
     console.log(`[Outlook] Sent test email to ${toEmail} from ${senderEmail}`);
+    await storage.createEmailLog({
+      type: "test",
+      recipientEmail: toEmail,
+      subject: message.subject,
+      status: "sent",
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return { success: true };
   } catch (error: any) {
     console.error('[Outlook] Failed to send test email:', error);
+    void storage.createEmailLog({
+      type: "test",
+      recipientEmail: toEmail,
+      subject: "GoodShift HR Notifications - Test Email",
+      status: "failed",
+      error: error?.message || String(error),
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
     return { success: false, error: error.message };
   }
 }

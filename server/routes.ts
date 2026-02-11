@@ -763,6 +763,12 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/email-logs", requireAuth, requireAdmin, async (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const logs = await storage.getEmailLogs(Math.min(limit, 500));
+    res.json(logs);
+  });
+
   app.post(api.schedule.generate.path, async (req, res) => {
     try {
       const { weekStart, location } = api.schedule.generate.input.parse(req.body);

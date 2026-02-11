@@ -34,6 +34,18 @@ interface SyncResult {
   timeRecordsProcessed?: number;
 }
 
+interface EmailLogEntry {
+  id: number;
+  type: string;
+  recipientEmail: string;
+  subject: string;
+  status: string;
+  error: string | null;
+  employeeName: string | null;
+  relatedId: number | null;
+  sentAt: string;
+}
+
 interface UKGDiagnostics {
   configured: boolean;
   apiUrl: string | null;
@@ -120,11 +132,17 @@ export default function Settings() {
 
   const [ukgApiError, setUkgApiError] = useState<string | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showEmailLogs, setShowEmailLogs] = useState(false);
 
   const { data: ukgDiagnostics, refetch: refetchDiagnostics } = useQuery<UKGDiagnostics>({
     queryKey: ["/api/ukg/diagnostics"],
     enabled: isAdmin && showDiagnostics,
     refetchInterval: showDiagnostics ? 30000 : false,
+  });
+
+  const { data: emailLogs, refetch: refetchEmailLogs } = useQuery<EmailLogEntry[]>({
+    queryKey: ["/api/email-logs"],
+    enabled: isAdmin && showEmailLogs,
   });
 
   const testConnection = useMutation({
@@ -702,6 +720,106 @@ export default function Settings() {
             </div>
           )}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              Email Activity Log
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowEmailLogs(!showEmailLogs)}
+              data-testid="button-toggle-email-logs"
+            >
+              {showEmailLogs ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+              {showEmailLogs ? "Hide" : "Show"}
+            </Button>
+          </div>
+          <CardDescription>History of all emails sent, attempted, and failed.</CardDescription>
+        </CardHeader>
+        {showEmailLogs && (
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchEmailLogs()}
+                data-testid="button-refresh-email-logs"
+              >
+                <RefreshCw className="w-4 h-4 mr-1" />
+                Refresh
+              </Button>
+            </div>
+
+            {!emailLogs ? (
+              <div className="flex items-center justify-center py-8 text-muted-foreground">
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Loading email logs...
+              </div>
+            ) : emailLogs.length > 0 ? (
+              <div className="border rounded overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left p-2 font-medium">Time</th>
+                      <th className="text-left p-2 font-medium">Type</th>
+                      <th className="text-left p-2 font-medium">Recipient</th>
+                      <th className="text-left p-2 font-medium">Subject</th>
+                      <th className="text-center p-2 font-medium">Status</th>
+                      <th className="text-left p-2 font-medium">Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emailLogs.map((log) => (
+                      <tr key={log.id} className="border-b last:border-0" data-testid={`row-email-log-${log.id}`}>
+                        <td className="p-2 text-muted-foreground whitespace-nowrap">
+                          {new Date(log.sentAt).toLocaleString()}
+                        </td>
+                        <td className="p-2">
+                          <Badge variant="outline" className="text-xs whitespace-nowrap">
+                            {log.type === "occurrence_alert" ? "Occurrence Alert" :
+                             log.type === "shift_trade" ? "Shift Trade" :
+                             log.type === "schedule_publish" ? "Schedule Publish" :
+                             log.type === "test" ? "Test" : log.type}
+                          </Badge>
+                        </td>
+                        <td className="p-2 text-xs font-mono break-all max-w-[200px]">
+                          {log.recipientEmail}
+                          {log.employeeName && (
+                            <span className="block text-muted-foreground">{log.employeeName}</span>
+                          )}
+                        </td>
+                        <td className="p-2 text-xs max-w-[250px] truncate" title={log.subject}>
+                          {log.subject}
+                        </td>
+                        <td className="p-2 text-center">
+                          {log.status === "sent" ? (
+                            <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                              <CheckCircle2 className="w-3 h-3 mr-1" /> Sent
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-destructive border-destructive text-xs">
+                              <XCircle className="w-3 h-3 mr-1" /> Failed
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="p-2 text-xs text-destructive max-w-[200px] truncate" title={log.error || ""}>
+                          {log.error || "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-8">No email activity recorded yet.</p>
+            )}
+          </CardContent>
+        )}
       </Card>
       </>}
     </div>

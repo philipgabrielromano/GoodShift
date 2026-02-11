@@ -16,7 +16,8 @@ import {
   occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment,
   correctiveActions, type CorrectiveAction, type InsertCorrectiveAction,
   shiftTrades, type ShiftTrade, type InsertShiftTrade,
-  notifications, type Notification, type InsertNotification
+  notifications, type Notification, type InsertNotification,
+  emailLogs, type EmailLog, type InsertEmailLog
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -131,6 +132,10 @@ export interface IStorage {
   createNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationRead(id: number): Promise<Notification>;
   markAllNotificationsRead(userId: number): Promise<void>;
+
+  // Email Logs
+  getEmailLogs(limit?: number): Promise<EmailLog[]>;
+  createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -715,6 +720,16 @@ export class DatabaseStorage implements IStorage {
     await db.update(notifications)
       .set({ isRead: true })
       .where(eq(notifications.userId, userId));
+  }
+
+  // Email Logs
+  async getEmailLogs(limit = 100): Promise<EmailLog[]> {
+    return await db.select().from(emailLogs).orderBy(desc(emailLogs.sentAt)).limit(limit);
+  }
+
+  async createEmailLog(log: InsertEmailLog): Promise<EmailLog> {
+    const [newLog] = await db.insert(emailLogs).values(log).returning();
+    return newLog;
   }
 }
 

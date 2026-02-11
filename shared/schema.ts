@@ -421,6 +421,24 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
+// === EMAIL LOGS ===
+
+export const emailLogs = pgTable("email_logs", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull(),
+  recipientEmail: text("recipient_email").notNull(),
+  subject: text("subject").notNull(),
+  status: text("status").notNull(),
+  error: text("error"),
+  employeeName: text("employee_name"),
+  relatedId: integer("related_id"),
+  sentAt: timestamp("sent_at").defaultNow(),
+});
+
+export const insertEmailLogSchema = createInsertSchema(emailLogs).omit({ id: true, sentAt: true });
+export type EmailLog = typeof emailLogs.$inferSelect;
+export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
+
 // === CHAT TABLES FOR AI INTEGRATION ===
 
 import { sql } from "drizzle-orm";
