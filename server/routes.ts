@@ -2609,6 +2609,45 @@ export async function registerRoutes(
     res.json({ configured, connected });
   });
 
+  app.get("/api/ukg/diagnostics", requireAdmin, async (req, res) => {
+    const diagnostics = ukgClient.getDiagnostics();
+    const employeeCount = await storage.getEmployeeCount();
+    const timeClockCount = await storage.getTimeClockEntryCount();
+    res.json({
+      ...diagnostics,
+      database: {
+        employeeCount,
+        timeClockEntryCount: timeClockCount,
+      },
+    });
+  });
+
+  app.post("/api/ukg/test-connection", requireAdmin, async (req, res) => {
+    if (!ukgClient.isConfigured()) {
+      return res.json({ success: false, message: "UKG is not configured" });
+    }
+    try {
+      const startTime = Date.now();
+      const employees = await ukgClient.getAllEmployees();
+      const durationMs = Date.now() - startTime;
+      const lastError = ukgClient.getLastError();
+      if (lastError) {
+        return res.json({ success: false, message: lastError, durationMs });
+      }
+      return res.json({ 
+        success: true, 
+        message: `Connection successful. Fetched ${employees.length} employees.`,
+        employeeCount: employees.length,
+        durationMs,
+      });
+    } catch (err) {
+      return res.json({ 
+        success: false, 
+        message: err instanceof Error ? err.message : String(err) 
+      });
+    }
+  });
+
   app.get(api.ukg.stores.path, async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json([]);

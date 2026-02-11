@@ -4,13 +4,50 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import type { Employee } from "@shared/schema";
+
+interface DiagnosticApiCall {
+  timestamp: string;
+  method: string;
+  url: string;
+  status: number;
+  durationMs: number;
+  error?: string;
+  responseSize?: number;
+}
+
+interface SyncResult {
+  timestamp: string;
+  type: string;
+  success: boolean;
+  error?: string;
+  durationMs: number;
+  employeesFetched?: number;
+  employeesProcessed?: number;
+  timeRecordsFetched?: number;
+  timeRecordsProcessed?: number;
+}
+
+interface UKGDiagnostics {
+  configured: boolean;
+  apiUrl: string | null;
+  username: string | null;
+  lastError: string | null;
+  lastSuccessfulSync: string | null;
+  lastFailedSync: string | null;
+  recentApiCalls: DiagnosticApiCall[];
+  syncHistory: SyncResult[];
+  database: {
+    employeeCount: number;
+    timeClockEntryCount: number;
+  };
+}
 
 export default function Settings() {
   const { toast } = useToast();
@@ -82,6 +119,31 @@ export default function Settings() {
   });
 
   const [ukgApiError, setUkgApiError] = useState<string | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+
+  const { data: ukgDiagnostics, refetch: refetchDiagnostics } = useQuery<UKGDiagnostics>({
+    queryKey: ["/api/ukg/diagnostics"],
+    enabled: isAdmin && showDiagnostics,
+    refetchInterval: showDiagnostics ? 30000 : false,
+  });
+
+  const testConnection = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/ukg/test-connection", {});
+      return res.json();
+    },
+    onSuccess: (data: { success: boolean; message: string; employeeCount?: number; durationMs?: number }) => {
+      refetchDiagnostics();
+      if (data.success) {
+        toast({ title: "Connection Test Passed", description: data.message });
+      } else {
+        toast({ variant: "destructive", title: "Connection Test Failed", description: data.message });
+      }
+    },
+    onError: () => {
+      toast({ variant: "destructive", title: "Test Failed", description: "Could not test UKG connection" });
+    },
+  });
 
   const syncUkg = useMutation({
     mutationFn: async (storeId?: string) => {
@@ -351,6 +413,227 @@ export default function Settings() {
             </p>
           )}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="w-5 h-5" />
+              UKG Diagnostics
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDiagnostics(!showDiagnostics)}
+              data-testid="button-toggle-diagnostics"
+            >
+              {showDiagnostics ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+              {showDiagnostics ? "Hide" : "Show"}
+            </Button>
+          </div>
+          <CardDescription>API connection status, sync history, and recent API calls.</CardDescription>
+        </CardHeader>
+        {showDiagnostics && (
+          <CardContent className="space-y-6">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => testConnection.mutate()}
+                disabled={testConnection.isPending}
+                data-testid="button-test-ukg-connection"
+              >
+                <Wifi className={`w-4 h-4 mr-1 ${testConnection.isPending ? "animate-pulse" : ""}`} />
+                {testConnection.isPending ? "Testing..." : "Test Connection"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchDiagnostics()}
+                data-testid="button-refresh-diagnostics"
+              >
+                <RefreshCw className="w-4 h-4 mr-1" />
+                Refresh
+              </Button>
+            </div>
+
+            {ukgDiagnostics && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Connection</p>
+                    <div className="flex items-center gap-1.5">
+                      {ukgDiagnostics.configured ? (
+                        <Wifi className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <WifiOff className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      <span className="text-sm font-medium" data-testid="text-ukg-connection-status">
+                        {ukgDiagnostics.configured ? "Configured" : "Not Configured"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Employees in DB</p>
+                    <div className="flex items-center gap-1.5">
+                      <Database className="w-4 h-4 text-blue-500" />
+                      <span className="text-sm font-medium" data-testid="text-employee-count">
+                        {ukgDiagnostics.database.employeeCount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Time Clock Entries</p>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-blue-500" />
+                      <span className="text-sm font-medium" data-testid="text-timeclock-count">
+                        {ukgDiagnostics.database.timeClockEntryCount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Last Successful Sync</p>
+                    <span className="text-sm font-medium" data-testid="text-last-sync">
+                      {ukgDiagnostics.lastSuccessfulSync
+                        ? new Date(ukgDiagnostics.lastSuccessfulSync).toLocaleString()
+                        : "Never"}
+                    </span>
+                  </div>
+                </div>
+
+                {ukgDiagnostics.configured && (
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">API Endpoint</p>
+                    <p className="text-sm font-mono break-all" data-testid="text-api-url">{ukgDiagnostics.apiUrl}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Username: <span className="font-mono">{ukgDiagnostics.username}</span></p>
+                  </div>
+                )}
+
+                {ukgDiagnostics.lastError && (
+                  <div className="p-3 bg-destructive/10 border border-destructive/30 rounded space-y-1">
+                    <p className="text-xs font-medium text-destructive">Last Error</p>
+                    <p className="text-sm font-mono text-destructive/80 break-all" data-testid="text-last-error">
+                      {ukgDiagnostics.lastError}
+                    </p>
+                  </div>
+                )}
+
+                {ukgDiagnostics.syncHistory.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Sync History</p>
+                    <div className="border rounded overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/30">
+                            <th className="text-left p-2 font-medium">Time</th>
+                            <th className="text-left p-2 font-medium">Type</th>
+                            <th className="text-left p-2 font-medium">Status</th>
+                            <th className="text-left p-2 font-medium">Details</th>
+                            <th className="text-right p-2 font-medium">Duration</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ukgDiagnostics.syncHistory.map((sync, i) => (
+                            <tr key={i} className="border-b last:border-0" data-testid={`row-sync-${i}`}>
+                              <td className="p-2 text-muted-foreground whitespace-nowrap">
+                                {new Date(sync.timestamp).toLocaleString()}
+                              </td>
+                              <td className="p-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {sync.type === "employee" ? "Employees" : "Time Clock"}
+                                </Badge>
+                              </td>
+                              <td className="p-2">
+                                {sync.success ? (
+                                  <Badge variant="outline" className="text-green-600 border-green-600 text-xs">
+                                    <CheckCircle2 className="w-3 h-3 mr-1" /> OK
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-destructive border-destructive text-xs">
+                                    <XCircle className="w-3 h-3 mr-1" /> Failed
+                                  </Badge>
+                                )}
+                              </td>
+                              <td className="p-2 text-xs text-muted-foreground">
+                                {sync.success ? (
+                                  sync.type === "employee"
+                                    ? `${sync.employeesFetched} fetched, ${sync.employeesProcessed} processed`
+                                    : `${sync.timeRecordsFetched} fetched, ${sync.timeRecordsProcessed} processed`
+                                ) : (
+                                  <span className="text-destructive">{sync.error}</span>
+                                )}
+                              </td>
+                              <td className="p-2 text-right text-muted-foreground whitespace-nowrap">
+                                {sync.durationMs ? `${(sync.durationMs / 1000).toFixed(1)}s` : "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {ukgDiagnostics.recentApiCalls.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Recent API Calls</p>
+                    <div className="border rounded overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-muted/30">
+                            <th className="text-left p-2 font-medium">Time</th>
+                            <th className="text-left p-2 font-medium">Method</th>
+                            <th className="text-left p-2 font-medium">URL</th>
+                            <th className="text-center p-2 font-medium">Status</th>
+                            <th className="text-right p-2 font-medium">Duration</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ukgDiagnostics.recentApiCalls.map((call, i) => (
+                            <tr key={i} className="border-b last:border-0" data-testid={`row-api-call-${i}`}>
+                              <td className="p-2 text-muted-foreground whitespace-nowrap">
+                                {new Date(call.timestamp).toLocaleTimeString()}
+                              </td>
+                              <td className="p-2">
+                                <Badge variant="outline" className="text-xs">{call.method}</Badge>
+                              </td>
+                              <td className="p-2 font-mono text-xs break-all max-w-[300px]">{call.url}</td>
+                              <td className="p-2 text-center">
+                                <Badge
+                                  variant="outline"
+                                  className={`text-xs ${
+                                    call.status >= 200 && call.status < 300
+                                      ? "text-green-600 border-green-600"
+                                      : call.status >= 400
+                                        ? "text-destructive border-destructive"
+                                        : "text-yellow-600 border-yellow-600"
+                                  }`}
+                                >
+                                  {call.status}
+                                </Badge>
+                              </td>
+                              <td className="p-2 text-right text-muted-foreground whitespace-nowrap">
+                                {call.durationMs ? `${call.durationMs}ms` : "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {!ukgDiagnostics && (
+              <div className="flex items-center justify-center py-8 text-muted-foreground">
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                Loading diagnostics...
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       <Card>

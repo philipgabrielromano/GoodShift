@@ -18,7 +18,7 @@ import {
   shiftTrades, type ShiftTrade, type InsertShiftTrade,
   notifications, type Notification, type InsertNotification
 } from "@shared/schema";
-import { eq, and, gte, lte, lt, inArray, or, desc } from "drizzle-orm";
+import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -76,6 +76,8 @@ export interface IStorage {
   getUnpaidTimeOffEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
   getLastTimeClockSyncDate(): Promise<string | null>;
+  getEmployeeCount(): Promise<number>;
+  getTimeClockEntryCount(): Promise<number>;
 
   // Schedule Templates
   getScheduleTemplates(): Promise<ScheduleTemplate[]>;
@@ -453,6 +455,16 @@ export class DatabaseStorage implements IStorage {
       .orderBy(timeClockEntries.workDate)
       .limit(1);
     return latest?.workDate || null;
+  }
+
+  async getEmployeeCount(): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` }).from(employees);
+    return Number(result?.count ?? 0);
+  }
+
+  async getTimeClockEntryCount(): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` }).from(timeClockEntries);
+    return Number(result?.count ?? 0);
   }
 
   // Schedule Templates

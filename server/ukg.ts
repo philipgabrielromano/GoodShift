@@ -90,6 +90,28 @@ export interface TimeClockEntry {
   paycodeId: number; // 2 = PAL (Paid Annual Leave / PTO)
 }
 
+interface UKGDiagnosticEntry {
+  timestamp: string;
+  endpoint: string;
+  method: string;
+  status: number | null;
+  success: boolean;
+  message: string;
+  durationMs: number;
+}
+
+interface UKGSyncResult {
+  timestamp: string;
+  type: "employee" | "timeclock";
+  success: boolean;
+  employeesFetched?: number;
+  employeesProcessed?: number;
+  timeRecordsFetched?: number;
+  timeRecordsProcessed?: number;
+  error?: string;
+  durationMs: number;
+}
+
 class UKGClient {
   private baseUrl: string;
   private username: string;
@@ -98,6 +120,10 @@ class UKGClient {
   private lastError: string | null = null;
   private jobCache: Map<number, string> = new Map();
   private locationCache: Map<number, string> = new Map();
+  private diagnosticLog: UKGDiagnosticEntry[] = [];
+  private syncHistory: UKGSyncResult[] = [];
+  private lastSuccessfulSync: string | null = null;
+  private lastFailedSync: string | null = null;
 
   constructor() {
     let url = process.env.UKG_API_URL || "";
@@ -118,6 +144,38 @@ class UKGClient {
 
   getLastError(): string | null {
     return this.lastError;
+  }
+
+  private addDiagnostic(entry: UKGDiagnosticEntry) {
+    this.diagnosticLog.unshift(entry);
+    if (this.diagnosticLog.length > 50) {
+      this.diagnosticLog = this.diagnosticLog.slice(0, 50);
+    }
+  }
+
+  addSyncResult(result: UKGSyncResult) {
+    this.syncHistory.unshift(result);
+    if (this.syncHistory.length > 20) {
+      this.syncHistory = this.syncHistory.slice(0, 20);
+    }
+    if (result.success) {
+      this.lastSuccessfulSync = result.timestamp;
+    } else {
+      this.lastFailedSync = result.timestamp;
+    }
+  }
+
+  getDiagnostics() {
+    return {
+      configured: this.isConfigured(),
+      apiUrl: this.baseUrl ? this.baseUrl.replace(/\/api$/, "/api/...") : null,
+      username: this.username || null,
+      lastError: this.lastError,
+      lastSuccessfulSync: this.lastSuccessfulSync,
+      lastFailedSync: this.lastFailedSync,
+      recentApiCalls: this.diagnosticLog.slice(0, 20),
+      syncHistory: this.syncHistory.slice(0, 10),
+    };
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -143,6 +201,7 @@ class UKGClient {
   private async apiRequest<T>(endpoint: string, method = "GET", timeoutMs = 60000): Promise<T | null> {
     const url = `${this.baseUrl}${endpoint}`;
     console.log(`UKG: ${method} ${url}`);
+    const startTime = Date.now();
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -155,14 +214,26 @@ class UKGClient {
       });
 
       clearTimeout(timeoutId);
+      const durationMs = Date.now() - startTime;
 
       const responseText = await response.text();
       console.log("UKG: API response status:", response.status);
 
       if (!response.ok) {
         this.lastError = `API error (${response.status}): ${responseText.slice(0, 300)}`;
+        this.addDiagnostic({
+          timestamp: new Date().toISOString(),
+          endpoint, method, status: response.status,
+          success: false, message: `HTTP ${response.status}`, durationMs,
+        });
         return null;
       }
+
+      this.addDiagnostic({
+        timestamp: new Date().toISOString(),
+        endpoint, method, status: response.status,
+        success: true, message: "OK", durationMs,
+      });
 
       if (!responseText.trim()) {
         return { value: [] } as unknown as T;
@@ -176,13 +247,24 @@ class UKGClient {
       }
     } catch (error: unknown) {
       clearTimeout(timeoutId);
+      const durationMs = Date.now() - startTime;
       if (error instanceof Error && error.name === "AbortError") {
         this.lastError = `API timeout after ${timeoutMs}ms`;
         console.error(`UKG API timeout: ${url}`);
+        this.addDiagnostic({
+          timestamp: new Date().toISOString(),
+          endpoint, method, status: null,
+          success: false, message: `Timeout after ${timeoutMs}ms`, durationMs,
+        });
       } else {
         const message = error instanceof Error ? error.message : String(error);
         this.lastError = `API exception: ${message}`;
         console.error("UKG API error:", message);
+        this.addDiagnostic({
+          timestamp: new Date().toISOString(),
+          endpoint, method, status: null,
+          success: false, message, durationMs,
+        });
       }
       return null;
     }

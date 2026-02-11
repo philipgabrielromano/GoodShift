@@ -10,6 +10,7 @@ const TIME_CLOCK_START_DATE = "2026-01-01";
 
 async function syncEmployeesFromUKG(): Promise<void> {
   console.log("[Scheduler] Starting daily UKG employee sync...");
+  const syncStart = Date.now();
   
   if (!ukgClient.isConfigured()) {
     console.log("[Scheduler] UKG not configured, skipping sync");
@@ -23,6 +24,13 @@ async function syncEmployeesFromUKG(): Promise<void> {
     const apiError = ukgClient.getLastError();
     if (apiError) {
       console.error("[Scheduler] UKG API error:", apiError);
+      ukgClient.addSyncResult({
+        timestamp: new Date().toISOString(),
+        type: "employee",
+        success: false,
+        error: apiError,
+        durationMs: Date.now() - syncStart,
+      });
       return;
     }
 
@@ -65,13 +73,29 @@ async function syncEmployeesFromUKG(): Promise<void> {
     console.log(`[Scheduler] Auto-discovered ${locationsSeen.size} unique locations`);
 
     console.log(`[Scheduler] UKG Sync complete: ${imported} imported, ${updated} updated, ${errors} errors`);
+    ukgClient.addSyncResult({
+      timestamp: new Date().toISOString(),
+      type: "employee",
+      success: true,
+      employeesFetched: ukgEmployees.length,
+      employeesProcessed: imported + updated,
+      durationMs: Date.now() - syncStart,
+    });
   } catch (err) {
     console.error("[Scheduler] Failed to sync from UKG:", err);
+    ukgClient.addSyncResult({
+      timestamp: new Date().toISOString(),
+      type: "employee",
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - syncStart,
+    });
   }
 }
 
 async function syncTimeClockFromUKG(): Promise<void> {
   console.log("[Scheduler] Starting time clock sync from UKG...");
+  const syncStart = Date.now();
   
   if (!ukgClient.isConfigured()) {
     console.log("[Scheduler] UKG not configured, skipping time clock sync");
@@ -110,11 +134,26 @@ async function syncTimeClockFromUKG(): Promise<void> {
     const apiError = ukgClient.getLastError();
     if (apiError) {
       console.error("[Scheduler] UKG time clock API error:", apiError);
+      ukgClient.addSyncResult({
+        timestamp: new Date().toISOString(),
+        type: "timeclock",
+        success: false,
+        error: apiError,
+        durationMs: Date.now() - syncStart,
+      });
       return;
     }
 
     if (timeClockData.length === 0) {
       console.log("[Scheduler] No time clock data to sync");
+      ukgClient.addSyncResult({
+        timestamp: new Date().toISOString(),
+        type: "timeclock",
+        success: true,
+        timeRecordsFetched: 0,
+        timeRecordsProcessed: 0,
+        durationMs: Date.now() - syncStart,
+      });
       return;
     }
 
@@ -175,8 +214,23 @@ async function syncTimeClockFromUKG(): Promise<void> {
 
     const upserted = await storage.upsertTimeClockEntries(entries);
     console.log(`[Scheduler] Time clock sync complete: ${upserted} entries processed`);
+    ukgClient.addSyncResult({
+      timestamp: new Date().toISOString(),
+      type: "timeclock",
+      success: true,
+      timeRecordsFetched: timeClockData.length,
+      timeRecordsProcessed: upserted,
+      durationMs: Date.now() - syncStart,
+    });
   } catch (err) {
     console.error("[Scheduler] Failed to sync time clock data:", err);
+    ukgClient.addSyncResult({
+      timestamp: new Date().toISOString(),
+      type: "timeclock",
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - syncStart,
+    });
   }
 }
 
