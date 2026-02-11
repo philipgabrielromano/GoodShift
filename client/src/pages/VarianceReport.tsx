@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocations } from "@/hooks/use-locations";
 import { format, startOfWeek, endOfWeek } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -80,7 +79,9 @@ export default function VarianceReport() {
   const [lateOpen, setLateOpen] = useState(true);
   const [lunchOpen, setLunchOpen] = useState(true);
 
-  const { data: locations, isLoading: locationsLoading } = useLocations();
+  const { data: reportLocations, isLoading: locationsLoading } = useQuery<string[]>({
+    queryKey: ["/api/reports/locations"],
+  });
 
   const queryEnabled = !!startDate && !!endDate;
   const varianceParams = new URLSearchParams({ startDate, endDate });
@@ -133,9 +134,9 @@ export default function VarianceReport() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Locations</SelectItem>
-                {locations?.map((loc) => (
-                  <SelectItem key={loc.id} value={loc.name} data-testid={`select-location-option-${loc.id}`}>
-                    {loc.name}
+                {reportLocations?.map((name) => (
+                  <SelectItem key={name} value={name} data-testid={`select-location-option-${name}`}>
+                    {name}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -4,6 +4,32 @@ import { requireAuth, requireManager, TIMEZONE } from "../middleware";
 
 export function registerReportRoutes(app: Express) {
 
+  // ========== REPORT LOCATIONS ==========
+  // Returns only locations that have active employees (for report filter dropdowns)
+  app.get("/api/reports/locations", requireAuth, requireManager, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const allEmployees = await storage.getEmployees();
+      const activeEmployees = allEmployees.filter(e => e.isActive);
+
+      const locationSet = new Set<string>();
+      for (const emp of activeEmployees) {
+        if (emp.location) locationSet.add(emp.location);
+      }
+
+      let locationNames = Array.from(locationSet).sort();
+
+      if (user.role === "manager" && user.allowedLocations?.length > 0) {
+        locationNames = locationNames.filter(loc => user.allowedLocations.includes(loc));
+      }
+
+      res.json(locationNames);
+    } catch (err) {
+      console.error("Error fetching report locations:", err);
+      res.status(500).json({ error: "Failed to fetch report locations" });
+    }
+  });
+
   // ========== OCCURRENCE REPORT ==========
   // Returns employees with their total occurrence points for a location
   app.get("/api/reports/occurrences", requireAuth, requireManager, async (req: Request, res: Response) => {

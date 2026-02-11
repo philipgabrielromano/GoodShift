@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocations } from "@/hooks/use-locations";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -33,7 +32,9 @@ function getRowHighlight(points: number) {
 
 export default function OccurrenceReport() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
-  const { data: locations, isLoading: locationsLoading } = useLocations();
+  const { data: reportLocations, isLoading: locationsLoading } = useQuery<string[]>({
+    queryKey: ["/api/reports/locations"],
+  });
 
   const queryUrl = selectedLocation !== "all"
     ? `/api/reports/occurrences?location=${encodeURIComponent(selectedLocation)}`
@@ -68,9 +69,9 @@ export default function OccurrenceReport() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Locations</SelectItem>
-                {locations?.map((loc) => (
-                  <SelectItem key={loc.id} value={loc.name} data-testid={`select-location-option-${loc.id}`}>
-                    {loc.name}
+                {reportLocations?.map((name) => (
+                  <SelectItem key={name} value={name} data-testid={`select-location-option-${name}`}>
+                    {name}
                   </SelectItem>
                 ))}
               </SelectContent>
