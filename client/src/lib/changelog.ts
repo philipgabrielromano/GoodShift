@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.8.6";
+export const APP_VERSION = "1.9.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.9.0",
+    date: "2026-02-11",
+    title: "Manager Reports",
+    changes: [
+      { type: "feature", description: "Occurrence Report - view employees and their total attendance points by location with threshold highlighting (Warning at 5+, Final Warning at 7+, Termination at 8+)" },
+      { type: "feature", description: "Variance Report - track early clock-ins, late clock-outs, and extended lunch breaks by comparing scheduled shifts against actual UKG punch data" },
+      { type: "feature", description: "Reports section added to sidebar navigation for managers and admins" },
+      { type: "improvement", description: "UKG sync now stores individual punch records for detailed variance analysis including lunch gap detection" },
+      { type: "improvement", description: "Schedule view now displays first clock-in and last clock-out times alongside existing hours totals" },
+    ],
+  },
   {
     version: "1.8.6",
     date: "2026-02-11",
