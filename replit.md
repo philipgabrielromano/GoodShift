@@ -21,6 +21,13 @@ Preferred communication style: Simple, everyday language.
 - **API Design**: RESTful endpoints with Zod schemas for validation
 - **Database Access**: Drizzle ORM with PostgreSQL
 - **Storage Abstraction**: `IStorage` interface for database interchangeability.
+- **Route Modules**: Routes are organized into focused modules:
+  - `server/routes.ts` - Core routes (employees, shifts, schedule CRUD, locations, users, settings, publishing)
+  - `server/routes/ukg.ts` - UKG integration routes (sync, credentials, diagnostics)
+  - `server/routes/occurrences.ts` - Occurrence tracking, adjustments, alerts, corrective actions
+  - `server/routes/shift-trades.ts` - Shift trading and notification routes
+  - `server/schedule-generator.ts` - Auto-schedule generation algorithm
+  - `server/middleware.ts` - Shared middleware (auth, timezone helpers, HR notification logic)
 
 ### Data Storage
 - **Database**: PostgreSQL
