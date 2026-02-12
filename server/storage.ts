@@ -18,6 +18,7 @@ import {
   correctiveActions, type CorrectiveAction, type InsertCorrectiveAction,
   shiftTrades, type ShiftTrade, type InsertShiftTrade,
   notifications, type Notification, type InsertNotification,
+  coachingLogs, type CoachingLog, type InsertCoachingLog,
   emailLogs, type EmailLog, type InsertEmailLog
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
@@ -142,6 +143,10 @@ export interface IStorage {
   // Email Logs
   getEmailLogs(limit?: number): Promise<EmailLog[]>;
   createEmailLog(log: InsertEmailLog): Promise<EmailLog>;
+
+  // Coaching Logs
+  getCoachingLogs(filters?: { employeeId?: number; category?: string; startDate?: string; endDate?: string }): Promise<CoachingLog[]>;
+  createCoachingLog(log: InsertCoachingLog): Promise<CoachingLog>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -763,6 +768,25 @@ export class DatabaseStorage implements IStorage {
 
   async createEmailLog(log: InsertEmailLog): Promise<EmailLog> {
     const [newLog] = await db.insert(emailLogs).values(log).returning();
+    return newLog;
+  }
+
+  // Coaching Logs
+  async getCoachingLogs(filters?: { employeeId?: number; category?: string; startDate?: string; endDate?: string }): Promise<CoachingLog[]> {
+    const conditions = [];
+    if (filters?.employeeId) conditions.push(eq(coachingLogs.employeeId, filters.employeeId));
+    if (filters?.category) conditions.push(eq(coachingLogs.category, filters.category));
+    if (filters?.startDate) conditions.push(gte(coachingLogs.createdAt, new Date(filters.startDate)));
+    if (filters?.endDate) conditions.push(lte(coachingLogs.createdAt, new Date(filters.endDate)));
+
+    if (conditions.length > 0) {
+      return await db.select().from(coachingLogs).where(and(...conditions)).orderBy(desc(coachingLogs.createdAt));
+    }
+    return await db.select().from(coachingLogs).orderBy(desc(coachingLogs.createdAt));
+  }
+
+  async createCoachingLog(log: InsertCoachingLog): Promise<CoachingLog> {
+    const [newLog] = await db.insert(coachingLogs).values(log).returning();
     return newLog;
   }
 }

@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.9.0";
+export const APP_VERSION = "1.10.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.10.0",
+    date: "2026-02-12",
+    title: "Coaching Logs",
+    changes: [
+      { type: "feature", description: "Coaching Logs - managers can document feedback conversations with team members including reason, action taken, and employee response" },
+      { type: "feature", description: "Hierarchical access control for coaching logs - Store Managers see all team members, Assistant Managers see Team Leads and below, Team Leads see regular staff only" },
+      { type: "feature", description: "Employees can view their own coaching history through the Coaching page" },
+      { type: "improvement", description: "Coaching categories include Attendance, Safety, Training, Recognition, and Coaching for organized tracking" },
+    ],
+  },
   {
     version: "1.9.0",
     date: "2026-02-11",

@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -22,6 +22,7 @@ const viewerNavItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
   { href: "/trades", label: "Shift Trades", icon: ArrowLeftRight },
   { href: "/attendance", label: "Attendance", icon: AlertTriangle },
+  { href: "/coaching", label: "Coaching", icon: MessageSquare },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/changelog", label: "Changelog", icon: ScrollText },
 ];

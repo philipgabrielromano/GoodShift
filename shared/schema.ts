@@ -495,3 +495,24 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+// === COACHING LOGS ===
+
+export const coachingLogs = pgTable("coaching_logs", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  managerId: integer("manager_id").notNull(),
+  managerName: text("manager_name").notNull(),
+  category: text("category").notNull(),
+  reason: text("reason").notNull(),
+  actionTaken: text("action_taken").notNull(),
+  employeeResponse: text("employee_response").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertCoachingLogSchema = createInsertSchema(coachingLogs).omit({
+  id: true,
+  createdAt: true,
+});
+export type CoachingLog = typeof coachingLogs.$inferSelect;
+export type InsertCoachingLog = z.infer<typeof insertCoachingLogSchema>;

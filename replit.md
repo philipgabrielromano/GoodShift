@@ -26,6 +26,7 @@ Preferred communication style: Simple, everyday language.
   - `server/routes/ukg.ts` - UKG integration routes (sync, credentials, diagnostics)
   - `server/routes/occurrences.ts` - Occurrence tracking, adjustments, alerts, corrective actions
   - `server/routes/shift-trades.ts` - Shift trading and notification routes
+  - `server/routes/coaching.ts` - Coaching logs with hierarchical access control
   - `server/schedule-generator.ts` - Auto-schedule generation algorithm
   - `server/middleware.ts` - Shared middleware (auth, timezone helpers, HR notification logic)
 
@@ -66,6 +67,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Store-Specific Manager Notifications**: When an employee crosses an occurrence threshold (5, 7, or 8 points), the system sends email notifications to managers assigned to that employee's store location. Falls back to global HR email if no store managers are configured.
 - **Hide from Schedule**: Managers can hide terminated employees from the schedule view and auto-generate while UKG admin processes complete. Hidden employees have visual indicators in the Employees list and don't appear on schedules.
 - **Shift Trading**: Employees can request to swap shifts with coworkers who share the same job title. Requires two-step approval: peer accepts the trade, then a manager approves. Shifts are automatically swapped on the schedule upon final approval. In-app notifications (via tabbed NotificationBell) and email notifications (via Outlook) are sent at each step. Dedicated Shift Trades page for viewing, filtering, and managing all trade requests.
+- **Coaching Logs**: Managers can document employee feedback conversations with reason, action taken, and employee response. Hierarchical access based on job title: Store Managers (STSUPER/WVSTMNG) see all team members, Assistant Managers (STASSTSP/WVSTAST) see Team Leads and below, Team Leads (STLDWKR/WVLDWRK) see regular staff only, employees (viewers) see only their own logs. Categories: Attendance, Safety, Training, Recognition, Coaching.
 - **Changelog**: Version history page accessible to all authenticated users, displaying features, improvements, and fixes across all releases. Version number displayed in sidebar footer.
 
 ## External Dependencies
