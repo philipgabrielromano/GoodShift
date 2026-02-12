@@ -66,6 +66,7 @@ function getJobTitleDisplay(code: string): string {
 export default function Coaching() {
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterLocation, setFilterLocation] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailLog, setDetailLog] = useState<(CoachingLog & { employeeName: string; employeeJobTitle: string; employeeLocation: string }) | null>(null);
 
@@ -141,12 +142,16 @@ export default function Coaching() {
   const employeeMap = new Map<number, CoachingEmployee>();
   employees?.forEach(e => employeeMap.set(e.id, e));
 
+  const locations = Array.from(new Set(employees?.map(e => e.location).filter(Boolean) as string[])).sort();
+
   const enrichedLogs = (logs || []).map(log => ({
     ...log,
     employeeName: employeeMap.get(log.employeeId)?.name || "Unknown",
     employeeJobTitle: employeeMap.get(log.employeeId)?.jobTitle || "",
     employeeLocation: employeeMap.get(log.employeeId)?.location || "",
-  }));
+  })).filter(log => filterLocation === "all" || log.employeeLocation === filterLocation);
+
+  const filteredFormEmployees = employees?.filter(e => filterLocation === "all" || e.location === filterLocation);
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
@@ -180,7 +185,7 @@ export default function Coaching() {
                       <SelectValue placeholder="Select employee..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {employees?.map(e => (
+                      {filteredFormEmployees?.map(e => (
                         <SelectItem key={e.id} value={String(e.id)} data-testid={`select-form-employee-${e.id}`}>
                           {e.name} - {getJobTitleDisplay(e.jobTitle)}
                         </SelectItem>
@@ -265,7 +270,7 @@ export default function Coaching() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Employees</SelectItem>
-                  {employees?.map(e => (
+                  {filteredFormEmployees?.map(e => (
                     <SelectItem key={e.id} value={String(e.id)} data-testid={`select-filter-employee-${e.id}`}>
                       {e.name}
                     </SelectItem>
@@ -274,6 +279,21 @@ export default function Coaching() {
               </Select>
             )}
           </div>
+          {locations.length > 1 && (
+            <div className="w-48">
+              <Select value={filterLocation} onValueChange={(val) => { setFilterLocation(val); setFilterEmployee("all"); }}>
+                <SelectTrigger data-testid="select-filter-location">
+                  <SelectValue placeholder="All Locations" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  {locations.map(loc => (
+                    <SelectItem key={loc} value={loc} data-testid={`select-filter-location-${loc}`}>{loc}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="w-44">
             <Select value={filterCategory} onValueChange={setFilterCategory}>
               <SelectTrigger data-testid="select-filter-category">
