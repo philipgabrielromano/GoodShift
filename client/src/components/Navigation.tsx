@@ -109,12 +109,14 @@ export function Navigation() {
           </div>
           <div className="bg-muted/50 rounded p-4">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">Current User</p>
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent to-primary"></div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-accent to-primary"></div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
+                <p className="text-sm font-semibold break-words">{authStatus?.user?.name || "Guest"}</p>
                 <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
               </div>
+            </div>
+            <div className="flex items-center justify-end gap-1">
               <ThemeToggle />
               <Button
                 variant="ghost"
@@ -125,7 +127,7 @@ export function Navigation() {
                 }}
                 title="Log out"
               >
-                <LogOut className="w-4 h-4 text-muted-foreground" />
+                <LogOut className="w-5 h-5 text-muted-foreground" />
               </Button>
             </div>
           </div>
