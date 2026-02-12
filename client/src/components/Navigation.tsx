@@ -17,20 +17,21 @@ interface AuthStatus {
   ssoConfigured: boolean;
 }
 
-// Items shown to all authenticated users
-const viewerNavItems = [
+// Scheduling section - shown to all
+const schedulingItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
   { href: "/trades", label: "Shift Trades", icon: ArrowLeftRight },
   { href: "/attendance", label: "Attendance", icon: AlertTriangle },
-  { href: "/coaching", label: "Coaching", icon: MessageSquare },
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/changelog", label: "Changelog", icon: ScrollText },
 ];
 
-// Items shown to managers and admins only
-const managerNavItems = [
+// Coaching - standalone link for all
+const coachingItem = { href: "/coaching", label: "Coaching", icon: MessageSquare };
+
+// Configuration section - managers and admins
+const configItems = [
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/locations", label: "Locations", icon: MapPin },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 // Report items shown to managers and admins
@@ -45,6 +46,9 @@ const adminNavItems = [
   { href: "/shifts", label: "Shifts", icon: Clock },
 ];
 
+// Bottom items
+const changelogItem = { href: "/changelog", label: "Changelog", icon: ScrollText };
+
 export function Navigation() {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -56,14 +60,8 @@ export function Navigation() {
   const isAdmin = authStatus?.user?.role === "admin";
   const isManager = authStatus?.user?.role === "manager";
   const isManagerOrAdmin = isAdmin || isManager;
-  
-  const navItems = [
-    ...viewerNavItems,
-    ...(isManagerOrAdmin ? managerNavItems : []),
-    ...(isAdmin ? adminNavItems : []),
-  ];
 
-  const renderNavItem = (item: typeof viewerNavItems[0], prefix: string = "nav") => (
+  const renderNavItem = (item: typeof schedulingItems[0], prefix: string = "nav") => (
     <Link key={item.href} href={item.href}>
       <div 
         data-testid={`link-${prefix}-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
@@ -75,6 +73,24 @@ export function Navigation() {
         )}
       >
         <item.icon className={clsx("w-5 h-5", (location === item.href || (item.href !== "/" && location.startsWith(item.href))) ? "text-primary-foreground" : "text-muted-foreground")} />
+        {item.label}
+      </div>
+    </Link>
+  );
+
+  const renderMobileNavItem = (item: typeof schedulingItems[0]) => (
+    <Link key={item.href} href={item.href}>
+      <div 
+        onClick={() => setMobileOpen(false)}
+        data-testid={`link-mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+        className={clsx(
+          "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
+          (location === item.href || (item.href !== "/" && location.startsWith(item.href)))
+            ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
+            : "text-muted-foreground hover-elevate"
+        )}
+      >
+        <item.icon className="w-5 h-5" />
         {item.label}
       </div>
     </Link>
@@ -92,7 +108,23 @@ export function Navigation() {
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          {navItems.map((item) => renderNavItem(item, "nav"))}
+          <div className="pt-1 pb-1 px-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
+          </div>
+          {schedulingItems.map((item) => renderNavItem(item, "nav"))}
+
+          {renderNavItem(coachingItem, "nav")}
+
+          {isManagerOrAdmin && (
+            <>
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-configuration-heading">Configuration</p>
+              </div>
+              {configItems.map((item) => renderNavItem(item, "nav"))}
+            </>
+          )}
+          {!isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
+
           {isManagerOrAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
@@ -101,6 +133,17 @@ export function Navigation() {
               {reportNavItems.map((item) => renderNavItem(item, "nav"))}
             </>
           )}
+
+          {isAdmin && (
+            <>
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-admin-heading">Admin</p>
+              </div>
+              {adminNavItems.map((item) => renderNavItem(item, "nav"))}
+            </>
+          )}
+
+          {renderNavItem(changelogItem, "nav")}
         </nav>
 
         <div className="p-4 border-t space-y-3">
@@ -152,47 +195,42 @@ export function Navigation() {
               <img src={goodshiftLogo} alt="GoodShift" className="w-48 h-auto" data-testid="img-logo-mobile" />
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-              {navItems.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  <div 
-                    onClick={() => setMobileOpen(false)}
-                    data-testid={`link-mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                    className={clsx(
-                      "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
-                      (location === item.href || (item.href !== "/" && location.startsWith(item.href)))
-                        ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
-                        : "text-muted-foreground hover-elevate"
-                    )}
-                  >
-                    <item.icon className="w-5 h-5" />
-                    {item.label}
+              <div className="pt-1 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
+              </div>
+              {schedulingItems.map((item) => renderMobileNavItem(item))}
+
+              {renderMobileNavItem(coachingItem)}
+
+              {isManagerOrAdmin && (
+                <>
+                  <div className="pt-3 pb-1 px-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Configuration</p>
                   </div>
-                </Link>
-              ))}
+                  {configItems.map((item) => renderMobileNavItem(item))}
+                </>
+              )}
+              {!isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
+
               {isManagerOrAdmin && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>
                   </div>
-                  {reportNavItems.map((item) => (
-                    <Link key={item.href} href={item.href}>
-                      <div 
-                        onClick={() => setMobileOpen(false)}
-                        data-testid={`link-mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-                        className={clsx(
-                          "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
-                          location.startsWith(item.href)
-                            ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
-                            : "text-muted-foreground hover-elevate"
-                        )}
-                      >
-                        <item.icon className="w-5 h-5" />
-                        {item.label}
-                      </div>
-                    </Link>
-                  ))}
+                  {reportNavItems.map((item) => renderMobileNavItem(item))}
                 </>
               )}
+
+              {isAdmin && (
+                <>
+                  <div className="pt-3 pb-1 px-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Admin</p>
+                  </div>
+                  {adminNavItems.map((item) => renderMobileNavItem(item))}
+                </>
+              )}
+
+              {renderMobileNavItem(changelogItem)}
             </nav>
             <div className="p-4 border-t mt-auto space-y-3">
               <div className="text-center">
