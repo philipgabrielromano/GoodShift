@@ -117,7 +117,7 @@ export default function Employees() {
                 </button>
                 {!isCollapsed && (
                   <>
-                    <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_100px_80px_80px_60px] gap-4 px-6 py-2 border-b text-xs font-medium text-muted-foreground">
+                    <div className="hidden sm:grid sm:grid-cols-[minmax(140px,1.5fr)_minmax(100px,1fr)_minmax(100px,1fr)_70px_minmax(110px,1fr)_70px_70px_50px] gap-3 px-6 py-2 border-b text-xs font-medium text-muted-foreground">
                       <div>Name</div>
                       <div>Job Title</div>
                       <div>Location</div>
@@ -220,7 +220,7 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
   };
 
   return (
-    <div className={`grid grid-cols-1 sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_100px_80px_80px_60px] gap-2 sm:gap-4 px-6 py-4 items-center hover-elevate ${employee.isHiddenFromSchedule ? 'opacity-60' : ''}`} data-testid={`row-employee-${employee.id}`}>
+    <div className={`grid grid-cols-1 sm:grid-cols-[minmax(140px,1.5fr)_minmax(100px,1fr)_minmax(100px,1fr)_70px_minmax(110px,1fr)_70px_70px_50px] gap-2 sm:gap-3 px-6 py-4 items-center hover-elevate ${employee.isHiddenFromSchedule ? 'opacity-60' : ''}`} data-testid={`row-employee-${employee.id}`}>
       <div className="flex items-center gap-3 min-w-0">
         <div 
           className="w-8 h-8 rounded-md flex items-center justify-center text-xs font-bold text-white flex-shrink-0 relative" 
