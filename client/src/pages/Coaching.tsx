@@ -67,6 +67,7 @@ export default function Coaching() {
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailLog, setDetailLog] = useState<(CoachingLog & { employeeName: string; employeeJobTitle: string; employeeLocation: string }) | null>(null);
 
   const [formEmployee, setFormEmployee] = useState<string>("");
   const [formCategory, setFormCategory] = useState<string>("");
@@ -322,7 +323,12 @@ export default function Coaching() {
                 </TableHeader>
                 <TableBody>
                   {enrichedLogs.map(log => (
-                    <TableRow key={log.id} data-testid={`row-coaching-log-${log.id}`}>
+                    <TableRow
+                      key={log.id}
+                      data-testid={`row-coaching-log-${log.id}`}
+                      className="cursor-pointer hover-elevate"
+                      onClick={() => setDetailLog(log)}
+                    >
                       <TableCell className="whitespace-nowrap text-sm">
                         {format(new Date(log.createdAt), "MMM d, yyyy")}
                       </TableCell>
@@ -337,14 +343,14 @@ export default function Coaching() {
                           {log.category}
                         </Badge>
                       </TableCell>
-                      <TableCell className="max-w-[200px]">
-                        <p className="text-sm truncate" title={log.reason}>{log.reason}</p>
+                      <TableCell className="max-w-[250px]">
+                        <p className="text-sm line-clamp-2">{log.reason}</p>
                       </TableCell>
-                      <TableCell className="max-w-[200px]">
-                        <p className="text-sm truncate" title={log.actionTaken}>{log.actionTaken}</p>
+                      <TableCell className="max-w-[250px]">
+                        <p className="text-sm line-clamp-2">{log.actionTaken}</p>
                       </TableCell>
-                      <TableCell className="max-w-[200px]">
-                        <p className="text-sm truncate" title={log.employeeResponse}>{log.employeeResponse}</p>
+                      <TableCell className="max-w-[250px]">
+                        <p className="text-sm line-clamp-2">{log.employeeResponse}</p>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                         {log.managerName}
@@ -357,6 +363,49 @@ export default function Coaching() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!detailLog} onOpenChange={(open) => { if (!open) setDetailLog(null); }}>
+        <DialogContent className="max-w-lg">
+          {detailLog && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 flex-wrap">
+                  Coaching Log
+                  <Badge className={`no-default-hover-elevate no-default-active-elevate ${categoryColors[detailLog.category] || ""}`}>
+                    {detailLog.category}
+                  </Badge>
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-4 flex-wrap text-sm">
+                  <div>
+                    <p className="text-muted-foreground text-xs">Employee</p>
+                    <p className="font-medium" data-testid="text-detail-employee">{detailLog.employeeName}</p>
+                    <p className="text-xs text-muted-foreground">{getJobTitleDisplay(detailLog.employeeJobTitle)}{detailLog.employeeLocation ? ` - ${detailLog.employeeLocation}` : ""}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-muted-foreground text-xs">Date</p>
+                    <p className="font-medium">{format(new Date(detailLog.createdAt), "MMM d, yyyy")}</p>
+                    <p className="text-xs text-muted-foreground">by {detailLog.managerName}</p>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Reason / Topic</p>
+                  <p className="text-sm whitespace-pre-wrap" data-testid="text-detail-reason">{detailLog.reason}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Action Taken</p>
+                  <p className="text-sm whitespace-pre-wrap" data-testid="text-detail-action">{detailLog.actionTaken}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Employee Response</p>
+                  <p className="text-sm whitespace-pre-wrap" data-testid="text-detail-response">{detailLog.employeeResponse}</p>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
