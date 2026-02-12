@@ -41,11 +41,18 @@ export default function Employees() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [filterLocation, setFilterLocation] = useState<string>("all");
+
+  const locations = useMemo(() => 
+    Array.from(new Set(employees?.map(e => e.location).filter(Boolean) as string[])).sort(),
+    [employees]
+  );
 
   const filteredEmployees = employees?.filter(e => 
-    e.name.toLowerCase().includes(search.toLowerCase()) || 
+    (filterLocation === "all" || e.location === filterLocation) &&
+    (e.name.toLowerCase().includes(search.toLowerCase()) || 
     e.jobTitle.toLowerCase().includes(search.toLowerCase()) ||
-    (e.location && e.location.toLowerCase().includes(search.toLowerCase()))
+    (e.location && e.location.toLowerCase().includes(search.toLowerCase())))
   ) || [];
 
   const groupedEmployees = useMemo(() => {
@@ -83,15 +90,32 @@ export default function Employees() {
         </div>
       </div>
 
-      <div className="flex items-center gap-4 bg-card p-2 rounded border shadow-sm max-w-md">
-        <Search className="w-5 h-5 text-muted-foreground ml-2" />
-        <Input 
-          placeholder="Search by name or title..." 
-          className="border-0 shadow-none focus-visible:ring-0 bg-transparent"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          data-testid="input-employee-search"
-        />
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-4 bg-card p-2 rounded border shadow-sm max-w-md flex-1 min-w-[200px]">
+          <Search className="w-5 h-5 text-muted-foreground ml-2" />
+          <Input 
+            placeholder="Search by name or title..." 
+            className="border-0 shadow-none focus-visible:ring-0 bg-transparent"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-employee-search"
+          />
+        </div>
+        {locations.length > 1 && (
+          <div className="w-48">
+            <Select value={filterLocation} onValueChange={setFilterLocation}>
+              <SelectTrigger data-testid="select-filter-location">
+                <SelectValue placeholder="All Locations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Locations</SelectItem>
+                {locations.map(loc => (
+                  <SelectItem key={loc} value={loc} data-testid={`select-filter-location-${loc}`}>{loc}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
       </div>
 
       {isLoading ? (
