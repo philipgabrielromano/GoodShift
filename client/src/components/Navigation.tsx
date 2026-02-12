@@ -113,6 +113,9 @@ export function Navigation() {
           </div>
           {schedulingItems.map((item) => renderNavItem(item, "nav"))}
 
+          <div className="pt-3 pb-1 px-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
+          </div>
           {renderNavItem(coachingItem, "nav")}
 
           {isManagerOrAdmin && (
@@ -200,6 +203,9 @@ export function Navigation() {
               </div>
               {schedulingItems.map((item) => renderMobileNavItem(item))}
 
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
+              </div>
               {renderMobileNavItem(coachingItem)}
 
               {isManagerOrAdmin && (
