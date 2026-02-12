@@ -30,7 +30,7 @@ export default function Employees() {
     e.name.toLowerCase().includes(search.toLowerCase()) || 
     e.jobTitle.toLowerCase().includes(search.toLowerCase()) ||
     (e.location && e.location.toLowerCase().includes(search.toLowerCase()))
-  );
+  ).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
