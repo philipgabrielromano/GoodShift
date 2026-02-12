@@ -2,13 +2,26 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireManager, TIMEZONE } from "../middleware";
 
+// Helper to resolve user's locationIds (numeric IDs) to location names
+async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
+  if (user.role === "admin") return null; // admins see all
+  if (!user.locationIds || user.locationIds.length === 0) return null;
+  const allLocations = await storage.getLocations();
+  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
+  const names = new Set<string>();
+  for (const loc of allLocations) {
+    if (idSet.has(String(loc.id))) names.add(loc.name);
+  }
+  return names.size > 0 ? names : null;
+}
+
 export function registerReportRoutes(app: Express) {
 
   // ========== REPORT LOCATIONS ==========
   // Returns only locations that have active employees (for report filter dropdowns)
   app.get("/api/reports/locations", requireAuth, requireManager, async (req: Request, res: Response) => {
     try {
-      const user = (req as any).user;
+      const user = (req.session as any)?.user;
       const allEmployees = await storage.getEmployees();
       const activeEmployees = allEmployees.filter(e => e.isActive);
 
@@ -19,8 +32,9 @@ export function registerReportRoutes(app: Express) {
 
       let locationNames = Array.from(locationSet).sort();
 
-      if (user.role === "manager" && user.allowedLocations?.length > 0) {
-        locationNames = locationNames.filter(loc => user.allowedLocations.includes(loc));
+      const allowedNames = await getAllowedLocationNames(user);
+      if (allowedNames) {
+        locationNames = locationNames.filter(loc => allowedNames.has(loc));
       }
 
       res.json(locationNames);
@@ -35,7 +49,7 @@ export function registerReportRoutes(app: Express) {
   app.get("/api/reports/occurrences", requireAuth, requireManager, async (req: Request, res: Response) => {
     try {
       const locationFilter = req.query.location as string | undefined;
-      const user = (req as any).user;
+      const user = (req.session as any)?.user;
 
       // Get all employees
       const allEmployees = await storage.getEmployees();
@@ -44,10 +58,13 @@ export function registerReportRoutes(app: Express) {
       let filteredEmployees = allEmployees.filter(e => e.isActive);
       if (locationFilter) {
         filteredEmployees = filteredEmployees.filter(e => e.location === locationFilter);
-      } else if (user.role === "manager" && user.allowedLocations?.length > 0) {
-        filteredEmployees = filteredEmployees.filter(e =>
-          e.location && user.allowedLocations.includes(e.location)
-        );
+      } else {
+        const allowedNames = await getAllowedLocationNames(user);
+        if (allowedNames) {
+          filteredEmployees = filteredEmployees.filter(e =>
+            e.location && allowedNames.has(e.location)
+          );
+        }
       }
 
       // Calculate rolling 12-month window
@@ -102,7 +119,7 @@ export function registerReportRoutes(app: Express) {
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
       const locationFilter = req.query.location as string | undefined;
-      const user = (req as any).user;
+      const user = (req.session as any)?.user;
 
       if (!startDate || !endDate) {
         return res.status(400).json({ error: "startDate and endDate are required" });
@@ -114,13 +131,14 @@ export function registerReportRoutes(app: Express) {
       const ukgIdToEmployee = new Map(allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId!, e]));
 
       // Filter employees by location
+      const allowedNames = locationFilter ? null : await getAllowedLocationNames(user);
       let allowedEmployeeIds = new Set<number>();
       for (const emp of allEmployees) {
         if (!emp.isActive) continue;
         if (locationFilter) {
           if (emp.location === locationFilter) allowedEmployeeIds.add(emp.id);
-        } else if (user.role === "manager" && user.allowedLocations?.length > 0) {
-          if (emp.location && user.allowedLocations.includes(emp.location)) allowedEmployeeIds.add(emp.id);
+        } else if (allowedNames) {
+          if (emp.location && allowedNames.has(emp.location)) allowedEmployeeIds.add(emp.id);
         } else {
           allowedEmployeeIds.add(emp.id);
         }
