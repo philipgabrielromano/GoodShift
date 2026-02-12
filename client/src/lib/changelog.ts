@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.10.0";
+export const APP_VERSION = "1.10.5";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.10.5",
+    date: "2026-02-12",
+    title: "Employee Page & Coaching Improvements",
+    changes: [
+      { type: "improvement", description: "Employees page now groups employees by job title with collapsible sections, matching the schedule's priority ordering" },
+      { type: "improvement", description: "Rebalanced column widths on the Employees page so Days Off and other fields no longer get cut off" },
+      { type: "feature", description: "Location filter added to Coaching Logs page for managers overseeing multiple stores" },
+      { type: "improvement", description: "Coaching log employee dropdowns and filters respect the selected location" },
+      { type: "improvement", description: "Navigation reorganized with section headers: Scheduling, Development, Configuration, Reports, Admin" },
+      { type: "improvement", description: "Microsoft SSO now shows account picker instead of auto-selecting a logged-in account" },
+    ],
+  },
   {
     version: "1.10.0",
     date: "2026-02-12",
