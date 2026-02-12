@@ -113,6 +113,7 @@ export function setupAuth(app: Express) {
         redirectUri,
         state,
         nonce,
+        prompt: "select_account",
       });
       res.redirect(authUrl);
     } catch (error) {
