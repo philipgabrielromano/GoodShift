@@ -39,7 +39,8 @@ export function registerCoachingRoutes(app: Express) {
       const activeEmployees = allEmployees.filter(e => e.isActive);
 
       if (user.role === "admin") {
-        return res.json(activeEmployees.map(e => ({
+        const sorted = activeEmployees.sort((a, b) => a.name.localeCompare(b.name));
+        return res.json(sorted.map(e => ({
           id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location
         })));
       }
@@ -62,7 +63,8 @@ export function registerCoachingRoutes(app: Express) {
           return empLevel < managerLevel;
         });
 
-        return res.json(visible.map(e => ({
+        const sorted = visible.sort((a, b) => a.name.localeCompare(b.name));
+        return res.json(sorted.map(e => ({
           id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location
         })));
       }
