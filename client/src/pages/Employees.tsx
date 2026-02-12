@@ -5,8 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useState, useEffect, useCallback } from "react";
-import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff, EyeOff, Eye } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff, EyeOff, Eye, ChevronDown, ChevronRight } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,8 +14,23 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { getJobTitle } from "@/lib/utils";
+import { getJobTitle, getCanonicalJobCode } from "@/lib/utils";
 import type { Employee, InsertEmployee } from "@shared/schema";
+
+const JOB_PRIORITY: Record<string, number> = {
+  "STSUPER": 1,
+  "STASSTSP": 2,
+  "STLDWKR": 3,
+  "CASHSLS": 4,
+  "APPROC": 5,
+  "DONPRI": 6,
+  "DONDOOR": 7,
+};
+
+function getJobPriority(jobTitle: string): number {
+  const canonical = getCanonicalJobCode(jobTitle);
+  return JOB_PRIORITY[canonical] ?? 99;
+}
 
 export default function Employees() {
   const { data: employees, isLoading } = useEmployees();
@@ -25,18 +40,45 @@ export default function Employees() {
   });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const filteredEmployees = employees?.filter(e => 
     e.name.toLowerCase().includes(search.toLowerCase()) || 
     e.jobTitle.toLowerCase().includes(search.toLowerCase()) ||
     (e.location && e.location.toLowerCase().includes(search.toLowerCase()))
-  ).sort((a, b) => a.name.localeCompare(b.name));
+  ) || [];
+
+  const groupedEmployees = useMemo(() => {
+    const groups = filteredEmployees.reduce((acc, emp) => {
+      const canonical = getCanonicalJobCode(emp.jobTitle);
+      if (!acc[canonical]) acc[canonical] = [];
+      acc[canonical].push(emp);
+      return acc;
+    }, {} as Record<string, Employee[]>);
+
+    return Object.entries(groups)
+      .sort(([a], [b]) => getJobPriority(a) - getJobPriority(b))
+      .map(([code, emps]) => ({
+        code,
+        title: getJobTitle(code),
+        employees: emps.sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+  }, [filteredEmployees]);
+
+  const toggleGroup = useCallback((code: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-display">Employees</h1>
+          <h1 className="text-3xl font-bold font-display" data-testid="text-employees-heading">Employees</h1>
           <p className="text-muted-foreground mt-1">Employees are imported automatically from UKG.</p>
         </div>
       </div>
@@ -48,6 +90,7 @@ export default function Employees() {
           className="border-0 shadow-none focus-visible:ring-0 bg-transparent"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          data-testid="input-employee-search"
         />
       </div>
 
@@ -56,28 +99,50 @@ export default function Employees() {
           {[1,2,3,4].map(i => <div key={i} className="h-16 bg-muted/20 animate-pulse border-b last:border-b-0" />)}
         </div>
       ) : (
-        <div className="bg-card rounded border shadow-sm overflow-hidden">
-          <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_100px_80px_80px_60px] gap-4 px-6 py-3 bg-muted/50 border-b text-sm font-medium text-muted-foreground">
-            <div>Name</div>
-            <div>Job Title</div>
-            <div>Location</div>
-            <div>Hours</div>
-            <div>Days Off</div>
-            <div>Days/Wk</div>
-            <div>Status</div>
-            <div></div>
-          </div>
-          <div className="divide-y">
-            {filteredEmployees?.map(employee => (
-              <EmployeeRow 
-                key={employee.id} 
-                employee={employee} 
-                onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
-              />
-            ))}
-          </div>
-          {filteredEmployees?.length === 0 && (
-            <div className="px-6 py-12 text-center text-muted-foreground">
+        <div className="space-y-4">
+          {groupedEmployees.map(({ code, title, employees: groupEmps }) => {
+            const isCollapsed = collapsedGroups.has(code);
+            return (
+              <div key={code} className="bg-card rounded border shadow-sm overflow-hidden" data-testid={`group-${code}`}>
+                <button
+                  onClick={() => toggleGroup(code)}
+                  className="w-full flex items-center justify-between gap-4 px-6 py-3 bg-muted/50 text-sm font-semibold text-left hover-elevate"
+                  data-testid={`button-toggle-group-${code}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    <span>{title}</span>
+                    <span className="text-muted-foreground font-normal">({groupEmps.length})</span>
+                  </div>
+                </button>
+                {!isCollapsed && (
+                  <>
+                    <div className="hidden sm:grid sm:grid-cols-[minmax(180px,2fr)_120px_120px_80px_100px_80px_80px_60px] gap-4 px-6 py-2 border-b text-xs font-medium text-muted-foreground">
+                      <div>Name</div>
+                      <div>Job Title</div>
+                      <div>Location</div>
+                      <div>Hours</div>
+                      <div>Days Off</div>
+                      <div>Days/Wk</div>
+                      <div>Status</div>
+                      <div></div>
+                    </div>
+                    <div className="divide-y">
+                      {groupEmps.map(employee => (
+                        <EmployeeRow 
+                          key={employee.id} 
+                          employee={employee} 
+                          onEdit={() => { setEditingEmployee(employee); setIsDialogOpen(true); }}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          {filteredEmployees.length === 0 && (
+            <div className="bg-card rounded border shadow-sm px-6 py-12 text-center text-muted-foreground">
               No employees found
             </div>
           )}
