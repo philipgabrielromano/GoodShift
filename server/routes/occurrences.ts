@@ -3,6 +3,94 @@ import { storage } from "../storage";
 import { requireAuth } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
 
+const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG"];
+const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
+const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK"];
+
+function getHierarchyLevel(jobTitle: string | null): number {
+  if (!jobTitle) return 0;
+  const upper = jobTitle.toUpperCase();
+  if (STORE_MANAGER_TITLES.includes(upper)) return 3;
+  if (ASST_MANAGER_TITLES.includes(upper)) return 2;
+  if (TEAM_LEAD_TITLES.includes(upper)) return 1;
+  return 0;
+}
+
+async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
+  if (user.role === "admin") return null;
+  if (!user.locationIds || user.locationIds.length === 0) return null;
+  const allLocations = await storage.getLocations();
+  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
+  const names = new Set<string>();
+  for (const loc of allLocations) {
+    if (idSet.has(String(loc.id))) names.add(loc.name);
+  }
+  return names.size > 0 ? names : null;
+}
+
+async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<boolean> {
+  if (user.role === "admin") return true;
+
+  const allEmployees = await storage.getEmployees();
+  const targetEmployee = allEmployees.find(e => e.id === targetEmployeeId);
+  if (!targetEmployee) return false;
+
+  if (user.role === "viewer") {
+    const linkedEmployee = allEmployees.find(e =>
+      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+    );
+    return !!linkedEmployee && linkedEmployee.id === targetEmployeeId;
+  }
+
+  if (user.role === "manager") {
+    const allowedNames = await getAllowedLocationNames(user);
+    if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
+      return false;
+    }
+
+    const managerEmployee = allEmployees.find(e =>
+      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+    );
+    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+    const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+    return empLevel < managerLevel;
+  }
+
+  return false;
+}
+
+async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
+  if (user.role === "admin") return null;
+
+  const allEmployees = await storage.getEmployees();
+  const activeEmployees = allEmployees.filter(e => e.isActive);
+
+  if (user.role === "viewer") {
+    const linkedEmployee = allEmployees.find(e =>
+      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+    );
+    return new Set(linkedEmployee ? [linkedEmployee.id] : []);
+  }
+
+  if (user.role === "manager") {
+    const allowedNames = await getAllowedLocationNames(user);
+    const managerEmployee = allEmployees.find(e =>
+      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+    );
+    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+
+    const visible = activeEmployees.filter(e => {
+      if (managerEmployee && e.id === managerEmployee.id) return false;
+      if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
+      return getHierarchyLevel(e.jobTitle) < managerLevel;
+    });
+
+    return new Set(visible.map(e => e.id));
+  }
+
+  return new Set();
+}
+
 export function registerOccurrenceRoutes(app: Express) {
   // === Occurrences ===
   // Get occurrences for an employee within a date range
@@ -12,13 +100,9 @@ export function registerOccurrenceRoutes(app: Express) {
       const { startDate, endDate } = req.query;
       const user = (req.session as any)?.user;
       
-      // Viewers can only see their own occurrences
-      if (user.role === "viewer") {
-        const employees = await storage.getEmployees();
-        const linkedEmployee = employees.find(e => e.email && e.email.toLowerCase() === user.email.toLowerCase());
-        if (!linkedEmployee || linkedEmployee.id !== employeeId) {
-          return res.status(403).json({ message: "You can only view your own occurrence history" });
-        }
+      const hasAccess = await canAccessEmployee(user, employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to this employee's occurrence history" });
       }
       
       if (!startDate || !endDate) {
@@ -45,6 +129,11 @@ export function registerOccurrenceRoutes(app: Express) {
       
       if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
         return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
+      }
+
+      const hasAccess = await canAccessEmployee(user, employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
       }
       
       const occurrence = await storage.createOccurrence({
@@ -89,6 +178,15 @@ export function registerOccurrenceRoutes(app: Express) {
       if (!reason) {
         return res.status(400).json({ message: "Retraction reason is required" });
       }
+
+      const targetOcc = await storage.getOccurrence(id);
+      if (!targetOcc) {
+        return res.status(404).json({ message: "Occurrence not found" });
+      }
+      const hasAccess = await canAccessEmployee(user, targetOcc.employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
+      }
       
       const occurrence = await storage.retractOccurrence(id, reason, user.id);
       res.json(occurrence);
@@ -112,7 +210,18 @@ export function registerOccurrenceRoutes(app: Express) {
       if (!reason) {
         return res.status(400).json({ message: "Retraction reason is required" });
       }
-      
+
+      const currentYear = new Date().getFullYear();
+      const allAdj = await storage.getAllOccurrenceAdjustmentsForYear(currentYear);
+      const targetAdj = allAdj.find(a => a.id === id);
+      if (!targetAdj) {
+        return res.status(404).json({ message: "Adjustment not found" });
+      }
+      const hasAccess = await canAccessEmployee(user, targetAdj.employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to manage adjustments for this employee" });
+      }
+
       const adjustment = await storage.retractAdjustment(id, reason, user.id);
       if (!adjustment) {
         return res.status(404).json({ message: "Adjustment not found" });
@@ -130,13 +239,9 @@ export function registerOccurrenceRoutes(app: Express) {
       const employeeId = Number(req.params.employeeId);
       const user = (req.session as any)?.user;
       
-      // Viewers can only see their own occurrence summary
-      if (user.role === "viewer") {
-        const employees = await storage.getEmployees();
-        const linkedEmployee = employees.find(e => e.email && e.email.toLowerCase() === user.email.toLowerCase());
-        if (!linkedEmployee || linkedEmployee.id !== employeeId) {
-          return res.status(403).json({ message: "You can only view your own occurrence history" });
-        }
+      const hasAccess = await canAccessEmployee(user, employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to this employee's occurrence history" });
       }
       
       const now = new Date();
@@ -254,19 +359,12 @@ export function registerOccurrenceRoutes(app: Express) {
       const currentYear = now.getFullYear();
       const yearStart = `${currentYear}-01-01`;
 
-      // Get all active employees
+      // Get all active employees filtered by hierarchical access
+      const visibleIds = await getVisibleEmployeeIds(user);
       let allEmployees = await storage.getEmployees();
       allEmployees = allEmployees.filter(e => e.isActive);
-      
-      // Filter by manager's locations if not admin
-      if (user.role === "manager" && user.locationIds && user.locationIds.length > 0) {
-        const allLocations = await storage.getLocations();
-        const userLocationNames = allLocations
-          .filter(loc => user.locationIds.includes(String(loc.id)))
-          .map(loc => loc.name);
-        allEmployees = allEmployees.filter(emp => 
-          emp.location && userLocationNames.includes(emp.location)
-        );
+      if (visibleIds !== null) {
+        allEmployees = allEmployees.filter(e => visibleIds.has(e.id));
       }
 
       // OPTIMIZATION: Fetch all data in bulk with just 3 queries instead of 4 per employee
@@ -414,6 +512,11 @@ export function registerOccurrenceRoutes(app: Express) {
       if (!employeeId || adjustmentValue === undefined || !adjustmentType) {
         return res.status(400).json({ message: "employeeId, adjustmentValue, and adjustmentType are required" });
       }
+
+      const hasAccess = await canAccessEmployee(user, employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
+      }
       
       const now = new Date();
       const year = calendarYear || now.getFullYear();
@@ -475,9 +578,9 @@ export function registerOccurrenceRoutes(app: Express) {
       const employeeId = Number(req.params.employeeId);
       const user = (req.session as any)?.user;
       
-      // Only managers and admins can view corrective actions
-      if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers and admins can view corrective actions" });
+      const hasAccess = await canAccessEmployee(user, employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to this employee's corrective actions" });
       }
       
       const actions = await storage.getCorrectiveActions(employeeId);
@@ -500,6 +603,11 @@ export function registerOccurrenceRoutes(app: Express) {
       
       if (!employeeId || !actionType || !actionDate || occurrenceCount === undefined) {
         return res.status(400).json({ message: "employeeId, actionType, actionDate, and occurrenceCount are required" });
+      }
+
+      const hasAccess = await canAccessEmployee(user, employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to manage corrective actions for this employee" });
       }
       
       // Validate action type
@@ -558,6 +666,16 @@ export function registerOccurrenceRoutes(app: Express) {
       }
       
       const id = Number(req.params.id);
+
+      const allActions = await storage.getAllCorrectiveActions();
+      const targetAction = allActions.find(a => a.id === id);
+      if (targetAction) {
+        const hasAccess = await canAccessEmployee(user, targetAction.employeeId);
+        if (!hasAccess) {
+          return res.status(403).json({ message: "You do not have access to manage corrective actions for this employee" });
+        }
+      }
+
       await storage.deleteCorrectiveAction(id);
       res.json({ success: true });
     } catch (error) {
