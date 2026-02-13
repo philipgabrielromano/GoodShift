@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { useState } from "react";
-import { Plus, MoreHorizontal, Pencil, Trash2, Users as UsersIcon, ShieldAlert } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Users as UsersIcon, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +42,11 @@ export default function Users() {
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
   const { toast } = useToast();
+
+  type SortColumn = "name" | "email" | "role" | "stores" | "lastLogin";
+  type SortDir = "asc" | "desc";
+  const [sortColumn, setSortColumn] = useState<SortColumn>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -125,6 +130,55 @@ export default function Users() {
     return loc?.name || id;
   };
 
+  const handleSort = (col: SortColumn) => {
+    if (sortColumn === col) {
+      setSortDir(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(col);
+      setSortDir("asc");
+    }
+  };
+
+  const SortIcon = ({ col }: { col: SortColumn }) => {
+    if (sortColumn !== col) return <ArrowUpDown className="w-3.5 h-3.5 text-muted-foreground/50" />;
+    return sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />;
+  };
+
+  const roleOrder: Record<string, number> = { admin: 0, manager: 1, viewer: 2 };
+
+  const sortedUsers = useMemo(() => {
+    if (!users) return [];
+    return [...users].sort((a, b) => {
+      let cmp = 0;
+      switch (sortColumn) {
+        case "name":
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case "email":
+          cmp = a.email.localeCompare(b.email);
+          break;
+        case "role":
+          cmp = (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9);
+          if (cmp === 0) cmp = a.name.localeCompare(b.name);
+          break;
+        case "stores": {
+          const aCount = a.role === "admin" ? 999 : (a.locationIds?.length || 0);
+          const bCount = b.role === "admin" ? 999 : (b.locationIds?.length || 0);
+          cmp = aCount - bCount;
+          if (cmp === 0) cmp = a.name.localeCompare(b.name);
+          break;
+        }
+        case "lastLogin": {
+          const aTime = a.lastLoginAt ? new Date(a.lastLoginAt).getTime() : 0;
+          const bTime = b.lastLoginAt ? new Date(b.lastLoginAt).getTime() : 0;
+          cmp = aTime - bTime;
+          break;
+        }
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [users, sortColumn, sortDir]);
+
   if (!isAdmin) {
     return (
       <div className="p-6 lg:p-10 max-w-[1200px] mx-auto">
@@ -172,32 +226,56 @@ export default function Users() {
             <Table data-testid="table-users">
               <TableHeader>
                 <TableRow>
-                  <TableHead>User</TableHead>
-                  <TableHead>Login Email</TableHead>
-                  <TableHead>Accessible Stores</TableHead>
-                  <TableHead className="text-right">Last Login</TableHead>
+                  <TableHead>
+                    <button onClick={() => handleSort("name")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-name">
+                      Name <SortIcon col="name" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => handleSort("role")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-role">
+                      Role <SortIcon col="role" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => handleSort("email")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-email">
+                      Login Email <SortIcon col="email" />
+                    </button>
+                  </TableHead>
+                  <TableHead>
+                    <button onClick={() => handleSort("stores")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-stores">
+                      Accessible Stores <SortIcon col="stores" />
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <button onClick={() => handleSort("lastLogin")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded ml-auto" data-testid="button-sort-last-login">
+                      Last Login <SortIcon col="lastLogin" />
+                    </button>
+                  </TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users?.map(user => (
+                {sortedUsers.map(user => (
                   <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
                     <TableCell>
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium" data-testid={`text-user-name-${user.id}`}>{user.name}</span>
-                        <Badge
-                          variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
-                          className="text-xs"
-                          data-testid={`badge-user-role-${user.id}`}
-                        >
-                          {user.role}
-                        </Badge>
                         {!user.isActive && (
                           <Badge variant="destructive" className="text-xs" data-testid={`badge-user-inactive-${user.id}`}>
                             Inactive
                           </Badge>
                         )}
                       </div>
+                    </TableCell>
+
+                    <TableCell>
+                      <Badge
+                        variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
+                        className="text-xs capitalize"
+                        data-testid={`badge-user-role-${user.id}`}
+                      >
+                        {user.role}
+                      </Badge>
                     </TableCell>
 
                     <TableCell>
