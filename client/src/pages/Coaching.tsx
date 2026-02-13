@@ -154,14 +154,14 @@ export default function Coaching() {
   const filteredFormEmployees = employees?.filter(e => filterLocation === "all" || e.location === filterLocation);
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-4">
+    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
+      <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold font-display flex items-center gap-3" data-testid="text-page-title">
-            <MessageSquare className="w-8 h-8 text-primary" />
+          <h1 className="text-xl sm:text-3xl font-bold font-display flex items-center gap-2 sm:gap-3" data-testid="text-page-title">
+            <MessageSquare className="w-5 h-5 sm:w-8 sm:h-8 text-primary" />
             Coaching Logs
           </h1>
-          <p className="text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             {isManagerOrAdmin ? "Document feedback conversations with team members." : "View your coaching history."}
           </p>
         </div>
@@ -255,12 +255,12 @@ export default function Coaching() {
       </div>
 
       {isManagerOrAdmin && (
-        <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Filters:</span>
+            <span className="text-xs sm:text-sm text-muted-foreground">Filters:</span>
           </div>
-          <div className="w-56">
+          <div className="w-full sm:w-56">
             {employeesLoading ? (
               <Skeleton className="h-9 w-full" />
             ) : (
@@ -280,7 +280,7 @@ export default function Coaching() {
             )}
           </div>
           {locations.length > 1 && (
-            <div className="w-48">
+            <div className="w-[calc(50%-0.25rem)] sm:w-48">
               <Select value={filterLocation} onValueChange={(val) => { setFilterLocation(val); setFilterEmployee("all"); }}>
                 <SelectTrigger data-testid="select-filter-location">
                   <SelectValue placeholder="All Locations" />
@@ -294,7 +294,7 @@ export default function Coaching() {
               </Select>
             </div>
           )}
-          <div className="w-44">
+          <div className="w-[calc(50%-0.25rem)] sm:w-44">
             <Select value={filterCategory} onValueChange={setFilterCategory}>
               <SelectTrigger data-testid="select-filter-category">
                 <SelectValue placeholder="All Categories" />
@@ -311,75 +311,106 @@ export default function Coaching() {
       )}
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-4">
-          <CardTitle data-testid="text-log-count">
+        <CardHeader className="flex flex-row items-center justify-between gap-2 sm:gap-4 space-y-0 p-3 sm:p-6 pb-2 sm:pb-4">
+          <CardTitle className="text-sm sm:text-base" data-testid="text-log-count">
             {logsLoading ? "Loading..." : `${enrichedLogs.length} Coaching Log${enrichedLogs.length !== 1 ? "s" : ""}`}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6 pt-0">
           {logsLoading ? (
             <div className="space-y-3">
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}
             </div>
           ) : enrichedLogs.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground" data-testid="text-no-logs">
-              <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>No coaching logs found.</p>
-              {isManagerOrAdmin && <p className="text-sm mt-1">Click "New Coaching Log" to create one.</p>}
+            <div className="text-center py-8 sm:py-12 text-muted-foreground" data-testid="text-no-logs">
+              <MessageSquare className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">No coaching logs found.</p>
+              {isManagerOrAdmin && <p className="text-xs sm:text-sm mt-1">Tap "New Coaching Log" to create one.</p>}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Employee</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Reason</TableHead>
-                    <TableHead>Action Taken</TableHead>
-                    <TableHead>Response</TableHead>
-                    <TableHead>Manager</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {enrichedLogs.map(log => (
-                    <TableRow
-                      key={log.id}
-                      data-testid={`row-coaching-log-${log.id}`}
-                      className="cursor-pointer hover-elevate"
-                      onClick={() => setDetailLog(log)}
-                    >
-                      <TableCell className="whitespace-nowrap text-sm">
-                        {format(new Date(log.createdAt), "MMM d, yyyy")}
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-sm" data-testid={`text-employee-name-${log.id}`}>{log.employeeName}</p>
-                          <p className="text-xs text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className={`no-default-hover-elevate no-default-active-elevate ${categoryColors[log.category] || ""}`} data-testid={`badge-category-${log.id}`}>
+            <>
+              {/* Mobile card layout */}
+              <div className="sm:hidden space-y-2">
+                {enrichedLogs.map(log => (
+                  <div
+                    key={log.id}
+                    data-testid={`row-coaching-log-${log.id}`}
+                    className="p-2.5 rounded border bg-muted/50 cursor-pointer hover-elevate"
+                    onClick={() => setDetailLog(log)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate" data-testid={`text-employee-name-${log.id}`}>{log.employeeName}</p>
+                        <p className="text-[10px] text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge className={`no-default-hover-elevate no-default-active-elevate text-[10px] ${categoryColors[log.category] || ""}`} data-testid={`badge-category-${log.id}`}>
                           {log.category}
                         </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[250px]">
-                        <p className="text-sm line-clamp-2">{log.reason}</p>
-                      </TableCell>
-                      <TableCell className="max-w-[250px]">
-                        <p className="text-sm line-clamp-2">{log.actionTaken}</p>
-                      </TableCell>
-                      <TableCell className="max-w-[250px]">
-                        <p className="text-sm line-clamp-2">{log.employeeResponse}</p>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                        {log.managerName}
-                      </TableCell>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {format(new Date(log.createdAt), "M/d/yy")}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{log.reason}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table layout */}
+              <div className="hidden sm:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Employee</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Reason</TableHead>
+                      <TableHead>Action Taken</TableHead>
+                      <TableHead>Response</TableHead>
+                      <TableHead>Manager</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {enrichedLogs.map(log => (
+                      <TableRow
+                        key={log.id}
+                        data-testid={`row-coaching-log-desktop-${log.id}`}
+                        className="cursor-pointer hover-elevate"
+                        onClick={() => setDetailLog(log)}
+                      >
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {format(new Date(log.createdAt), "MMM d, yyyy")}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium text-sm">{log.employeeName}</p>
+                            <p className="text-xs text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`no-default-hover-elevate no-default-active-elevate ${categoryColors[log.category] || ""}`}>
+                            {log.category}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-[250px]">
+                          <p className="text-sm line-clamp-2">{log.reason}</p>
+                        </TableCell>
+                        <TableCell className="max-w-[250px]">
+                          <p className="text-sm line-clamp-2">{log.actionTaken}</p>
+                        </TableCell>
+                        <TableCell className="max-w-[250px]">
+                          <p className="text-sm line-clamp-2">{log.employeeResponse}</p>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                          {log.managerName}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
