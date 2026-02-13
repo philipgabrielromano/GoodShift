@@ -196,14 +196,14 @@ export default function Users() {
   }
 
   return (
-    <div className="p-6 lg:p-10 space-y-6 max-w-[1200px] mx-auto">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto">
+      <div className="flex items-center justify-between gap-2 sm:gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold font-display flex items-center gap-3" data-testid="text-page-title">
-            <UsersIcon className="w-8 h-8" />
+          <h1 className="text-xl sm:text-3xl font-bold font-display flex items-center gap-2 sm:gap-3" data-testid="text-page-title">
+            <UsersIcon className="w-5 h-5 sm:w-8 sm:h-8" />
             User Administration
           </h1>
-          <p className="text-muted-foreground mt-1">Manage user access and roles.</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Manage user access and roles.</p>
         </div>
         <Button onClick={() => openDialog()} data-testid="button-add-user">
           <Plus className="w-4 h-4 mr-2" /> Add User
@@ -211,105 +211,47 @@ export default function Users() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Users</CardTitle>
-          <CardDescription>
-            Configure user roles and location access. Managers can only view employees from their assigned locations.
+        <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
+          <CardTitle className="text-sm sm:text-base">Users</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Configure user roles and location access.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6 pt-0">
           {isLoading ? (
             <div className="py-12 text-center text-muted-foreground" data-testid="text-loading">Loading...</div>
           ) : users?.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground" data-testid="text-no-users">No users found</div>
           ) : (
-            <Table data-testid="table-users">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <button onClick={() => handleSort("name")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-name">
-                      Name <SortIcon col="name" />
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button onClick={() => handleSort("role")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-role">
-                      Role <SortIcon col="role" />
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button onClick={() => handleSort("email")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-email">
-                      Login Email <SortIcon col="email" />
-                    </button>
-                  </TableHead>
-                  <TableHead>
-                    <button onClick={() => handleSort("stores")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-stores">
-                      Accessible Stores <SortIcon col="stores" />
-                    </button>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <button onClick={() => handleSort("lastLogin")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded ml-auto" data-testid="button-sort-last-login">
-                      Last Login <SortIcon col="lastLogin" />
-                    </button>
-                  </TableHead>
-                  <TableHead className="w-12" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Mobile card layout */}
+              <div className="sm:hidden space-y-2">
                 {sortedUsers.map(user => (
-                  <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
-                    <TableCell>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium" data-testid={`text-user-name-${user.id}`}>{user.name}</span>
-                        {!user.isActive && (
-                          <Badge variant="destructive" className="text-xs" data-testid={`badge-user-inactive-${user.id}`}>
-                            Inactive
+                  <div key={user.id} className="p-2.5 rounded border" data-testid={`row-user-${user.id}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-medium text-sm" data-testid={`text-user-name-${user.id}`}>{user.name}</span>
+                          <Badge
+                            variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
+                            className="text-[10px] capitalize"
+                            data-testid={`badge-user-role-${user.id}`}
+                          >
+                            {user.role}
                           </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-
-                    <TableCell>
-                      <Badge
-                        variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
-                        className="text-xs capitalize"
-                        data-testid={`badge-user-role-${user.id}`}
-                      >
-                        {user.role}
-                      </Badge>
-                    </TableCell>
-
-                    <TableCell>
-                      <span className="text-muted-foreground" data-testid={`text-user-email-${user.id}`}>
-                        {user.email}
-                      </span>
-                    </TableCell>
-
-                    <TableCell>
-                      {user.role === "admin" ? (
-                        <span className="text-muted-foreground italic" data-testid={`text-user-stores-${user.id}`}>All stores</span>
-                      ) : user.locationIds && user.locationIds.length > 0 ? (
-                        <div className="flex flex-wrap gap-1" data-testid={`text-user-stores-${user.id}`}>
-                          {user.locationIds.map(id => (
-                            <Badge key={id} variant="outline" className="text-xs font-normal" data-testid={`badge-user-location-${user.id}-${id}`}>
-                              {getLocationName(id)}
+                          {!user.isActive && (
+                            <Badge variant="destructive" className="text-[10px]" data-testid={`badge-user-inactive-${user.id}`}>
+                              Inactive
                             </Badge>
-                          ))}
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-muted-foreground" data-testid={`text-user-stores-${user.id}`}>None assigned</span>
-                      )}
-                    </TableCell>
-
-                    <TableCell className="text-right">
-                      <span className="text-muted-foreground" data-testid={`text-user-last-login-${user.id}`}>
-                        {formatLastLogin(user.lastLoginAt)}
-                      </span>
-                    </TableCell>
-
-                    <TableCell>
+                        <p className="text-[10px] text-muted-foreground truncate" data-testid={`text-user-email-${user.id}`}>
+                          {user.email}
+                        </p>
+                      </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" data-testid={`button-user-menu-${user.id}`}>
+                          <Button variant="ghost" size="icon" className="shrink-0" data-testid={`button-user-menu-${user.id}`}>
                             <MoreHorizontal className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -327,11 +269,138 @@ export default function Users() {
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-1">
+                      <div className="text-[10px] text-muted-foreground" data-testid={`text-user-stores-${user.id}`}>
+                        {user.role === "admin" ? (
+                          <span className="italic">All stores</span>
+                        ) : user.locationIds && user.locationIds.length > 0 ? (
+                          <span>{user.locationIds.map(id => getLocationName(id)).join(", ")}</span>
+                        ) : (
+                          <span>No stores</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0" data-testid={`text-user-last-login-${user.id}`}>
+                        {formatLastLogin(user.lastLoginAt)}
+                      </span>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+
+              {/* Desktop table layout */}
+              <div className="hidden sm:block">
+                <Table data-testid="table-users">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>
+                        <button onClick={() => handleSort("name")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-name">
+                          Name <SortIcon col="name" />
+                        </button>
+                      </TableHead>
+                      <TableHead>
+                        <button onClick={() => handleSort("role")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-role">
+                          Role <SortIcon col="role" />
+                        </button>
+                      </TableHead>
+                      <TableHead>
+                        <button onClick={() => handleSort("email")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-email">
+                          Login Email <SortIcon col="email" />
+                        </button>
+                      </TableHead>
+                      <TableHead>
+                        <button onClick={() => handleSort("stores")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded" data-testid="button-sort-stores">
+                          Accessible Stores <SortIcon col="stores" />
+                        </button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <button onClick={() => handleSort("lastLogin")} className="flex items-center gap-1.5 hover-elevate px-1 py-0.5 rounded ml-auto" data-testid="button-sort-last-login">
+                          Last Login <SortIcon col="lastLogin" />
+                        </button>
+                      </TableHead>
+                      <TableHead className="w-12" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedUsers.map(user => (
+                      <TableRow key={user.id} data-testid={`row-user-desktop-${user.id}`}>
+                        <TableCell>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium" data-testid={`text-user-name-${user.id}`}>{user.name}</span>
+                            {!user.isActive && (
+                              <Badge variant="destructive" className="text-xs" data-testid={`badge-user-inactive-${user.id}`}>
+                                Inactive
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+
+                        <TableCell>
+                          <Badge
+                            variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
+                            className="text-xs capitalize"
+                            data-testid={`badge-user-role-${user.id}`}
+                          >
+                            {user.role}
+                          </Badge>
+                        </TableCell>
+
+                        <TableCell>
+                          <span className="text-muted-foreground" data-testid={`text-user-email-${user.id}`}>
+                            {user.email}
+                          </span>
+                        </TableCell>
+
+                        <TableCell>
+                          {user.role === "admin" ? (
+                            <span className="text-muted-foreground italic" data-testid={`text-user-stores-${user.id}`}>All stores</span>
+                          ) : user.locationIds && user.locationIds.length > 0 ? (
+                            <div className="flex flex-wrap gap-1" data-testid={`text-user-stores-${user.id}`}>
+                              {user.locationIds.map(id => (
+                                <Badge key={id} variant="outline" className="text-xs font-normal" data-testid={`badge-user-location-${user.id}-${id}`}>
+                                  {getLocationName(id)}
+                                </Badge>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground" data-testid={`text-user-stores-${user.id}`}>None assigned</span>
+                          )}
+                        </TableCell>
+
+                        <TableCell className="text-right">
+                          <span className="text-muted-foreground" data-testid={`text-user-last-login-${user.id}`}>
+                            {formatLastLogin(user.lastLoginAt)}
+                          </span>
+                        </TableCell>
+
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" data-testid={`button-user-menu-${user.id}`}>
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => openDialog(user)} data-testid={`button-edit-user-${user.id}`}>
+                                <Pencil className="w-4 h-4 mr-2" /> Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleDelete(user)}
+                                className="text-destructive focus:text-destructive"
+                                disabled={user.id === currentUser?.user?.id}
+                                data-testid={`button-delete-user-${user.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" /> Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
