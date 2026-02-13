@@ -8,9 +8,24 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.10.5";
+export const APP_VERSION = "1.11.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.11.0",
+    date: "2026-02-13",
+    title: "Mobile Schedule View & Permissions Update",
+    changes: [
+      { type: "feature", description: "Mobile-friendly schedule view - on phones the schedule now defaults to showing the current day instead of the entire week, with a day selector strip to quickly switch between days" },
+      { type: "improvement", description: "Mobile day navigation arrows and tappable day buttons for easy single-day browsing on small screens" },
+      { type: "improvement", description: "Today is visually highlighted in the mobile day selector so you can always spot it" },
+      { type: "improvement", description: "Mobile day view automatically resets to today when viewing the current week, or to Sunday for past/future weeks" },
+      { type: "improvement", description: "Mobile daily hours total now includes PAL and UTO hours for accurate totals matching the desktop view" },
+      { type: "security", description: "Store Managers can now see and manage all employees at their assigned store locations, including other managers" },
+      { type: "security", description: "Hierarchical access control applied to all occurrence endpoints - managers can only view and manage employees below their job title level (except Store Managers who see all at their locations)" },
+      { type: "fix", description: "Fixed adjustment retraction endpoint missing access control check - managers could previously retract adjustments for employees outside their permitted hierarchy" },
+    ],
+  },
   {
     version: "1.10.5",
     date: "2026-02-12",
