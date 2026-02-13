@@ -24,7 +24,7 @@ export default function Login() {
         <CardHeader className="text-center space-y-4">
           <img src={goodshiftLogo} alt="GoodShift" className="mx-auto w-64 h-auto" />
           <CardDescription>
-            Employee scheduling and workforce management
+            Changing lives through the power of work.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
