@@ -52,6 +52,7 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
     );
     const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+    if (managerLevel >= 3) return true;
     const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
     return empLevel < managerLevel;
   }
@@ -82,6 +83,7 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     const visible = activeEmployees.filter(e => {
       if (managerEmployee && e.id === managerEmployee.id) return false;
       if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
+      if (managerLevel >= 3) return true;
       return getHierarchyLevel(e.jobTitle) < managerLevel;
     });
 
