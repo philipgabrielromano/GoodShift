@@ -128,29 +128,26 @@ export async function checkAndSendHRNotification(
         console.log(`[HR Notification] Including HR email: ${settings.hrNotificationEmail}`);
       }
       
-      // Find the manager(s) for this employee's store location
+      // Find the Store Manager for this employee's store location
+      const STORE_MANAGER_TITLES = ['STSUPER', 'WVSTMNG'];
       if (employee.location) {
-        const locations = await storage.getLocations();
-        const employeeLocation = locations.find(loc => loc.name === employee.location);
-        
-        if (employeeLocation) {
-          const users = await storage.getUsers();
-          const storeManagers = users.filter(user => 
-            user.isActive && 
-            (user.role === 'manager' || user.role === 'admin') &&
-            user.locationIds?.includes(String(employeeLocation.id))
-          );
-          
-          storeManagers.forEach(manager => {
-            if (manager.email) {
-              recipientEmails.add(manager.email.toLowerCase());
+        const allEmployees = await storage.getEmployees();
+        const storeManagerEmployees = allEmployees.filter(emp =>
+          emp.isActive &&
+          emp.location === employee.location &&
+          STORE_MANAGER_TITLES.includes(emp.jobTitle || '')
+        );
+
+        for (const mgrEmp of storeManagerEmployees) {
+          if (mgrEmp.email) {
+            const mgrUser = await storage.getUserByEmail(mgrEmp.email);
+            if (mgrUser?.email) {
+              recipientEmails.add(mgrUser.email.toLowerCase());
             }
-          });
-          
-          console.log(`[HR Notification] Found ${storeManagers.length} manager(s) for location "${employee.location}": ${storeManagers.map(m => m.email).join(', ') || 'none'}`);
-        } else {
-          console.log(`[HR Notification] Could not find location ID for "${employee.location}"`);
+          }
         }
+
+        console.log(`[HR Notification] Found ${storeManagerEmployees.length} Store Manager(s) for location "${employee.location}": ${storeManagerEmployees.map(m => m.name).join(', ') || 'none'}`);
       }
       
       const managerEmails = Array.from(recipientEmails);
