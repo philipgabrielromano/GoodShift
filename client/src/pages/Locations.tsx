@@ -107,174 +107,293 @@ export default function Locations() {
 
   if (isLoading) {
     return (
-      <div className="p-6 lg:p-10 space-y-6 max-w-[1200px] mx-auto">
-        <Skeleton className="h-12 w-64" />
+      <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto">
+        <Skeleton className="h-8 sm:h-12 w-48 sm:w-64" />
         <Skeleton className="h-96 w-full" />
       </div>
     );
   }
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-            <MapPin className="w-8 h-8 text-primary" />
+          <h1 className="text-xl sm:text-3xl font-bold text-foreground flex items-center gap-2 sm:gap-3">
+            <MapPin className="w-5 h-5 sm:w-8 sm:h-8 text-primary" />
             Store Locations
           </h1>
-          <p className="text-muted-foreground mt-1">
-            Locations are auto-discovered from employee data. Set weekly hours allocation for each store.
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+            Set weekly hours and station limits for each store.
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Locations</CardDescription>
-            <CardTitle className="text-2xl">{displayedLocations.length}</CardTitle>
+          <CardHeader className="p-3 sm:p-6 pb-2">
+            <CardDescription className="text-[10px] sm:text-sm">Total Locations</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl">{displayedLocations.length}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Active Locations</CardDescription>
-            <CardTitle className="text-2xl">{activeLocations}</CardTitle>
+          <CardHeader className="p-3 sm:p-6 pb-2">
+            <CardDescription className="text-[10px] sm:text-sm">Active</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl">{activeLocations}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Allocated Hours</CardDescription>
-            <CardTitle className="text-2xl">{totalHours.toLocaleString()}</CardTitle>
+          <CardHeader className="p-3 sm:p-6 pb-2">
+            <CardDescription className="text-[10px] sm:text-sm">Total Hours</CardDescription>
+            <CardTitle className="text-xl sm:text-2xl">{totalHours.toLocaleString()}</CardTitle>
           </CardHeader>
         </Card>
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Store Settings</CardTitle>
-          <CardDescription>
-            Configure weekly hours budget and production station limits for each store. Station limits control the max number of employees that can be scheduled per day for that role (0 = unlimited).
+        <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
+          <CardTitle className="text-sm sm:text-base">Store Settings</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            Configure hours budget and station limits per store (0 = unlimited).
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Store Name</TableHead>
-                <TableHead>Weekly Hours</TableHead>
-                <TableHead>Apparel Stations</TableHead>
-                <TableHead>Wares/Shoes Stations</TableHead>
-                {isAdmin && <TableHead>Status</TableHead>}
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {displayedLocations.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-8">
-                    No locations found. Locations will be added automatically when employees are synced from UKG.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                displayedLocations
+        <CardContent className="p-3 sm:p-6 pt-0">
+          {displayedLocations.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8 text-sm">
+              No locations found. Locations will be added automatically when employees are synced.
+            </div>
+          ) : (
+            <>
+              {/* Mobile card layout */}
+              <div className="sm:hidden space-y-2">
+                {displayedLocations
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map((location) => (
-                  <TableRow key={location.id} data-testid={`row-location-${location.id}`}>
-                    <TableCell className="font-medium">{location.name}</TableCell>
-                    <TableCell>
-                      {editingId === location.id ? (
-                        <Input
-                          type="number"
-                          value={editingHours}
-                          onChange={(e) => setEditingHours(e.target.value)}
-                          className="w-24"
-                          min="0"
-                          data-testid={`input-hours-${location.id}`}
-                        />
-                      ) : (
-                        <span className="font-mono">{location.weeklyHoursLimit}</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {editingId === location.id ? (
-                        <Input
-                          type="number"
-                          value={editingApparelStations}
-                          onChange={(e) => setEditingApparelStations(e.target.value)}
-                          className="w-20"
-                          min="0"
-                          data-testid={`input-apparel-stations-${location.id}`}
-                        />
-                      ) : (
-                        <span className="font-mono">{location.apparelProcessorStations ?? 0}</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {editingId === location.id ? (
-                        <Input
-                          type="number"
-                          value={editingDonationStations}
-                          onChange={(e) => setEditingDonationStations(e.target.value)}
-                          className="w-20"
-                          min="0"
-                          data-testid={`input-donation-stations-${location.id}`}
-                        />
-                      ) : (
-                        <span className="font-mono">{location.donationPricingStations ?? 0}</span>
-                      )}
-                    </TableCell>
-                    {isAdmin && (
-                      <TableCell>
-                        <div className="flex items-center gap-2">
+                  <div
+                    key={location.id}
+                    className="p-2.5 rounded border bg-muted/50"
+                    data-testid={`row-location-${location.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-medium text-sm truncate">{location.name}</span>
+                        {isAdmin && (
+                          <Badge variant={location.isActive ? "default" : "secondary"} className="text-[10px] shrink-0">
+                            {location.isActive ? "Active" : "Off"}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isAdmin && (
                           <Switch
                             checked={location.isActive}
                             onCheckedChange={() => handleToggleActive(location)}
                             disabled={updateLocation.isPending}
                             data-testid={`switch-active-${location.id}`}
                           />
-                          <Badge variant={location.isActive ? "default" : "secondary"}>
-                            {location.isActive ? "Active" : "Disabled"}
-                          </Badge>
+                        )}
+                        {editingId === location.id ? (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleSave(location.id)}
+                              disabled={updateLocation.isPending}
+                              data-testid={`button-save-${location.id}`}
+                            >
+                              <Save className="w-4 h-4 text-green-600" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={handleCancel}
+                              data-testid={`button-cancel-${location.id}`}
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleEdit(location)}
+                            data-testid={`button-edit-${location.id}`}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    {editingId === location.id ? (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
+                          <Input
+                            type="number"
+                            value={editingHours}
+                            onChange={(e) => setEditingHours(e.target.value)}
+                            min="0"
+                            className="h-8 text-sm"
+                            data-testid={`input-hours-${location.id}`}
+                          />
                         </div>
-                      </TableCell>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Apparel Stn</p>
+                          <Input
+                            type="number"
+                            value={editingApparelStations}
+                            onChange={(e) => setEditingApparelStations(e.target.value)}
+                            min="0"
+                            className="h-8 text-sm"
+                            data-testid={`input-apparel-stations-${location.id}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Wares Stn</p>
+                          <Input
+                            type="number"
+                            value={editingDonationStations}
+                            onChange={(e) => setEditingDonationStations(e.target.value)}
+                            min="0"
+                            className="h-8 text-sm"
+                            data-testid={`input-donation-stations-${location.id}`}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
+                          <p className="font-mono font-medium">{location.weeklyHoursLimit}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Apparel Stn</p>
+                          <p className="font-mono font-medium">{location.apparelProcessorStations ?? 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Wares Stn</p>
+                          <p className="font-mono font-medium">{location.donationPricingStations ?? 0}</p>
+                        </div>
+                      </div>
                     )}
-                    <TableCell className="text-right">
-                      {editingId === location.id ? (
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => handleSave(location.id)}
-                            disabled={updateLocation.isPending}
-                            data-testid={`button-save-${location.id}`}
-                          >
-                            <Save className="w-4 h-4 text-green-600" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={handleCancel}
-                            data-testid={`button-cancel-${location.id}`}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleEdit(location)}
-                          data-testid={`button-edit-${location.id}`}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table layout */}
+              <div className="hidden sm:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Store Name</TableHead>
+                      <TableHead>Weekly Hours</TableHead>
+                      <TableHead>Apparel Stations</TableHead>
+                      <TableHead>Wares/Shoes Stations</TableHead>
+                      {isAdmin && <TableHead>Status</TableHead>}
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {displayedLocations
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((location) => (
+                      <TableRow key={location.id} data-testid={`row-location-desktop-${location.id}`}>
+                        <TableCell className="font-medium">{location.name}</TableCell>
+                        <TableCell>
+                          {editingId === location.id ? (
+                            <Input
+                              type="number"
+                              value={editingHours}
+                              onChange={(e) => setEditingHours(e.target.value)}
+                              className="w-24"
+                              min="0"
+                              data-testid={`input-hours-${location.id}`}
+                            />
+                          ) : (
+                            <span className="font-mono">{location.weeklyHoursLimit}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingId === location.id ? (
+                            <Input
+                              type="number"
+                              value={editingApparelStations}
+                              onChange={(e) => setEditingApparelStations(e.target.value)}
+                              className="w-20"
+                              min="0"
+                              data-testid={`input-apparel-stations-${location.id}`}
+                            />
+                          ) : (
+                            <span className="font-mono">{location.apparelProcessorStations ?? 0}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingId === location.id ? (
+                            <Input
+                              type="number"
+                              value={editingDonationStations}
+                              onChange={(e) => setEditingDonationStations(e.target.value)}
+                              className="w-20"
+                              min="0"
+                              data-testid={`input-donation-stations-${location.id}`}
+                            />
+                          ) : (
+                            <span className="font-mono">{location.donationPricingStations ?? 0}</span>
+                          )}
+                        </TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Switch
+                                checked={location.isActive}
+                                onCheckedChange={() => handleToggleActive(location)}
+                                disabled={updateLocation.isPending}
+                                data-testid={`switch-active-${location.id}`}
+                              />
+                              <Badge variant={location.isActive ? "default" : "secondary"}>
+                                {location.isActive ? "Active" : "Disabled"}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                        )}
+                        <TableCell className="text-right">
+                          {editingId === location.id ? (
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => handleSave(location.id)}
+                                disabled={updateLocation.isPending}
+                                data-testid={`button-save-${location.id}`}
+                              >
+                                <Save className="w-4 h-4 text-green-600" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={handleCancel}
+                                data-testid={`button-cancel-${location.id}`}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleEdit(location)}
+                              data-testid={`button-edit-${location.id}`}
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
