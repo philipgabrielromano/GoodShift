@@ -182,14 +182,10 @@ export function Navigation() {
 
       {/* Mobile Header */}
       <header className="lg:hidden fixed top-0 left-0 right-0 h-16 border-b bg-card/80 backdrop-blur-md z-50 flex items-center px-4 justify-between">
-        <img src={goodshiftLogo} alt="GoodShift" className="h-12 w-auto" />
-        
         <div className="flex items-center gap-2">
-          <NotificationBell />
-        
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" data-testid="button-mobile-menu">
               <Menu className="w-5 h-5" />
             </Button>
           </SheetTrigger>
@@ -264,6 +260,12 @@ export function Navigation() {
             </div>
           </SheetContent>
         </Sheet>
+        </div>
+
+        <img src={goodshiftLogo} alt="GoodShift" className="h-12 w-auto" />
+        
+        <div className="flex items-center gap-2">
+          <NotificationBell />
         </div>
       </header>
     </>
