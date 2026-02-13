@@ -13,10 +13,7 @@ export async function getNotificationEmails(employee: { email: string; alternate
     emails.add(user.email.toLowerCase());
   }
   if (employee.alternateEmail) {
-    const altUser = await storage.getUserByEmail(employee.alternateEmail);
-    if (altUser?.lastLoginAt) {
-      emails.add(altUser.email.toLowerCase());
-    }
+    emails.add(employee.alternateEmail.toLowerCase());
   }
   return Array.from(emails);
 }
