@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -819,6 +819,8 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      <ScheduleEmailPreview hrEmail={hrEmail} />
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -920,5 +922,84 @@ export default function Settings() {
       </Card>
       </>}
     </div>
+  );
+}
+
+function ScheduleEmailPreview({ hrEmail }: { hrEmail: string }) {
+  const { toast } = useToast();
+  const [showPreview, setShowPreview] = useState(false);
+
+  const { data: previewData } = useQuery<{ html: string }>({
+    queryKey: ["/api/outlook/schedule-email-preview"],
+    enabled: showPreview,
+  });
+
+  const sendTestScheduleEmail = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/outlook/test-schedule-email", {});
+      return res.json();
+    },
+    onSuccess: (data: { success: boolean; message: string }) => {
+      if (data.success) {
+        toast({ title: "Test Schedule Email Sent", description: data.message });
+      } else {
+        toast({ variant: "destructive", title: "Email Failed", description: data.message });
+      }
+    },
+    onError: () => {
+      toast({ variant: "destructive", title: "Email Failed", description: "Could not send test schedule email" });
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <CardTitle className="flex items-center gap-2">
+            <Eye className="w-5 h-5" />
+            Schedule Update Email Preview
+          </CardTitle>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowPreview(!showPreview)}
+              data-testid="button-toggle-schedule-preview"
+            >
+              {showPreview ? <ChevronUp className="w-4 h-4 mr-1" /> : <ChevronDown className="w-4 h-4 mr-1" />}
+              {showPreview ? "Hide" : "Preview"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => sendTestScheduleEmail.mutate()}
+              disabled={sendTestScheduleEmail.isPending || !hrEmail}
+              data-testid="button-send-test-schedule-email"
+            >
+              <Send className={`w-4 h-4 mr-2 ${sendTestScheduleEmail.isPending ? "animate-pulse" : ""}`} />
+              {sendTestScheduleEmail.isPending ? "Sending..." : "Send Test"}
+            </Button>
+          </div>
+        </div>
+        <CardDescription>Preview what employees receive when a schedule is published.</CardDescription>
+      </CardHeader>
+      {showPreview && (
+        <CardContent>
+          {previewData?.html ? (
+            <div className="border rounded overflow-hidden">
+              <iframe
+                srcDoc={previewData.html}
+                className="w-full border-0"
+                style={{ minHeight: "400px" }}
+                title="Schedule Email Preview"
+                data-testid="iframe-schedule-email-preview"
+              />
+            </div>
+          ) : (
+            <div className="py-8 text-center text-muted-foreground">Loading preview...</div>
+          )}
+        </CardContent>
+      )}
+    </Card>
   );
 }

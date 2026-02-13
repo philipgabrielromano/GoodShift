@@ -9,9 +9,15 @@ export const TIMEZONE = "America/New_York";
 export async function getNotificationEmails(employee: { email: string; alternateEmail?: string | null }): Promise<string[]> {
   const emails = new Set<string>();
   const user = await storage.getUserByEmail(employee.email);
-  if (user?.email) emails.add(user.email.toLowerCase());
-  if (employee.alternateEmail) emails.add(employee.alternateEmail.toLowerCase());
-  if (emails.size === 0 && employee.email) emails.add(employee.email.toLowerCase());
+  if (user?.lastLoginAt) {
+    emails.add(user.email.toLowerCase());
+  }
+  if (employee.alternateEmail) {
+    const altUser = await storage.getUserByEmail(employee.alternateEmail);
+    if (altUser?.lastLoginAt) {
+      emails.add(altUser.email.toLowerCase());
+    }
+  }
   return Array.from(emails);
 }
 

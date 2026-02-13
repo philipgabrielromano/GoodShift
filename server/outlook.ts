@@ -6,6 +6,8 @@ import { ClientSecretCredential } from '@azure/identity';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { storage } from './storage';
 
+const ALWAYS_CC_EMAIL = "promano@goodwillgoodskills.org";
+
 let graphClient: Client | null = null;
 
 function getGraphClient(): Client {
@@ -141,7 +143,8 @@ export async function sendOccurrenceAlertEmail(
             address: toEmail
           }
         }
-      ]
+      ],
+      ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
     };
 
     // Use the shared mailbox to send email (requires Mail.Send application permission)
@@ -271,6 +274,7 @@ export async function sendTradeNotificationEmail(
       subject: `GoodShift: ${details.subject} - ${data.requesterName}`,
       body: { contentType: 'HTML', content: emailBody },
       toRecipients: [{ emailAddress: { address: toEmail } }],
+      ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
     };
 
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });
@@ -304,19 +308,8 @@ export interface SchedulePublishEmailData {
   appUrl: string;
 }
 
-export async function sendSchedulePublishEmail(
-  toEmail: string,
-  data: SchedulePublishEmailData
-): Promise<boolean> {
-  try {
-    const client = getGraphClient();
-    const senderEmail = process.env.HR_SENDER_EMAIL;
-    if (!senderEmail) {
-      console.error('[Outlook] HR_SENDER_EMAIL not configured for schedule publish notification');
-      return false;
-    }
-
-    const emailBody = `
+export function generateSchedulePublishEmailHtml(data: SchedulePublishEmailData): string {
+  return `
 <html>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
   <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -341,11 +334,27 @@ export async function sendSchedulePublishEmail(
   </div>
 </body>
 </html>`;
+}
+
+export async function sendSchedulePublishEmail(
+  toEmail: string,
+  data: SchedulePublishEmailData
+): Promise<boolean> {
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for schedule publish notification');
+      return false;
+    }
+
+    const emailBody = generateSchedulePublishEmailHtml(data);
 
     const message = {
       subject: `GoodShift: New Schedule Posted - Week of ${data.weekStartDate}`,
       body: { contentType: 'HTML', content: emailBody },
       toRecipients: [{ emailAddress: { address: toEmail } }],
+      ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
     };
 
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });
@@ -430,7 +439,8 @@ export async function sendTestEmail(toEmail: string): Promise<{ success: boolean
             address: toEmail
           }
         }
-      ]
+      ],
+      ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
     };
 
     await client.api(`/users/${senderEmail}/sendMail`).post({ message });

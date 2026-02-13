@@ -8,7 +8,7 @@ import { ukgClient } from "./ukg";
 import { RETAIL_JOB_CODES } from "@shared/schema";
 import { formatInTimeZone } from "date-fns-tz";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
-import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
+import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, generateSchedulePublishEmailHtml, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
 import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
@@ -598,6 +598,46 @@ export async function registerRoutes(
         res.json({ success: true, message: `Test email sent to ${settings.hrNotificationEmail}` });
       } else {
         res.status(500).json({ success: false, message: "Failed to send test email" });
+      }
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message || "Failed to send test email" });
+    }
+  });
+
+  app.get("/api/outlook/schedule-email-preview", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const appUrl = "https://goodshift.goodwillgoodskills.org";
+      const html = generateSchedulePublishEmailHtml({
+        recipientName: "Jane Smith",
+        weekStartDate: "February 16, 2026",
+        locationName: "Wheeling Store",
+        appUrl,
+      });
+      res.json({ html });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to generate preview" });
+    }
+  });
+
+  app.post("/api/outlook/test-schedule-email", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const settings = await storage.getGlobalSettings();
+      if (!settings?.hrNotificationEmail) {
+        return res.status(400).json({ success: false, message: "No HR notification email configured in settings" });
+      }
+
+      const appUrl = "https://goodshift.goodwillgoodskills.org";
+      const sent = await sendSchedulePublishEmail(settings.hrNotificationEmail, {
+        recipientName: "Test Employee",
+        weekStartDate: "February 16, 2026",
+        locationName: "Test Location",
+        appUrl,
+      });
+
+      if (sent) {
+        res.json({ success: true, message: `Test schedule email sent to ${settings.hrNotificationEmail}` });
+      } else {
+        res.status(500).json({ success: false, message: "Failed to send test schedule email" });
       }
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message || "Failed to send test email" });
