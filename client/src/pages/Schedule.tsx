@@ -1104,14 +1104,14 @@ export default function Schedule() {
   }
 
   return (
-    <div className="p-3 md:p-6 lg:p-10 space-y-4 md:space-y-8 max-w-[1600px] mx-auto">
-      <div className="flex flex-col items-center gap-4">
-        <div className="flex flex-col md:flex-row items-center gap-4">
+    <div className={cn("max-w-[1600px] mx-auto", isMobile ? "p-2 space-y-2" : "p-6 lg:p-10 space-y-8")}>
+      <div className={cn("flex flex-col items-center", isMobile ? "gap-2" : "gap-4")}>
+        <div className={cn("flex items-center", isMobile ? "w-full gap-2" : "flex-col md:flex-row gap-4")}>
           {/* Location dropdown: Admins see all locations, others see their assigned locations */}
           {isAdmin ? (
             <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-              <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
-                <MapPin className="w-4 h-4 mr-2 text-muted-foreground" />
+              <SelectTrigger className={cn(isMobile ? "flex-1 min-w-0" : "w-[200px]")} data-testid="select-location-filter">
+                <MapPin className="w-4 h-4 mr-1 text-muted-foreground flex-shrink-0" />
                 <SelectValue placeholder="All Locations" />
               </SelectTrigger>
               <SelectContent>
@@ -1126,8 +1126,8 @@ export default function Schedule() {
             </Select>
           ) : userLocations.length > 1 ? (
             <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-              <SelectTrigger className="w-[200px]" data-testid="select-location-filter">
-                <MapPin className="w-4 h-4 mr-2 text-muted-foreground" />
+              <SelectTrigger className={cn(isMobile ? "flex-1 min-w-0" : "w-[200px]")} data-testid="select-location-filter">
+                <MapPin className="w-4 h-4 mr-1 text-muted-foreground flex-shrink-0" />
                 <SelectValue placeholder="Select Location" />
               </SelectTrigger>
               <SelectContent>
@@ -1139,20 +1139,20 @@ export default function Schedule() {
               </SelectContent>
             </Select>
           ) : (
-            <div className="flex items-center gap-2 px-3 py-2 border rounded-md bg-muted/30">
-              <MapPin className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm font-medium" data-testid="text-assigned-location">
+            <div className={cn("flex items-center gap-2 px-3 py-2 border rounded-md bg-muted/30", isMobile && "flex-1 min-w-0")}>
+              <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <span className="text-sm font-medium truncate" data-testid="text-assigned-location">
                 {selectedLocation !== "all" ? selectedLocation : userLocations[0]?.name || "No location assigned"}
               </span>
             </div>
           )}
-          <div className="flex items-center gap-2 bg-card border p-1 rounded shadow-sm">
+          <div className={cn("flex items-center bg-card border rounded shadow-sm", isMobile ? "gap-0 p-0.5" : "gap-2 p-1")}>
             <Button variant="ghost" size="icon" onClick={handlePrevWeek} data-testid="button-prev-week">
               <ChevronLeft className="w-5 h-5" />
             </Button>
-            <div className="px-4 font-medium min-w-[200px] text-center">
+            <div className={cn("font-medium text-center", isMobile ? "px-1 min-w-0" : "px-4 min-w-[200px]")}>
               <div className="text-sm font-semibold">Week {getISOWeek(toZonedTime(currentDate, TIMEZONE))}</div>
-              <div className="text-xs text-muted-foreground">{formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}</div>
+              <div className="text-xs text-muted-foreground whitespace-nowrap">{formatInTimeZone(weekStart, TIMEZONE, "MMM d")} - {formatInTimeZone(weekEnd, TIMEZONE, "MMM d, yyyy")}</div>
             </div>
             <Button variant="ghost" size="icon" onClick={handleNextWeek} data-testid="button-next-week">
               <ChevronRight className="w-5 h-5" />
@@ -1161,8 +1161,8 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Actions Bar - managers and admins only */}
-      {(userRole === "admin" || userRole === "manager") && (
+      {/* Actions Bar - managers and admins only, hidden on mobile */}
+      {!isMobile && (userRole === "admin" || userRole === "manager") && (
         <div className="flex items-center justify-center gap-2 flex-wrap" data-testid="actions-bar">
           {/* Publish/Unpublish Button */}
           {isSchedulePublished ? (
@@ -1297,8 +1297,8 @@ export default function Schedule() {
 
       {canViewSchedule && (
       <div className="flex gap-6">
-        {/* Left Sidebar */}
-        <div className="w-64 shrink-0 space-y-4" data-testid="left-sidebar">
+        {/* Left Sidebar - hidden on mobile */}
+        <div className={cn("w-64 shrink-0 space-y-4", isMobile && "hidden")} data-testid="left-sidebar">
           {/* Location Hours Panel */}
           {(() => {
             const displayLocations = selectedLocation === "all" 
