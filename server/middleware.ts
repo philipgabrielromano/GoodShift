@@ -119,16 +119,21 @@ export async function checkAndSendHRNotification(
     if (threshold) {
       console.log(`[HR Notification] Employee ${employee.name} crossed ${threshold}-point threshold (${previousTally.toFixed(1)} -> ${netTally.toFixed(1)})`);
       
-      // Find the managers for this employee's store location
-      const managerEmails: string[] = [];
+      const recipientEmails = new Set<string>();
       
+      // Always include the HR email from settings
+      const settings = await storage.getGlobalSettings();
+      if (settings?.hrNotificationEmail) {
+        recipientEmails.add(settings.hrNotificationEmail.toLowerCase());
+        console.log(`[HR Notification] Including HR email: ${settings.hrNotificationEmail}`);
+      }
+      
+      // Find the manager(s) for this employee's store location
       if (employee.location) {
-        // Get all locations to find the location ID by name
         const locations = await storage.getLocations();
         const employeeLocation = locations.find(loc => loc.name === employee.location);
         
         if (employeeLocation) {
-          // Get all users and find managers assigned to this location
           const users = await storage.getUsers();
           const storeManagers = users.filter(user => 
             user.isActive && 
@@ -138,25 +143,17 @@ export async function checkAndSendHRNotification(
           
           storeManagers.forEach(manager => {
             if (manager.email) {
-              managerEmails.push(manager.email);
+              recipientEmails.add(manager.email.toLowerCase());
             }
           });
           
-          console.log(`[HR Notification] Found ${storeManagers.length} managers for location "${employee.location}": ${managerEmails.join(', ') || 'none'}`);
+          console.log(`[HR Notification] Found ${storeManagers.length} manager(s) for location "${employee.location}": ${storeManagers.map(m => m.email).join(', ') || 'none'}`);
         } else {
           console.log(`[HR Notification] Could not find location ID for "${employee.location}"`);
         }
       }
       
-      // If no store managers found, fall back to global HR email from settings
-      if (managerEmails.length === 0) {
-        const settings = await storage.getGlobalSettings();
-        if (settings?.hrNotificationEmail) {
-          managerEmails.push(settings.hrNotificationEmail);
-          console.log(`[HR Notification] No store managers found, falling back to HR email: ${settings.hrNotificationEmail}`);
-        }
-      }
-      
+      const managerEmails = Array.from(recipientEmails);
       if (managerEmails.length === 0) {
         console.log('[HR Notification] No recipients configured, skipping email');
         return;
