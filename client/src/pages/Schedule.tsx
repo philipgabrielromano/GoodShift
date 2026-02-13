@@ -357,6 +357,11 @@ export default function Schedule() {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [draggedShift, setDraggedShift] = useState<Shift | null>(null);
   const [dropTarget, setDropTarget] = useState<{ empId: number; dayKey: string } | null>(null);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
+  const [mobileDayIndex, setMobileDayIndex] = useState(() => {
+    const now = toZonedTime(new Date(), TIMEZONE);
+    return now.getDay();
+  });
   const [selectedLocation, setSelectedLocation] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("location") || "all";
@@ -409,6 +414,24 @@ export default function Schedule() {
     }
   }, [weekStart, selectedLocation]);
   
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    const now = toZonedTime(new Date(), TIMEZONE);
+    const currentWeekStart = getESTWeekStart(new Date());
+    if (weekStart.getTime() === currentWeekStart.getTime()) {
+      setMobileDayIndex(now.getDay());
+    } else {
+      setMobileDayIndex(0);
+    }
+  }, [weekStart]);
+
+  const mobileDay = weekDays[mobileDayIndex];
+
   const toggleGroupCollapse = (jobTitle: string) => {
     setCollapsedGroups(prev => {
       const newSet = new Set(prev);
@@ -1081,7 +1104,7 @@ export default function Schedule() {
   }
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1600px] mx-auto">
+    <div className="p-3 md:p-6 lg:p-10 space-y-4 md:space-y-8 max-w-[1600px] mx-auto">
       <div className="flex flex-col items-center gap-4">
         <div className="flex flex-col md:flex-row items-center gap-4">
           {/* Location dropdown: Admins see all locations, others see their assigned locations */}
@@ -1339,8 +1362,203 @@ export default function Schedule() {
         
         {/* Main Content Area */}
         <div className="flex-1">
-        {/* Main Schedule Grid */}
-        <div className="bg-card rounded border shadow-sm overflow-hidden relative">
+
+        {/* Mobile Day View */}
+        {isMobile && (
+          <div className="bg-card rounded border shadow-sm overflow-hidden md:hidden" data-testid="mobile-schedule-view">
+            <div className="flex items-center border-b bg-muted/30">
+              <Button variant="ghost" size="icon" onClick={() => setMobileDayIndex(i => i > 0 ? i - 1 : 6)} data-testid="button-mobile-prev-day">
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+              <div className="flex-1 flex overflow-x-auto gap-1 py-2 px-1">
+                {weekDays.map((day, i) => {
+                  const todayEST = toZonedTime(new Date(), TIMEZONE);
+                  const dayEST = toZonedTime(day, TIMEZONE);
+                  const isToday = isSameDay(todayEST, dayEST);
+                  const isSelected = i === mobileDayIndex;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setMobileDayIndex(i)}
+                      className={cn(
+                        "flex flex-col items-center px-3 py-1.5 rounded-md min-w-[48px] transition-colors",
+                        isSelected ? "bg-primary text-primary-foreground" : "hover:bg-muted",
+                        isToday && !isSelected && "ring-1 ring-primary"
+                      )}
+                      data-testid={`button-mobile-day-${i}`}
+                    >
+                      <span className="text-[11px] font-medium">{formatInTimeZone(day, TIMEZONE, "EEE")}</span>
+                      <span className="text-sm font-bold">{formatInTimeZone(day, TIMEZONE, "d")}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setMobileDayIndex(i => i < 6 ? i + 1 : 0)} data-testid="button-mobile-next-day">
+                <ChevronRight className="w-5 h-5" />
+              </Button>
+            </div>
+
+            {(() => {
+              const day = mobileDay;
+              const dayEST = toZonedTime(day, TIMEZONE);
+              const dayDateStr = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
+              const holidayName = isHoliday(dayEST);
+              const dateKey = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
+              const weather = weatherByDate.get(dateKey);
+
+              const dayHours = shifts?.reduce((sum, shift) => {
+                const shiftDateStr = formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd");
+                if (shiftDateStr !== dayDateStr) return sum;
+                if (selectedLocation !== "all") {
+                  const emp = employees?.find(e => e.id === shift.employeeId);
+                  if (emp?.location !== selectedLocation) return sum;
+                }
+                return sum + calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime));
+              }, 0) || 0;
+
+              let palUtoHours = 0;
+              const filteredEmps = (employees || [])
+                .filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation));
+              for (const emp of filteredEmps) {
+                const palKey = `${emp.id}-${dayDateStr}`;
+                const palEntry = palByEmpDate.get(palKey);
+                if (palEntry) palUtoHours += palEntry.hoursDecimal;
+                const unpaidEntry = unpaidByEmpDate.get(palKey);
+                if (unpaidEntry) palUtoHours += unpaidEntry.hoursDecimal;
+              }
+              const totalDayHours = dayHours + palUtoHours;
+
+              const filteredEmployees = (employees || [])
+                .filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation));
+
+              const grouped = Object.entries(
+                filteredEmployees.reduce((acc, emp) => {
+                  if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
+                  acc[emp.jobTitle].push(emp);
+                  return acc;
+                }, {} as Record<string, NonNullable<typeof employees>>)
+              ).sort(([a], [b]) => getJobPriority(a) - getJobPriority(b));
+
+              return (
+                <div>
+                  {holidayName && (
+                    <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm font-semibold text-center">
+                      CLOSED - {holidayName}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/10">
+                    <span className="text-sm font-medium text-muted-foreground">{formatInTimeZone(day, TIMEZONE, "EEEE, MMM d")}</span>
+                    <div className="flex items-center gap-3">
+                      {weather && (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <Thermometer className="w-3 h-3 text-orange-500" />
+                          <span className="text-orange-600 dark:text-orange-400">{weather.highTemp}°</span>
+                          <span className="text-muted-foreground">/</span>
+                          <span className="text-blue-600 dark:text-blue-400">{weather.lowTemp}°</span>
+                          {weather.precipitationChance > 0 && (
+                            <>
+                              <Droplets className="w-3 h-3 text-sky-600 ml-1" />
+                              <span className="text-sky-600 dark:text-sky-400">{weather.precipitationChance}%</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <Badge variant="secondary">{totalDayHours.toFixed(1)}h</Badge>
+                    </div>
+                  </div>
+
+                  {grouped.map(([jobTitle, groupEmployees]) => {
+                    const isCollapsed = collapsedGroups.has(jobTitle);
+                    return (
+                      <div key={jobTitle} className="border-b last:border-b-0">
+                        <button
+                          onClick={() => toggleGroupCollapse(jobTitle)}
+                          className="w-full px-4 py-2 bg-muted/20 border-b font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 hover:bg-muted/30 transition-colors"
+                          data-testid={`button-mobile-toggle-group-${jobTitle}`}
+                        >
+                          {isCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          <span>{getJobTitle(jobTitle)}</span>
+                          <Badge variant="secondary" className="ml-auto">{groupEmployees.length}</Badge>
+                        </button>
+                        {!isCollapsed && groupEmployees.map(emp => {
+                          const dayShifts = shifts?.filter(s => {
+                            const shiftStartEST = toZonedTime(s.startTime, TIMEZONE);
+                            return s.employeeId === emp.id && isSameDay(shiftStartEST, dayEST);
+                          }) || [];
+
+                          const palKey = `${emp.id}-${dayDateStr}`;
+                          const palEntry = palByEmpDate.get(palKey);
+                          const unpaidKey = `${emp.id}-${dayDateStr}`;
+                          const unpaidEntry = unpaidByEmpDate.get(unpaidKey);
+                          const hasContent = dayShifts.length > 0 || palEntry || unpaidEntry;
+
+                          return (
+                            <div
+                              key={emp.id}
+                              className="flex items-center gap-3 px-4 py-3 border-b last:border-b-0 hover:bg-muted/10 transition-colors"
+                              data-testid={`mobile-emp-row-${emp.id}`}
+                            >
+                              <div
+                                className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
+                                style={{ backgroundColor: getJobColor(emp.jobTitle) }}
+                              >
+                                {emp.name.substring(0, 2).toUpperCase()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm truncate">{emp.name}</p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {dayShifts.map(shift => (
+                                    <div
+                                      key={shift.id}
+                                      onClick={() => handleEditShift(shift, emp)}
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-white cursor-pointer"
+                                      style={{ backgroundColor: getJobColor(emp.jobTitle) }}
+                                      data-testid={`mobile-shift-${shift.id}`}
+                                    >
+                                      {formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")} - {formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}
+                                    </div>
+                                  ))}
+                                  {palEntry && (
+                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold text-white bg-black">
+                                      PAL {palEntry.hoursDecimal.toFixed(1)}h
+                                    </div>
+                                  )}
+                                  {unpaidEntry && (
+                                    <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold text-white bg-gray-500">
+                                      UTO {unpaidEntry.hoursDecimal.toFixed(1)}h
+                                    </div>
+                                  )}
+                                  {!hasContent && (
+                                    <span className="text-xs text-muted-foreground">Off</span>
+                                  )}
+                                </div>
+                              </div>
+                              {userRole !== "viewer" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleAddShift(day, emp.id)}
+                                  className="flex-shrink-0"
+                                  data-testid={`button-mobile-add-shift-${emp.id}`}
+                                >
+                                  <Plus className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Main Schedule Grid (Desktop) */}
+        <div className={cn("bg-card rounded border shadow-sm overflow-hidden relative", isMobile && "hidden")}>
+
           {/* Generation Loading Overlay - positioned at top */}
           {isManualGenerating && (
             <div className="absolute top-0 left-0 right-0 bg-primary/95 backdrop-blur-sm z-50 flex items-center justify-center gap-4 py-4 px-6 shadow-lg" data-testid="overlay-generating">
