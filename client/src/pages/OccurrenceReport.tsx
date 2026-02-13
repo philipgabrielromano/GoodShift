@@ -49,17 +49,17 @@ export default function OccurrenceReport() {
     : [];
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
+    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
       <div>
-        <h1 className="text-3xl font-bold font-display flex items-center gap-3" data-testid="text-page-title">
-          <AlertTriangle className="w-8 h-8 text-orange-500" />
+        <h1 className="text-xl sm:text-3xl font-bold font-display flex items-center gap-2 sm:gap-3" data-testid="text-page-title">
+          <AlertTriangle className="w-5 h-5 sm:w-8 sm:h-8 text-orange-500" />
           Occurrence Report
         </h1>
-        <p className="text-muted-foreground mt-1">View employees and their total occurrence points by location.</p>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">Employee occurrence points by location.</p>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="w-64">
+      <div className="flex items-center gap-2 sm:gap-4 flex-wrap">
+        <div className="w-full sm:w-64">
           {locationsLoading ? (
             <Skeleton className="h-9 w-full" />
           ) : (
@@ -81,15 +81,15 @@ export default function OccurrenceReport() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+        <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
+          <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
             Occurrence Summary
             {sortedData.length > 0 && (
               <Badge variant="secondary" data-testid="badge-total-count">{sortedData.length}</Badge>
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-3 sm:p-6 pt-0">
           {dataLoading ? (
             <div className="space-y-3" data-testid="loading-skeleton">
               {[1, 2, 3, 4, 5].map((i) => (
@@ -101,45 +101,78 @@ export default function OccurrenceReport() {
               No occurrence data found for this location.
             </p>
           ) : (
-            <Table data-testid="table-occurrences">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Employee Name</TableHead>
-                  <TableHead>Job Title</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead>Employment Type</TableHead>
-                  <TableHead className="text-right">Total Points</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sortedData.map((row, index) => (
-                  <TableRow
+            <>
+              {/* Mobile card layout */}
+              <div className="sm:hidden space-y-2">
+                {sortedData.map((row) => (
+                  <div
                     key={row.employeeId}
-                    className={getRowHighlight(row.totalPoints)}
+                    className={`p-2.5 rounded border ${getRowHighlight(row.totalPoints)}`}
                     data-testid={`row-occurrence-${row.employeeId}`}
                   >
-                    <TableCell className="font-medium" data-testid={`text-employee-name-${row.employeeId}`}>
-                      {row.employeeName}
-                    </TableCell>
-                    <TableCell data-testid={`text-job-title-${row.employeeId}`}>
-                      {row.jobTitle}
-                    </TableCell>
-                    <TableCell data-testid={`text-location-${row.employeeId}`}>
-                      {row.location}
-                    </TableCell>
-                    <TableCell data-testid={`text-employment-type-${row.employeeId}`}>
-                      {row.employmentType}
-                    </TableCell>
-                    <TableCell className="text-right" data-testid={`text-total-points-${row.employeeId}`}>
-                      <div className="flex items-center justify-end gap-2">
-                        {getThresholdBadge(row.totalPoints)}
-                        <span className="font-bold">{row.totalPoints.toFixed(1)}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate" data-testid={`text-employee-name-${row.employeeId}`}>
+                          {row.employeeName}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground" data-testid={`text-job-title-${row.employeeId}`}>
+                          {row.jobTitle} &middot; {row.location}
+                        </p>
                       </div>
-                    </TableCell>
-                  </TableRow>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {getThresholdBadge(row.totalPoints)}
+                        <span className="font-bold text-sm" data-testid={`text-total-points-${row.employeeId}`}>
+                          {row.totalPoints.toFixed(1)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+
+              {/* Desktop table layout */}
+              <div className="hidden sm:block">
+                <Table data-testid="table-occurrences">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Employee Name</TableHead>
+                      <TableHead>Job Title</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Employment Type</TableHead>
+                      <TableHead className="text-right">Total Points</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedData.map((row) => (
+                      <TableRow
+                        key={row.employeeId}
+                        className={getRowHighlight(row.totalPoints)}
+                        data-testid={`row-occurrence-desktop-${row.employeeId}`}
+                      >
+                        <TableCell className="font-medium" data-testid={`text-employee-name-${row.employeeId}`}>
+                          {row.employeeName}
+                        </TableCell>
+                        <TableCell data-testid={`text-job-title-${row.employeeId}`}>
+                          {row.jobTitle}
+                        </TableCell>
+                        <TableCell data-testid={`text-location-${row.employeeId}`}>
+                          {row.location}
+                        </TableCell>
+                        <TableCell data-testid={`text-employment-type-${row.employeeId}`}>
+                          {row.employmentType}
+                        </TableCell>
+                        <TableCell className="text-right" data-testid={`text-total-points-${row.employeeId}`}>
+                          <div className="flex items-center justify-end gap-2">
+                            {getThresholdBadge(row.totalPoints)}
+                            <span className="font-bold">{row.totalPoints.toFixed(1)}</span>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
