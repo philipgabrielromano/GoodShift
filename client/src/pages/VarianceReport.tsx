@@ -60,6 +60,15 @@ function formatDate(dateString: string) {
   }
 }
 
+function formatDateShort(dateString: string) {
+  try {
+    const d = new Date(dateString + "T12:00:00");
+    return format(d, "M/d");
+  } catch {
+    return dateString;
+  }
+}
+
 function getDefaultWeekRange() {
   const now = new Date();
   const weekStart = startOfWeek(now, { weekStartsOn: 0 });
@@ -94,37 +103,37 @@ export default function VarianceReport() {
   });
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
+    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
       <div>
-        <h1 className="text-3xl font-bold font-display flex items-center gap-3" data-testid="text-page-title">
-          <Clock className="w-8 h-8 text-blue-500" />
+        <h1 className="text-xl sm:text-3xl font-bold font-display flex items-center gap-2 sm:gap-3" data-testid="text-page-title">
+          <Clock className="w-5 h-5 sm:w-8 sm:h-8 text-blue-500" />
           Variance Report
         </h1>
-        <p className="text-muted-foreground mt-1">View shift time variances including early clock-ins, late clock-outs, and long lunches.</p>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">Shift time variances: early clock-ins, late clock-outs, long lunches.</p>
       </div>
 
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">Start:</label>
+      <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
+        <div className="flex items-center gap-1 sm:gap-2">
+          <label className="text-xs sm:text-sm font-medium text-muted-foreground whitespace-nowrap">Start:</label>
           <Input
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="w-40"
+            className="sm:w-40"
             data-testid="input-start-date"
           />
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">End:</label>
+        <div className="flex items-center gap-1 sm:gap-2">
+          <label className="text-xs sm:text-sm font-medium text-muted-foreground whitespace-nowrap">End:</label>
           <Input
             type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
-            className="w-40"
+            className="sm:w-40"
             data-testid="input-end-date"
           />
         </div>
-        <div className="w-64">
+        <div className="col-span-2 sm:w-64">
           {locationsLoading ? (
             <Skeleton className="h-9 w-full" />
           ) : (
@@ -157,14 +166,15 @@ export default function VarianceReport() {
           ))}
         </div>
       ) : variance ? (
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
+          {/* Early Clock-Ins */}
           <Collapsible open={earlyOpen} onOpenChange={setEarlyOpen}>
             <Card>
-              <CardHeader className="cursor-pointer" data-testid="section-early-clock-ins">
+              <CardHeader className="p-3 sm:p-6 cursor-pointer" data-testid="section-early-clock-ins">
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" className="w-full justify-start gap-2 p-0 h-auto" data-testid="button-toggle-early-clock-ins">
-                    {earlyOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                    <CardTitle className="flex items-center gap-2">
+                    {earlyOpen ? <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
                       Early Clock-Ins
                       <Badge variant="secondary" data-testid="badge-early-count">{variance.earlyClockIns.length}</Badge>
                     </CardTitle>
@@ -172,47 +182,74 @@ export default function VarianceReport() {
                 </CollapsibleTrigger>
               </CardHeader>
               <CollapsibleContent>
-                <CardContent>
+                <CardContent className="p-3 sm:p-6 pt-0">
                   {variance.earlyClockIns.length === 0 ? (
                     <p className="text-muted-foreground text-sm" data-testid="text-no-early">No early clock-ins found.</p>
                   ) : (
-                    <Table data-testid="table-early-clock-ins">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Location</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Scheduled Start</TableHead>
-                          <TableHead>Actual Clock-In</TableHead>
-                          <TableHead className="text-right">Variance (min)</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                    <>
+                      {/* Mobile cards */}
+                      <div className="sm:hidden space-y-2">
                         {variance.earlyClockIns.map((row, index) => (
-                          <TableRow key={index} data-testid={`row-early-${index}`}>
-                            <TableCell className="font-medium" data-testid={`text-early-employee-${index}`}>{row.employeeName}</TableCell>
-                            <TableCell data-testid={`text-early-location-${index}`}>{row.location}</TableCell>
-                            <TableCell data-testid={`text-early-date-${index}`}>{formatDate(row.date)}</TableCell>
-                            <TableCell data-testid={`text-early-scheduled-${index}`}>{formatTime(row.scheduledStart)}</TableCell>
-                            <TableCell data-testid={`text-early-actual-${index}`}>{formatTime(row.actualClockIn)}</TableCell>
-                            <TableCell className="text-right font-bold" data-testid={`text-early-variance-${index}`}>{row.varianceMinutes}</TableCell>
-                          </TableRow>
+                          <div key={index} className="p-2.5 rounded border bg-muted/50" data-testid={`row-early-${index}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate" data-testid={`text-early-employee-${index}`}>{row.employeeName}</p>
+                                <p className="text-[10px] text-muted-foreground">{row.location} &middot; {formatDateShort(row.date)}</p>
+                              </div>
+                              <Badge variant="secondary" className="shrink-0 text-[10px]" data-testid={`text-early-variance-${index}`}>
+                                {row.varianceMinutes}m early
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                              <span>Sched: {formatTime(row.scheduledStart)}</span>
+                              <span>&rarr;</span>
+                              <span>Actual: {formatTime(row.actualClockIn)}</span>
+                            </div>
+                          </div>
                         ))}
-                      </TableBody>
-                    </Table>
+                      </div>
+                      {/* Desktop table */}
+                      <div className="hidden sm:block">
+                        <Table data-testid="table-early-clock-ins">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Employee</TableHead>
+                              <TableHead>Location</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Scheduled Start</TableHead>
+                              <TableHead>Actual Clock-In</TableHead>
+                              <TableHead className="text-right">Variance (min)</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {variance.earlyClockIns.map((row, index) => (
+                              <TableRow key={index} data-testid={`row-early-desktop-${index}`}>
+                                <TableCell className="font-medium" data-testid={`text-early-employee-${index}`}>{row.employeeName}</TableCell>
+                                <TableCell data-testid={`text-early-location-${index}`}>{row.location}</TableCell>
+                                <TableCell data-testid={`text-early-date-${index}`}>{formatDate(row.date)}</TableCell>
+                                <TableCell data-testid={`text-early-scheduled-${index}`}>{formatTime(row.scheduledStart)}</TableCell>
+                                <TableCell data-testid={`text-early-actual-${index}`}>{formatTime(row.actualClockIn)}</TableCell>
+                                <TableCell className="text-right font-bold" data-testid={`text-early-variance-${index}`}>{row.varianceMinutes}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
                   )}
                 </CardContent>
               </CollapsibleContent>
             </Card>
           </Collapsible>
 
+          {/* Late Clock-Outs */}
           <Collapsible open={lateOpen} onOpenChange={setLateOpen}>
             <Card>
-              <CardHeader className="cursor-pointer" data-testid="section-late-clock-outs">
+              <CardHeader className="p-3 sm:p-6 cursor-pointer" data-testid="section-late-clock-outs">
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" className="w-full justify-start gap-2 p-0 h-auto" data-testid="button-toggle-late-clock-outs">
-                    {lateOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                    <CardTitle className="flex items-center gap-2">
+                    {lateOpen ? <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
                       Late Clock-Outs
                       <Badge variant="secondary" data-testid="badge-late-count">{variance.lateClockOuts.length}</Badge>
                     </CardTitle>
@@ -220,47 +257,74 @@ export default function VarianceReport() {
                 </CollapsibleTrigger>
               </CardHeader>
               <CollapsibleContent>
-                <CardContent>
+                <CardContent className="p-3 sm:p-6 pt-0">
                   {variance.lateClockOuts.length === 0 ? (
                     <p className="text-muted-foreground text-sm" data-testid="text-no-late">No late clock-outs found.</p>
                   ) : (
-                    <Table data-testid="table-late-clock-outs">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Location</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Scheduled End</TableHead>
-                          <TableHead>Actual Clock-Out</TableHead>
-                          <TableHead className="text-right">Variance (min)</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                    <>
+                      {/* Mobile cards */}
+                      <div className="sm:hidden space-y-2">
                         {variance.lateClockOuts.map((row, index) => (
-                          <TableRow key={index} data-testid={`row-late-${index}`}>
-                            <TableCell className="font-medium" data-testid={`text-late-employee-${index}`}>{row.employeeName}</TableCell>
-                            <TableCell data-testid={`text-late-location-${index}`}>{row.location}</TableCell>
-                            <TableCell data-testid={`text-late-date-${index}`}>{formatDate(row.date)}</TableCell>
-                            <TableCell data-testid={`text-late-scheduled-${index}`}>{formatTime(row.scheduledEnd)}</TableCell>
-                            <TableCell data-testid={`text-late-actual-${index}`}>{formatTime(row.actualClockOut)}</TableCell>
-                            <TableCell className="text-right font-bold" data-testid={`text-late-variance-${index}`}>{row.varianceMinutes}</TableCell>
-                          </TableRow>
+                          <div key={index} className="p-2.5 rounded border bg-muted/50" data-testid={`row-late-${index}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate" data-testid={`text-late-employee-${index}`}>{row.employeeName}</p>
+                                <p className="text-[10px] text-muted-foreground">{row.location} &middot; {formatDateShort(row.date)}</p>
+                              </div>
+                              <Badge variant="secondary" className="shrink-0 text-[10px]" data-testid={`text-late-variance-${index}`}>
+                                {row.varianceMinutes}m late
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                              <span>Sched: {formatTime(row.scheduledEnd)}</span>
+                              <span>&rarr;</span>
+                              <span>Actual: {formatTime(row.actualClockOut)}</span>
+                            </div>
+                          </div>
                         ))}
-                      </TableBody>
-                    </Table>
+                      </div>
+                      {/* Desktop table */}
+                      <div className="hidden sm:block">
+                        <Table data-testid="table-late-clock-outs">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Employee</TableHead>
+                              <TableHead>Location</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Scheduled End</TableHead>
+                              <TableHead>Actual Clock-Out</TableHead>
+                              <TableHead className="text-right">Variance (min)</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {variance.lateClockOuts.map((row, index) => (
+                              <TableRow key={index} data-testid={`row-late-desktop-${index}`}>
+                                <TableCell className="font-medium" data-testid={`text-late-employee-${index}`}>{row.employeeName}</TableCell>
+                                <TableCell data-testid={`text-late-location-${index}`}>{row.location}</TableCell>
+                                <TableCell data-testid={`text-late-date-${index}`}>{formatDate(row.date)}</TableCell>
+                                <TableCell data-testid={`text-late-scheduled-${index}`}>{formatTime(row.scheduledEnd)}</TableCell>
+                                <TableCell data-testid={`text-late-actual-${index}`}>{formatTime(row.actualClockOut)}</TableCell>
+                                <TableCell className="text-right font-bold" data-testid={`text-late-variance-${index}`}>{row.varianceMinutes}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
                   )}
                 </CardContent>
               </CollapsibleContent>
             </Card>
           </Collapsible>
 
+          {/* Long Lunches */}
           <Collapsible open={lunchOpen} onOpenChange={setLunchOpen}>
             <Card>
-              <CardHeader className="cursor-pointer" data-testid="section-long-lunches">
+              <CardHeader className="p-3 sm:p-6 cursor-pointer" data-testid="section-long-lunches">
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost" className="w-full justify-start gap-2 p-0 h-auto" data-testid="button-toggle-long-lunches">
-                    {lunchOpen ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-                    <CardTitle className="flex items-center gap-2">
+                    {lunchOpen ? <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
                       Long Lunches
                       <Badge variant="secondary" data-testid="badge-lunch-count">{variance.longLunches.length}</Badge>
                     </CardTitle>
@@ -268,32 +332,56 @@ export default function VarianceReport() {
                 </CollapsibleTrigger>
               </CardHeader>
               <CollapsibleContent>
-                <CardContent>
+                <CardContent className="p-3 sm:p-6 pt-0">
                   {variance.longLunches.length === 0 ? (
                     <p className="text-muted-foreground text-sm" data-testid="text-no-lunch">No long lunches found.</p>
                   ) : (
-                    <Table data-testid="table-long-lunches">
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Employee</TableHead>
-                          <TableHead>Location</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Lunch Duration</TableHead>
-                          <TableHead className="text-right">Variance Over 30min</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                    <>
+                      {/* Mobile cards */}
+                      <div className="sm:hidden space-y-2">
                         {variance.longLunches.map((row, index) => (
-                          <TableRow key={index} data-testid={`row-lunch-${index}`}>
-                            <TableCell className="font-medium" data-testid={`text-lunch-employee-${index}`}>{row.employeeName}</TableCell>
-                            <TableCell data-testid={`text-lunch-location-${index}`}>{row.location}</TableCell>
-                            <TableCell data-testid={`text-lunch-date-${index}`}>{formatDate(row.date)}</TableCell>
-                            <TableCell data-testid={`text-lunch-duration-${index}`}>{row.lunchDurationMinutes} min</TableCell>
-                            <TableCell className="text-right font-bold" data-testid={`text-lunch-variance-${index}`}>{row.varianceMinutes} min</TableCell>
-                          </TableRow>
+                          <div key={index} className="p-2.5 rounded border bg-muted/50" data-testid={`row-lunch-${index}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate" data-testid={`text-lunch-employee-${index}`}>{row.employeeName}</p>
+                                <p className="text-[10px] text-muted-foreground">{row.location} &middot; {formatDateShort(row.date)}</p>
+                              </div>
+                              <Badge variant="secondary" className="shrink-0 text-[10px]" data-testid={`text-lunch-variance-${index}`}>
+                                +{row.varianceMinutes}m over
+                              </Badge>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1" data-testid={`text-lunch-duration-${index}`}>
+                              Lunch: {row.lunchDurationMinutes} min (30 min allowed)
+                            </p>
+                          </div>
                         ))}
-                      </TableBody>
-                    </Table>
+                      </div>
+                      {/* Desktop table */}
+                      <div className="hidden sm:block">
+                        <Table data-testid="table-long-lunches">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Employee</TableHead>
+                              <TableHead>Location</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Lunch Duration</TableHead>
+                              <TableHead className="text-right">Variance Over 30min</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {variance.longLunches.map((row, index) => (
+                              <TableRow key={index} data-testid={`row-lunch-desktop-${index}`}>
+                                <TableCell className="font-medium" data-testid={`text-lunch-employee-${index}`}>{row.employeeName}</TableCell>
+                                <TableCell data-testid={`text-lunch-location-${index}`}>{row.location}</TableCell>
+                                <TableCell data-testid={`text-lunch-date-${index}`}>{formatDate(row.date)}</TableCell>
+                                <TableCell data-testid={`text-lunch-duration-${index}`}>{row.lunchDurationMinutes} min</TableCell>
+                                <TableCell className="text-right font-bold" data-testid={`text-lunch-variance-${index}`}>{row.varianceMinutes} min</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
                   )}
                 </CardContent>
               </CollapsibleContent>
