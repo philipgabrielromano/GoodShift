@@ -540,7 +540,7 @@ export async function registerRoutes(
   });
 
   // === Global Settings ===
-  app.get(api.globalSettings.get.path, requireAdmin, async (req, res) => {
+  app.get(api.globalSettings.get.path, requireAuth, async (req, res) => {
     const settings = await storage.getGlobalSettings();
     res.json(settings);
   });
