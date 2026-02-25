@@ -596,20 +596,18 @@ export default function Schedule() {
     const hours: Record<string, number> = {};
     if (!shifts || !employees) return hours;
     
-    // Add shift hours
     shifts.forEach(shift => {
       const employee = employees.find(e => e.id === shift.employeeId);
-      if (employee?.location) {
+      if (employee?.location && !employee.isHiddenFromSchedule) {
         const duration = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
         hours[employee.location] = (hours[employee.location] || 0) + duration;
       }
     });
     
-    // Add PAL hours
     if (palEntries) {
       palEntries.forEach(palEntry => {
         const employee = employees.find(e => e.id === palEntry.employeeId);
-        if (employee?.location) {
+        if (employee?.location && !employee.isHiddenFromSchedule) {
           hours[employee.location] = (hours[employee.location] || 0) + palEntry.hoursDecimal;
         }
       });
