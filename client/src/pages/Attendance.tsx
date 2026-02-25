@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useEmployees } from "@/hooks/use-employees";
 import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment, useCorrectiveActions, useCreateCorrectiveAction, useDeleteCorrectiveAction } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +16,9 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User, CheckSquare, Trash2 } from "lucide-react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User, CheckSquare, Trash2, Download } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
 import type { Employee } from "@shared/schema";
 import { ABSENCE_REASONS } from "@shared/schema";
@@ -38,13 +40,22 @@ interface MyEmployeeResponse {
   employee: Employee | null;
 }
 
+interface AttendanceEmployee {
+  id: number;
+  name: string;
+  jobTitle: string;
+  location: string | null;
+  isActive: boolean;
+  employmentType: string;
+}
+
 export default function Attendance() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const searchString = useSearch();
   
-  // Parse URL search params to get employee ID
   const urlEmployeeId = useMemo(() => {
     const params = new URLSearchParams(searchString);
     const empId = params.get("employeeId");
@@ -58,20 +69,20 @@ export default function Attendance() {
   const isViewer = authStatus?.user?.role === "viewer";
   const canManageOccurrences = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
   
-  // Only fetch employees list for managers/admins (not viewers)
-  const { data: employees, isLoading: employeesLoading } = useEmployees({ enabled: !isViewer });
+  const attendanceUrl = showInactive ? "/api/attendance/employees?showInactive=true" : "/api/attendance/employees";
+  const { data: employees, isLoading: employeesLoading } = useQuery<AttendanceEmployee[]>({
+    queryKey: [attendanceUrl],
+    enabled: !isViewer,
+  });
   
-  // For viewers, fetch their linked employee
   const { data: myEmployeeData, isLoading: myEmployeeLoading } = useQuery<MyEmployeeResponse>({
     queryKey: ["/api/my-employee"],
     enabled: isViewer,
   });
   
-  // Auto-select employee from URL parameter (for notifications) or linked employee for viewers
   useEffect(() => {
     if (urlEmployeeId && employees?.some(e => e.id === urlEmployeeId)) {
       setSelectedEmployeeId(urlEmployeeId);
-      // Clear the URL parameter after selecting
       navigate("/attendance", { replace: true });
     } else if (isViewer && myEmployeeData?.employee) {
       setSelectedEmployeeId(myEmployeeData.employee.id);
@@ -105,8 +116,6 @@ export default function Attendance() {
   const [correctiveActionType, setCorrectiveActionType] = useState<'warning' | 'final_warning' | 'termination' | null>(null);
   const [correctiveActionDate, setCorrectiveActionDate] = useState<string>("");
 
-  const selectedEmployee = employees?.find(e => e.id === selectedEmployeeId);
-  
   // Helper to check if corrective actions exist
   const hasWarning = correctiveActions?.some(a => a.actionType === 'warning') ?? false;
   const hasFinalWarning = correctiveActions?.some(a => a.actionType === 'final_warning') ?? false;
@@ -238,7 +247,90 @@ export default function Attendance() {
     }
   };
 
-  const activeEmployees = employees?.filter(e => e.isActive).sort((a, b) => a.name.localeCompare(b.name)) || [];
+  const sortedEmployees = employees?.sort((a, b) => a.name.localeCompare(b.name)) || [];
+
+  const selectedEmployee = employees?.find(e => e.id === selectedEmployeeId);
+
+  function exportOccurrencePDF() {
+    if (!summary || !selectedEmployeeId) return;
+    const emp = employees?.find(e => e.id === selectedEmployeeId);
+    const empName = emp?.name || "Employee";
+    const empTitle = emp?.jobTitle ? getJobTitle(emp.jobTitle) : "";
+    const empLocation = emp?.location || "";
+
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("Occurrence Record", 14, 18);
+    doc.setFontSize(10);
+    doc.text(`Employee: ${empName}`, 14, 28);
+    doc.text(`Job Title: ${empTitle}   Location: ${empLocation}`, 14, 34);
+    doc.text(`Period: ${summary.periodStart} to ${summary.periodEnd}`, 14, 40);
+    doc.text(`Generated: ${format(new Date(), "MMM d, yyyy h:mm a")}`, 14, 46);
+
+    doc.setFontSize(11);
+    doc.text(`Total Occurrences: ${summary.totalOccurrences.toFixed(1)}`, 14, 56);
+    doc.text(`Adjustments: ${summary.adjustmentsThisYear.toFixed(1)}`, 14, 62);
+    doc.text(`Net Tally: ${summary.netTally.toFixed(1)}`, 14, 68);
+
+    let startY = 78;
+
+    const activeOccs = (summary.occurrences || []).filter((o: any) => o.status === "active");
+    if (activeOccs.length > 0) {
+      doc.setFontSize(12);
+      doc.text("Occurrences", 14, startY);
+      autoTable(doc, {
+        startY: startY + 4,
+        head: [["Date", "Type", "Points", "Reason", "Notes"]],
+        body: activeOccs.map((o: any) => [
+          o.occurrenceDate,
+          o.occurrenceType === "half" ? "Half (0.5)" : o.occurrenceType === "ncns" ? "NCNS (1.0)" : "Full (1.0)",
+          (o.occurrenceValue / 100).toFixed(1),
+          getReasonLabel(o.reason),
+          o.notes || "",
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [41, 128, 185] },
+      });
+      startY = (doc as any).lastAutoTable.finalY + 10;
+    }
+
+    const activeAdj = (summary.adjustments || []).filter((a: any) => a.status === "active");
+    if (activeAdj.length > 0) {
+      doc.setFontSize(12);
+      doc.text("Adjustments", 14, startY);
+      autoTable(doc, {
+        startY: startY + 4,
+        head: [["Date", "Type", "Value", "Notes"]],
+        body: activeAdj.map((a: any) => [
+          a.adjustmentDate,
+          a.adjustmentType === "perfect_attendance" ? "Perfect Attendance" : a.adjustmentType,
+          (a.adjustmentValue / 100).toFixed(1),
+          a.notes || "",
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [39, 174, 96] },
+      });
+      startY = (doc as any).lastAutoTable.finalY + 10;
+    }
+
+    if (correctiveActions && correctiveActions.length > 0) {
+      doc.setFontSize(12);
+      doc.text("Corrective Actions", 14, startY);
+      autoTable(doc, {
+        startY: startY + 4,
+        head: [["Date", "Action", "Occ. Count"]],
+        body: correctiveActions.map((a: any) => [
+          a.actionDate,
+          a.actionType === "warning" ? "Warning" : a.actionType === "final_warning" ? "Final Warning" : "Termination",
+          (a.occurrenceCount / 100).toFixed(1),
+        ]),
+        styles: { fontSize: 8 },
+        headStyles: { fillColor: [231, 76, 60] },
+      });
+    }
+
+    doc.save(`${empName.replace(/\s+/g, "_")}_Occurrences.pdf`);
+  }
 
   return (
     <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
@@ -250,6 +342,12 @@ export default function Attendance() {
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">Track and manage employee attendance records.</p>
         </div>
+        {canManageOccurrences && selectedEmployeeId && summary && (
+          <Button variant="outline" size="sm" onClick={exportOccurrencePDF} data-testid="button-export-pdf">
+            <Download className="w-4 h-4 mr-2" />
+            Export PDF
+          </Button>
+        )}
       </div>
 
       {isViewer ? (
@@ -284,7 +382,7 @@ export default function Attendance() {
             <CardTitle>Select Employee</CardTitle>
             <CardDescription>Choose an employee to view their attendance history.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             {employeesLoading ? (
               <Skeleton className="h-10 w-full max-w-md" />
             ) : (
@@ -296,13 +394,29 @@ export default function Attendance() {
                   <SelectValue placeholder="Select an employee..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeEmployees.map((emp) => (
+                  {sortedEmployees.map((emp) => (
                     <SelectItem key={emp.id} value={emp.id.toString()}>
                       {emp.name} - {getJobTitle(emp.jobTitle)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            )}
+            {canManageOccurrences && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="show-inactive"
+                  checked={showInactive}
+                  onCheckedChange={(checked) => {
+                    setShowInactive(checked);
+                    setSelectedEmployeeId(null);
+                  }}
+                  data-testid="switch-show-inactive"
+                />
+                <Label htmlFor="show-inactive" className="text-sm text-muted-foreground cursor-pointer">
+                  Show inactive employees
+                </Label>
+              </div>
             )}
           </CardContent>
         </Card>

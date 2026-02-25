@@ -94,6 +94,57 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
 }
 
 export function registerOccurrenceRoutes(app: Express) {
+
+  // Get employees filtered by hierarchy for the attendance page
+  app.get("/api/attendance/employees", requireAuth, async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      if (user.role !== "admin" && user.role !== "manager") {
+        return res.status(403).json({ message: "Manager access required" });
+      }
+
+      const showInactive = req.query.showInactive === "true";
+      const allEmployees = await storage.getEmployees();
+      let filtered = showInactive
+        ? allEmployees.filter(e => !e.isActive)
+        : allEmployees.filter(e => e.isActive);
+
+      if (user.role === "admin") {
+        const sorted = filtered.sort((a, b) => a.name.localeCompare(b.name));
+        return res.json(sorted.map(e => ({
+          id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location,
+          isActive: e.isActive, employmentType: e.employmentType
+        })));
+      }
+
+      const allowedNames = await getAllowedLocationNames(user);
+      if (allowedNames) {
+        filtered = filtered.filter(e => e.location && allowedNames.has(e.location));
+      }
+
+      const managerEmployee = allEmployees.find(e =>
+        e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+      );
+      const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+
+      const visible = filtered.filter(e => {
+        if (managerEmployee && e.id === managerEmployee.id) return false;
+        if (managerLevel >= 3) return true;
+        return getHierarchyLevel(e.jobTitle) < managerLevel;
+      });
+
+      const sorted = visible.sort((a, b) => a.name.localeCompare(b.name));
+      return res.json(sorted.map(e => ({
+        id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location,
+        isActive: e.isActive, employmentType: e.employmentType
+      })));
+    } catch (err) {
+      console.error("Error fetching attendance employees:", err);
+      res.status(500).json({ error: "Failed to fetch employees" });
+    }
+  });
+
   // === Occurrences ===
   // Get occurrences for an employee within a date range
   app.get("/api/occurrences/:employeeId", requireAuth, async (req, res) => {

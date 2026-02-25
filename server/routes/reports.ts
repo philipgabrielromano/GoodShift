@@ -2,6 +2,19 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireManager, TIMEZONE } from "../middleware";
 
+const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG"];
+const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
+const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK"];
+
+function getHierarchyLevel(jobTitle: string | null): number {
+  if (!jobTitle) return 0;
+  const upper = jobTitle.toUpperCase();
+  if (STORE_MANAGER_TITLES.includes(upper)) return 3;
+  if (ASST_MANAGER_TITLES.includes(upper)) return 2;
+  if (TEAM_LEAD_TITLES.includes(upper)) return 1;
+  return 0;
+}
+
 // Helper to resolve user's locationIds (numeric IDs) to location names
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
   if (user.role === "admin") return null; // admins see all
@@ -49,13 +62,18 @@ export function registerReportRoutes(app: Express) {
   app.get("/api/reports/occurrences", requireAuth, requireManager, async (req: Request, res: Response) => {
     try {
       const locationFilter = req.query.location as string | undefined;
+      const showInactive = req.query.showInactive === "true";
       const user = (req.session as any)?.user;
 
       // Get all employees
       const allEmployees = await storage.getEmployees();
 
+      // Filter by active status
+      let filteredEmployees = showInactive
+        ? allEmployees.filter(e => !e.isActive)
+        : allEmployees.filter(e => e.isActive);
+
       // Filter by location - managers can only see their location(s)
-      let filteredEmployees = allEmployees.filter(e => e.isActive);
       if (locationFilter) {
         filteredEmployees = filteredEmployees.filter(e => e.location === locationFilter);
       } else {
@@ -64,6 +82,20 @@ export function registerReportRoutes(app: Express) {
           filteredEmployees = filteredEmployees.filter(e =>
             e.location && allowedNames.has(e.location)
           );
+        }
+      }
+
+      // Hierarchy filtering - same-level peers cannot see each other
+      if (user.role === "manager") {
+        const managerEmployee = allEmployees.find(e =>
+          e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+        );
+        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+        if (managerLevel < 3) {
+          filteredEmployees = filteredEmployees.filter(e => {
+            if (managerEmployee && e.id === managerEmployee.id) return false;
+            return getHierarchyLevel(e.jobTitle) < managerLevel;
+          });
         }
       }
 

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,15 +32,29 @@ function getRowHighlight(points: number) {
   return "";
 }
 
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string } | null;
+  ssoConfigured: boolean;
+}
+
 export default function OccurrenceReport() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
+  const [showInactive, setShowInactive] = useState(false);
+
+  const { data: authStatus } = useQuery<AuthStatus>({
+    queryKey: ["/api/auth/status"],
+  });
+  const canToggle = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+
   const { data: reportLocations, isLoading: locationsLoading } = useQuery<string[]>({
     queryKey: ["/api/reports/locations"],
   });
 
-  const queryUrl = selectedLocation !== "all"
-    ? `/api/reports/occurrences?location=${encodeURIComponent(selectedLocation)}`
-    : "/api/reports/occurrences";
+  const queryParams = new URLSearchParams();
+  if (selectedLocation !== "all") queryParams.set("location", selectedLocation);
+  if (showInactive) queryParams.set("showInactive", "true");
+  const queryUrl = `/api/reports/occurrences${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
 
   const { data: occurrences, isLoading: dataLoading } = useQuery<OccurrenceRow[]>({
     queryKey: [queryUrl],
@@ -78,6 +94,19 @@ export default function OccurrenceReport() {
             </Select>
           )}
         </div>
+        {canToggle && (
+          <div className="flex items-center gap-2">
+            <Switch
+              id="show-inactive-report"
+              checked={showInactive}
+              onCheckedChange={setShowInactive}
+              data-testid="switch-show-inactive"
+            />
+            <Label htmlFor="show-inactive-report" className="text-xs sm:text-sm text-muted-foreground cursor-pointer">
+              Show inactive employees
+            </Label>
+          </div>
+        )}
       </div>
 
       <Card>

@@ -8,9 +8,23 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.11.0";
+export const APP_VERSION = "1.12.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.12.0",
+    date: "2026-02-25",
+    title: "Access Controls, PDF Exports & Status Filters",
+    changes: [
+      { type: "security", description: "Same-level peer restriction - Assistant Managers can no longer view each other's coaching logs or attendance records, and Team Leads can no longer view each other's records" },
+      { type: "security", description: "Occurrence Report now enforces hierarchical access - managers below Store Manager level only see employees below their rank" },
+      { type: "feature", description: "Active/inactive employee toggle on the Occurrence Report page - managers and admins can switch between viewing active and inactive employees" },
+      { type: "feature", description: "Active/inactive employee toggle on the Attendance page - managers and admins can switch the employee dropdown to show inactive employees" },
+      { type: "feature", description: "PDF export for occurrence records - download a formatted PDF of an employee's occurrences, adjustments, and corrective actions from the Attendance page" },
+      { type: "feature", description: "PDF export for coaching logs - download a formatted PDF of all coaching logs matching the current filters" },
+      { type: "improvement", description: "Attendance page employee dropdown now filtered by hierarchical access - managers only see employees they have permission to manage" },
+    ],
+  },
   {
     version: "1.11.0",
     date: "2026-02-13",

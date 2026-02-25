@@ -10,10 +10,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MessageSquare, Plus, Filter } from "lucide-react";
+import { MessageSquare, Plus, Filter, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -153,6 +155,49 @@ export default function Coaching() {
 
   const filteredFormEmployees = employees?.filter(e => filterLocation === "all" || e.location === filterLocation);
 
+  function exportCoachingPDF() {
+    if (enrichedLogs.length === 0) return;
+    const doc = new jsPDF({ orientation: "landscape" });
+    doc.setFontSize(16);
+    doc.text("Coaching Logs", 14, 18);
+    doc.setFontSize(10);
+
+    const filters: string[] = [];
+    if (filterLocation !== "all") filters.push(`Location: ${filterLocation}`);
+    if (filterEmployee !== "all") {
+      const emp = employeeMap.get(Number(filterEmployee));
+      filters.push(`Employee: ${emp?.name || filterEmployee}`);
+    }
+    if (filterCategory !== "all") filters.push(`Category: ${filterCategory}`);
+    doc.text(filters.length > 0 ? `Filters: ${filters.join(", ")}` : "All records", 14, 26);
+    doc.text(`Generated: ${format(new Date(), "MMM d, yyyy h:mm a")}`, 14, 32);
+    doc.text(`Total: ${enrichedLogs.length} log${enrichedLogs.length !== 1 ? "s" : ""}`, 14, 38);
+
+    autoTable(doc, {
+      startY: 44,
+      head: [["Date", "Employee", "Title", "Category", "Reason", "Action Taken", "Response", "Manager"]],
+      body: enrichedLogs.map(log => [
+        format(new Date(log.createdAt), "MMM d, yyyy"),
+        log.employeeName,
+        getJobTitleDisplay(log.employeeJobTitle),
+        log.category,
+        log.reason,
+        log.actionTaken,
+        log.employeeResponse,
+        log.managerName,
+      ]),
+      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [88, 80, 236] },
+      columnStyles: {
+        4: { cellWidth: 50 },
+        5: { cellWidth: 50 },
+        6: { cellWidth: 40 },
+      },
+    });
+
+    doc.save("Coaching_Logs.pdf");
+  }
+
   return (
     <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
       <div className="flex items-center justify-between flex-wrap gap-2 sm:gap-4">
@@ -166,6 +211,13 @@ export default function Coaching() {
           </p>
         </div>
         {isManagerOrAdmin && (
+          <div className="flex items-center gap-2">
+            {enrichedLogs.length > 0 && (
+              <Button variant="outline" size="sm" onClick={exportCoachingPDF} data-testid="button-export-coaching-pdf">
+                <Download className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Export </span>PDF
+              </Button>
+            )}
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button data-testid="button-new-coaching-log">
@@ -251,6 +303,7 @@ export default function Coaching() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         )}
       </div>
 
