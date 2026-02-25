@@ -224,6 +224,16 @@ export function registerReportRoutes(app: Express) {
         varianceMinutes: number;
       }> = [];
 
+      const missedPunches: Array<{
+        employeeName: string;
+        location: string;
+        date: string;
+        scheduledHours: number;
+        expectedPunches: number;
+        actualPunches: number;
+        missingCount: number;
+      }> = [];
+
       for (const shift of shiftsInRange) {
         const emp = employeeMap.get(shift.employeeId);
         if (!emp) continue;
@@ -233,6 +243,35 @@ export function registerReportRoutes(app: Express) {
         const shiftDate = shiftStart.toISOString().split("T")[0];
         const key = `${emp.id}-${shiftDate}`;
         const dayPunches = punchMap.get(key);
+
+        // Calculate scheduled shift length in hours
+        const shiftHours = (shiftEnd.getTime() - shiftStart.getTime()) / 3600000;
+
+        // Determine expected punches: >5 hours = 4 punches (IN,OUT,IN,OUT), <=5 hours = 2 punches (IN,OUT)
+        const expectedPunches = shiftHours > 5 ? 4 : 2;
+
+        // Count actual individual punch events (each clockIn and each clockOut counts as one)
+        let actualPunchCount = 0;
+        if (dayPunches) {
+          for (const p of dayPunches) {
+            if (p.clockIn) actualPunchCount++;
+            if (p.clockOut) actualPunchCount++;
+          }
+        }
+
+        // Check for missed punches
+        if (actualPunchCount > 0 && actualPunchCount < expectedPunches) {
+          missedPunches.push({
+            employeeName: emp.name,
+            location: emp.location || "Unknown",
+            date: shiftDate,
+            scheduledHours: Math.round(shiftHours * 10) / 10,
+            expectedPunches,
+            actualPunches: actualPunchCount,
+            missingCount: expectedPunches - actualPunchCount,
+          });
+        }
+
         if (!dayPunches || dayPunches.length === 0) continue;
 
         // Sort punches by clock-in time
@@ -304,6 +343,7 @@ export function registerReportRoutes(app: Express) {
         earlyClockIns: earlyClockIns.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
         lateClockOuts: lateClockOuts.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
         longLunches: longLunches.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
+        missedPunches: missedPunches.sort((a, b) => b.missingCount - a.missingCount || a.employeeName.localeCompare(b.employeeName)),
       });
     } catch (err) {
       console.error("Error generating variance report:", err);

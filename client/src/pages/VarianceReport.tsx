@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Clock, ChevronDown, ChevronRight } from "lucide-react";
+import { Clock, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 
 interface EarlyClockIn {
   employeeName: string;
@@ -37,10 +37,21 @@ interface LongLunch {
   varianceMinutes: number;
 }
 
+interface MissedPunch {
+  employeeName: string;
+  location: string;
+  date: string;
+  scheduledHours: number;
+  expectedPunches: number;
+  actualPunches: number;
+  missingCount: number;
+}
+
 interface VarianceData {
   earlyClockIns: EarlyClockIn[];
   lateClockOuts: LateClockOut[];
   longLunches: LongLunch[];
+  missedPunches: MissedPunch[];
 }
 
 function formatTime(isoString: string) {
@@ -87,6 +98,7 @@ export default function VarianceReport() {
   const [earlyOpen, setEarlyOpen] = useState(true);
   const [lateOpen, setLateOpen] = useState(true);
   const [lunchOpen, setLunchOpen] = useState(true);
+  const [missedOpen, setMissedOpen] = useState(true);
 
   const { data: reportLocations, isLoading: locationsLoading } = useQuery<string[]>({
     queryKey: ["/api/reports/locations"],
@@ -109,7 +121,7 @@ export default function VarianceReport() {
           <Clock className="w-5 h-5 sm:w-8 sm:h-8 text-blue-500" />
           Variance Report
         </h1>
-        <p className="text-xs sm:text-sm text-muted-foreground mt-1">Shift time variances: early clock-ins, late clock-outs, long lunches.</p>
+        <p className="text-xs sm:text-sm text-muted-foreground mt-1">Shift time variances: early clock-ins, late clock-outs, long lunches, missed punches.</p>
       </div>
 
       <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 sm:gap-4">
@@ -376,6 +388,91 @@ export default function VarianceReport() {
                                 <TableCell data-testid={`text-lunch-date-${index}`}>{formatDate(row.date)}</TableCell>
                                 <TableCell data-testid={`text-lunch-duration-${index}`}>{row.lunchDurationMinutes} min</TableCell>
                                 <TableCell className="text-right font-bold" data-testid={`text-lunch-variance-${index}`}>{row.varianceMinutes} min</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </CollapsibleContent>
+            </Card>
+          </Collapsible>
+
+          {/* Missed Punches */}
+          <Collapsible open={missedOpen} onOpenChange={setMissedOpen}>
+            <Card>
+              <CardHeader className="p-3 sm:p-6 cursor-pointer" data-testid="section-missed-punches">
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-start gap-2 p-0 h-auto" data-testid="button-toggle-missed-punches">
+                    {missedOpen ? <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
+                      <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      Missed Punches
+                      <Badge variant="secondary" data-testid="badge-missed-count">{variance.missedPunches?.length || 0}</Badge>
+                    </CardTitle>
+                  </Button>
+                </CollapsibleTrigger>
+              </CardHeader>
+              <CollapsibleContent>
+                <CardContent className="p-3 sm:p-6 pt-0">
+                  {!variance.missedPunches || variance.missedPunches.length === 0 ? (
+                    <p className="text-muted-foreground text-sm" data-testid="text-no-missed">No missed punches found.</p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        Shifts over 5 hours require 4 punches (IN, OUT, IN, OUT). Shifts of 5 hours or less require 2 punches (IN, OUT).
+                      </p>
+                      {/* Mobile cards */}
+                      <div className="sm:hidden space-y-2">
+                        {variance.missedPunches.map((row, index) => (
+                          <div key={index} className="p-2.5 rounded border bg-muted/50" data-testid={`row-missed-${index}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="font-medium text-sm truncate" data-testid={`text-missed-employee-${index}`}>{row.employeeName}</p>
+                                <p className="text-[10px] text-muted-foreground">{row.location} &middot; {formatDateShort(row.date)}</p>
+                              </div>
+                              <Badge variant="destructive" className="shrink-0 text-[10px]" data-testid={`text-missed-count-${index}`}>
+                                {row.missingCount} missing
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground">
+                              <span>{row.scheduledHours}h shift</span>
+                              <span>&middot;</span>
+                              <span>Expected: {row.expectedPunches}</span>
+                              <span>&middot;</span>
+                              <span>Actual: {row.actualPunches}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Desktop table */}
+                      <div className="hidden sm:block">
+                        <Table data-testid="table-missed-punches">
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Employee</TableHead>
+                              <TableHead>Location</TableHead>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Shift Length</TableHead>
+                              <TableHead>Expected</TableHead>
+                              <TableHead>Actual</TableHead>
+                              <TableHead className="text-right">Missing</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {variance.missedPunches.map((row, index) => (
+                              <TableRow key={index} data-testid={`row-missed-desktop-${index}`}>
+                                <TableCell className="font-medium" data-testid={`text-missed-employee-${index}`}>{row.employeeName}</TableCell>
+                                <TableCell data-testid={`text-missed-location-${index}`}>{row.location}</TableCell>
+                                <TableCell data-testid={`text-missed-date-${index}`}>{formatDate(row.date)}</TableCell>
+                                <TableCell data-testid={`text-missed-hours-${index}`}>{row.scheduledHours}h</TableCell>
+                                <TableCell data-testid={`text-missed-expected-${index}`}>{row.expectedPunches}</TableCell>
+                                <TableCell data-testid={`text-missed-actual-${index}`}>{row.actualPunches}</TableCell>
+                                <TableCell className="text-right" data-testid={`text-missed-missing-${index}`}>
+                                  <Badge variant="destructive">{row.missingCount}</Badge>
+                                </TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
