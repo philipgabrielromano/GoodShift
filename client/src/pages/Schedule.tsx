@@ -599,8 +599,8 @@ export default function Schedule() {
     shifts.forEach(shift => {
       const employee = employees.find(e => e.id === shift.employeeId);
       if (employee?.location && !employee.isHiddenFromSchedule) {
-        const duration = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
-        hours[employee.location] = (hours[employee.location] || 0) + duration;
+        const paidHours = calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime));
+        hours[employee.location] = (hours[employee.location] || 0) + paidHours;
       }
     });
     
