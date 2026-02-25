@@ -6,7 +6,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { ukgClient } from "./ukg";
 import { RETAIL_JOB_CODES } from "@shared/schema";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, generateSchedulePublishEmailHtml, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
 import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification } from "./middleware";
@@ -319,17 +319,15 @@ export async function registerRoutes(
       
       const currentWeekStart = new Date(weekStart);
       const currentWeekEnd = new Date(currentWeekStart);
-      currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
-      currentWeekEnd.setHours(23, 59, 59, 999);
+      currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
+      currentWeekEnd.setUTCHours(11, 0, 0, 0);
       
-      // Get all shifts from current week
       const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
       
       if (shifts.length === 0) {
         return res.status(400).json({ message: "No shifts to copy in the current week" });
       }
       
-      // Create new shifts for next week (add 7 days)
       const newShifts = shifts.map(shift => ({
         employeeId: shift.employeeId,
         startTime: new Date(new Date(shift.startTime).getTime() + 7 * 24 * 60 * 60 * 1000),
@@ -364,27 +362,27 @@ export async function registerRoutes(
       
       const currentWeekStart = new Date(weekStart);
       const currentWeekEnd = new Date(currentWeekStart);
-      currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
-      currentWeekEnd.setHours(23, 59, 59, 999);
+      currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
+      currentWeekEnd.setUTCHours(11, 0, 0, 0);
       
-      // Get all shifts from current week
       const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
       
       if (shifts.length === 0) {
         return res.status(400).json({ message: "No shifts to save as template" });
       }
       
-      // Convert shifts to patterns (day of week + times)
       const patterns = shifts.map(shift => {
         const startTime = new Date(shift.startTime);
         const endTime = new Date(shift.endTime);
+        const startET = toZonedTime(startTime, TIMEZONE);
+        const endET = toZonedTime(endTime, TIMEZONE);
         return {
           employeeId: shift.employeeId,
-          dayOfWeek: startTime.getDay(), // 0-6
-          startHour: startTime.getHours(),
-          startMinute: startTime.getMinutes(),
-          endHour: endTime.getHours(),
-          endMinute: endTime.getMinutes(),
+          dayOfWeek: startET.getDay(),
+          startHour: startET.getHours(),
+          startMinute: startET.getMinutes(),
+          endHour: endET.getHours(),
+          endMinute: endET.getMinutes(),
         };
       });
       
@@ -429,23 +427,26 @@ export async function registerRoutes(
       }
       
       const targetWeekStart = new Date(weekStart);
+      const targetWeekStartET = toZonedTime(targetWeekStart, TIMEZONE);
       
-      // Convert patterns back to shifts
       const newShifts = patterns.map((pattern: any) => {
-        const shiftDate = new Date(targetWeekStart);
-        const currentDay = shiftDate.getDay();
+        const shiftDateET = new Date(targetWeekStartET);
+        const currentDay = shiftDateET.getDay();
         const daysToAdd = pattern.dayOfWeek - currentDay;
-        shiftDate.setDate(shiftDate.getDate() + daysToAdd);
+        shiftDateET.setDate(shiftDateET.getDate() + daysToAdd);
         
-        const startTime = new Date(shiftDate);
-        startTime.setHours(pattern.startHour, pattern.startMinute, 0, 0);
+        const startET = new Date(shiftDateET);
+        startET.setHours(pattern.startHour, pattern.startMinute, 0, 0);
         
-        const endTime = new Date(shiftDate);
-        endTime.setHours(pattern.endHour, pattern.endMinute, 0, 0);
+        const endET = new Date(shiftDateET);
+        endET.setHours(pattern.endHour, pattern.endMinute, 0, 0);
         
-        if (endTime <= startTime) {
-          endTime.setDate(endTime.getDate() + 1);
+        if (endET <= startET) {
+          endET.setDate(endET.getDate() + 1);
         }
+        
+        const startTime = fromZonedTime(startET, TIMEZONE);
+        const endTime = fromZonedTime(endET, TIMEZONE);
         
         return {
           employeeId: pattern.employeeId,
