@@ -35,26 +35,25 @@ async function syncEmployeesFromUKG(): Promise<void> {
     }
 
     const activeEmployees = ukgEmployees.filter(emp => emp.isActive);
-    console.log(`[Scheduler] Processing ${activeEmployees.length} active employees (skipping ${ukgEmployees.length - activeEmployees.length} terminated)`);
+    const inactiveEmployees = ukgEmployees.filter(emp => !emp.isActive);
+    console.log(`[Scheduler] Processing ${activeEmployees.length} active and ${inactiveEmployees.length} inactive employees`);
     
     let imported = 0;
     let updated = 0;
+    let deactivated = 0;
     let errors = 0;
 
-    // Track unique locations to auto-create
     const locationsSeen = new Set<string>();
 
     for (const ukgEmp of activeEmployees) {
       try {
         const appEmployee = ukgClient.convertToAppEmployee(ukgEmp);
         
-        // Auto-create location if employee has one
         if (appEmployee.location && !locationsSeen.has(appEmployee.location)) {
           await storage.ensureLocationExists(appEmployee.location);
           locationsSeen.add(appEmployee.location);
         }
         
-        // Use employeeId (EmpId string like "000950588-Q2VBU") for matching, not ukgId
         const existingByUkgId = await storage.getEmployeeByUkgId(ukgEmp.employeeId);
         
         if (existingByUkgId) {
@@ -69,10 +68,23 @@ async function syncEmployeesFromUKG(): Promise<void> {
         errors++;
       }
     }
+
+    for (const ukgEmp of inactiveEmployees) {
+      try {
+        const existingByUkgId = await storage.getEmployeeByUkgId(ukgEmp.employeeId);
+        if (existingByUkgId && existingByUkgId.isActive) {
+          await storage.updateEmployee(existingByUkgId.id, { isActive: false });
+          deactivated++;
+        }
+      } catch (err) {
+        console.error("[Scheduler] Error deactivating employee:", err);
+        errors++;
+      }
+    }
     
     console.log(`[Scheduler] Auto-discovered ${locationsSeen.size} unique locations`);
 
-    console.log(`[Scheduler] UKG Sync complete: ${imported} imported, ${updated} updated, ${errors} errors`);
+    console.log(`[Scheduler] UKG Sync complete: ${imported} imported, ${updated} updated, ${deactivated} deactivated, ${errors} errors`);
     ukgClient.addSyncResult({
       timestamp: new Date().toISOString(),
       type: "employee",

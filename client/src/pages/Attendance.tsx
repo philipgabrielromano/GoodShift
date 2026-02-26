@@ -274,41 +274,63 @@ export default function Attendance() {
 
     let startY = 78;
 
-    const activeOccs = (summary.occurrences || []).filter((o: any) => o.status === "active");
-    if (activeOccs.length > 0) {
+    const allOccs = summary.occurrences || [];
+    if (allOccs.length > 0) {
       doc.setFontSize(12);
       doc.text("Occurrences", 14, startY);
       autoTable(doc, {
         startY: startY + 4,
-        head: [["Date", "Type", "Points", "Reason", "Notes"]],
-        body: activeOccs.map((o: any) => [
+        head: [["Date", "Type", "Points", "Reason", "Status", "Notes"]],
+        body: allOccs.map((o: any) => [
           o.occurrenceDate,
           o.occurrenceType === "half" ? "Half (0.5)" : o.occurrenceType === "ncns" ? "NCNS (1.0)" : "Full (1.0)",
           (o.occurrenceValue / 100).toFixed(1),
           getReasonLabel(o.reason),
+          o.status === "retracted" ? "Retracted" : "Active",
           o.notes || "",
         ]),
         styles: { fontSize: 8 },
         headStyles: { fillColor: [41, 128, 185] },
+        bodyStyles: { textColor: [0, 0, 0] },
+        didParseCell: (data: any) => {
+          if (data.section === 'body') {
+            const row = allOccs[data.row.index];
+            if (row?.status === 'retracted') {
+              data.cell.styles.textColor = [150, 150, 150];
+              data.cell.styles.fontStyle = 'italic';
+            }
+          }
+        },
       });
       startY = (doc as any).lastAutoTable.finalY + 10;
     }
 
-    const activeAdj = (summary.adjustments || []).filter((a: any) => a.status === "active");
-    if (activeAdj.length > 0) {
+    const allAdj = summary.adjustments || [];
+    if (allAdj.length > 0) {
       doc.setFontSize(12);
-      doc.text("Adjustments", 14, startY);
+      doc.text("Adjustments / Reductions", 14, startY);
       autoTable(doc, {
         startY: startY + 4,
-        head: [["Date", "Type", "Value", "Notes"]],
-        body: activeAdj.map((a: any) => [
+        head: [["Date", "Type", "Value", "Status", "Notes"]],
+        body: allAdj.map((a: any) => [
           a.adjustmentDate,
           a.adjustmentType === "perfect_attendance" ? "Perfect Attendance" : a.adjustmentType,
           (a.adjustmentValue / 100).toFixed(1),
+          a.status === "retracted" ? "Retracted" : "Active",
           a.notes || "",
         ]),
         styles: { fontSize: 8 },
         headStyles: { fillColor: [39, 174, 96] },
+        bodyStyles: { textColor: [0, 0, 0] },
+        didParseCell: (data: any) => {
+          if (data.section === 'body') {
+            const row = allAdj[data.row.index];
+            if (row?.status === 'retracted') {
+              data.cell.styles.textColor = [150, 150, 150];
+              data.cell.styles.fontStyle = 'italic';
+            }
+          }
+        },
       });
       startY = (doc as any).lastAutoTable.finalY + 10;
     }
