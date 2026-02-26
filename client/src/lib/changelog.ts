@@ -8,9 +8,24 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.12.0";
+export const APP_VERSION = "1.13.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.13.0",
+    date: "2026-02-26",
+    title: "Scheduling Fixes, Validation & Policy Updates",
+    changes: [
+      { type: "feature", description: "Missed punches section on the Variance Report - flags employees with fewer clock punches than expected (4 for shifts over 5 hours, 2 for shorter shifts)" },
+      { type: "feature", description: "Multiple HR notification emails - the HR email field now accepts comma-separated addresses so alerts go to multiple recipients" },
+      { type: "fix", description: "Schedule templates now correctly capture all Saturday shifts - closing shifts that ended after 7 PM ET were previously excluded when saving templates" },
+      { type: "fix", description: "Template apply and copy-to-next-week now use Eastern Time for accurate day and hour placement, preventing shifts from drifting across DST boundaries" },
+      { type: "fix", description: "Store hours total now excludes hidden employees so the budget display matches what's shown on the schedule" },
+      { type: "fix", description: "Store hours total now accounts for unpaid lunch breaks (subtracts 30 minutes for shifts 6+ hours)" },
+      { type: "fix", description: "Schedule validator now works for managers - previously only admins could see validation errors due to a settings access restriction" },
+      { type: "improvement", description: "Occurrence adjustment limit changed from 2 to 1 per calendar year to match company policy" },
+    ],
+  },
   {
     version: "1.12.0",
     date: "2026-02-25",
