@@ -599,10 +599,9 @@ export function registerOccurrenceRoutes(app: Express) {
           return res.status(400).json({ message: "Cannot grant perfect attendance bonus - employee has no occurrences to reduce" });
         }
       } else {
-        // Check if employee already has 2 manual adjustments this year
         const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
-        if (manualAdjustments.length >= 2) {
-          return res.status(400).json({ message: "Employee has already used maximum 2 adjustments for this year" });
+        if (manualAdjustments.length >= 1) {
+          return res.status(400).json({ message: "Employee has already used their adjustment for this year" });
         }
       }
       

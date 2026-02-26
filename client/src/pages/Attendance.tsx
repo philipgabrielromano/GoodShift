@@ -967,7 +967,7 @@ export default function Attendance() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              An adjustment reduces the employee's occurrence tally by 1.0. Employees can earn up to 2 adjustments per calendar year.
+              An adjustment reduces the employee's occurrence tally by 1.0. Employees can earn up to 1 adjustment per calendar year.
             </p>
             <div className="space-y-2">
               <Label>Adjustment Type</Label>

@@ -763,12 +763,12 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="hr-email">HR Notification Email</Label>
+            <Label htmlFor="hr-email">HR Notification Emails</Label>
             <div className="flex gap-2">
               <Input
                 id="hr-email"
-                type="email"
-                placeholder="hr@company.com"
+                type="text"
+                placeholder="hr@company.com, manager@company.com"
                 value={hrEmail}
                 onChange={(e) => setHrEmail(e.target.value)}
                 className="flex-1"
@@ -783,7 +783,7 @@ export default function Settings() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              When an employee reaches 5, 7, or 8 occurrence points, an email will be sent to this address with details and a link to their attendance record.
+              When an employee reaches 5, 7, or 8 occurrence points, an email will be sent to these addresses. Separate multiple emails with commas.
             </p>
           </div>
 
@@ -812,7 +812,7 @@ export default function Settings() {
             <div className="flex items-center gap-2 text-sm">
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               <span className="text-muted-foreground">
-                Notifications configured for: <span className="font-medium text-foreground">{settings.hrNotificationEmail}</span>
+                Notifications configured for: <span className="font-medium text-foreground">{settings.hrNotificationEmail.split(',').map(e => e.trim()).filter(e => e).join(', ')}</span>
               </span>
             </div>
           )}

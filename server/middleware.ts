@@ -121,11 +121,11 @@ export async function checkAndSendHRNotification(
       
       const recipientEmails = new Set<string>();
       
-      // Always include the HR email from settings
       const settings = await storage.getGlobalSettings();
       if (settings?.hrNotificationEmail) {
-        recipientEmails.add(settings.hrNotificationEmail.toLowerCase());
-        console.log(`[HR Notification] Including HR email: ${settings.hrNotificationEmail}`);
+        const emails = settings.hrNotificationEmail.split(',').map(e => e.trim().toLowerCase()).filter(e => e);
+        emails.forEach(e => recipientEmails.add(e));
+        console.log(`[HR Notification] Including HR email(s): ${emails.join(', ')}`);
       }
       
       // Find the Store Manager for this employee's store location
