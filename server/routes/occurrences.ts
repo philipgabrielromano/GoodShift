@@ -106,8 +106,9 @@ export function registerOccurrenceRoutes(app: Express) {
 
       const showInactive = req.query.showInactive === "true";
       const allEmployees = await storage.getEmployees();
+      const currentYear = new Date().getFullYear();
       let filtered = showInactive
-        ? allEmployees.filter(e => !e.isActive)
+        ? allEmployees.filter(e => !e.isActive && e.hireDate && new Date(e.hireDate).getFullYear() === currentYear)
         : allEmployees.filter(e => e.isActive);
 
       if (user.role === "admin") {

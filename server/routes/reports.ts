@@ -68,9 +68,9 @@ export function registerReportRoutes(app: Express) {
       // Get all employees
       const allEmployees = await storage.getEmployees();
 
-      // Filter by active status
+      const currentYear = new Date().getFullYear();
       let filteredEmployees = showInactive
-        ? allEmployees.filter(e => !e.isActive)
+        ? allEmployees.filter(e => !e.isActive && e.hireDate && new Date(e.hireDate).getFullYear() === currentYear)
         : allEmployees.filter(e => e.isActive);
 
       // Filter by location - managers can only see their location(s)
