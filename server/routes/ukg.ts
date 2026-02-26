@@ -130,11 +130,12 @@ export function registerUKGRoutes(app: Express) {
       }
 
       const activeEmployees = ukgEmployees.filter(emp => emp.isActive);
-      const skipped = ukgEmployees.length - activeEmployees.length;
-      console.log(`UKG: Processing ${activeEmployees.length} active employees (skipping ${skipped} terminated)`);
+      const inactiveEmployees = ukgEmployees.filter(emp => !emp.isActive);
+      console.log(`UKG: Processing ${activeEmployees.length} active and ${inactiveEmployees.length} inactive employees`);
 
       let imported = 0;
       let updated = 0;
+      let deactivated = 0;
       let errors = 0;
 
       for (const ukgEmp of activeEmployees) {
@@ -156,8 +157,21 @@ export function registerUKGRoutes(app: Express) {
         }
       }
 
-      console.log(`UKG Sync complete: ${imported} imported, ${updated} updated, ${skipped} skipped (terminated), ${errors} errors`);
-      res.json({ imported, updated, skipped, errors, apiError: null });
+      for (const ukgEmp of inactiveEmployees) {
+        try {
+          const existingByUkgId = await storage.getEmployeeByUkgId(String(ukgEmp.ukgId));
+          if (existingByUkgId && existingByUkgId.isActive) {
+            await storage.updateEmployee(existingByUkgId.id, { isActive: false });
+            deactivated++;
+          }
+        } catch (err) {
+          console.error("Error deactivating employee:", err);
+          errors++;
+        }
+      }
+
+      console.log(`UKG Sync complete: ${imported} imported, ${updated} updated, ${deactivated} deactivated, ${errors} errors`);
+      res.json({ imported, updated, deactivated, errors, apiError: null });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });

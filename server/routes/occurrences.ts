@@ -378,7 +378,7 @@ export function registerOccurrenceRoutes(app: Express) {
         periodEnd: endDate,
         totalOccurrences: totalPoints,
         adjustmentsThisYear: totalAdjustment,
-        adjustmentsRemaining: 2 - activeManualAdjustments.length, // Only count active manual adjustments toward limit
+        adjustmentsRemaining: 1 - activeManualAdjustments.length,
         netTally,
         occurrenceCount: activeOccurrences.length,
         occurrences: sortedOccurrences, // Include all occurrences (active + retracted) for history

@@ -468,7 +468,7 @@ export default function Attendance() {
                       <span className="text-2xl sm:text-4xl font-bold" data-testid="text-adjustments-used">
                         {summary.adjustments.length}
                       </span>
-                      <span className="text-xs sm:text-base text-muted-foreground mb-0.5 sm:mb-1">/ 2 used</span>
+                      <span className="text-xs sm:text-base text-muted-foreground mb-0.5 sm:mb-1">/ 1 used</span>
                     </div>
                     <p className="text-xs sm:text-sm text-muted-foreground mt-2">
                       {summary.adjustmentsRemaining > 0 
