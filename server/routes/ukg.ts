@@ -142,7 +142,7 @@ export function registerUKGRoutes(app: Express) {
         try {
           const appEmployee = ukgClient.convertToAppEmployee(ukgEmp);
           
-          const existingByUkgId = await storage.getEmployeeByUkgId(String(ukgEmp.ukgId));
+          const existingByUkgId = await storage.getEmployeeByUkgId(ukgEmp.employeeId);
           
           if (existingByUkgId) {
             await storage.updateEmployee(existingByUkgId.id, appEmployee);
@@ -159,7 +159,7 @@ export function registerUKGRoutes(app: Express) {
 
       for (const ukgEmp of inactiveEmployees) {
         try {
-          const existingByUkgId = await storage.getEmployeeByUkgId(String(ukgEmp.ukgId));
+          const existingByUkgId = await storage.getEmployeeByUkgId(ukgEmp.employeeId);
           if (existingByUkgId && existingByUkgId.isActive) {
             await storage.updateEmployee(existingByUkgId.id, { isActive: false });
             deactivated++;
