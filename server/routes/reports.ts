@@ -99,13 +99,11 @@ export function registerReportRoutes(app: Express) {
         }
       }
 
-      // Calculate rolling 12-month window
       const now = new Date();
       const twelveMonthsAgo = new Date(now);
       twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
       const startDate = twelveMonthsAgo.toISOString().split("T")[0];
       const endDate = now.toISOString().split("T")[0];
-      const currentYear = now.getFullYear();
 
       // Get all occurrences and adjustments in the date range
       const allOccurrences = await storage.getAllOccurrencesInDateRange(startDate, endDate);
