@@ -358,10 +358,11 @@ export async function registerRoutes(
     }
   });
   
-  // Get all schedule templates
   app.get("/api/schedule-templates", requireAuth, async (req, res) => {
+    const user = (req.session as any)?.user;
     const templates = await storage.getScheduleTemplates();
-    res.json(templates);
+    const userTemplates = templates.filter(t => t.createdBy === user?.id);
+    res.json(userTemplates);
   });
   
   // Save current week as a template
@@ -487,9 +488,12 @@ export async function registerRoutes(
     }
   });
   
-  // Delete a template
   app.delete("/api/schedule-templates/:id", requireAuth, async (req, res) => {
-    await storage.deleteScheduleTemplate(Number(req.params.id));
+    const user = (req.session as any)?.user;
+    const template = await storage.getScheduleTemplate(Number(req.params.id));
+    if (!template) return res.status(404).json({ message: "Template not found" });
+    if (template.createdBy !== user?.id) return res.status(403).json({ message: "You can only delete your own templates" });
+    await storage.deleteScheduleTemplate(template.id);
     res.status(204).send();
   });
 
