@@ -37,7 +37,7 @@ export async function registerRoutes(
   }
 
   // === Employees ===
-  app.get(api.employees.list.path, async (req, res) => {
+  app.get(api.employees.list.path, requireAuth, async (req, res) => {
     const user = (req.session as any)?.user;
     
     let employees = await storage.getEmployees();
@@ -100,13 +100,13 @@ export async function registerRoutes(
     res.json(employees);
   });
 
-  app.get(api.employees.get.path, async (req, res) => {
+  app.get(api.employees.get.path, requireAuth, async (req, res) => {
     const employee = await storage.getEmployee(Number(req.params.id));
     if (!employee) return res.status(404).json({ message: "Employee not found" });
     res.json(employee);
   });
 
-  app.post(api.employees.create.path, async (req, res) => {
+  app.post(api.employees.create.path, requireManager, async (req, res) => {
     try {
       const input = api.employees.create.input.parse(req.body);
       const employee = await storage.createEmployee(input);
@@ -132,7 +132,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employees.delete.path, async (req, res) => {
+  app.delete(api.employees.delete.path, requireAdmin, async (req, res) => {
     await storage.deleteEmployee(Number(req.params.id));
     res.status(204).send();
   });
@@ -194,7 +194,7 @@ export async function registerRoutes(
     res.json(shifts);
   });
 
-  app.post(api.shifts.create.path, async (req, res) => {
+  app.post(api.shifts.create.path, requireManager, async (req, res) => {
     try {
       // Coerce dates from strings if necessary (though Zod usually handles this if schema is set up right)
       // The schema expects dates/timestamps.
@@ -221,7 +221,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.shifts.update.path, async (req, res) => {
+  app.put(api.shifts.update.path, requireManager, async (req, res) => {
     try {
        const body = { ...req.body };
        if (body.startTime) body.startTime = new Date(body.startTime);
@@ -241,14 +241,14 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.shifts.delete.path, async (req, res) => {
+  app.delete(api.shifts.delete.path, requireManager, async (req, res) => {
     await storage.deleteShift(Number(req.params.id));
     res.status(204).send();
   });
 
   // === PAL (Paid Annual Leave) Entries ===
   // Get PAL entries from UKG time clock data (paycodeId = 2) for a date range
-  app.get("/api/pal-entries", async (req, res) => {
+  app.get("/api/pal-entries", requireAuth, async (req, res) => {
     try {
       const startDate = req.query.start as string;
       const endDate = req.query.end as string;
@@ -287,7 +287,7 @@ export async function registerRoutes(
 
   // === Unpaid Time Off Entries ===
   // Get unpaid time off entries from UKG time clock data (paycodeId = 4) for a date range
-  app.get("/api/unpaid-time-off-entries", async (req, res) => {
+  app.get("/api/unpaid-time-off-entries", requireAuth, async (req, res) => {
     try {
       const startDate = req.query.start as string;
       const endDate = req.query.end as string;
@@ -525,12 +525,12 @@ export async function registerRoutes(
   });
 
   // === Time Off Requests ===
-  app.get(api.timeOffRequests.list.path, async (req, res) => {
+  app.get(api.timeOffRequests.list.path, requireAuth, async (req, res) => {
     const requests = await storage.getTimeOffRequests();
     res.json(requests);
   });
 
-  app.post(api.timeOffRequests.create.path, async (req, res) => {
+  app.post(api.timeOffRequests.create.path, requireManager, async (req, res) => {
     try {
       const input = api.timeOffRequests.create.input.parse(req.body);
       const request = await storage.createTimeOffRequest(input);
@@ -543,7 +543,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.timeOffRequests.update.path, async (req, res) => {
+  app.put(api.timeOffRequests.update.path, requireManager, async (req, res) => {
     try {
       const input = api.timeOffRequests.update.input.parse(req.body);
       const request = await storage.updateTimeOffRequest(Number(req.params.id), input);
@@ -557,12 +557,12 @@ export async function registerRoutes(
   });
 
   // === Role Requirements ===
-  app.get(api.roleRequirements.list.path, async (req, res) => {
+  app.get(api.roleRequirements.list.path, requireAuth, async (req, res) => {
     const reqs = await storage.getRoleRequirements();
     res.json(reqs);
   });
 
-  app.post(api.roleRequirements.create.path, async (req, res) => {
+  app.post(api.roleRequirements.create.path, requireAdmin, async (req, res) => {
     try {
       const input = api.roleRequirements.create.input.parse(req.body);
       const reqs = await storage.createRoleRequirement(input);
@@ -575,7 +575,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.roleRequirements.update.path, async (req, res) => {
+  app.put(api.roleRequirements.update.path, requireAdmin, async (req, res) => {
     try {
       const input = api.roleRequirements.update.input.parse(req.body);
       const reqs = await storage.updateRoleRequirement(Number(req.params.id), input);
@@ -588,7 +588,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.roleRequirements.delete.path, async (req, res) => {
+  app.delete(api.roleRequirements.delete.path, requireAdmin, async (req, res) => {
     await storage.deleteRoleRequirement(Number(req.params.id));
     res.status(204).send();
   });
@@ -705,7 +705,7 @@ export async function registerRoutes(
     res.json(logs);
   });
 
-  app.post(api.schedule.generate.path, async (req, res) => {
+  app.post(api.schedule.generate.path, requireManager, async (req, res) => {
     try {
       const { weekStart, location } = api.schedule.generate.input.parse(req.body);
       const insertedShifts = await generateSchedule(weekStart, location);
@@ -719,7 +719,7 @@ export async function registerRoutes(
   });
 
   // AI-Powered Schedule Generation
-  app.post("/api/schedule/generate-ai", async (req, res) => {
+  app.post("/api/schedule/generate-ai", requireManager, async (req, res) => {
     try {
       const { weekStart } = api.schedule.generate.input.parse(req.body);
       
@@ -752,7 +752,7 @@ export async function registerRoutes(
   });
 
   // Clear schedule for a week (optionally filtered by location)
-  app.post("/api/schedule/clear", async (req, res) => {
+  app.post("/api/schedule/clear", requireManager, async (req, res) => {
     try {
       const parsed = api.schedule.generate.input.parse(req.body);
       const location = parsed.location;
@@ -835,7 +835,7 @@ export async function registerRoutes(
   });
 
   // === Retail Job Codes ===
-  app.get("/api/retail-job-codes", (req, res) => {
+  app.get("/api/retail-job-codes", requireAuth, (req, res) => {
     res.json(RETAIL_JOB_CODES);
   });
 
@@ -1054,7 +1054,7 @@ export async function registerRoutes(
   let weatherCache: { data: any; timestamp: number } | null = null;
   const WEATHER_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
-  app.get("/api/weather/forecast", async (req, res) => {
+  app.get("/api/weather/forecast", requireAuth, async (req, res) => {
     try {
       // Check cache first
       if (weatherCache && (Date.now() - weatherCache.timestamp) < WEATHER_CACHE_DURATION) {

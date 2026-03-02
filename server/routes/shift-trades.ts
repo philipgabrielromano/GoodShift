@@ -137,6 +137,15 @@ export function registerShiftTradeRoutes(app: Express) {
         return res.status(400).json({ message: "Trade is not pending peer approval" });
       }
 
+      const sessionUser = (req.session as any)?.user;
+      const allEmployees = await storage.getEmployees();
+      const callerEmployee = allEmployees.find(e =>
+        e.email && sessionUser?.email && e.email.toLowerCase() === sessionUser.email.toLowerCase()
+      );
+      if (!callerEmployee || callerEmployee.id !== trade.responderId) {
+        return res.status(403).json({ message: "Only the trade responder can approve or decline this trade" });
+      }
+
       const { approved, responderNote } = req.body;
       const responder = await storage.getEmployee(trade.responderId);
       const requester = await storage.getEmployee(trade.requesterId);
@@ -343,6 +352,18 @@ export function registerShiftTradeRoutes(app: Express) {
         return res.status(400).json({ message: "Can only cancel pending trades" });
       }
 
+      const sessionUser = (req.session as any)?.user;
+      const isManagerOrAdmin = sessionUser?.role === "admin" || sessionUser?.role === "manager";
+      if (!isManagerOrAdmin) {
+        const allEmployees = await storage.getEmployees();
+        const callerEmployee = allEmployees.find(e =>
+          e.email && sessionUser?.email && e.email.toLowerCase() === sessionUser.email.toLowerCase()
+        );
+        if (!callerEmployee || callerEmployee.id !== trade.requesterId) {
+          return res.status(403).json({ message: "Only the trade requester or a manager can cancel this trade" });
+        }
+      }
+
       await storage.updateShiftTrade(trade.id, { status: "cancelled" });
       res.json({ success: true });
     } catch (error) {
@@ -379,7 +400,15 @@ export function registerShiftTradeRoutes(app: Express) {
   // PATCH /api/notifications/:id/read - Mark a notification as read
   app.patch("/api/notifications/:id/read", requireAuth, async (req: Request, res: Response) => {
     try {
-      const notif = await storage.markNotificationRead(Number(req.params.id));
+      const sessionUser = (req.session as any)?.user;
+      if (!sessionUser) return res.status(401).json({ message: "Not authenticated" });
+      const allNotifs = await storage.getNotifications(sessionUser.id);
+      const notifId = Number(req.params.id);
+      const ownsNotif = allNotifs.some(n => n.id === notifId);
+      if (!ownsNotif) {
+        return res.status(403).json({ message: "You can only mark your own notifications as read" });
+      }
+      const notif = await storage.markNotificationRead(notifId);
       res.json(notif);
     } catch (error) {
       res.status(500).json({ message: "Failed to mark notification as read" });

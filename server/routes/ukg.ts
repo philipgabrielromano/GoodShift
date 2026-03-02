@@ -8,7 +8,7 @@ import { requireAuth, requireAdmin } from "../middleware";
 
 export function registerUKGRoutes(app: Express) {
   // === UKG INTEGRATION ===
-  app.get(api.ukg.status.path, async (req, res) => {
+  app.get(api.ukg.status.path, requireAuth, async (req, res) => {
     const configured = ukgClient.isConfigured();
     let connected = false;
     if (configured) {
@@ -94,7 +94,7 @@ export function registerUKGRoutes(app: Express) {
     }
   });
 
-  app.get(api.ukg.stores.path, async (req, res) => {
+  app.get(api.ukg.stores.path, requireAuth, async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json([]);
     }
@@ -102,7 +102,7 @@ export function registerUKGRoutes(app: Express) {
     res.json(locations);
   });
 
-  app.get(api.ukg.employees.path, async (req, res) => {
+  app.get(api.ukg.employees.path, requireAuth, async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json([]);
     }
@@ -113,7 +113,7 @@ export function registerUKGRoutes(app: Express) {
     res.json(employees);
   });
 
-  app.post(api.ukg.sync.path, async (req, res) => {
+  app.post(api.ukg.sync.path, requireAdmin, async (req, res) => {
     try {
       if (!ukgClient.isConfigured()) {
         return res.status(400).json({ message: "UKG is not configured", apiError: null });

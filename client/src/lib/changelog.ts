@@ -8,9 +8,24 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.13.0";
+export const APP_VERSION = "1.13.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.13.1",
+    date: "2026-03-02",
+    title: "Security Hardening",
+    changes: [
+      { type: "security", description: "All API endpoints now require authentication - previously 20+ endpoints for employees, shifts, time-off, schedule generation, and weather were publicly accessible without login" },
+      { type: "security", description: "Write endpoints now enforce role-based access - employee creation requires manager, employee deletion requires admin, shift and schedule operations require manager" },
+      { type: "security", description: "Shift trade respond now verifies caller identity - only the designated trade responder (Employee B) can accept or decline a trade" },
+      { type: "security", description: "Shift trade cancel now checks ownership - only the trade requester or a manager can cancel a pending trade" },
+      { type: "security", description: "Notification mark-as-read now checks ownership - users can only mark their own notifications as read" },
+      { type: "security", description: "UKG integration endpoints (status, stores, employees) now require authentication; sync requires admin" },
+      { type: "security", description: "Legacy auth bypass removed - a dev-mode authentication function that skipped auth when SSO was unconfigured has been retired to prevent accidental use" },
+      { type: "security", description: "Role requirements, time-off requests, and PAL entries endpoints now properly gated by role" },
+    ],
+  },
   {
     version: "1.13.0",
     date: "2026-02-26",

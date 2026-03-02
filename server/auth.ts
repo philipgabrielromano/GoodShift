@@ -259,7 +259,10 @@ export function setupAuth(app: Express) {
   });
 }
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
+// NOTE: This is a legacy dev-only auth check that bypasses auth when SSO is unconfigured.
+// All routes should use requireAuth from server/middleware.ts instead, which strictly enforces auth.
+// This function is intentionally NOT exported to prevent accidental use.
+function _legacyRequireAuth(req: Request, res: Response, next: NextFunction) {
   if (!isMicrosoftSsoConfigured()) {
     return next();
   }
