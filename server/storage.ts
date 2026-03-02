@@ -537,12 +537,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule> {
-    // Upsert - insert or update if exists
     const existing = await this.isSchedulePublished(weekStart);
     if (existing) {
-      // Already published, return existing
-      const [published] = await db.select().from(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
-      return published;
+      const [updated] = await db.update(publishedSchedules)
+        .set({ publishedBy, publishedAt: new Date() })
+        .where(eq(publishedSchedules.weekStart, weekStart))
+        .returning();
+      return updated;
     }
     const [newPublished] = await db.insert(publishedSchedules).values({ weekStart, publishedBy }).returning();
     return newPublished;

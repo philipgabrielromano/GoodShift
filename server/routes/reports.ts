@@ -73,16 +73,16 @@ export function registerReportRoutes(app: Express) {
         ? allEmployees.filter(e => !e.isActive && e.hireDate && new Date(e.hireDate).getFullYear() === currentYear)
         : allEmployees.filter(e => e.isActive);
 
-      // Filter by location - managers can only see their location(s)
+      const allowedNames = await getAllowedLocationNames(user);
       if (locationFilter) {
-        filteredEmployees = filteredEmployees.filter(e => e.location === locationFilter);
-      } else {
-        const allowedNames = await getAllowedLocationNames(user);
-        if (allowedNames) {
-          filteredEmployees = filteredEmployees.filter(e =>
-            e.location && allowedNames.has(e.location)
-          );
+        if (allowedNames && !allowedNames.has(locationFilter)) {
+          return res.json([]);
         }
+        filteredEmployees = filteredEmployees.filter(e => e.location === locationFilter);
+      } else if (allowedNames) {
+        filteredEmployees = filteredEmployees.filter(e =>
+          e.location && allowedNames.has(e.location)
+        );
       }
 
       // Hierarchy filtering - same-level peers cannot see each other
@@ -160,8 +160,10 @@ export function registerReportRoutes(app: Express) {
       const employeeMap = new Map(allEmployees.map(e => [e.id, e]));
       const ukgIdToEmployee = new Map(allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId!, e]));
 
-      // Filter employees by location
-      const allowedNames = locationFilter ? null : await getAllowedLocationNames(user);
+      const allowedNames = await getAllowedLocationNames(user);
+      if (locationFilter && allowedNames && !allowedNames.has(locationFilter)) {
+        return res.json({ earlyClockIns: [], lateClockOuts: [], longLunches: [], missedPunches: [] });
+      }
       let allowedEmployeeIds = new Set<number>();
       for (const emp of allEmployees) {
         if (!emp.isActive) continue;

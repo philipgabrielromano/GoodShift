@@ -157,13 +157,40 @@ export async function registerRoutes(
   });
 
   // === Shifts ===
-  app.get(api.shifts.list.path, async (req, res) => {
-    // Parse query params for filtering
+  app.get(api.shifts.list.path, requireAuth, async (req, res) => {
+    const user = (req.session as any)?.user;
     const start = req.query.start ? new Date(req.query.start as string) : undefined;
     const end = req.query.end ? new Date(req.query.end as string) : undefined;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
     
-    const shifts = await storage.getShifts(start, end, employeeId);
+    let shifts = await storage.getShifts(start, end, employeeId);
+
+    if (user?.role === "viewer") {
+      const publishedWeeks = new Set<string>();
+      for (const shift of shifts) {
+        const shiftDate = new Date(shift.startTime);
+        const day = shiftDate.getUTCDay();
+        const weekStartDate = new Date(shiftDate);
+        weekStartDate.setUTCDate(weekStartDate.getUTCDate() - day);
+        const weekKey = formatInTimeZone(weekStartDate, TIMEZONE, "yyyy-MM-dd");
+        publishedWeeks.add(weekKey);
+      }
+      const publishedSet = new Set<string>();
+      for (const wk of publishedWeeks) {
+        if (await storage.isSchedulePublished(wk)) {
+          publishedSet.add(wk);
+        }
+      }
+      shifts = shifts.filter(shift => {
+        const shiftDate = new Date(shift.startTime);
+        const day = shiftDate.getUTCDay();
+        const weekStartDate = new Date(shiftDate);
+        weekStartDate.setUTCDate(weekStartDate.getUTCDate() - day);
+        const weekKey = formatInTimeZone(weekStartDate, TIMEZONE, "yyyy-MM-dd");
+        return publishedSet.has(weekKey);
+      });
+    }
+
     res.json(shifts);
   });
 
@@ -920,8 +947,7 @@ export async function registerRoutes(
   });
 
   // === Published Schedules ===
-  // Check if a week's schedule is published
-  app.get("/api/schedule/published/:weekStart", async (req, res) => {
+  app.get("/api/schedule/published/:weekStart", requireAuth, async (req, res) => {
     try {
       const weekStart = req.params.weekStart as string;
       if (!isValidDate(weekStart)) {
@@ -951,26 +977,25 @@ export async function registerRoutes(
       const published = await storage.publishSchedule(weekStart, user.id);
       res.json({ message: "Schedule published", published });
 
-      // Send email notifications asynchronously (don't block the response)
+      const { location } = req.body;
+
       (async () => {
         try {
-          const allShifts = await storage.getShifts();
-          const employees = await storage.getEmployees();
-
-          // Find shifts for this week using startTime
           const weekStartDate = new Date(weekStart);
           const weekEndDate = new Date(weekStartDate);
           weekEndDate.setDate(weekEndDate.getDate() + 7);
 
-          const weekShifts = allShifts.filter(s => {
-            const shiftStart = new Date(s.startTime);
-            return shiftStart >= weekStartDate && shiftStart < weekEndDate;
-          });
+          const allShifts = await storage.getShifts(weekStartDate, weekEndDate);
+          const employees = await storage.getEmployees();
 
-          // Get unique employee IDs with shifts this week
+          let weekShifts = allShifts;
+          if (location && location !== "all") {
+            const locationEmpIds = new Set(employees.filter(e => e.location === location).map(e => e.id));
+            weekShifts = allShifts.filter(s => locationEmpIds.has(s.employeeId));
+          }
+
           const scheduledEmployeeIds = Array.from(new Set(weekShifts.map(s => s.employeeId)));
 
-          // Format the week start for display
           const displayDate = formatInTimeZone(weekStartDate, TIMEZONE, "MMMM d, yyyy");
           const appUrl = "https://goodshift.goodwillgoodskills.org";
 
@@ -992,7 +1017,7 @@ export async function registerRoutes(
               emailsSent++;
             }
           }
-          console.log(`[Schedule Publish] Sent ${emailsSent} notification emails for week of ${weekStart}`);
+          console.log(`[Schedule Publish] Sent ${emailsSent} notification emails for week of ${weekStart} (${location || "all locations"})`);
         } catch (emailError) {
           console.error("[Schedule Publish] Error sending notification emails:", emailError);
         }

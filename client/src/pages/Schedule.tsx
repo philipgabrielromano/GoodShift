@@ -867,7 +867,7 @@ export default function Schedule() {
     setPublishConfirmOpen(false);
     setIsPublishing(true);
     try {
-      await apiRequest("POST", "/api/schedule/publish", { weekStart: weekStartStr });
+      await apiRequest("POST", "/api/schedule/publish", { weekStart: weekStartStr, location: selectedLocation });
       refetchPublishStatus();
       toast({ title: "Schedule Published", description: "This week's schedule is now visible to all employees. Email notifications are being sent." });
     } catch (error: any) {
