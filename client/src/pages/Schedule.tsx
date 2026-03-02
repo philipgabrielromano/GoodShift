@@ -649,7 +649,7 @@ export default function Schedule() {
   const handleCopyToNextWeek = async () => {
     setIsCopying(true);
     try {
-      const response = await apiRequest("POST", "/api/schedule/copy-to-next-week", { weekStart: weekStart.toISOString() });
+      const response = await apiRequest("POST", "/api/schedule/copy-to-next-week", { weekStart: weekStart.toISOString(), location: selectedLocation });
       const result = await response.json();
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({ title: "Schedule Copied", description: result.message });
@@ -834,14 +834,19 @@ export default function Schedule() {
     }
   };
 
+  const [isApplyingTemplate, setIsApplyingTemplate] = useState(false);
   const handleApplyTemplate = async (templateId: number, templateName: string) => {
+    if (isApplyingTemplate) return;
+    setIsApplyingTemplate(true);
     try {
-      const response = await apiRequest("POST", `/api/schedule-templates/${templateId}/apply`, { weekStart: weekStart.toISOString() });
+      const response = await apiRequest("POST", `/api/schedule-templates/${templateId}/apply`, { weekStart: weekStart.toISOString(), location: selectedLocation });
       const result = await response.json();
       queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
       toast({ title: "Template Applied", description: `Applied "${templateName}": ${result.message}` });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Apply Failed", description: error?.message || "Could not apply template." });
+    } finally {
+      setIsApplyingTemplate(false);
     }
   };
 
@@ -1234,10 +1239,11 @@ export default function Schedule() {
                     <DropdownMenuItem
                       key={template.id}
                       onClick={() => handleApplyTemplate(template.id, template.name)}
+                      disabled={isApplyingTemplate}
                       data-testid={`menuitem-apply-template-${template.id}`}
                     >
                       <FileDown className="w-4 h-4 mr-2" />
-                      {template.name}
+                      {isApplyingTemplate ? "Applying..." : template.name}
                     </DropdownMenuItem>
                   ))}
                   <DropdownMenuSeparator />

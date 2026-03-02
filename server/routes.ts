@@ -308,7 +308,7 @@ export async function registerRoutes(
   // Copy current week's schedule to the next week
   app.post("/api/schedule/copy-to-next-week", requireAuth, async (req, res) => {
     try {
-      const { weekStart } = req.body;
+      const { weekStart, location } = req.body;
       if (!weekStart) {
         return res.status(400).json({ message: "weekStart is required" });
       }
@@ -324,11 +324,27 @@ export async function registerRoutes(
       
       const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
       
-      if (shifts.length === 0) {
+      let filteredShifts = shifts;
+      if (location && location !== "all") {
+        const allEmployees = await storage.getEmployees();
+        const locationEmpIds = new Set(allEmployees.filter(e => e.location === location).map(e => e.id));
+        filteredShifts = shifts.filter(s => locationEmpIds.has(s.employeeId));
+      }
+      
+      if (filteredShifts.length === 0) {
         return res.status(400).json({ message: "No shifts to copy in the current week" });
       }
       
-      const newShifts = shifts.map(shift => ({
+      const nextWeekStart = new Date(currentWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const nextWeekEnd = new Date(nextWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      
+      const loc = location && location !== "all" ? location : undefined;
+      const cleared = await storage.deleteShiftsByDateRange(nextWeekStart, nextWeekEnd, loc);
+      if (cleared > 0) {
+        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${loc || "all locations"})`);
+      }
+      
+      const newShifts = filteredShifts.map(shift => ({
         employeeId: shift.employeeId,
         startTime: new Date(new Date(shift.startTime).getTime() + 7 * 24 * 60 * 60 * 1000),
         endTime: new Date(new Date(shift.endTime).getTime() + 7 * 24 * 60 * 60 * 1000),
@@ -404,7 +420,7 @@ export async function registerRoutes(
   app.post("/api/schedule-templates/:id/apply", requireAuth, async (req, res) => {
     try {
       const templateId = Number(req.params.id);
-      const { weekStart } = req.body;
+      const { weekStart, location } = req.body;
       
       if (!weekStart) {
         return res.status(400).json({ message: "weekStart is required" });
@@ -427,7 +443,14 @@ export async function registerRoutes(
       }
       
       const targetWeekStart = new Date(weekStart);
+      const targetWeekEnd = new Date(targetWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
       const targetWeekStartET = toZonedTime(targetWeekStart, TIMEZONE);
+      
+      const loc = location && location !== "all" ? location : undefined;
+      const cleared = await storage.deleteShiftsByDateRange(targetWeekStart, targetWeekEnd, loc);
+      if (cleared > 0) {
+        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${loc || "all locations"})`);
+      }
       
       const newShifts = patterns.map((pattern: any) => {
         const shiftDateET = new Date(targetWeekStartET);
