@@ -96,6 +96,8 @@ export const RETAIL_JOB_CODES = [
   "OUTSHS",    // Outlet Sales/Softlines
   // Bookstore job codes
   "ALTSTLD",   // Alternative Store Lead
+  // Sales floor
+  "SLSFLR",    // Sales Floor Associate
 ] as const;
 
 // Users table for authentication and role management

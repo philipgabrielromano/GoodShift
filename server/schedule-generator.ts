@@ -445,7 +445,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       const donorGreeterCodes = ['DONDOOR', 'WVDON'];
       const donationPricerCodes = ['DONPRI', 'DONPRWV']; // Donation pricers only
       const apparelProcessorCodes = ['APPROC', 'APWV']; // Apparel processors only
-      const cashierCodes = ['CASHSLS', 'CSHSLSWV'];
+      const cashierCodes = ['CASHSLS', 'CSHSLSWV', 'SLSFLR'];
       
       // Categorize leadership by tier
       const storeManagers = employees.filter(emp => storeManagerCodes.includes(emp.jobTitle) && emp.isActive);

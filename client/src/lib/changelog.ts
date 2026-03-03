@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.13.1";
+export const APP_VERSION = "1.13.2";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.13.2",
+    date: "2026-03-03",
+    title: "Sales Floor Support",
+    changes: [
+      { type: "feature", description: "Added SLSFLR (Sales Floor Associate) as a recognized retail job code - these employees now appear on schedules and are scheduled following the same pattern as Cashiers" },
+    ],
+  },
   {
     version: "1.13.1",
     date: "2026-03-02",

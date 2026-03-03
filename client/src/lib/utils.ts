@@ -107,6 +107,7 @@ const JOB_CODE_TITLES: Record<string, string> = {
   WVSTMNG: "Store Manager",
   WVSTAST: "Assistant Manager",
   WVLDWRK: "Team Lead",
+  SLSFLR: "Sales Floor",
 };
 
 // Mapping of equivalent job codes (WV variants map to standard codes)
