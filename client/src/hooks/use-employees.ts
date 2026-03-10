@@ -3,15 +3,19 @@ import { api, buildUrl } from "@shared/routes";
 import type { InsertEmployee } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
-export function useEmployees(options?: { retailOnly?: boolean; enabled?: boolean }) {
+export function useEmployees(options?: { retailOnly?: boolean; enabled?: boolean; showInactive?: boolean }) {
   const retailOnly = options?.retailOnly ?? false;
+  const showInactive = options?.showInactive ?? false;
   const enabled = options?.enabled ?? true;
-  const url = retailOnly 
-    ? `${api.employees.list.path}?retailOnly=true`
+  const params = new URLSearchParams();
+  if (retailOnly) params.set("retailOnly", "true");
+  if (showInactive) params.set("showInactive", "true");
+  const url = params.toString()
+    ? `${api.employees.list.path}?${params.toString()}`
     : api.employees.list.path;
   
   return useQuery({
-    queryKey: [api.employees.list.path, { retailOnly }],
+    queryKey: [api.employees.list.path, { retailOnly, showInactive }],
     queryFn: async () => {
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch employees");

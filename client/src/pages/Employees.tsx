@@ -5,7 +5,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff, EyeOff, Eye, ChevronDown, ChevronRight } from "lucide-react";
 import {
   DropdownMenu,
@@ -32,8 +34,17 @@ function getJobPriority(jobTitle: string): number {
   return JOB_PRIORITY[canonical] ?? 99;
 }
 
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string } | null;
+  ssoConfigured: boolean;
+}
+
 export default function Employees() {
-  const { data: employees, isLoading } = useEmployees();
+  const [showInactive, setShowInactive] = useState(false);
+  const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
+  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+  const { data: employees, isLoading } = useEmployees({ showInactive });
   const [search, setSearch] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("search") || "";
@@ -101,6 +112,19 @@ export default function Employees() {
             data-testid="input-employee-search"
           />
         </div>
+        {isManagerOrAdmin && (
+          <div className="flex items-center gap-2">
+            <Switch
+              id="employees-show-inactive"
+              checked={showInactive}
+              onCheckedChange={setShowInactive}
+              data-testid="switch-employees-show-inactive"
+            />
+            <Label htmlFor="employees-show-inactive" className="text-sm text-muted-foreground cursor-pointer">
+              Show inactive
+            </Label>
+          </div>
+        )}
         {locations.length > 1 && (
           <div className="w-48">
             <Select value={filterLocation} onValueChange={setFilterLocation}>

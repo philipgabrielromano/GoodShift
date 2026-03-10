@@ -8,15 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.13.2";
+export const APP_VERSION = "1.14.0";
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: "1.13.2",
-    date: "2026-03-03",
-    title: "Sales Floor Support",
+    version: "1.14.0",
+    date: "2026-03-10",
+    title: "Inactive Employee Visibility & Sales Floor",
     changes: [
-      { type: "feature", description: "Added SLSFLR (Sales Floor Associate) as a recognized retail job code - these employees now appear on schedules and are scheduled following the same pattern as Cashiers" },
+      { type: "feature", description: "Active/inactive employee toggle on the Employees page - managers and admins can switch to view inactive employees" },
+      { type: "feature", description: "Active/inactive employee toggle on the Coaching page - managers and admins can switch to view and search coaching logs for inactive employees" },
+      { type: "feature", description: "Added SLSFLR (Sales Floor Associate) as a recognized retail job code - scheduled following the same pattern as Cashiers" },
     ],
   },
   {

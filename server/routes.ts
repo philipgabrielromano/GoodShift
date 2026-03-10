@@ -42,6 +42,14 @@ export async function registerRoutes(
     
     let employees = await storage.getEmployees();
     
+    // Filter by active/inactive status (inactive only available to managers/admins)
+    const showInactive = req.query.showInactive === "true";
+    if (showInactive && (user?.role === "admin" || user?.role === "manager")) {
+      employees = employees.filter(emp => !emp.isActive);
+    } else {
+      employees = employees.filter(emp => emp.isActive);
+    }
+    
     // Filter by retail job codes if requested
     const retailOnly = req.query.retailOnly === "true";
     if (retailOnly) {

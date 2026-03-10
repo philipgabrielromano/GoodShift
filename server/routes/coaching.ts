@@ -35,19 +35,22 @@ export function registerCoachingRoutes(app: Express) {
       const user = (req.session as any)?.user;
       if (!user) return res.status(401).json({ message: "Authentication required" });
 
+      const showInactive = req.query.showInactive === "true";
       const allEmployees = await storage.getEmployees();
-      const activeEmployees = allEmployees.filter(e => e.isActive);
+      const filteredByStatus = showInactive
+        ? allEmployees.filter(e => !e.isActive)
+        : allEmployees.filter(e => e.isActive);
 
       if (user.role === "admin") {
-        const sorted = activeEmployees.sort((a, b) => a.name.localeCompare(b.name));
+        const sorted = filteredByStatus.sort((a, b) => a.name.localeCompare(b.name));
         return res.json(sorted.map(e => ({
-          id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location
+          id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location, isActive: e.isActive
         })));
       }
 
       if (user.role === "manager") {
         const allowedNames = await getAllowedLocationNames(user);
-        let filtered = activeEmployees;
+        let filtered = filteredByStatus;
         if (allowedNames) {
           filtered = filtered.filter(e => e.location && allowedNames.has(e.location));
         }
@@ -66,7 +69,7 @@ export function registerCoachingRoutes(app: Express) {
 
         const sorted = visible.sort((a, b) => a.name.localeCompare(b.name));
         return res.json(sorted.map(e => ({
-          id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location
+          id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location, isActive: e.isActive
         })));
       }
 
@@ -84,6 +87,7 @@ export function registerCoachingRoutes(app: Express) {
 
       const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
       const category = req.query.category as string | undefined;
+      const includeInactive = req.query.includeInactive === "true";
 
       const allLogs = await storage.getCoachingLogs({ employeeId, category });
 
@@ -102,7 +106,7 @@ export function registerCoachingRoutes(app: Express) {
 
         const visibleEmployeeIds = new Set(
           allEmployees.filter(e => {
-            if (!e.isActive) return false;
+            if (!includeInactive && !e.isActive) return false;
             if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
             if (managerEmployee && e.id === managerEmployee.id) return false;
             if (managerLevel >= 3) return true;

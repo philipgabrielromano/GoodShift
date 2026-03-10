@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { MessageSquare, Plus, Filter, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -69,6 +70,7 @@ export default function Coaching() {
   const [filterEmployee, setFilterEmployee] = useState<string>("all");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterLocation, setFilterLocation] = useState<string>("all");
+  const [showInactive, setShowInactive] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailLog, setDetailLog] = useState<(CoachingLog & { employeeName: string; employeeJobTitle: string; employeeLocation: string }) | null>(null);
 
@@ -86,14 +88,16 @@ export default function Coaching() {
 
   const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
 
+  const coachingEmployeesUrl = showInactive ? "/api/coaching/employees?showInactive=true" : "/api/coaching/employees";
   const { data: employees, isLoading: employeesLoading } = useQuery<CoachingEmployee[]>({
-    queryKey: ["/api/coaching/employees"],
+    queryKey: [coachingEmployeesUrl],
     enabled: isManagerOrAdmin,
   });
 
   const logParams = new URLSearchParams();
   if (filterEmployee !== "all") logParams.set("employeeId", filterEmployee);
   if (filterCategory !== "all") logParams.set("category", filterCategory);
+  if (showInactive) logParams.set("includeInactive", "true");
   const logUrl = `/api/coaching/logs${logParams.toString() ? `?${logParams.toString()}` : ""}`;
 
   const { data: logs, isLoading: logsLoading } = useQuery<CoachingLog[]>({
@@ -347,6 +351,20 @@ export default function Coaching() {
               </Select>
             </div>
           )}
+          <div className="flex items-center gap-2">
+            <Switch
+              id="coaching-show-inactive"
+              checked={showInactive}
+              onCheckedChange={(checked) => {
+                setShowInactive(checked);
+                setFilterEmployee("all");
+              }}
+              data-testid="switch-coaching-show-inactive"
+            />
+            <Label htmlFor="coaching-show-inactive" className="text-sm text-muted-foreground cursor-pointer">
+              Inactive
+            </Label>
+          </div>
           <div className="w-[calc(50%-0.25rem)] sm:w-44">
             <Select value={filterCategory} onValueChange={setFilterCategory}>
               <SelectTrigger data-testid="select-filter-category">
