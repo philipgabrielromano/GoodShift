@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -22,7 +22,11 @@ export const employees = pgTable("employees", {
   nonWorkingDays: text("non_working_days").array(), // Days employee doesn't work (e.g., ["Sunday", "Saturday"])
   hireDate: date("hire_date"), // Date employee was hired, from UKG
   alternateEmail: text("alternate_email"), // Optional alternate email for notifications
-});
+}, (table) => [
+  index("idx_employees_is_active").on(table.isActive),
+  index("idx_employees_email").on(table.email),
+  index("idx_employees_location").on(table.location),
+]);
 
 export const timeOffRequests = pgTable("time_off_requests", {
   id: serial("id").primaryKey(),
@@ -38,7 +42,11 @@ export const shifts = pgTable("shifts", {
   employeeId: integer("employee_id").notNull(),
   startTime: timestamp("start_time").notNull(),
   endTime: timestamp("end_time").notNull(),
-});
+}, (table) => [
+  index("idx_shifts_start_time").on(table.startTime),
+  index("idx_shifts_employee_id").on(table.employeeId),
+  index("idx_shifts_start_end").on(table.startTime, table.endTime),
+]);
 
 export const roleRequirements = pgTable("role_requirements", {
   id: serial("id").primaryKey(),

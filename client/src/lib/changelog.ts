@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.14.0";
+export const APP_VERSION = "1.14.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.14.1",
+    date: "2026-03-10",
+    title: "Schedule Performance Improvements",
+    changes: [
+      { type: "improvement", description: "Added database indexes on shifts table (start_time, employee_id, composite) for faster schedule queries" },
+      { type: "improvement", description: "Added database indexes on employees table (is_active, email, location) for faster lookups" },
+      { type: "improvement", description: "Schedule page now shows previous week's data while loading the new week, eliminating blank loading flashes when switching weeks" },
+      { type: "improvement", description: "Removed redundant client-side data validation on shift fetches for faster rendering" },
+      { type: "improvement", description: "Employee, location, and settings data now cached for 5 minutes to avoid unnecessary re-fetches during navigation" },
+    ],
+  },
   {
     version: "1.14.0",
     date: "2026-03-10",

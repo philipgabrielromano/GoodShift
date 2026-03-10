@@ -19,9 +19,9 @@ export function useEmployees(options?: { retailOnly?: boolean; enabled?: boolean
     queryFn: async () => {
       const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch employees");
-      const data = await res.json();
-      return api.employees.list.responses[200].parse(data);
+      return await res.json();
     },
+    staleTime: 5 * 60 * 1000,
     enabled,
   });
 }

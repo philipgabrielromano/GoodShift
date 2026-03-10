@@ -93,6 +93,12 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **class-variance-authority**: Component variant styling.
 - **clsx/tailwind-merge**: Conditional CSS class composition.
 
+### Performance
+- **Database Indexes**: Shifts table has indexes on `start_time`, `employee_id`, and a composite `(start_time, end_time)`. Employees table has indexes on `is_active`, `email`, and `location`.
+- **Query Caching**: Employees, locations, and global settings use `staleTime: 5min` to avoid redundant refetches during navigation. Mutations still invalidate caches immediately.
+- **Placeholder Data**: Shifts hook uses `keepPreviousData` so the previous week's schedule stays visible while the new week loads, preventing blank loading flashes.
+- **Stale Data Indicator**: A subtle loading bar appears at the top of the Schedule page while placeholder data is shown.
+
 ### Integrations
 - **UKG Workforce Management**: Integrates with UltiClock OData API for daily employee and time clock data sync (including PAL/UTO). Syncs employee details, job titles, locations, employment types, and active status.
 - **Microsoft 365 SSO**: Single sign-on authentication using Azure AD for secure session management and user profile retrieval.

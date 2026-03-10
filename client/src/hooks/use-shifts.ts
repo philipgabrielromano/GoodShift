@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertShift } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -15,14 +15,14 @@ export function useShifts(start?: string, end?: string, employeeId?: number) {
       const res = await fetch(url.toString(), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch shifts");
       const data = await res.json();
-      
-      const rawData = api.shifts.list.responses[200].parse(data);
-      return rawData.map(s => ({
+
+      return (data as any[]).map(s => ({
         ...s,
         startTime: new Date(s.startTime),
         endTime: new Date(s.endTime)
       }));
     },
+    placeholderData: keepPreviousData,
   });
 }
 

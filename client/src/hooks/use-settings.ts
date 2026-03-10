@@ -50,6 +50,7 @@ export function useGlobalSettings() {
       const data = await res.json();
       return api.globalSettings.get.responses[200].parse(data);
     },
+    staleTime: 5 * 60 * 1000,
   });
 }
 

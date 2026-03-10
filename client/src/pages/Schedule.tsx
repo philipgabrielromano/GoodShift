@@ -170,7 +170,7 @@ export default function Schedule() {
   
   const weekDays = useMemo(() => Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i)), [weekStart]);
 
-  const { data: shifts, isLoading: shiftsLoading } = useShifts(
+  const { data: shifts, isLoading: shiftsLoading, isPlaceholderData: shiftsStale } = useShifts(
     weekStart.toISOString(),
     weekEnd.toISOString()
   );
@@ -1109,6 +1109,11 @@ export default function Schedule() {
 
   return (
     <div className={cn("max-w-[1600px] mx-auto", isMobile ? "p-2 space-y-2" : "p-6 lg:p-10 space-y-8")}>
+      {shiftsStale && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-primary/20 overflow-hidden">
+          <div className="h-full w-1/3 bg-primary animate-pulse rounded-full" style={{ animation: "shimmer 1.2s ease-in-out infinite" }} />
+        </div>
+      )}
       <div className={cn("flex flex-col items-center", isMobile ? "gap-2" : "gap-4")}>
         <div className={cn("flex items-center", isMobile ? "w-full gap-2" : "flex-col md:flex-row gap-4")}>
           {/* Location dropdown: Admins see all locations, others see their assigned locations */}

@@ -12,6 +12,7 @@ export function useLocations() {
       const data = await res.json();
       return data as Location[];
     },
+    staleTime: 5 * 60 * 1000,
   });
 }
 
