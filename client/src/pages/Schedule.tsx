@@ -821,6 +821,7 @@ export default function Schedule() {
         description: templateDescription || null,
         weekStart: weekStart.toISOString(),
         createdBy: authStatus?.user?.id || null,
+        location: selectedLocation,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/schedule-templates"] });
       toast({ title: "Template Saved", description: `Template "${templateName}" saved successfully.` });

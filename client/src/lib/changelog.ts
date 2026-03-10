@@ -19,6 +19,9 @@ export const changelog: ChangelogEntry[] = [
       { type: "feature", description: "Active/inactive employee toggle on the Employees page - managers and admins can switch to view inactive employees" },
       { type: "feature", description: "Active/inactive employee toggle on the Coaching page - managers and admins can switch to view and search coaching logs for inactive employees" },
       { type: "feature", description: "Added SLSFLR (Sales Floor Associate) as a recognized retail job code - scheduled following the same pattern as Cashiers" },
+      { type: "fix", description: "Template save now respects the selected location filter - previously saved shifts from all locations regardless of which store was selected" },
+      { type: "fix", description: "Template apply now only creates shifts for employees at the selected location - previously inserted shifts for all locations in the template, causing duplicates on repeated applies" },
+      { type: "fix", description: "Added duplicate shift prevention to template apply and copy-to-next-week - identical shifts for the same employee are now automatically deduplicated" },
     ],
   },
   {

@@ -17,6 +17,16 @@ import { registerShiftTradeRoutes } from "./routes/shift-trades";
 import { registerReportRoutes } from "./routes/reports";
 import { registerCoachingRoutes } from "./routes/coaching";
 
+function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTime: Date }[]) {
+  const seen = new Set<string>();
+  return shifts.filter(s => {
+    const key = `${s.employeeId}-${new Date(s.startTime).getTime()}-${new Date(s.endTime).getTime()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -385,7 +395,11 @@ export async function registerRoutes(
         endTime: new Date(new Date(shift.endTime).getTime() + 7 * 24 * 60 * 60 * 1000),
       }));
       
-      const created = await storage.createShiftsBatch(newShifts);
+      const deduped = deduplicateShifts(newShifts);
+      if (deduped.length < newShifts.length) {
+        console.log(`[Copy Schedule] Removed ${newShifts.length - deduped.length} duplicate shift(s)`);
+      }
+      const created = await storage.createShiftsBatch(deduped);
       res.json({ message: `Copied ${created.length} shifts to next week`, count: created.length });
     } catch (err) {
       console.error("Error copying schedule:", err);
@@ -403,7 +417,7 @@ export async function registerRoutes(
   // Save current week as a template
   app.post("/api/schedule-templates", requireAuth, async (req, res) => {
     try {
-      const { name, description, weekStart, createdBy } = req.body;
+      const { name, description, weekStart, createdBy, location } = req.body;
       if (!name || !weekStart) {
         return res.status(400).json({ message: "name and weekStart are required" });
       }
@@ -417,7 +431,13 @@ export async function registerRoutes(
       currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
       currentWeekEnd.setUTCHours(11, 0, 0, 0);
       
-      const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
+      let shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
+      
+      if (location && location !== "all") {
+        const allEmployees = await storage.getEmployees();
+        const locationEmpIds = new Set(allEmployees.filter(e => e.location === location).map(e => e.id));
+        shifts = shifts.filter(s => locationEmpIds.has(s.employeeId));
+      }
       
       if (shifts.length === 0) {
         return res.status(400).json({ message: "No shifts to save as template" });
@@ -445,6 +465,7 @@ export async function registerRoutes(
         shiftPatterns: JSON.stringify(patterns),
       });
       
+      console.log(`[Template Save] Saved "${name}" with ${patterns.length} patterns (location: ${location || "all"})`);
       res.status(201).json(template);
     } catch (err) {
       console.error("Error creating template:", err);
@@ -483,12 +504,21 @@ export async function registerRoutes(
       const targetWeekStartET = toZonedTime(targetWeekStart, TIMEZONE);
       
       const loc = location && location !== "all" ? location : undefined;
+      
+      let filteredPatterns = patterns;
+      let locationEmpIds: Set<number> | null = null;
+      if (loc) {
+        const allEmployees = await storage.getEmployees();
+        locationEmpIds = new Set(allEmployees.filter(e => e.location === loc).map(e => e.id));
+        filteredPatterns = patterns.filter((p: any) => locationEmpIds!.has(p.employeeId));
+      }
+      
       const cleared = await storage.deleteShiftsByDateRange(targetWeekStart, targetWeekEnd, loc);
       if (cleared > 0) {
         console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${loc || "all locations"})`);
       }
       
-      const newShifts = patterns.map((pattern: any) => {
+      const newShifts = filteredPatterns.map((pattern: any) => {
         const shiftDateET = new Date(targetWeekStartET);
         const currentDay = shiftDateET.getDay();
         const daysToAdd = pattern.dayOfWeek - currentDay;
@@ -514,8 +544,11 @@ export async function registerRoutes(
         };
       });
       
-      console.log(`[Template Apply] Template "${template.name}" has ${patterns.length} patterns, generated ${newShifts.length} shifts (${newShifts.filter((s: any) => new Date(s.endTime) > new Date(s.startTime)).length} valid)`);
-      const created = await storage.createShiftsBatch(newShifts);
+      const validShifts = newShifts.filter((s: any) => new Date(s.endTime) > new Date(s.startTime));
+      
+      const deduped = deduplicateShifts(validShifts);
+      console.log(`[Template Apply] Template "${template.name}" has ${patterns.length} total patterns, ${filteredPatterns.length} for location, ${validShifts.length} valid, ${deduped.length} after dedup`);
+      const created = await storage.createShiftsBatch(deduped);
       res.json({ message: `Applied template with ${created.length} shifts`, count: created.length });
     } catch (err) {
       console.error("Error applying template:", err);
