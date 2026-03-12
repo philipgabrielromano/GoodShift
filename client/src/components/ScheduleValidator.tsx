@@ -310,9 +310,9 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       const openingGreeter = donorGreeterShifts.some(s => {
         const { totalMinutes } = getETHoursMinutes(s.startTime);
         if (isSunday) {
-          return totalMinutes <= 10 * 60;
+          return totalMinutes <= 11 * 60;
         }
-        return totalMinutes <= 8 * 60 + 45;
+        return totalMinutes <= 9 * 60;
       });
       
       // Donor greeter closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
@@ -351,9 +351,9 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       const openingCashier = cashierShifts.some(s => {
         const { totalMinutes } = getETHoursMinutes(s.startTime);
         if (isSunday) {
-          return totalMinutes <= 10 * 60;
+          return totalMinutes <= 11 * 60;
         }
-        return totalMinutes <= 8 * 60 + 45;
+        return totalMinutes <= 9 * 60;
       });
       
       // Cashier closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
