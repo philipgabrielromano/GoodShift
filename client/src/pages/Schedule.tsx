@@ -764,6 +764,14 @@ export default function Schedule() {
       
       return [emp.name, getJobTitle(emp.jobTitle), ...dayData, `${weeklyHours.toFixed(1)}h`];
     });
+
+    // Track row indices where the job title changes (last row of each group)
+    const jobTitleChangeAfterRow = new Set<number>();
+    for (let i = 0; i < filteredEmployees.length - 1; i++) {
+      if (filteredEmployees[i].jobTitle !== filteredEmployees[i + 1].jobTitle) {
+        jobTitleChangeAfterRow.add(i);
+      }
+    }
     
     // Generate table with autoTable - use equal margins
     autoTable(doc, {
@@ -786,7 +794,17 @@ export default function Schedule() {
         8: { cellWidth: 25 }, // Sat
         [totalColumnIndex]: { cellWidth: 15, halign: "center" } // Total
       },
-      alternateRowStyles: { fillColor: [245, 247, 250] }
+      alternateRowStyles: { fillColor: [245, 247, 250] },
+      didDrawRow: (data) => {
+        if (jobTitleChangeAfterRow.has(data.row.index)) {
+          const lineY = data.row.y + data.row.height;
+          doc.setDrawColor(0, 83, 159);
+          doc.setLineWidth(0.6);
+          doc.line(margin, lineY, pageWidth - margin, lineY);
+          doc.setDrawColor(0);
+          doc.setLineWidth(0.2);
+        }
+      }
     });
     
     // Add summary at bottom - safely get finalY with fallback
