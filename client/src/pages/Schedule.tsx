@@ -795,11 +795,15 @@ export default function Schedule() {
         [totalColumnIndex]: { cellWidth: 15, halign: "center" } // Total
       },
       alternateRowStyles: { fillColor: [245, 247, 250] },
-      didDrawRow: (data) => {
-        if (jobTitleChangeAfterRow.has(data.row.index)) {
-          const lineY = data.row.y + data.row.height;
+      didDrawCell: (data) => {
+        if (
+          data.section === 'body' &&
+          data.column.index === totalColumnIndex &&
+          jobTitleChangeAfterRow.has(data.row.index)
+        ) {
+          const lineY = data.cell.y + data.cell.height;
           doc.setDrawColor(0, 83, 159);
-          doc.setLineWidth(0.6);
+          doc.setLineWidth(0.8);
           doc.line(margin, lineY, pageWidth - margin, lineY);
           doc.setDrawColor(0);
           doc.setLineWidth(0.2);
