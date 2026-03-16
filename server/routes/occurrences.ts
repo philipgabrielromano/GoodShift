@@ -179,7 +179,7 @@ export function registerOccurrenceRoutes(app: Express) {
         return res.status(403).json({ message: "Only managers and admins can create occurrences" });
       }
       
-      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, reason, documentUrl } = req.body;
+      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, isFmla, isConsecutiveSickness, reason, documentUrl } = req.body;
       
       if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
         return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
@@ -198,18 +198,22 @@ export function registerOccurrenceRoutes(app: Express) {
         illnessGroupId: illnessGroupId || null,
         notes: notes || null,
         isNcns: isNcns || false,
+        isFmla: isFmla || false,
+        isConsecutiveSickness: isConsecutiveSickness || false,
         reason: reason || null,
         documentUrl: documentUrl || null,
         createdBy: user.id
       });
       
-      // Check if HR notification should be sent for crossing thresholds
-      const protocol = req.headers['x-forwarded-proto'] || 'https';
-      const host = req.headers.host || 'localhost:5000';
-      const appUrl = `${protocol}://${host}`;
-      checkAndSendHRNotification(employeeId, occurrenceValue, appUrl).catch(err => 
-        console.error('[HR Notification] Background error:', err)
-      );
+      // Only check HR notification thresholds for countable occurrences (not FMLA or consecutive sickness)
+      if (!isFmla && !isConsecutiveSickness) {
+        const protocol = req.headers['x-forwarded-proto'] || 'https';
+        const host = req.headers.host || 'localhost:5000';
+        const appUrl = `${protocol}://${host}`;
+        checkAndSendHRNotification(employeeId, occurrenceValue, appUrl).catch(err => 
+          console.error('[HR Notification] Background error:', err)
+        );
+      }
       
       res.status(201).json(occurrence);
     } catch (error) {
