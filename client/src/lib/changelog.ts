@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.14.1";
+export const APP_VERSION = "1.15.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.15.0",
+    date: "2026-03-16",
+    title: "Attendance Fixes & Schedule Improvements",
+    changes: [
+      { type: "fix", description: "Consecutive absence records now correctly excluded from occurrence totals - the 'consecutive sickness' flag was not being saved to the database, causing these absences to count against employees despite the UI indicating otherwise" },
+      { type: "improvement", description: "Opening shift thresholds updated for cashiers and donor greeters: Sunday shifts starting at or before 11:00 AM now count as openers (previously 10:00 AM), and Mon–Sat shifts starting at or before 9:00 AM now count as openers (previously 8:45 AM)" },
+      { type: "improvement", description: "Exported PDF schedule now shows a separator line between each job title group for easier reading" },
+      { type: "security", description: "Bumped rollup build dependency from 4.53.5 to 4.59.0 to address security advisory" },
+    ],
+  },
   {
     version: "1.14.1",
     date: "2026-03-10",
