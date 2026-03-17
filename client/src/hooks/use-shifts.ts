@@ -23,6 +23,7 @@ export function useShifts(start?: string, end?: string, employeeId?: number) {
       }));
     },
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   });
 }
 

@@ -25,7 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
-import type { Shift, ScheduleTemplate } from "@shared/schema";
+import type { Shift, ScheduleTemplate, Employee } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
@@ -387,6 +387,81 @@ export default function Schedule() {
     );
   }, [locations, isAdmin, userLocationIds]);
   
+  // O(1) employee lookup map — eliminates employees.find() in hot render paths
+  const employeeById = useMemo(() => {
+    const map = new Map<number, Employee>();
+    for (const e of (employees || [])) map.set(e.id, e);
+    return map;
+  }, [employees]);
+
+  // Pre-compute "yyyy-MM-dd" date string per shift once, avoiding toZonedTime in cell loops
+  const shiftDateStrById = useMemo(() => {
+    const map = new Map<number, string>();
+    if (!shifts) return map;
+    for (const s of shifts) {
+      map.set(s.id, formatInTimeZone(new Date(s.startTime), TIMEZONE, "yyyy-MM-dd"));
+    }
+    return map;
+  }, [shifts]);
+
+  // Map shifts by "employeeId-dateStr" for O(1) per-cell lookup
+  const shiftsByEmpDay = useMemo(() => {
+    const map = new Map<string, Shift[]>();
+    if (!shifts) return map;
+    for (const s of shifts) {
+      const dateStr = shiftDateStrById.get(s.id)!;
+      const key = `${s.employeeId}-${dateStr}`;
+      const arr = map.get(key);
+      if (arr) arr.push(s);
+      else map.set(key, [s]);
+    }
+    return map;
+  }, [shifts, shiftDateStrById]);
+
+  // Map shifts by employee ID for O(1) weekly hours per employee
+  const shiftsByEmployeeId = useMemo(() => {
+    const map = new Map<number, Shift[]>();
+    if (!shifts) return map;
+    for (const s of shifts) {
+      const arr = map.get(s.employeeId);
+      if (arr) arr.push(s);
+      else map.set(s.employeeId, [s]);
+    }
+    return map;
+  }, [shifts]);
+
+  // Map all shifts by "dateStr" for O(1) per-day header stats
+  const shiftsByDay = useMemo(() => {
+    const map = new Map<string, Shift[]>();
+    if (!shifts) return map;
+    for (const s of shifts) {
+      const dateStr = shiftDateStrById.get(s.id)!;
+      const arr = map.get(dateStr);
+      if (arr) arr.push(s);
+      else map.set(dateStr, [s]);
+    }
+    return map;
+  }, [shifts, shiftDateStrById]);
+
+  // Pre-compute date strings for weekDays once per week change
+  const weekDayDateStrs = useMemo(
+    () => weekDays.map(day => formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd")),
+    [weekDays]
+  );
+
+  // Memoize grouped + sorted employees for the grid — avoids re-computing on every drag/hover
+  const groupedEmployees = useMemo(() => {
+    return Object.entries(
+      (employees || [])
+        .filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation))
+        .reduce((acc, emp) => {
+          if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
+          acc[emp.jobTitle].push(emp);
+          return acc;
+        }, {} as Record<string, Employee[]>)
+    ).sort(([a], [b]) => getJobPriority(a) - getJobPriority(b));
+  }, [employees, selectedLocation]);
+
   // Set default location for non-admins when data loads
   useEffect(() => {
     if (!isAdmin && userLocations.length > 0 && selectedLocation === "all") {
@@ -597,7 +672,7 @@ export default function Schedule() {
     if (!shifts || !employees) return hours;
     
     shifts.forEach(shift => {
-      const employee = employees.find(e => e.id === shift.employeeId);
+      const employee = employeeById.get(shift.employeeId);
       if (employee?.location && !employee.isHiddenFromSchedule) {
         const paidHours = calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime));
         hours[employee.location] = (hours[employee.location] || 0) + paidHours;
@@ -606,7 +681,7 @@ export default function Schedule() {
     
     if (palEntries) {
       palEntries.forEach(palEntry => {
-        const employee = employees.find(e => e.id === palEntry.employeeId);
+        const employee = palEntry.employeeId ? employeeById.get(palEntry.employeeId) : undefined;
         if (employee?.location && !employee.isHiddenFromSchedule) {
           hours[employee.location] = (hours[employee.location] || 0) + palEntry.hoursDecimal;
         }
@@ -614,7 +689,7 @@ export default function Schedule() {
     }
     
     return hours;
-  }, [shifts, employees, palEntries]);
+  }, [shifts, employees, palEntries, employeeById]);
   
   // Note: userLocations is defined earlier in the component
 
@@ -820,7 +895,7 @@ export default function Schedule() {
     const finalY = lastAutoTable?.finalY ? lastAutoTable.finalY + 10 : 150;
     
     const totalScheduledHours = shifts.reduce((sum, s) => {
-      const emp = employees.find(e => e.id === s.employeeId);
+      const emp = employeeById.get(s.employeeId);
       if (selectedLocation && selectedLocation !== "all" && emp?.location !== selectedLocation) return sum;
       return sum + calculatePaidHours(new Date(s.startTime), new Date(s.endTime));
     }, 0);
@@ -1442,15 +1517,12 @@ export default function Schedule() {
               const dateKey = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
               const weather = weatherByDate.get(dateKey);
 
-              const dayHours = shifts?.reduce((sum, shift) => {
-                const shiftDateStr = formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd");
-                if (shiftDateStr !== dayDateStr) return sum;
-                if (selectedLocation !== "all") {
-                  const emp = employees?.find(e => e.id === shift.employeeId);
-                  if (emp?.location !== selectedLocation) return sum;
-                }
-                return sum + calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime));
-              }, 0) || 0;
+              const allMobileDayShifts = shiftsByDay.get(dayDateStr) || [];
+              const mobileDayShifts = selectedLocation !== "all"
+                ? allMobileDayShifts.filter(s => employeeById.get(s.employeeId)?.location === selectedLocation)
+                : allMobileDayShifts;
+              const dayHours = mobileDayShifts.reduce((sum, shift) =>
+                sum + calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime)), 0);
 
               let palUtoHours = 0;
               const filteredEmps = (employees || [])
@@ -1517,10 +1589,7 @@ export default function Schedule() {
                           <Badge variant="secondary" className="ml-auto">{groupEmployees.length}</Badge>
                         </button>
                         {!isCollapsed && groupEmployees.map(emp => {
-                          const dayShifts = shifts?.filter(s => {
-                            const shiftStartEST = toZonedTime(s.startTime, TIMEZONE);
-                            return s.employeeId === emp.id && isSameDay(shiftStartEST, dayEST);
-                          }) || [];
+                          const dayShifts = shiftsByEmpDay.get(`${emp.id}-${dayDateStr}`) || [];
 
                           const palKey = `${emp.id}-${dayDateStr}`;
                           const palEntry = palByEmpDate.get(palKey);
@@ -1620,40 +1689,23 @@ export default function Schedule() {
                 <div className="p-4 border-r font-medium text-muted-foreground sticky left-0 bg-muted/30 backdrop-blur z-10">
                   Employee
                 </div>
-                {weekDays.map(day => {
+                {weekDays.map((day, dayIdx) => {
                   const todayEST = toZonedTime(new Date(), TIMEZONE);
                   const dayEST = toZonedTime(day, TIMEZONE);
                   const isToday = isSameDay(todayEST, dayEST);
-                  // Calculate daily paid hours (subtract lunch for 6+ hour shifts)
-                  // Compare using formatted date strings to avoid timezone issues
-                  const dayDateStr = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
-                  const dayHours = shifts?.reduce((sum, shift) => {
-                    const shiftDateStr = formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd");
-                    if (shiftDateStr !== dayDateStr) return sum;
-                    if (selectedLocation !== "all") {
-                      const emp = employees?.find(e => e.id === shift.employeeId);
-                      if (emp?.location !== selectedLocation) return sum;
-                    }
-                    const startTime = new Date(shift.startTime);
-                    const endTime = new Date(shift.endTime);
-                    return sum + calculatePaidHours(startTime, endTime);
-                  }, 0) || 0;
-                  
-                  // Calculate estimated production for pricers (APPROC and DONPRI)
-                  const dayShifts = shifts?.filter(s => {
-                    const shiftDateStr = formatInTimeZone(s.startTime, TIMEZONE, "yyyy-MM-dd");
-                    if (shiftDateStr !== dayDateStr) return false;
-                    if (selectedLocation !== "all") {
-                      const emp = employees?.find(e => e.id === s.employeeId);
-                      if (emp?.location !== selectedLocation) return false;
-                    }
-                    return true;
-                  }) || [];
+                  // Use pre-computed date string and map lookups for O(1) access
+                  const dayDateStr = weekDayDateStrs[dayIdx];
+                  const allDayShifts = shiftsByDay.get(dayDateStr) || [];
+                  const dayShifts = selectedLocation !== "all"
+                    ? allDayShifts.filter(s => employeeById.get(s.employeeId)?.location === selectedLocation)
+                    : allDayShifts;
+                  const dayHours = dayShifts.reduce((sum, shift) =>
+                    sum + calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime)), 0);
                   
                   // Get apparel pricer production (APPROC, APWV for WV)
                   const apparelPricerShifts = dayShifts.filter(s => {
-                    const emp = employees?.find(e => e.id === s.employeeId);
-                    return emp?.jobTitle === 'APPROC' || emp?.jobTitle === 'APWV';
+                    const jt = employeeById.get(s.employeeId)?.jobTitle;
+                    return jt === 'APPROC' || jt === 'APWV';
                   });
                   const apparelEffectiveHours = apparelPricerShifts.reduce((sum, shift) => {
                     return sum + calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
@@ -1662,8 +1714,8 @@ export default function Schedule() {
                   
                   // Get donation pricer production (DONPRI, DONPRWV for WV)
                   const donationPricerShifts = dayShifts.filter(s => {
-                    const emp = employees?.find(e => e.id === s.employeeId);
-                    return emp?.jobTitle === 'DONPRI' || emp?.jobTitle === 'DONPRWV';
+                    const jt = employeeById.get(s.employeeId)?.jobTitle;
+                    return jt === 'DONPRI' || jt === 'DONPRWV';
                   });
                   const donationEffectiveHours = donationPricerShifts.reduce((sum, shift) => {
                     return sum + calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
@@ -1671,7 +1723,7 @@ export default function Schedule() {
                   const donationProduction = Math.round(donationEffectiveHours * PIECES_PER_EFFECTIVE_HOUR);
                   
                   // Get weather for this day
-                  const dateKey = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
+                  const dateKey = dayDateStr;
                   const weather = weatherByDate.get(dateKey);
                   
                   // Check if this day is a holiday
@@ -1747,44 +1799,27 @@ export default function Schedule() {
                 </div>
               </div>
 
-              {/* Grouped Employee Rows - sorted by job priority */}
-              {Object.entries(
-                (employees || [])
-                  .filter(emp => !emp.isHiddenFromSchedule && (selectedLocation === "all" || emp.location === selectedLocation))
-                  .reduce((acc, emp) => {
-                    if (!acc[emp.jobTitle]) acc[emp.jobTitle] = [];
-                    acc[emp.jobTitle].push(emp);
-                    return acc;
-                  }, {} as Record<string, NonNullable<typeof employees>>)
-              )
-              .sort(([a], [b]) => getJobPriority(a) - getJobPriority(b))
-              .map(([jobTitle, groupEmployees]) => {
+              {/* Grouped Employee Rows - sorted by job priority (uses memoized groupedEmployees) */}
+              {groupedEmployees.map(([jobTitle, groupEmployees]) => {
                 const isCollapsed = collapsedGroups.has(jobTitle);
-                const groupShifts = shifts?.filter(s => 
-                  groupEmployees.some(e => e.id === s.employeeId)
-                ) || [];
+                // Use shiftsByEmployeeId map for O(1) lookups instead of O(shifts × group) .some()
+                const groupShifts = groupEmployees.flatMap(e => shiftsByEmployeeId.get(e.id) || []);
                 const groupTotalHours = groupShifts.reduce((sum, shift) => {
                   const startTime = new Date(shift.startTime);
                   const endTime = new Date(shift.endTime);
                   return sum + calculatePaidHours(startTime, endTime);
                 }, 0);
                 
-                const groupDailyHours = weekDays.map(day => {
-                  const dayEST = toZonedTime(day, TIMEZONE);
+                const groupDailyHours = weekDayDateStrs.map((dayDateStr) => {
                   let dayTotal = 0;
-                  for (const shift of groupShifts) {
-                    const shiftStartEST = toZonedTime(shift.startTime, TIMEZONE);
-                    if (isSameDay(shiftStartEST, dayEST)) {
+                  for (const emp of groupEmployees) {
+                    const empDayShifts = shiftsByEmpDay.get(`${emp.id}-${dayDateStr}`) || [];
+                    for (const shift of empDayShifts) {
                       dayTotal += calculatePaidHours(new Date(shift.startTime), new Date(shift.endTime));
                     }
-                  }
-                  for (const emp of groupEmployees) {
-                    const dateStr = format(day, "yyyy-MM-dd");
-                    const palKey = `${emp.id}-${dateStr}`;
+                    const palKey = `${emp.id}-${dayDateStr}`;
                     const palEntry = palByEmpDate.get(palKey);
-                    if (palEntry) {
-                      dayTotal += palEntry.hoursDecimal;
-                    }
+                    if (palEntry) dayTotal += palEntry.hoursDecimal;
                   }
                   return dayTotal;
                 });
@@ -1822,24 +1857,21 @@ export default function Schedule() {
                     </div>
                     
                     {!isCollapsed && (groupEmployees || []).map(emp => {
-                      // Calculate total paid hours for this employee (subtract lunch for 6+ hour shifts)
-                      const empShifts = shifts?.filter(s => s.employeeId === emp.id) || [];
+                      // Use map lookup instead of shifts.filter() for O(1) weekly hours
+                      const empShifts = shiftsByEmployeeId.get(emp.id) || [];
                       const shiftHours = empShifts.reduce((sum, shift) => {
                         const startTime = new Date(shift.startTime);
                         const endTime = new Date(shift.endTime);
                         return sum + calculatePaidHours(startTime, endTime);
                       }, 0);
                       
-                      // Add PAL hours for this employee (check each day in the week)
+                      // Add PAL hours for this employee using pre-computed date strings
                       let palHoursForEmp = 0;
-                      weekDays.forEach(day => {
-                        const dateStr = format(day, "yyyy-MM-dd");
+                      for (const dateStr of weekDayDateStrs) {
                         const palKey = `${emp.id}-${dateStr}`;
                         const palEntry = palByEmpDate.get(palKey);
-                        if (palEntry) {
-                          palHoursForEmp += palEntry.hoursDecimal;
-                        }
-                      });
+                        if (palEntry) palHoursForEmp += palEntry.hoursDecimal;
+                      }
                       
                       const totalHours = shiftHours + palHoursForEmp;
                       const isFT = (emp.maxWeeklyHours || 40) >= 32;
@@ -1866,13 +1898,11 @@ export default function Schedule() {
                           </div>
                         </div>
                         
-                        {weekDays.map(day => {
-                          const dayEST = toZonedTime(day, TIMEZONE);
+                        {weekDays.map((day, dayIdx) => {
                           const dayKey = day.toISOString();
-                          const dayShifts = shifts?.filter(s => {
-                            const shiftStartEST = toZonedTime(s.startTime, TIMEZONE);
-                            return s.employeeId === emp.id && isSameDay(shiftStartEST, dayEST);
-                          });
+                          const dayDateStr = weekDayDateStrs[dayIdx];
+                          // O(1) lookup replaces O(shifts) filter + toZonedTime per cell
+                          const dayShifts = shiftsByEmpDay.get(`${emp.id}-${dayDateStr}`) || [];
                           
                           const isDropTarget = dropTarget?.empId === emp.id && dropTarget?.dayKey === dayKey;
 
