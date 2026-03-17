@@ -741,19 +741,23 @@ export default function Schedule() {
       let weeklyHours = 0;
       
       const dayData = weekDays.map(day => {
-        const dayShift = empShifts.find(s => isSameDay(new Date(s.startTime), day));
+        const dayShifts = empShifts
+          .filter(s => isSameDay(new Date(s.startTime), day))
+          .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
         const dateStr = format(day, "yyyy-MM-dd");
         const palKey = `${emp.id}-${dateStr}`;
         const palEntry = palByEmpDate.get(palKey);
         
-        if (dayShift) {
-          const start = new Date(dayShift.startTime);
-          const end = new Date(dayShift.endTime);
-          const hours = calculatePaidHours(start, end);
-          weeklyHours += hours;
-          const startStr = formatInTimeZone(start, TIMEZONE, "h:mma").toLowerCase();
-          const endStr = formatInTimeZone(end, TIMEZONE, "h:mma").toLowerCase();
-          return `${startStr}-${endStr}`;
+        if (dayShifts.length > 0) {
+          const shiftStrings = dayShifts.map(s => {
+            const start = new Date(s.startTime);
+            const end = new Date(s.endTime);
+            weeklyHours += calculatePaidHours(start, end);
+            const startStr = formatInTimeZone(start, TIMEZONE, "h:mma").toLowerCase();
+            const endStr = formatInTimeZone(end, TIMEZONE, "h:mma").toLowerCase();
+            return `${startStr}-${endStr}`;
+          });
+          return shiftStrings.join("\n");
         }
         if (palEntry) {
           weeklyHours += palEntry.hoursDecimal;
