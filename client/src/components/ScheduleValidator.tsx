@@ -247,14 +247,11 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       });
       
       const openingManagers = managerShifts.filter(s => {
+        const { totalMinutes } = getETHoursMinutes(s.startTime);
         if (isSunday) {
-          const { totalMinutes } = getETHoursMinutes(s.startTime);
           return totalMinutes <= 10 * 60;
         }
-        const startStr = formatTimeET(s.startTime);
-        const endStr = formatTimeET(s.endTime);
-        return startStr === (settings.managerMorningStart || "08:00") && 
-               endStr === (settings.managerMorningEnd || "16:30");
+        return totalMinutes <= 8 * 60;
       }).length;
       
       const closingManagers = managerShifts.filter(s => {
