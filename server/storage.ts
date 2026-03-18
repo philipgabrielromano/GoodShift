@@ -613,7 +613,8 @@ export class DatabaseStorage implements IStorage {
     const activeCounts = await db.execute(sql`
       SELECT job_title AS job_code, COUNT(*)::int AS actual_count
       FROM employees
-      WHERE is_active = true AND location_id = ${locationId}
+      WHERE is_active = true
+        AND location = (SELECT name FROM locations WHERE id = ${locationId})
       GROUP BY job_title
     `);
     const actualMap = new Map<string, number>();
