@@ -57,7 +57,14 @@ async function syncEmployeesFromUKG(): Promise<void> {
         const existingByUkgId = await storage.getEmployeeByUkgId(ukgEmp.employeeId);
         
         if (existingByUkgId) {
-          await storage.updateEmployee(existingByUkgId.id, appEmployee);
+          // Do not overwrite location if UKG returned null/empty — this happens when
+          // OrgLevel1 data is missing or partially loaded, and would erase manually
+          // assigned store locations from the database.
+          const updateData = { ...appEmployee };
+          if (!updateData.location) {
+            delete updateData.location;
+          }
+          await storage.updateEmployee(existingByUkgId.id, updateData);
           updated++;
         } else {
           await storage.createEmployee(appEmployee);

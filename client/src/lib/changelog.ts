@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.15.0";
+export const APP_VERSION = "1.16.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.16.0",
+    date: "2026-03-18",
+    title: "Location Sync Bug Fix",
+    changes: [
+      { type: "fix", description: "Employee locations are no longer erased during UKG sync. Previously, when UKG's OrgLevel1 API returned no location for an employee (due to missing OrgLevel1Id or a partial API response), the sync would overwrite the employee's database location with null — causing them to disappear from all location-filtered schedule views. Now, if UKG provides no location data for an existing employee, the value already stored in the database is preserved." },
+    ],
+  },
   {
     version: "1.15.0",
     date: "2026-03-16",
