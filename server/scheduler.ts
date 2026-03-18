@@ -4,6 +4,7 @@ import type { InsertTimeClockEntry, InsertTimeClockPunch } from "@shared/schema"
 
 let employeeSyncInterval: NodeJS.Timeout | null = null;
 let timeClockSyncInterval: NodeJS.Timeout | null = null;
+let timeClockTodaySyncInterval: NodeJS.Timeout | null = null;
 
 // Initial date to start syncing time clock data from
 const TIME_CLOCK_START_DATE = "2026-01-01";
@@ -112,126 +113,71 @@ async function syncEmployeesFromUKG(): Promise<void> {
   }
 }
 
-async function syncTimeClockFromUKG(): Promise<void> {
-  console.log("[Scheduler] Starting time clock sync from UKG...");
+// Shared core: fetch and upsert time clock data for the given date range.
+async function runTimeClockSync(startDate: string, endDate: string, label: string): Promise<void> {
+  console.log(`[Scheduler] Time clock sync (${label}): ${startDate} → ${endDate}`);
   const syncStart = Date.now();
-  
-  if (!ukgClient.isConfigured()) {
-    console.log("[Scheduler] UKG not configured, skipping time clock sync");
+
+  const timeClockData = await ukgClient.getTimeClockData(startDate, endDate);
+
+  const apiError = ukgClient.getLastError();
+  if (apiError) {
+    console.error(`[Scheduler] UKG time clock API error (${label}):`, apiError);
+    ukgClient.addSyncResult({
+      timestamp: new Date().toISOString(),
+      type: "timeclock",
+      success: false,
+      error: apiError,
+      durationMs: Date.now() - syncStart,
+    });
     return;
   }
 
-  try {
-    // Get today's date in YYYY-MM-DD format
-    const today = new Date();
-    
-    // Fetch up to 60 days in the future to capture PAL/time off entries that are scheduled ahead
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 60);
-    const endDate = futureDate.toISOString().split("T")[0];
-    
-    // Start from 2026-01-01 for initial sync, or from today if already synced
-    // For regular syncs, just fetch last 7 days to catch any updates
-    const lastSyncDate = await storage.getLastTimeClockSyncDate();
-    
-    let startDate: string;
-    if (!lastSyncDate) {
-      // First sync - get all historical data from beginning of 2026
-      startDate = TIME_CLOCK_START_DATE;
-      console.log(`[Scheduler] First time clock sync - fetching from ${startDate} to ${endDate} (including 60 days future)`);
-    } else {
-      // Subsequent syncs - fetch last 30 days plus 60 days ahead.
-      // 30-day lookback ensures any retroactively edited or late-posted entries are picked up.
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      startDate = thirtyDaysAgo.toISOString().split("T")[0];
-      console.log(`[Scheduler] Time clock sync - fetching from ${startDate} to ${endDate} (30-day lookback)`);
-    }
+  if (timeClockData.length === 0) {
+    console.log(`[Scheduler] No time clock data for ${label}`);
+    ukgClient.addSyncResult({
+      timestamp: new Date().toISOString(),
+      type: "timeclock",
+      success: true,
+      timeRecordsFetched: 0,
+      timeRecordsProcessed: 0,
+      durationMs: Date.now() - syncStart,
+    });
+    return;
+  }
 
-    // Fetch time clock data from UKG
-    const timeClockData = await ukgClient.getTimeClockData(startDate, endDate);
-    
-    const apiError = ukgClient.getLastError();
-    if (apiError) {
-      console.error("[Scheduler] UKG time clock API error:", apiError);
-      ukgClient.addSyncResult({
-        timestamp: new Date().toISOString(),
-        type: "timeclock",
-        success: false,
-        error: apiError,
-        durationMs: Date.now() - syncStart,
-      });
-      return;
-    }
+  console.log(`[Scheduler] Processing ${timeClockData.length} time clock entries (${label})...`);
 
-    if (timeClockData.length === 0) {
-      console.log("[Scheduler] No time clock data to sync");
-      ukgClient.addSyncResult({
-        timestamp: new Date().toISOString(),
-        type: "timeclock",
-        success: true,
-        timeRecordsFetched: 0,
-        timeRecordsProcessed: 0,
-        durationMs: Date.now() - syncStart,
-      });
-      return;
-    }
+  // Aggregate multiple punches for the same employee/date before storing
+  const aggregatedMap = new Map<string, {
+    ukgEmployeeId: string;
+    workDate: string;
+    clockIn: string | null;
+    clockOut: string | null;
+    regularHours: number;
+    overtimeHours: number;
+    totalHours: number;
+    locationId: number | null;
+    jobId: number | null;
+    paycodeId: number;
+  }>();
 
-    console.log(`[Scheduler] Processing ${timeClockData.length} time clock entries...`);
+  for (const entry of timeClockData) {
+    const key = `${entry.employeeId}-${entry.date}`;
+    const existing = aggregatedMap.get(key);
 
-    // Aggregate multiple punches for the same employee/date before storing
-    // UKG returns separate entries for each punch (e.g., clock in, lunch out, lunch in, clock out)
-    // We need to sum the hours for each employee/date combination
-    const aggregatedMap = new Map<string, {
-      ukgEmployeeId: string;
-      workDate: string;
-      clockIn: string | null;
-      clockOut: string | null;
-      regularHours: number;
-      overtimeHours: number;
-      totalHours: number;
-      locationId: number | null;
-      jobId: number | null;
-      paycodeId: number;
-    }>();
-
-    for (const entry of timeClockData) {
-      const key = `${entry.employeeId}-${entry.date}`;
-      const existing = aggregatedMap.get(key);
-      
-      if (existing) {
-        // Add hours to existing entry
-        existing.regularHours += Math.round((entry.regularHours || 0) * 60);
-        existing.overtimeHours += Math.round((entry.overtimeHours || 0) * 60);
-        existing.totalHours += Math.round((entry.totalHours || 0) * 60);
-        // Keep the earliest clock-in and latest clock-out
-        if (entry.clockIn && (!existing.clockIn || entry.clockIn < existing.clockIn)) {
-          existing.clockIn = entry.clockIn;
-        }
-        if (entry.clockOut && (!existing.clockOut || entry.clockOut > existing.clockOut)) {
-          existing.clockOut = entry.clockOut;
-        }
-      } else {
-        // First entry for this employee/date
-        aggregatedMap.set(key, {
-          ukgEmployeeId: entry.employeeId,
-          workDate: entry.date,
-          clockIn: entry.clockIn || null,
-          clockOut: entry.clockOut || null,
-          regularHours: Math.round((entry.regularHours || 0) * 60), // Convert hours to minutes
-          overtimeHours: Math.round((entry.overtimeHours || 0) * 60),
-          totalHours: Math.round((entry.totalHours || 0) * 60),
-          locationId: entry.locationId || null,
-          jobId: entry.jobId || null,
-          paycodeId: entry.paycodeId || 0, // 2 = PAL (Paid Annual Leave), 4 = Unpaid Time Off
-        });
+    if (existing) {
+      existing.regularHours += Math.round((entry.regularHours || 0) * 60);
+      existing.overtimeHours += Math.round((entry.overtimeHours || 0) * 60);
+      existing.totalHours += Math.round((entry.totalHours || 0) * 60);
+      if (entry.clockIn && (!existing.clockIn || entry.clockIn < existing.clockIn)) {
+        existing.clockIn = entry.clockIn;
       }
-    }
-
-    // Store individual punch records for variance report
-    const rawPunches: InsertTimeClockPunch[] = timeClockData
-      .filter(entry => entry.clockIn || entry.clockOut)
-      .map(entry => ({
+      if (entry.clockOut && (!existing.clockOut || entry.clockOut > existing.clockOut)) {
+        existing.clockOut = entry.clockOut;
+      }
+    } else {
+      aggregatedMap.set(key, {
         ukgEmployeeId: entry.employeeId,
         workDate: entry.date,
         clockIn: entry.clockIn || null,
@@ -242,28 +188,70 @@ async function syncTimeClockFromUKG(): Promise<void> {
         locationId: entry.locationId || null,
         jobId: entry.jobId || null,
         paycodeId: entry.paycodeId || 0,
-      }));
+      });
+    }
+  }
 
-    if (rawPunches.length > 0) {
-      await storage.deleteTimeClockPunches(startDate, endDate);
-      const punchCount = await storage.insertTimeClockPunches(rawPunches);
-      console.log(`[Scheduler] Stored ${punchCount} individual punch records`);
+  // Store individual punch records for variance report
+  const rawPunches: InsertTimeClockPunch[] = timeClockData
+    .filter(entry => entry.clockIn || entry.clockOut)
+    .map(entry => ({
+      ukgEmployeeId: entry.employeeId,
+      workDate: entry.date,
+      clockIn: entry.clockIn || null,
+      clockOut: entry.clockOut || null,
+      regularHours: Math.round((entry.regularHours || 0) * 60),
+      overtimeHours: Math.round((entry.overtimeHours || 0) * 60),
+      totalHours: Math.round((entry.totalHours || 0) * 60),
+      locationId: entry.locationId || null,
+      jobId: entry.jobId || null,
+      paycodeId: entry.paycodeId || 0,
+    }));
+
+  if (rawPunches.length > 0) {
+    await storage.deleteTimeClockPunches(startDate, endDate);
+    const punchCount = await storage.insertTimeClockPunches(rawPunches);
+    console.log(`[Scheduler] Stored ${punchCount} individual punch records (${label})`);
+  }
+
+  const entries: InsertTimeClockEntry[] = Array.from(aggregatedMap.values());
+  console.log(`[Scheduler] Aggregated to ${entries.length} unique employee/date combinations (${label})`);
+
+  const upserted = await storage.upsertTimeClockEntries(entries);
+  console.log(`[Scheduler] Time clock sync complete (${label}): ${upserted} entries processed`);
+  ukgClient.addSyncResult({
+    timestamp: new Date().toISOString(),
+    type: "timeclock",
+    success: true,
+    timeRecordsFetched: timeClockData.length,
+    timeRecordsProcessed: upserted,
+    durationMs: Date.now() - syncStart,
+  });
+}
+
+// Daily sync: 30-day lookback + 60 days future (catches retroactive edits)
+async function syncTimeClockFromUKG(): Promise<void> {
+  if (!ukgClient.isConfigured()) {
+    console.log("[Scheduler] UKG not configured, skipping time clock sync");
+    return;
+  }
+
+  try {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 60);
+    const endDate = futureDate.toISOString().split("T")[0];
+
+    const lastSyncDate = await storage.getLastTimeClockSyncDate();
+    let startDate: string;
+    if (!lastSyncDate) {
+      startDate = TIME_CLOCK_START_DATE;
+    } else {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      startDate = thirtyDaysAgo.toISOString().split("T")[0];
     }
 
-    // Convert aggregated map to array for storage
-    const entries: InsertTimeClockEntry[] = Array.from(aggregatedMap.values());
-    console.log(`[Scheduler] Aggregated to ${entries.length} unique employee/date combinations`);
-
-    const upserted = await storage.upsertTimeClockEntries(entries);
-    console.log(`[Scheduler] Time clock sync complete: ${upserted} entries processed`);
-    ukgClient.addSyncResult({
-      timestamp: new Date().toISOString(),
-      type: "timeclock",
-      success: true,
-      timeRecordsFetched: timeClockData.length,
-      timeRecordsProcessed: upserted,
-      durationMs: Date.now() - syncStart,
-    });
+    await runTimeClockSync(startDate, endDate, "30-day lookback");
   } catch (err) {
     console.error("[Scheduler] Failed to sync time clock data:", err);
     ukgClient.addSyncResult({
@@ -271,8 +259,20 @@ async function syncTimeClockFromUKG(): Promise<void> {
       type: "timeclock",
       success: false,
       error: err instanceof Error ? err.message : String(err),
-      durationMs: Date.now() - syncStart,
+      durationMs: 0,
     });
+  }
+}
+
+// Hourly sync: today only (keeps current-day punches up to the minute)
+async function syncTodayTimeClockFromUKG(): Promise<void> {
+  if (!ukgClient.isConfigured()) return;
+
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    await runTimeClockSync(today, today, "today");
+  } catch (err) {
+    console.error("[Scheduler] Failed to sync today's time clock data:", err);
   }
 }
 
@@ -309,15 +309,23 @@ export function startDailySync(): void {
     });
   }, TWENTY_FOUR_HOURS);
 
-  // Schedule time clock sync every 24 hours (30-day lookback catches retroactive edits)
+  // Schedule full time clock sync every 24 hours (30-day lookback)
   timeClockSyncInterval = setInterval(() => {
     syncTimeClockFromUKG().catch(err => {
       console.error("[Scheduler] Scheduled time clock sync failed:", err);
     });
   }, TWENTY_FOUR_HOURS);
 
-  console.log("[Scheduler] Daily sync scheduled. Initial sync in 5 seconds, then every 24 hours.");
-  console.log("[Scheduler] Time clock sync scheduled. Initial sync in 10 seconds, then every 24 hours (30-day lookback).");
+  // Schedule today-only time clock sync every hour
+  const ONE_HOUR = 60 * 60 * 1000;
+  timeClockTodaySyncInterval = setInterval(() => {
+    syncTodayTimeClockFromUKG().catch(err => {
+      console.error("[Scheduler] Hourly today sync failed:", err);
+    });
+  }, ONE_HOUR);
+
+  console.log("[Scheduler] Employee sync scheduled: every 24 hours.");
+  console.log("[Scheduler] Time clock sync scheduled: 30-day lookback every 24 hours + today-only every 1 hour.");
 }
 
 export function stopDailySync(): void {
@@ -330,6 +338,11 @@ export function stopDailySync(): void {
     clearInterval(timeClockSyncInterval);
     timeClockSyncInterval = null;
     console.log("[Scheduler] Time clock sync stopped");
+  }
+  if (timeClockTodaySyncInterval) {
+    clearInterval(timeClockTodaySyncInterval);
+    timeClockTodaySyncInterval = null;
+    console.log("[Scheduler] Today time clock sync stopped");
   }
 }
 

@@ -14,10 +14,9 @@ export const changelog: ChangelogEntry[] = [
   {
     version: "1.16.3",
     date: "2026-03-18",
-    title: "Time Clock Sync: 30-Day Lookback",
+    title: "Time Clock Sync: Dual Schedule",
     changes: [
-      { type: "improvement", description: "The UKG time clock sync now pulls the last 30 days of entries on every run (previously 7 days). This ensures retroactively edited or late-posted time card entries are always picked up and updated in the database." },
-      { type: "improvement", description: "Time clock sync now runs once every 24 hours instead of every 4 hours, keeping it in line with the 30-day lookback window." },
+      { type: "improvement", description: "Time clock data is now synced on two schedules: a full 30-day lookback runs every 24 hours (to catch retroactively edited or late-posted entries), and a today-only sync runs every hour (to keep the current day's punches up to the minute)." },
     ],
   },
   {
