@@ -256,12 +256,10 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       
       const closingManagers = managerShifts.filter(s => {
         const endStr = formatTimeET(s.endTime);
-        // On Sunday, any manager ending at 7:30 PM counts as a closer
-        if (isSunday) {
-          return endStr === "19:30";
-        }
-        const startStr = formatTimeET(s.startTime);
-        return startStr === closerStartTime && endStr === closerEndTime;
+        // Sunday: any manager ending at 7:30 PM counts as a closer
+        // Weekdays: any manager ending at 8:30 PM counts as a closer
+        if (isSunday) return endStr === "19:30";
+        return endStr === "20:30";
       }).length;
 
       const dayLabel = format(day, "EEE, MMM d");
@@ -316,15 +314,12 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
         return totalMinutes <= 9 * 60;
       });
       
-      // On Sunday, any donor greeter ending at 7:00 or 7:30 PM counts as a closer.
-      // Other days use exact closer start/end time match.
+      // Sunday: any donor greeter ending at 7:00 or 7:30 PM counts as a closer.
+      // Weekdays: any donor greeter ending at 8:00 or 8:30 PM counts as a closer.
       const closingGreeter = donorGreeterShifts.some(s => {
         const endStr = formatTimeET(s.endTime);
-        if (isSunday) {
-          return endStr === "19:00" || endStr === "19:30";
-        }
-        const startStr = formatTimeET(s.startTime);
-        return startStr === closerStartTime && endStr === closerEndTime;
+        if (isSunday) return endStr === "19:00" || endStr === "19:30";
+        return endStr === "20:00" || endStr === "20:30";
       });
       
       if (!openingGreeter) {

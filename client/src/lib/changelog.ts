@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.16.1";
+export const APP_VERSION = "1.16.2";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.16.2",
+    date: "2026-03-18",
+    title: "Closer Recognition Expanded to All Days",
+    changes: [
+      { type: "improvement", description: "Managers ending at 8:30 PM on weekdays now count as closing managers, regardless of shift start time." },
+      { type: "improvement", description: "Donor greeters ending at 8:00 PM or 8:30 PM on weekdays now count as closing greeters." },
+    ],
+  },
   {
     version: "1.16.1",
     date: "2026-03-18",
