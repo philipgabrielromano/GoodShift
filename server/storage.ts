@@ -614,6 +614,7 @@ export class DatabaseStorage implements IStorage {
       SELECT job_title AS job_code, COUNT(*)::int AS actual_count
       FROM employees
       WHERE is_active = true
+        AND (is_hidden_from_schedule IS NULL OR is_hidden_from_schedule = false)
         AND location = (SELECT name FROM locations WHERE id = ${locationId})
       GROUP BY job_title
     `);
