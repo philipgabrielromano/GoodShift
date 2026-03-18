@@ -31,27 +31,40 @@ interface RosterReportRow {
 
 const JOB_CODE_LABELS: Record<string, string> = {
   APPROC: "Apparel Processor",
-  DONDOOR: "Donor Greeter",
   CASHSLS: "Cashier",
+  DONDOOR: "Donor Greeter",
   DONPRI: "Donation Pricing Associate",
-  STSUPER: "Store Manager",
-  STASSTSP: "Assistant Manager",
+  SLSFLR: "Sales Floor Associate",
+  ALTSTLD: "Alt. Store Lead",
   STLDWKR: "Team Lead",
+  STASSTSP: "Assistant Manager",
+  STSUPER: "Store Manager",
   APWV: "Apparel Processor (WV)",
-  WVDON: "Donor Greeter (WV)",
   CSHSLSWV: "Cashier (WV)",
+  WVDON: "Donor Greeter (WV)",
   DONPRWV: "Donation Pricing Associate (WV)",
-  WVSTMNG: "Store Manager (WV)",
-  WVSTAST: "Assistant Manager (WV)",
   WVLDWRK: "Team Lead (WV)",
-  OUTAM: "Outlet Asst. Manager",
+  WVSTAST: "Assistant Manager (WV)",
+  WVSTMNG: "Store Manager (WV)",
   OUTCP: "Outlet Clothing Processor",
-  OUTMGR: "Outlet Manager",
   OUTMH: "Outlet Material Handler",
   OUTSHS: "Outlet Sales/Softlines",
-  ALTSTLD: "Alt. Store Lead",
-  SLSFLR: "Sales Floor Associate",
+  OUTAM: "Outlet Asst. Manager",
+  OUTMGR: "Outlet Manager",
 };
+
+const JOB_CODE_ORDER = Object.keys(JOB_CODE_LABELS);
+
+function sortByCodes(codes: string[]): string[] {
+  return codes.slice().sort((a, b) => {
+    const ai = JOB_CODE_ORDER.indexOf(a);
+    const bi = JOB_CODE_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+}
 
 function getLabel(code: string): string {
   return JOB_CODE_LABELS[code] ?? code;
@@ -148,7 +161,10 @@ export default function Roster() {
 
   const allJobCodesInReport = reportRows.map(r => r.jobCode);
   const knownCodes = Object.keys(JOB_CODE_LABELS);
-  const targetJobCodes = Array.from(new Set([...knownCodes, ...allJobCodesInReport])).sort();
+  const targetJobCodes = sortByCodes(Array.from(new Set([...knownCodes, ...allJobCodesInReport])));
+  const sortedReportRows = sortByCodes(reportRows.map(r => r.jobCode)).map(
+    code => reportRows.find(r => r.jobCode === code)!
+  ).filter(Boolean);
 
   const selectedLocationName = visibleLocations.find(l => l.id === selectedLocationId)?.name ?? "";
 
@@ -335,7 +351,7 @@ export default function Roster() {
                         </tr>
                       </thead>
                       <tbody>
-                        {reportRows.map((row, i) => (
+                        {sortedReportRows.map((row, i) => (
                           <tr
                             key={row.jobCode}
                             className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}
