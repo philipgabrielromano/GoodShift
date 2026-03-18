@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,6 +19,7 @@ interface AuthStatus {
 interface Location {
   id: number;
   name: string;
+  isActive: boolean;
 }
 
 interface RosterReportRow {
@@ -65,11 +66,13 @@ export default function Roster() {
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
 
   const isAdmin = authStatus?.user?.role === "admin";
-  const userLocationIds = authStatus?.user?.locationIds?.map(Number) ?? [];
+  const userLocationIds = authStatus?.user?.locationIds ?? [];
 
-  const visibleLocations = isAdmin
-    ? locations
-    : locations.filter(l => userLocationIds.includes(l.id));
+  const visibleLocations = useMemo(() => {
+    const isValid = (l: Location) => l.isActive && !/^Location \d+$/.test(l.name);
+    if (isAdmin) return locations.filter(isValid);
+    return locations.filter(l => isValid(l) && userLocationIds.includes(String(l.id)));
+  }, [locations, isAdmin, userLocationIds]);
 
   useEffect(() => {
     if (visibleLocations.length > 0 && selectedLocationId === null) {
