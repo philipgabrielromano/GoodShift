@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.16.2";
+export const APP_VERSION = "1.16.3";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.16.3",
+    date: "2026-03-18",
+    title: "Time Clock Sync: 30-Day Lookback",
+    changes: [
+      { type: "improvement", description: "The UKG time clock sync now pulls the last 30 days of entries on every run (previously 7 days). This ensures retroactively edited or late-posted time card entries are always picked up and updated in the database." },
+      { type: "improvement", description: "Time clock sync now runs once every 24 hours instead of every 4 hours, keeping it in line with the 30-day lookback window." },
+    ],
+  },
   {
     version: "1.16.2",
     date: "2026-03-18",

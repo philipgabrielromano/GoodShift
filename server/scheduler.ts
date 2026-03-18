@@ -140,11 +140,12 @@ async function syncTimeClockFromUKG(): Promise<void> {
       startDate = TIME_CLOCK_START_DATE;
       console.log(`[Scheduler] First time clock sync - fetching from ${startDate} to ${endDate} (including 60 days future)`);
     } else {
-      // Subsequent syncs - fetch last 7 days plus 60 days ahead to catch PAL/time off updates
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      startDate = sevenDaysAgo.toISOString().split("T")[0];
-      console.log(`[Scheduler] Incremental time clock sync - fetching from ${startDate} to ${endDate}`);
+      // Subsequent syncs - fetch last 30 days plus 60 days ahead.
+      // 30-day lookback ensures any retroactively edited or late-posted entries are picked up.
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      startDate = thirtyDaysAgo.toISOString().split("T")[0];
+      console.log(`[Scheduler] Time clock sync - fetching from ${startDate} to ${endDate} (30-day lookback)`);
     }
 
     // Fetch time clock data from UKG
@@ -282,7 +283,6 @@ export function startDailySync(): void {
   }
 
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-  const FOUR_HOURS = 4 * 60 * 60 * 1000;
 
   console.log("[Scheduler] Starting daily UKG sync scheduler");
   
@@ -309,15 +309,15 @@ export function startDailySync(): void {
     });
   }, TWENTY_FOUR_HOURS);
 
-  // Schedule time clock sync every 4 hours
+  // Schedule time clock sync every 24 hours (30-day lookback catches retroactive edits)
   timeClockSyncInterval = setInterval(() => {
     syncTimeClockFromUKG().catch(err => {
       console.error("[Scheduler] Scheduled time clock sync failed:", err);
     });
-  }, FOUR_HOURS);
+  }, TWENTY_FOUR_HOURS);
 
   console.log("[Scheduler] Daily sync scheduled. Initial sync in 5 seconds, then every 24 hours.");
-  console.log("[Scheduler] Time clock sync scheduled. Initial sync in 10 seconds, then every 4 hours.");
+  console.log("[Scheduler] Time clock sync scheduled. Initial sync in 10 seconds, then every 24 hours (30-day lookback).");
 }
 
 export function stopDailySync(): void {
