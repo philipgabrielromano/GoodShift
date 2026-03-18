@@ -148,6 +148,10 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
 
   console.log(`[Scheduler] Processing ${timeClockData.length} time clock entries (${label})...`);
 
+  // Log all unique Status values seen — helps identify what values UKG uses for rescinded entries
+  const statusValues = new Set(timeClockData.map(e => e.status));
+  console.log(`[Scheduler] UKG Status values seen (${label}):`, [...statusValues].sort((a, b) => (a ?? -1) - (b ?? -1)));
+
   // Aggregate multiple punches for the same employee/date before storing
   const aggregatedMap = new Map<string, {
     ukgEmployeeId: string;
@@ -160,6 +164,7 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
     locationId: number | null;
     jobId: number | null;
     paycodeId: number;
+    ukgStatus: number | null;
   }>();
 
   for (const entry of timeClockData) {
@@ -176,6 +181,10 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
       if (entry.clockOut && (!existing.clockOut || entry.clockOut > existing.clockOut)) {
         existing.clockOut = entry.clockOut;
       }
+      // Keep the lowest status value across punches for this day — lower values may indicate voided/cancelled
+      if (entry.status !== null && (existing.ukgStatus === null || entry.status < existing.ukgStatus)) {
+        existing.ukgStatus = entry.status;
+      }
     } else {
       aggregatedMap.set(key, {
         ukgEmployeeId: entry.employeeId,
@@ -188,6 +197,7 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
         locationId: entry.locationId || null,
         jobId: entry.jobId || null,
         paycodeId: entry.paycodeId || 0,
+        ukgStatus: entry.status ?? null,
       });
     }
   }
@@ -206,7 +216,13 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
       locationId: entry.locationId || null,
       jobId: entry.jobId || null,
       paycodeId: entry.paycodeId || 0,
+      ukgStatus: entry.status ?? null,
     }));
+
+  // Delete existing entries for this date window before inserting fresh data.
+  // This ensures records that were rescinded/removed in UKG don't persist in our database.
+  await storage.deleteTimeClockEntries(startDate, endDate);
+  console.log(`[Scheduler] Cleared existing entries for ${startDate} → ${endDate} (${label})`);
 
   if (rawPunches.length > 0) {
     await storage.deleteTimeClockPunches(startDate, endDate);

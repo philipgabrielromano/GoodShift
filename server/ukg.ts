@@ -88,6 +88,7 @@ export interface TimeClockEntry {
   locationId: number;
   jobId: number;
   paycodeId: number; // 2 = PAL (Paid Annual Leave / PTO)
+  status: number | null; // Raw UKG Status field — may indicate rescinded/voided records
 }
 
 interface UKGDiagnosticEntry {
@@ -500,6 +501,7 @@ class UKGClient {
           locationId: record.LocationId,
           jobId: record.JobId,
           paycodeId: record.PaycodeId || 0, // 2 = PAL (Paid Annual Leave / PTO)
+          status: record.Status ?? null,
         };
       });
 

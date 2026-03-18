@@ -155,6 +155,7 @@ export const timeClockEntries = pgTable("time_clock_entries", {
   locationId: integer("location_id"), // UKG location ID
   jobId: integer("job_id"), // UKG job ID
   paycodeId: integer("paycode_id").notNull().default(0), // 2 = PAL (Paid Annual Leave / PTO)
+  ukgStatus: integer("ukg_status"), // Raw UKG Status field — indicates record state (e.g. 0 = deleted/voided)
   syncedAt: timestamp("synced_at").defaultNow(), // When this record was last synced
 }, (table) => ({
   employeeDateIdx: uniqueIndex("time_clock_employee_date_idx").on(table.ukgEmployeeId, table.workDate),
@@ -172,6 +173,7 @@ export const timeClockPunches = pgTable("time_clock_punches", {
   locationId: integer("location_id"),
   jobId: integer("job_id"),
   paycodeId: integer("paycode_id").notNull().default(0),
+  ukgStatus: integer("ukg_status"), // Raw UKG Status field
   syncedAt: timestamp("synced_at").defaultNow(),
 });
 

@@ -8,15 +8,16 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.16.3";
+export const APP_VERSION = "1.16.4";
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: "1.16.3",
+    version: "1.16.4",
     date: "2026-03-18",
-    title: "Time Clock Sync: Dual Schedule",
+    title: "Rescinded Time-Off Detection",
     changes: [
-      { type: "improvement", description: "Time clock data is now synced on two schedules: a full 30-day lookback runs every 24 hours (to catch retroactively edited or late-posted entries), and a today-only sync runs every hour (to keep the current day's punches up to the minute)." },
+      { type: "improvement", description: "The UKG time clock sync now performs a delete-then-insert for each date window rather than a pure upsert. This means time-off entries that are rescinded and removed in UKG will also be removed from the local database on the next sync run." },
+      { type: "improvement", description: "The raw UKG Status field is now captured and stored on every time clock record (both aggregated entries and individual punches). All unique Status values seen per sync run are logged, which will allow mapping the exact values UKG uses for active vs. voided entries over time." },
     ],
   },
   {
