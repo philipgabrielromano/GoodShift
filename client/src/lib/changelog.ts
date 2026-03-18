@@ -8,15 +8,25 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.16.0";
+export const APP_VERSION = "1.16.1";
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.16.1",
+    date: "2026-03-18",
+    title: "Sunday Closer Recognition Improvements",
+    changes: [
+      { type: "improvement", description: "Managers scheduled until 7:30 PM on Sunday now correctly count as closing managers (previously required an exact start time match to qualify)." },
+      { type: "improvement", description: "Donor greeters scheduled until 7:00 PM or 7:30 PM on Sunday now correctly count as closing greeters." },
+    ],
+  },
+  {
     version: "1.16.0",
     date: "2026-03-18",
-    title: "Location Sync Bug Fix",
+    title: "Location Sync Bug Fix & Closer Detection",
     changes: [
       { type: "fix", description: "Employee locations are no longer erased during UKG sync. Previously, when UKG's OrgLevel1 API returned no location for an employee (due to missing OrgLevel1Id or a partial API response), the sync would overwrite the employee's database location with null — causing them to disappear from all location-filtered schedule views. Now, if UKG provides no location data for an existing employee, the value already stored in the database is preserved." },
+      { type: "improvement", description: "Cashiers ending at 7:00 or 7:30 PM on Sunday, or 8:00 or 8:30 PM on other days, now count as closing cashiers regardless of shift start time." },
     ],
   },
   {
