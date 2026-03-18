@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
+import { isValidLocation } from "@/lib/utils";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -91,14 +92,10 @@ export default function Locations() {
     }
   };
 
-  // Filter out generic "Location #" entries - only show real store names
-  // For managers, also filter to only show their assigned locations
+  // Filter out invalid/excluded locations; managers further restricted to their assigned locations
   const displayedLocations = (locations?.filter(l => {
-    // Filter out generic location names
-    if (/^Location \d+$/.test(l.name)) return false;
-    // Admins see all locations
+    if (!isValidLocation(l)) return false;
     if (isAdmin) return true;
-    // Managers only see their assigned locations
     return userLocationIds.includes(String(l.id));
   }) || []);
   

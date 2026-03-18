@@ -4,7 +4,7 @@ import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { cn, getJobTitle, isHoliday, getCanonicalJobCode } from "@/lib/utils";
+import { cn, getJobTitle, isHoliday, getCanonicalJobCode, isValidLocation } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -376,8 +376,6 @@ export default function Schedule() {
   const userLocationIds = authStatus?.user?.locationIds || [];
   const userLocations = useMemo(() => {
     if (!locations) return [];
-    const isValidLocation = (l: { name: string; isActive: boolean }) => 
-      l.isActive && !/^Location \d+$/.test(l.name);
     if (isAdmin) {
       return locations.filter(isValidLocation);
     }
@@ -1227,7 +1225,7 @@ export default function Schedule() {
               <SelectContent>
                 <SelectItem value="all">All Locations</SelectItem>
                 {(locations || [])
-                  .filter(l => l.isActive && !/^Location \d+$/.test(l.name))
+                  .filter(isValidLocation)
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>

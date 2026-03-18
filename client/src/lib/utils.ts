@@ -5,6 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// Names to exclude from all location dropdowns / lists
+const EXCLUDED_LOCATION_NAMES = [
+  /^Location \d+$/,          // fallback placeholder names
+  /child\s+adol\s+beh/i,     // Child Adol Beh Health
+];
+
+export function isValidLocation(loc: { name: string; isActive?: boolean }): boolean {
+  if (loc.isActive === false) return false;
+  return !EXCLUDED_LOCATION_NAMES.some(pattern => pattern.test(loc.name));
+}
+
 // Holiday calculations
 export interface Holiday {
   date: Date;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { isValidLocation } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,10 +83,9 @@ export default function Roster() {
   const userLocationIds = authStatus?.user?.locationIds ?? [];
 
   const visibleLocations = useMemo(() => {
-    const isValid = (l: Location) => l.isActive && !/^Location \d+$/.test(l.name);
     const filtered = isAdmin
-      ? locations.filter(isValid)
-      : locations.filter(l => isValid(l) && userLocationIds.includes(String(l.id)));
+      ? locations.filter(isValidLocation)
+      : locations.filter(l => isValidLocation(l) && userLocationIds.includes(String(l.id)));
     return filtered.slice().sort((a, b) => a.name.localeCompare(b.name));
   }, [locations, isAdmin, userLocationIds]);
 

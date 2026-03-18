@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { User, InsertUser } from "@shared/schema";
+import { isValidLocation } from "@/lib/utils";
 
 function formatLastLogin(date: string | Date | null | undefined): string {
   if (!date) return "Never";
@@ -455,7 +456,7 @@ export default function Users() {
               <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1" data-testid="list-locations">
                 {locations
                   ?.slice()
-                  .filter(loc => !/^Location \d+$/.test(loc.name))
+                  .filter(isValidLocation)
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <label
