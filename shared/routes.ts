@@ -9,6 +9,7 @@ import {
   insertUserSchema,
   insertLocationSchema,
   insertShiftPresetSchema,
+  insertRosterTargetSchema,
   employees,
   timeOffRequests,
   shifts,
@@ -16,7 +17,8 @@ import {
   globalSettings,
   users,
   locations,
-  shiftPresets
+  shiftPresets,
+  rosterTargets
 } from './schema';
 
 // ============================================
@@ -441,6 +443,37 @@ export const api = {
       responses: {
         204: z.void(),
         404: errorSchemas.notFound,
+      },
+    },
+  },
+
+  roster: {
+    targets: {
+      method: 'GET' as const,
+      path: '/api/roster-targets',
+      responses: {
+        200: z.array(z.custom<typeof rosterTargets.$inferSelect>()),
+      },
+    },
+    upsert: {
+      method: 'POST' as const,
+      path: '/api/roster-targets',
+      input: insertRosterTargetSchema,
+      responses: {
+        200: z.custom<typeof rosterTargets.$inferSelect>(),
+        400: errorSchemas.validation,
+      },
+    },
+    report: {
+      method: 'GET' as const,
+      path: '/api/roster-report',
+      responses: {
+        200: z.array(z.object({
+          jobCode: z.string(),
+          targetCount: z.number(),
+          actualCount: z.number(),
+          variance: z.number(),
+        })),
       },
     },
   },

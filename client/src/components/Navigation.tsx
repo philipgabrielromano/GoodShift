@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -38,6 +38,7 @@ const configItems = [
 const reportNavItems = [
   { href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList },
   { href: "/reports/variance", label: "Variance Report", icon: FileBarChart },
+  { href: "/roster", label: "Roster Targets", icon: UsersRound },
 ];
 
 // Items shown to admins only

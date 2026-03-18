@@ -27,6 +27,7 @@ Preferred communication style: Simple, everyday language.
   - `server/routes/occurrences.ts` - Occurrence tracking, adjustments, alerts, corrective actions
   - `server/routes/shift-trades.ts` - Shift trading and notification routes
   - `server/routes/coaching.ts` - Coaching logs with hierarchical access control
+  - `server/routes/roster.ts` - Roster targets (headcount targets per job code per location) and comparison report
   - `server/schedule-generator.ts` - Auto-schedule generation algorithm
   - `server/middleware.ts` - Shared middleware (auth, timezone helpers, HR notification logic)
 
@@ -36,7 +37,7 @@ Preferred communication style: Simple, everyday language.
 - **Schema**: Defined in `shared/schema.ts`
 - **Migrations**: Drizzle Kit
 
-**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`.
+**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`, `roster_targets`.
 
 ### Shared Code
 The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod insert schemas) and `routes.ts` (API contract definitions) to ensure type safety across the full stack.

@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.16.4";
+export const APP_VERSION = "1.17.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.17.0",
+    date: "2026-03-18",
+    title: "Roster Targets",
+    changes: [
+      { type: "feature", description: "Added a new 'Roster Targets' page (visible to managers and admins) that lets managers set expected headcount per job title for each location." },
+      { type: "feature", description: "Roster report tab shows a side-by-side comparison of target vs. actual active employee count per job title, with color-coded variance indicators and overall summary cards." },
+    ],
+  },
   {
     version: "1.16.4",
     date: "2026-03-18",

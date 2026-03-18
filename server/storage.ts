@@ -19,7 +19,8 @@ import {
   shiftTrades, type ShiftTrade, type InsertShiftTrade,
   notifications, type Notification, type InsertNotification,
   coachingLogs, type CoachingLog, type InsertCoachingLog,
-  emailLogs, type EmailLog, type InsertEmailLog
+  emailLogs, type EmailLog, type InsertEmailLog,
+  rosterTargets, type RosterTarget, type InsertRosterTarget
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -105,6 +106,11 @@ export interface IStorage {
   createShiftPreset(preset: InsertShiftPreset): Promise<ShiftPreset>;
   updateShiftPreset(id: number, preset: Partial<InsertShiftPreset>): Promise<ShiftPreset>;
   deleteShiftPreset(id: number): Promise<void>;
+
+  // Roster Targets
+  getRosterTargets(locationId: number): Promise<RosterTarget[]>;
+  upsertRosterTarget(data: InsertRosterTarget): Promise<RosterTarget>;
+  getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number }[]>;
 
   // Occurrences
   getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]>;
@@ -585,6 +591,45 @@ export class DatabaseStorage implements IStorage {
 
   async deleteShiftPreset(id: number): Promise<void> {
     await db.delete(shiftPresets).where(eq(shiftPresets.id, id));
+  }
+
+  // Roster Targets
+  async getRosterTargets(locationId: number): Promise<RosterTarget[]> {
+    return await db.select().from(rosterTargets).where(eq(rosterTargets.locationId, locationId));
+  }
+
+  async upsertRosterTarget(data: InsertRosterTarget): Promise<RosterTarget> {
+    const [result] = await db.insert(rosterTargets).values(data)
+      .onConflictDoUpdate({
+        target: [rosterTargets.locationId, rosterTargets.jobCode],
+        set: { targetCount: data.targetCount },
+      })
+      .returning();
+    return result;
+  }
+
+  async getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number }[]> {
+    const targets = await db.select().from(rosterTargets).where(eq(rosterTargets.locationId, locationId));
+    const activeCounts = await db.execute(sql`
+      SELECT job_title AS job_code, COUNT(*)::int AS actual_count
+      FROM employees
+      WHERE is_active = true AND location_id = ${locationId}
+      GROUP BY job_title
+    `);
+    const actualMap = new Map<string, number>();
+    for (const row of activeCounts.rows as { job_code: string; actual_count: number }[]) {
+      actualMap.set(row.job_code, row.actual_count);
+    }
+    const targetMap = new Map<string, number>();
+    for (const t of targets) {
+      targetMap.set(t.jobCode, t.targetCount);
+    }
+    const allCodes = new Set([...targetMap.keys(), ...actualMap.keys()]);
+    return Array.from(allCodes).map(jobCode => {
+      const targetCount = targetMap.get(jobCode) ?? 0;
+      const actualCount = actualMap.get(jobCode) ?? 0;
+      return { jobCode, targetCount, actualCount, variance: actualCount - targetCount };
+    }).sort((a, b) => a.jobCode.localeCompare(b.jobCode));
   }
 
   // Occurrences

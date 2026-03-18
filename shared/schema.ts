@@ -198,7 +198,22 @@ export const timeOffRequestsRelations = relations(timeOffRequests, ({ one }) => 
   }),
 }));
 
+// === ROSTER TARGETS ===
+// Stores the expected headcount per job code per location, set by managers.
+export const rosterTargets = pgTable("roster_targets", {
+  id: serial("id").primaryKey(),
+  locationId: integer("location_id").notNull(),
+  jobCode: text("job_code").notNull(),
+  targetCount: integer("target_count").notNull().default(0),
+}, (table) => ({
+  locationJobIdx: uniqueIndex("roster_targets_location_job_idx").on(table.locationId, table.jobCode),
+}));
+
 // === BASE SCHEMAS ===
+
+export const insertRosterTargetSchema = createInsertSchema(rosterTargets).omit({ id: true });
+export type RosterTarget = typeof rosterTargets.$inferSelect;
+export type InsertRosterTarget = z.infer<typeof insertRosterTargetSchema>;
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
 export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true });
