@@ -353,11 +353,15 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
         return totalMinutes <= 9 * 60;
       });
       
-      // Cashier closing shift uses same Sunday-adjusted times as closerStartTime/closerEndTime
+      // A cashier counts as a closer if their shift ends within 30 minutes of store closing.
+      // Sunday closes at 7:30 PM → any cashier ending at 7:00 or 7:30 counts.
+      // Other days close at 8:30 PM → any cashier ending at 8:00 or 8:30 counts.
       const closingCashier = cashierShifts.some(s => {
-        const startStr = formatTimeET(s.startTime);
         const endStr = formatTimeET(s.endTime);
-        return startStr === closerStartTime && endStr === closerEndTime;
+        if (isSunday) {
+          return endStr === "19:00" || endStr === "19:30";
+        }
+        return endStr === "20:00" || endStr === "20:30";
       });
       
       if (!openingCashier) {
