@@ -70,8 +70,10 @@ export default function Roster() {
 
   const visibleLocations = useMemo(() => {
     const isValid = (l: Location) => l.isActive && !/^Location \d+$/.test(l.name);
-    if (isAdmin) return locations.filter(isValid);
-    return locations.filter(l => isValid(l) && userLocationIds.includes(String(l.id)));
+    const filtered = isAdmin
+      ? locations.filter(isValid)
+      : locations.filter(l => isValid(l) && userLocationIds.includes(String(l.id)));
+    return filtered.slice().sort((a, b) => a.name.localeCompare(b.name));
   }, [locations, isAdmin, userLocationIds]);
 
   useEffect(() => {
@@ -222,7 +224,6 @@ export default function Roster() {
                       <table className="w-full text-sm">
                         <thead className="bg-muted/50">
                           <tr>
-                            <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Code</th>
                             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Title</th>
                             <th className="px-4 py-3 text-left font-medium text-muted-foreground w-36">Target Count</th>
                           </tr>
@@ -234,7 +235,6 @@ export default function Roster() {
                               className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}
                               data-testid={`row-target-${code}`}
                             >
-                              <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{code}</td>
                               <td className="px-4 py-2">{getLabel(code)}</td>
                               <td className="px-4 py-2">
                                 <Input
@@ -327,7 +327,6 @@ export default function Roster() {
                     <table className="w-full text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Code</th>
                           <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Title</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual</th>
@@ -342,7 +341,6 @@ export default function Roster() {
                             className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}
                             data-testid={`row-report-${row.jobCode}`}
                           >
-                            <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{row.jobCode}</td>
                             <td className="px-4 py-2">{getLabel(row.jobCode)}</td>
                             <td className="px-4 py-2 text-right" data-testid={`text-report-target-${row.jobCode}`}>
                               {row.targetCount > 0 ? row.targetCount : <span className="text-muted-foreground">—</span>}
