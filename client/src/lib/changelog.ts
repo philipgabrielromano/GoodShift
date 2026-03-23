@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.25.0";
+export const APP_VERSION = "1.26.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.26.0",
+    date: "2026-03-23",
+    title: "Shift Preference as a Scheduler Constraint",
+    changes: [
+      { type: "improvement", description: "Shift Preference is now a dropdown (Openers only / Closers only / No preference) instead of a free-text note. The selected value is enforced as a hard constraint by the auto-scheduler — employees marked 'Openers only' will never be assigned a closing shift, and vice versa." },
+    ],
+  },
   {
     version: "1.25.0",
     date: "2026-03-23",

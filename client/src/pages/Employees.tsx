@@ -286,10 +286,12 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           {employee.isHiddenFromSchedule && (
             <span className="text-xs text-muted-foreground">Hidden from schedule</span>
           )}
-          {employee.shiftPreference && (
-            <span className="text-xs text-muted-foreground flex items-center gap-0.5" title={`Shift: ${employee.shiftPreference}`}>
+          {employee.shiftPreference && employee.shiftPreference !== 'no_preference' && (
+            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
               <Clock className="w-3 h-3 flex-shrink-0" />
-              <span className="truncate">{employee.shiftPreference}</span>
+              <span className="truncate">
+                {employee.shiftPreference === 'morning_only' ? 'Openers only' : employee.shiftPreference === 'evening_only' ? 'Closers only' : employee.shiftPreference}
+              </span>
             </span>
           )}
         </div>
@@ -507,14 +509,21 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
               <Clock className="w-4 h-4" />
               Shift Preference
             </Label>
-            <Input
-              placeholder="e.g. 8am–4:30pm, Closes only, Opener Mon–Fri"
-              value={formData.shiftPreference ?? ''}
-              onChange={e => setFormData({ ...formData, shiftPreference: e.target.value || null })}
-              data-testid="input-shift-preference"
-            />
+            <Select
+              value={formData.shiftPreference ?? 'no_preference'}
+              onValueChange={v => setFormData({ ...formData, shiftPreference: v === 'no_preference' ? null : v })}
+            >
+              <SelectTrigger data-testid="select-shift-preference">
+                <SelectValue placeholder="No preference" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no_preference">No preference</SelectItem>
+                <SelectItem value="morning_only">Openers only (early / opening shifts)</SelectItem>
+                <SelectItem value="evening_only">Closers only (mid / closing shifts)</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
-              Optional note about this employee's typical or required shift. Displayed on the employee list.
+              Restricts the auto-scheduler to only assign this employee to their preferred shift type.
             </p>
           </div>
           <div className="space-y-2">
