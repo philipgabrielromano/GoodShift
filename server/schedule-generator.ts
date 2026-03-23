@@ -1238,6 +1238,36 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         }
       }
       
+      // ── Fixed-shift slot helper ──────────────────────────────────────────────
+      // Returns the slot a fixed-shift employee fills on a given day, or null if
+      // they have no fixed shift or are not scheduled that day.
+      const getFixedShiftSlot = (emp: typeof employees[0], dayIndex: number): 'opener' | 'mid' | 'closer' | null => {
+        if (emp.shiftPreference !== 'fixed_shift' || !emp.fixedShiftStart) return null;
+        if (!existingShiftsByEmpDay.has(`${emp.id}-${dayIndex}`)) return null;
+        const h = parseInt(emp.fixedShiftStart.split(':')[0], 10);
+        if (h <= 9) return 'opener';
+        if (h >= 11) return 'closer';
+        return 'mid';
+      };
+
+      // Per-day opener/closer counts by role (fixed-shift employees whose slot we know)
+      const buildFixedSlotCounts = (pool: typeof employees) => {
+        const openers: Record<number, number> = {};
+        const closers: Record<number, number> = {};
+        for (let d = 0; d < 7; d++) {
+          openers[d] = 0; closers[d] = 0;
+          for (const emp of pool) {
+            const slot = getFixedShiftSlot(emp, d);
+            if (slot === 'opener') openers[d]++;
+            else if (slot === 'closer') closers[d]++;
+          }
+        }
+        return { openers, closers };
+      };
+
+      const greeterFixed = buildFixedSlotCounts(donorGreeters);
+      const cashierFixed = buildFixedSlotCounts(cashiers);
+
       // Track scheduled greeters per day to ensure Saturday >= Sunday
       // Initialize with existing template shifts counted
       const greetersByDay: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
@@ -1245,7 +1275,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const existingCount = countExistingShiftsForRole(greeterIds, d);
         greetersByDay[d] = existingCount;
         if (existingCount > 0) {
-          console.log(`[Scheduler] Day ${d}: Found ${existingCount} existing greeter shift(s) from template`);
+          console.log(`[Scheduler] Day ${d}: Found ${existingCount} existing greeter shift(s) (fixed openers=${greeterFixed.openers[d]}, fixed closers=${greeterFixed.closers[d]})`);
         }
       }
       
@@ -1261,8 +1291,15 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
         const dayName = shortDayNames[dayIndex];
         if (isHoliday(currentDay)) continue;
-        if (greetersByDay[dayIndex] >= 1) {
-          console.log(`[Scheduler] Greeter R1 ${dayName}: Already has coverage from template`);
+
+        // Skip if opener slot is already filled:
+        //   a) a fixed-shift greeter is confirmed as an opener, OR
+        //   b) there are existing greeters and none of them are known fixed closers
+        //      (template/unknown shifts → assume they fill the opener slot)
+        const hasConfirmedOpener = greeterFixed.openers[dayIndex] >= 1;
+        const hasUnknownExisting = greetersByDay[dayIndex] > 0 && greeterFixed.closers[dayIndex] === 0;
+        if (hasConfirmedOpener || hasUnknownExisting) {
+          console.log(`[Scheduler] Greeter R1 ${dayName}: Opener already covered (confirmed=${hasConfirmedOpener})`);
           continue;
         }
         
@@ -1274,6 +1311,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         if (availableGreeters.length > 0) {
           scheduleShift(availableGreeters[0], shifts.opener.start, shifts.opener.end, dayIndex);
           greetersByDay[dayIndex]++;
+          greeterFixed.openers[dayIndex]++; // treat newly scheduled opener as confirmed
           console.log(`[Scheduler] Greeter R1 ${dayName}: ${availableGreeters[0].name} as opener`);
         } else {
           console.log(`[Scheduler] Greeter R1 ${dayName}: No greeters available for opener`);
@@ -1289,8 +1327,20 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const isSunday = dayIndex === 0;
         // For Sunday: don't exceed Saturday's greeter count
         if (isSunday && greetersByDay[0] >= greetersByDay[6]) continue;
-        
-        if (greetersByDay[dayIndex] >= (greeterTargets[dayIndex] || 2)) continue;
+
+        // Skip if closer slot is already filled:
+        //   a) a fixed-shift greeter is confirmed as a closer, OR
+        //   b) total count meets target AND at least one greeter is not a fixed opener
+        //      (implying a template/unknown shift is covering the closer)
+        const hasConfirmedCloser = greeterFixed.closers[dayIndex] >= 1;
+        const totalMet = greetersByDay[dayIndex] >= (greeterTargets[dayIndex] || 2);
+        const hasNonOpener = greetersByDay[dayIndex] > greeterFixed.openers[dayIndex];
+        if (hasConfirmedCloser || (totalMet && hasNonOpener)) {
+          console.log(`[Scheduler] Greeter R2 ${dayName}: Closer already covered (confirmed=${hasConfirmedCloser})`);
+          continue;
+        }
+        // Also skip if total target is fully met by all-opener fixed shifts (we'll warn instead)
+        if (totalMet) continue;
         
         const shifts = getShiftTimes(currentDay);
         const availableGreeters = shuffleAndSort(
@@ -1300,6 +1350,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         if (availableGreeters.length > 0) {
           scheduleShift(availableGreeters[0], shifts.closer.start, shifts.closer.end, dayIndex);
           greetersByDay[dayIndex]++;
+          greeterFixed.closers[dayIndex]++; // treat newly scheduled closer as confirmed
           console.log(`[Scheduler] Greeter R2 ${dayName}: ${availableGreeters[0].name} as closer`);
         } else {
           console.log(`[Scheduler] Greeter R2 ${dayName}: No greeters available for closer`);
@@ -1379,22 +1430,30 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         // Check if existing shifts already meet the target
         if (cashiersByDay[dayIndex] >= maxForDay) {
-          console.log(`[Scheduler] Cashier ${dayName}: Target ${maxForDay} already met by ${cashiersByDay[dayIndex]} existing template shift(s)`);
+          console.log(`[Scheduler] Cashier ${dayName}: Target ${maxForDay} already met by ${cashiersByDay[dayIndex]} existing shift(s)`);
           continue;
         }
         
-        // Calculate how many more cashiers we need
+        // Calculate how many more cashiers we need in total
         const stillNeeded = maxForDay - cashiersByDay[dayIndex];
+
+        // Determine desired opener/closer split for the full day,
+        // then subtract fixed-shift employees already filling those slots so we
+        // don't over-schedule one side and under-schedule the other.
+        const desiredOpeners = Math.ceil(maxForDay / 2);
+        const desiredClosers = maxForDay - desiredOpeners;
+        const fixedOpenersToday = cashierFixed.openers[dayIndex] || 0;
+        const fixedClosersToday = cashierFixed.closers[dayIndex] || 0;
+        const openingTarget = Math.max(0, desiredOpeners - fixedOpenersToday);
+        // Closing target: how many more closers we still need, bounded by what's still needed overall
+        const closingTarget = Math.min(Math.max(0, desiredClosers - fixedClosersToday), stillNeeded - openingTarget);
         
-        console.log(`[Scheduler] Cashier ${dayName}: baseTarget=${baseTarget}, maxForDay=${maxForDay}, existing=${cashiersByDay[dayIndex]}, stillNeeded=${stillNeeded}, satCount=${cashiersByDay[6]}`);
+        console.log(`[Scheduler] Cashier ${dayName}: maxForDay=${maxForDay}, existing=${cashiersByDay[dayIndex]}, stillNeeded=${stillNeeded}, fixedOpeners=${fixedOpenersToday}, fixedClosers=${fixedClosersToday}, openingTarget=${openingTarget}, closingTarget=${closingTarget}`);
         
         // Schedule opening cashiers (shuffled for variety)
-        const openingTarget = Math.ceil(stillNeeded / 2);
         const availableOpeners = shuffleAndSort(
           cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex) && matchesShiftPreference(c, shifts.opener.start, dayIndex))
         );
-        
-        console.log(`[Scheduler] Cashier ${dayName}: openingTarget=${openingTarget}, availableOpeners=${availableOpeners.length}`);
         
         let openersScheduled = 0;
         for (let i = 0; i < openingTarget && i < availableOpeners.length; i++) {
@@ -1404,14 +1463,10 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           console.log(`[Scheduler] Cashier ${dayName}: Scheduled ${availableOpeners[i].name} as opener`);
         }
         
-        // Schedule closing cashiers (shuffled for variety)
-        // Use stillNeeded minus openers we already scheduled
-        const closingTarget = stillNeeded - openersScheduled;
+        // Schedule closing cashiers
         const availableClosers = shuffleAndSort(
           cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex) && matchesShiftPreference(c, shifts.closer.start, dayIndex))
         );
-        
-        console.log(`[Scheduler] Cashier ${dayName}: closingTarget=${closingTarget}, availableClosers=${availableClosers.length}`);
         
         let closersScheduled = 0;
         for (let i = 0; i < closingTarget && i < availableClosers.length; i++) {

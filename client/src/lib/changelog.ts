@@ -8,13 +8,23 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.30.0";
+export const APP_VERSION = "1.31.0";
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.31.0",
+    date: "2026-03-23",
+    title: "Full Fixed-Shift Slot Awareness for All Roles",
+    changes: [
+      { type: "improvement", description: "Extended slot-aware scheduling to greeters and cashiers. Previously, a fixed-shift greeter working a closing shift could cause the opener slot to be skipped entirely (and vice versa). Now the scheduler reads each fixed-shift employee's actual start time to determine which slot they fill, then seeks the correct complementary coverage. For example, a greeter fixed at noon → the scheduler will still go find a morning opener." },
+      { type: "improvement", description: "Cashier opener/closer split now accounts for fixed-shift cashiers. Instead of naively splitting 'still needed' 50/50, the scheduler subtracts confirmed fixed-shift openers from the opener target and confirmed fixed-shift closers from the closer target, producing the right balance." },
+      { type: "improvement", description: "Manager fixed-shift slot awareness (from v1.30.0) is extended with a shared helper used consistently across all roles." },
+    ],
+  },
+  {
     version: "1.30.0",
     date: "2026-03-23",
-    title: "Smarter Scheduling Around Fixed Shifts",
+    title: "Smarter Scheduling Around Fixed Shifts (Managers)",
     changes: [
       { type: "improvement", description: "The auto-scheduler now understands what slot a fixed-shift manager actually fills. Previously it could only see 'a manager exists on this day' — now it reads their exact start time to determine opener (≤9am), mid (10am), or closer (≥11am). This means if your store manager has a fixed opener shift, the scheduler correctly knows to find a separate closer, rather than assuming both ends are covered." },
       { type: "improvement", description: "Fixed-shift managers are excluded from the generic template coverage check and tracked precisely by their actual times, preventing incorrect coverage assumptions for non-fixed template shifts on the same day." },
