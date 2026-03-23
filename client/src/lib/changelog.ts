@@ -8,13 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.24.0";
+export const APP_VERSION = "1.25.0";
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.25.0",
+    date: "2026-03-23",
+    title: "FTE Report Always Shows Actual Staffing",
+    changes: [
+      { type: "fix", description: "The FTE Report now shows actual FTE for every job code present at the location — no targets required. Previously the report was blank unless target FTE values had been saved. Job codes without a target now show a 'No Target' status badge." },
+      { type: "fix", description: "The All Locations consolidated report now shows actual FTE for every location with employees, not just those with targets configured." },
+    ],
+  },
+  {
     version: "1.24.0",
     date: "2026-03-23",
-    title: "Roster FTE Reporting Fix",
+    title: "Roster FTE Save Fix",
     changes: [
       { type: "fix", description: "Fixed a bug where saving FTE targets more than once would silently discard the updated value. The first save worked, but any edits afterward were lost. Targets now persist correctly on every save." },
     ],

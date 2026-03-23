@@ -629,16 +629,23 @@ export class DatabaseStorage implements IStorage {
     for (const row of actuals.rows as { job_code: string; actual_fte: number }[]) {
       actualFteMap.set(row.job_code, row.actual_fte);
     }
+    // Build a map of targets keyed by jobCode
+    const targetMap = new Map<string, typeof targets[0]>();
+    for (const t of targets) targetMap.set(t.jobCode, t);
+
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    // Only show rows that have a target FTE set
-    const rows = targets
-      .filter(t => t.targetFte != null)
-      .map(t => {
-        const actualFte = actualFteMap.has(t.jobCode) ? round2(actualFteMap.get(t.jobCode)!) : 0;
-        const targetFte = round2(t.targetFte!);
-        const fteVariance = round2(actualFte - targetFte);
-        return { jobCode: t.jobCode, targetFte, actualFte, fteVariance };
-      });
+
+    // Union of all job codes that appear in either targets or employee actuals
+    const allCodes = new Set([...targetMap.keys(), ...actualFteMap.keys()]);
+
+    const rows = Array.from(allCodes).map(jobCode => {
+      const target = targetMap.get(jobCode);
+      const actualFte = round2(actualFteMap.get(jobCode) ?? 0);
+      const targetFte = target?.targetFte != null ? round2(target.targetFte) : null;
+      const fteVariance = targetFte != null ? round2(actualFte - targetFte) : null;
+      return { jobCode, targetFte, actualFte, fteVariance };
+    });
+
     return rows.sort((a, b) => a.jobCode.localeCompare(b.jobCode));
   }
 
@@ -679,24 +686,37 @@ export class DatabaseStorage implements IStorage {
       targetsByLocation.get(t.locationId)!.push(t);
     }
 
-    return (locRows.rows as { id: number; name: string }[]).map(loc => {
-      const targets = targetsByLocation.get(loc.id) ?? [];
-      const fteTargets = targets.filter(t => t.targetFte != null);
+    // Build a set of all location IDs that have any employees (for filtering out empty locations)
+    const locationsWithEmployees = new Set<number>();
+    for (const key of empFteMap.keys()) {
+      const locId = Number(key.split(':')[0]);
+      locationsWithEmployees.add(locId);
+    }
 
-      if (fteTargets.length === 0) {
-        return { locationId: loc.id, locationName: loc.name, totalTargetFte: null, totalActualFte: null, fteVariance: null, vacancyRate: null };
-      }
+    return (locRows.rows as { id: number; name: string }[])
+      .filter(loc => locationsWithEmployees.has(loc.id)) // Only locations with employees
+      .map(loc => {
+        const targets = targetsByLocation.get(loc.id) ?? [];
 
-      const totalTargetFte = round2(fteTargets.reduce((s, t) => s + (t.targetFte ?? 0), 0));
-      // Actual FTE = sum of (max_weekly_hours / 40) for employees in each targeted job code
-      const totalActualFte = round2(fteTargets.reduce((s, t) => {
-        return s + (empFteMap.get(`${loc.id}:${t.jobCode}`) ?? 0);
-      }, 0));
-      const fteVariance = round2(totalActualFte - totalTargetFte);
-      const vacancyRate = totalTargetFte > 0 ? round2((totalTargetFte - totalActualFte) / totalTargetFte * 100) : null;
+        // Total actual FTE = ALL employees at this location (not limited to targeted job codes)
+        const totalActualFte = round2(
+          Array.from(empFteMap.entries())
+            .filter(([k]) => k.startsWith(`${loc.id}:`))
+            .reduce((s, [, v]) => s + v, 0)
+        );
 
-      return { locationId: loc.id, locationName: loc.name, totalTargetFte, totalActualFte, fteVariance, vacancyRate };
-    });
+        const fteTargets = targets.filter(t => t.targetFte != null);
+        const totalTargetFte = fteTargets.length > 0
+          ? round2(fteTargets.reduce((s, t) => s + (t.targetFte ?? 0), 0))
+          : null;
+
+        const fteVariance = totalTargetFte != null ? round2(totalActualFte - totalTargetFte) : null;
+        const vacancyRate = totalTargetFte != null && totalTargetFte > 0
+          ? round2((totalTargetFte - totalActualFte) / totalTargetFte * 100)
+          : null;
+
+        return { locationId: loc.id, locationName: loc.name, totalTargetFte, totalActualFte, fteVariance, vacancyRate };
+      });
   }
 
   // Occurrences

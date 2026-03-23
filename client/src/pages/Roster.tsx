@@ -380,7 +380,7 @@ export default function Roster() {
                   </div>
                 ) : sortedReportRows.length === 0 ? (
                   <p className="text-center text-muted-foreground py-8">
-                    No FTE data yet. Set Target FTE and FTE Rate on the Targets tab.
+                    No employees found at this location. Ensure employees are synced and assigned to this location.
                   </p>
                 ) : (
                   <div className="rounded-md border overflow-hidden">
