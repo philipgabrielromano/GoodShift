@@ -447,24 +447,17 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       const apparelProcessorCodes = ['APPROC', 'APWV']; // Apparel processors only
       const cashierCodes = ['CASHSLS', 'CSHSLSWV', 'SLSFLR'];
       
-      // Employees with a fixed shift are scheduled in a dedicated pre-pass and must not
-      // appear in any of the regular scheduling pools.
-      const fixedShiftEmpIds = new Set(
-        employees.filter(e => e.shiftPreference === 'fixed_shift' && e.fixedShiftStart && e.fixedShiftEnd && e.isActive).map(e => e.id)
-      );
-      const notFixed = (emp: typeof employees[0]) => !fixedShiftEmpIds.has(emp.id);
-
       // Categorize leadership by tier
-      const storeManagers = employees.filter(emp => storeManagerCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
-      const assistantManagers = employees.filter(emp => assistantManagerCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
-      const teamLeads = employees.filter(emp => teamLeadCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const storeManagers = employees.filter(emp => storeManagerCodes.includes(emp.jobTitle) && emp.isActive);
+      const assistantManagers = employees.filter(emp => assistantManagerCodes.includes(emp.jobTitle) && emp.isActive);
+      const teamLeads = employees.filter(emp => teamLeadCodes.includes(emp.jobTitle) && emp.isActive);
       
       // Combined leadership pool (all tiers) - used for flexible coverage
-      const managers = employees.filter(emp => allLeadershipCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
-      const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
-      const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
-      const apparelProcessors = employees.filter(emp => apparelProcessorCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
-      const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const managers = employees.filter(emp => allLeadershipCodes.includes(emp.jobTitle) && emp.isActive);
+      const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive);
+      const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive);
+      const apparelProcessors = employees.filter(emp => apparelProcessorCodes.includes(emp.jobTitle) && emp.isActive);
+      const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive);
       
       console.log(`[Scheduler] Total employees: ${employees.length}`);
       console.log(`[Scheduler] Leadership breakdown - Store Mgrs: ${storeManagers.length}, Asst Mgrs: ${assistantManagers.length}, Team Leads: ${teamLeads.length}`);
@@ -599,10 +592,14 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       };
 
       // ========== PRE-PASS: FIXED-SHIFT EMPLOYEES ==========
-      // These employees always get their exact configured start/end times. They are fully
-      // excluded from all regular scheduling pools (see notFixed filter above).
+      // These employees always get their exact configured start/end times.
+      // After scheduling each day we also write into existingShiftsByEmpDay so that:
+      //   (a) countExistingShiftsForRole() recognises them as coverage (e.g. manager on opener)
+      //   (b) isOnTimeOff() prevents any regular pass from double-booking them
       {
-        const fixedEmps = employees.filter(e => fixedShiftEmpIds.has(e.id));
+        const fixedEmps = employees.filter(
+          e => e.shiftPreference === 'fixed_shift' && e.fixedShiftStart && e.fixedShiftEnd && e.isActive
+        );
         if (fixedEmps.length > 0) {
           console.log(`[Scheduler] Pre-pass: scheduling ${fixedEmps.length} fixed-shift employee(s)`);
           for (const emp of fixedEmps) {
@@ -615,6 +612,9 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
               if (isHoliday(currentDay)) continue;
               if (isOnTimeOff(emp.id, currentDay, d)) continue;
               scheduleShift(emp, createESTTime(currentDay, fStartH, fStartM), createESTTime(currentDay, fEndH, fEndM), d);
+              // Register in existingShiftsByEmpDay so coverage tracking and double-booking
+              // guards both treat this as a confirmed shift going forward.
+              existingShiftsByEmpDay.add(`${emp.id}-${d}`);
               daysScheduled++;
               console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} ${emp.fixedShiftStart}–${emp.fixedShiftEnd}`);
             }

@@ -8,16 +8,24 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.28.0";
+export const APP_VERSION = "1.29.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.29.0",
+    date: "2026-03-23",
+    title: "Fixed Shift Coverage Fix",
+    changes: [
+      { type: "fix", description: "Fixed a bug where managers set to 'Fixed shift' were not being counted toward opener/closer coverage requirements, causing other days to appear uncovered or without any manager. Fixed-shift managers are now correctly recognised by the coverage tracker before the regular leadership scheduling runs." },
+    ],
+  },
   {
     version: "1.28.0",
     date: "2026-03-23",
     title: "Fixed Shift Times — Exact Schedule",
     changes: [
       { type: "feature", description: "Fixed shift employees now get their exact times stamped directly onto every working day — no slot matching. Set 'Fixed shift' on an employee, enter their start and end time (e.g. 08:00 – 16:30), and the scheduler will assign those precise times each day, respecting only time-off requests, non-working days, and their preferred days per week." },
-      { type: "improvement", description: "Fixed-shift employees are fully removed from all regular scheduling pools so the scheduler never overrides or double-books them." },
+      { type: "improvement", description: "Fixed-shift employees cannot be double-booked by any regular scheduling pass." },
     ],
   },
   {
