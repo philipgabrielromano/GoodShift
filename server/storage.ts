@@ -110,7 +110,8 @@ export interface IStorage {
   // Roster Targets
   getRosterTargets(locationId: number): Promise<RosterTarget[]>;
   upsertRosterTarget(data: InsertRosterTarget): Promise<RosterTarget>;
-  getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number }[]>;
+  getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number; fteValue: number | null; actualFte: number | null; targetFte: number | null }[]>;
+  getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTarget: number; totalActual: number; variance: number; vacancyRate: number | null; totalTargetFte: number | null; totalActualFte: number | null }[]>;
 
   // Occurrences
   getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]>;
@@ -638,6 +639,70 @@ export class DatabaseStorage implements IStorage {
       const targetFte = fteValue !== null ? round2(targetCount * fteValue) : null;
       return { jobCode, targetCount, actualCount, variance: actualCount - targetCount, fteValue, actualFte, targetFte };
     }).sort((a, b) => a.jobCode.localeCompare(b.jobCode));
+  }
+
+  async getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTarget: number; totalActual: number; variance: number; vacancyRate: number | null; totalTargetFte: number | null; totalActualFte: number | null }[]> {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    // All active valid locations
+    const locRows = await db.execute(sql`
+      SELECT id, name FROM locations
+      WHERE is_active = true
+        AND name !~ '^Location [0-9]'
+        AND name NOT ILIKE '%child%adol%beh%'
+      ORDER BY name
+    `);
+
+    // All roster targets across all locations
+    const allTargets = await db.select().from(rosterTargets);
+
+    // Active non-hidden employee counts grouped by (location_id, job_title)
+    const empRows = await db.execute(sql`
+      SELECT l.id AS location_id, e.job_title, COUNT(e.id)::int AS cnt
+      FROM employees e
+      JOIN locations l ON l.name = e.location
+      WHERE e.is_active = true
+        AND (e.is_hidden_from_schedule IS NULL OR e.is_hidden_from_schedule = false)
+        AND l.is_active = true
+      GROUP BY l.id, e.job_title
+    `);
+
+    // Build lookup maps
+    const empCountMap = new Map<string, number>(); // "locationId:jobTitle" -> count
+    const empTotalByLocation = new Map<number, number>(); // locationId -> total
+    for (const row of empRows.rows as { location_id: number; job_title: string; cnt: number }[]) {
+      empCountMap.set(`${row.location_id}:${row.job_title}`, row.cnt);
+      empTotalByLocation.set(row.location_id, (empTotalByLocation.get(row.location_id) ?? 0) + row.cnt);
+    }
+
+    // Group targets by location
+    const targetsByLocation = new Map<number, typeof allTargets>();
+    for (const t of allTargets) {
+      if (!targetsByLocation.has(t.locationId)) targetsByLocation.set(t.locationId, []);
+      targetsByLocation.get(t.locationId)!.push(t);
+    }
+
+    return (locRows.rows as { id: number; name: string }[]).map(loc => {
+      const targets = targetsByLocation.get(loc.id) ?? [];
+      const totalTarget = targets.reduce((s, t) => s + t.targetCount, 0);
+      const totalActual = empTotalByLocation.get(loc.id) ?? 0;
+      const variance = totalActual - totalTarget;
+      const vacancyRate = totalTarget > 0 ? round2((totalTarget - totalActual) / totalTarget * 100) : null;
+
+      const hasFte = targets.some(t => t.fteValue != null);
+      let totalTargetFte: number | null = null;
+      let totalActualFte: number | null = null;
+      if (hasFte) {
+        totalTargetFte = round2(targets.reduce((s, t) => s + (t.fteValue != null ? t.targetCount * t.fteValue : 0), 0));
+        totalActualFte = round2(targets.reduce((s, t) => {
+          if (t.fteValue == null) return s;
+          const cnt = empCountMap.get(`${loc.id}:${t.jobCode}`) ?? 0;
+          return s + cnt * t.fteValue;
+        }, 0));
+      }
+
+      return { locationId: loc.id, locationName: loc.name, totalTarget, totalActual, variance, vacancyRate, totalTargetFte, totalActualFte };
+    });
   }
 
   // Occurrences

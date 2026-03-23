@@ -31,4 +31,9 @@ export function registerRosterRoutes(app: Express) {
     const report = await storage.getRosterReport(locationId);
     res.json(report);
   });
+
+  app.get("/api/roster-consolidated", requireManager, async (req, res) => {
+    const report = await storage.getRosterConsolidatedReport();
+    res.json(report);
+  });
 }

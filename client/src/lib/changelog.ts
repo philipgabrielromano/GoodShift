@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.18.0";
+export const APP_VERSION = "1.19.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.19.0",
+    date: "2026-03-23",
+    title: "Consolidated Roster Report",
+    changes: [
+      { type: "feature", description: "Added a new 'All Locations' tab on the Roster page showing every location in a single view with Target, Actual, Variance, Vacancy Rate, and FTE columns." },
+      { type: "feature", description: "Vacancy Rate per location is shown as a percentage of unfilled positions relative to target headcount, color-coded red (understaffed), yellow (near target), or green (on track). A grand total row summarizes across all locations." },
+      { type: "feature", description: "Summary cards at the top of the Consolidated tab show overall Total Target, Total Active, Overall Vacancy Rate (with position count), and total FTE (when configured)." },
+    ],
+  },
   {
     version: "1.18.0",
     date: "2026-03-23",

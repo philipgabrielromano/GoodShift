@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Users, Target, BarChart3, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { Loader2, Users, Target, BarChart3, TrendingUp, TrendingDown, Minus, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { RosterTarget } from "@shared/schema";
 
@@ -31,6 +31,17 @@ interface RosterReportRow {
   fteValue: number | null;
   actualFte: number | null;
   targetFte: number | null;
+}
+
+interface ConsolidatedRow {
+  locationId: number;
+  locationName: string;
+  totalTarget: number;
+  totalActual: number;
+  variance: number;
+  vacancyRate: number | null;
+  totalTargetFte: number | null;
+  totalActualFte: number | null;
 }
 
 const JOB_CODE_LABELS: Record<string, string> = {
@@ -124,6 +135,15 @@ export default function Roster() {
       return res.json();
     },
     enabled: !!selectedLocationId,
+  });
+
+  const { data: consolidatedRows = [], isLoading: consolidatedLoading } = useQuery<ConsolidatedRow[]>({
+    queryKey: ["/api/roster-consolidated"],
+    queryFn: async () => {
+      const res = await fetch("/api/roster-consolidated");
+      if (!res.ok) throw new Error("Failed to fetch consolidated report");
+      return res.json();
+    },
   });
 
   useEffect(() => {
@@ -247,6 +267,10 @@ export default function Roster() {
             <TabsTrigger value="report" data-testid="tab-report">
               <BarChart3 className="w-4 h-4 mr-2" />
               Report
+            </TabsTrigger>
+            <TabsTrigger value="consolidated" data-testid="tab-consolidated">
+              <Globe className="w-4 h-4 mr-2" />
+              All Locations
             </TabsTrigger>
           </TabsList>
 
@@ -496,6 +520,184 @@ export default function Roster() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="consolidated" className="mt-4">
+            {(() => {
+              const hasAnyFte = consolidatedRows.some(r => r.totalTargetFte !== null || r.totalActualFte !== null);
+              const withTargets = consolidatedRows.filter(r => r.totalTarget > 0 || r.totalActual > 0);
+              const grandTarget = withTargets.reduce((s, r) => s + r.totalTarget, 0);
+              const grandActual = withTargets.reduce((s, r) => s + r.totalActual, 0);
+              const grandVariance = grandActual - grandTarget;
+              const grandVacancyRate = grandTarget > 0
+                ? Math.round((grandTarget - grandActual) / grandTarget * 10000) / 100
+                : null;
+              const grandTargetFte = hasAnyFte
+                ? Math.round(withTargets.reduce((s, r) => s + (r.totalTargetFte ?? 0), 0) * 100) / 100
+                : null;
+              const grandActualFte = hasAnyFte
+                ? Math.round(withTargets.reduce((s, r) => s + (r.totalActualFte ?? 0), 0) * 100) / 100
+                : null;
+
+              return (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Target className="w-3 h-3" /> Total Target</div>
+                        <div className="text-2xl font-bold" data-testid="text-grand-target">{grandTarget}</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Total Active</div>
+                        <div className="text-2xl font-bold" data-testid="text-grand-actual">{grandActual}</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-xs text-muted-foreground mb-1">Overall Vacancy Rate</div>
+                        <div
+                          className={`text-2xl font-bold ${grandVacancyRate !== null && grandVacancyRate > 0 ? "text-red-600 dark:text-red-400" : grandVacancyRate !== null && grandVacancyRate < 0 ? "text-green-600 dark:text-green-400" : ""}`}
+                          data-testid="text-grand-vacancy-rate"
+                        >
+                          {grandVacancyRate === null ? "—" : `${grandVacancyRate > 0 ? "" : grandVacancyRate < 0 ? "-" : ""}${Math.abs(grandVacancyRate).toFixed(1)}%`}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {grandVacancyRate !== null && grandVacancyRate > 0 ? `${Math.abs(grandVariance)} unfilled position${Math.abs(grandVariance) !== 1 ? "s" : ""}` :
+                           grandVacancyRate !== null && grandVacancyRate < 0 ? `${Math.abs(grandVariance)} over target` : "At target"}
+                        </div>
+                      </CardContent>
+                    </Card>
+                    {hasAnyFte && (
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="text-xs text-muted-foreground mb-1">Total FTE (Actual / Target)</div>
+                          <div className="text-2xl font-bold" data-testid="text-grand-fte">
+                            {fmtFte(grandActualFte)} <span className="text-base font-normal text-muted-foreground">/ {fmtFte(grandTargetFte)}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>All Locations — Consolidated Roster Report</CardTitle>
+                      <CardDescription>
+                        Vacancy rate and headcount across all active locations with targets configured.
+                        Vacancy rate = unfilled positions ÷ target × 100. Negative = overstaffed.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {consolidatedLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : (
+                        <div className="rounded-md border overflow-hidden">
+                          <table className="w-full text-sm">
+                            <thead className="bg-muted/50">
+                              <tr>
+                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Location</th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target</th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual</th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Variance</th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vacancy Rate</th>
+                                {hasAnyFte && <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target FTE</th>}
+                                {hasAnyFte && <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual FTE</th>}
+                                <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {consolidatedRows.map((row, i) => (
+                                <tr
+                                  key={row.locationId}
+                                  className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}
+                                  data-testid={`row-consolidated-${row.locationId}`}
+                                >
+                                  <td className="px-4 py-2 font-medium">{row.locationName}</td>
+                                  <td className="px-4 py-2 text-right" data-testid={`text-con-target-${row.locationId}`}>
+                                    {row.totalTarget > 0 ? row.totalTarget : <span className="text-muted-foreground">—</span>}
+                                  </td>
+                                  <td className="px-4 py-2 text-right" data-testid={`text-con-actual-${row.locationId}`}>
+                                    {row.totalActual}
+                                  </td>
+                                  <td
+                                    className={`px-4 py-2 text-right font-semibold ${
+                                      row.totalTarget === 0 ? "text-muted-foreground" :
+                                      row.variance >= 0 ? "text-green-600 dark:text-green-400" :
+                                      "text-red-600 dark:text-red-400"
+                                    }`}
+                                    data-testid={`text-con-variance-${row.locationId}`}
+                                  >
+                                    {row.totalTarget === 0 ? "—" : row.variance > 0 ? `+${row.variance}` : row.variance}
+                                  </td>
+                                  <td
+                                    className={`px-4 py-2 text-right font-semibold ${
+                                      row.vacancyRate === null ? "text-muted-foreground" :
+                                      row.vacancyRate > 0 ? "text-red-600 dark:text-red-400" :
+                                      row.vacancyRate < 0 ? "text-green-600 dark:text-green-400" :
+                                      "text-muted-foreground"
+                                    }`}
+                                    data-testid={`text-con-vacancy-${row.locationId}`}
+                                  >
+                                    {row.vacancyRate === null ? "—" : `${row.vacancyRate > 0 ? "" : row.vacancyRate < 0 ? "" : ""}${row.vacancyRate.toFixed(1)}%`}
+                                  </td>
+                                  {hasAnyFte && (
+                                    <td className="px-4 py-2 text-right text-muted-foreground" data-testid={`text-con-target-fte-${row.locationId}`}>
+                                      {fmtFte(row.totalTargetFte)}
+                                    </td>
+                                  )}
+                                  {hasAnyFte && (
+                                    <td className="px-4 py-2 text-right font-medium" data-testid={`text-con-actual-fte-${row.locationId}`}>
+                                      {fmtFte(row.totalActualFte)}
+                                    </td>
+                                  )}
+                                  <td className="px-4 py-2 text-center">
+                                    {row.totalTarget === 0 ? (
+                                      <Badge variant="outline" className="text-xs">No Targets</Badge>
+                                    ) : row.vacancyRate !== null && row.vacancyRate > 5 ? (
+                                      <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-xs border-0">
+                                        Understaffed
+                                      </Badge>
+                                    ) : row.vacancyRate !== null && row.vacancyRate <= 0 ? (
+                                      <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-xs border-0">
+                                        On Track
+                                      </Badge>
+                                    ) : (
+                                      <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 text-xs border-0">
+                                        Near Target
+                                      </Badge>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                              {consolidatedRows.length > 0 && (
+                                <tr className="bg-muted/60 border-t-2 font-semibold" data-testid="row-grand-total">
+                                  <td className="px-4 py-3">Grand Total</td>
+                                  <td className="px-4 py-3 text-right">{grandTarget}</td>
+                                  <td className="px-4 py-3 text-right">{grandActual}</td>
+                                  <td className={`px-4 py-3 text-right ${grandVariance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                                    {grandVariance > 0 ? `+${grandVariance}` : grandVariance}
+                                  </td>
+                                  <td className={`px-4 py-3 text-right ${grandVacancyRate !== null && grandVacancyRate > 0 ? "text-red-600 dark:text-red-400" : grandVacancyRate !== null && grandVacancyRate < 0 ? "text-green-600 dark:text-green-400" : ""}`}>
+                                    {grandVacancyRate === null ? "—" : `${grandVacancyRate.toFixed(1)}%`}
+                                  </td>
+                                  {hasAnyFte && <td className="px-4 py-3 text-right text-muted-foreground">{fmtFte(grandTargetFte)}</td>}
+                                  {hasAnyFte && <td className="px-4 py-3 text-right">{fmtFte(grandActualFte)}</td>}
+                                  <td />
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              );
+            })()}
           </TabsContent>
         </Tabs>
       )}
