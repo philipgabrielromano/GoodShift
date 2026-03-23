@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff, EyeOff, Eye, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, MoreHorizontal, Pencil, Trash2, MapPin, CalendarOff, EyeOff, Eye, ChevronDown, ChevronRight, Clock } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -286,6 +286,16 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           {employee.isHiddenFromSchedule && (
             <span className="text-xs text-muted-foreground">Hidden from schedule</span>
           )}
+          {employee.shiftPreference === 'morning_only' && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-0.5" title="Morning shifts only">
+              <Clock className="w-3 h-3" />Morning only
+            </span>
+          )}
+          {employee.shiftPreference === 'evening_only' && (
+            <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-0.5" title="Evening/closing shifts only">
+              <Clock className="w-3 h-3" />Evening only
+            </span>
+          )}
         </div>
       </div>
       <div className="text-sm truncate">{getJobTitle(employee.jobTitle)}</div>
@@ -495,6 +505,28 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
                 className="w-12 h-10 p-1"
               />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Shift Preference
+            </Label>
+            <Select
+              value={formData.shiftPreference ?? 'no_preference'}
+              onValueChange={val => setFormData({ ...formData, shiftPreference: val === 'no_preference' ? null : val })}
+            >
+              <SelectTrigger data-testid="select-shift-preference">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="no_preference">No preference</SelectItem>
+                <SelectItem value="morning_only">Morning only (opener / early shifts)</SelectItem>
+                <SelectItem value="evening_only">Afternoon / Evening only (mid / closing shifts)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Scheduler will only assign this employee to matching shift times.
+            </p>
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">

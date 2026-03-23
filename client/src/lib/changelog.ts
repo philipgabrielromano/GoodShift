@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.22.0";
+export const APP_VERSION = "1.23.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.23.0",
+    date: "2026-03-23",
+    title: "Shift Preference for Employees",
+    changes: [
+      { type: "feature", description: "Managers can now set a shift preference per employee: No preference, Morning only (opener/early), or Afternoon/Evening only (mid/closing). The auto-scheduler respects this when generating schedules." },
+      { type: "improvement", description: "Employees with a shift preference show a colored badge (amber for morning-only, blue for evening-only) under their name in the employee list." },
+    ],
+  },
   {
     version: "1.22.0",
     date: "2026-03-23",

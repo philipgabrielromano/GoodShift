@@ -570,6 +570,26 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         });
       };
 
+      // Shift preference enforcement:
+      //   morning_only  → shift must start at 8 or 9 AM on weekdays (opener/early9),
+      //                   or 10 AM on Sundays (the earliest possible Sunday slot).
+      //   evening_only  → shift must start at 10 AM or later (mid10, mid11, closer).
+      //   null / no_preference → no restriction.
+      const matchesShiftPreference = (emp: typeof employees[0], shiftStart: Date, dayIndex: number): boolean => {
+        const pref = emp.shiftPreference;
+        if (!pref || pref === 'no_preference') return true;
+        const startHour = shiftStart.getHours();
+        if (pref === 'morning_only') {
+          // Allow opener (8am) and early9 (9am) on weekdays; allow Sunday opener (10am = earliest)
+          return startHour <= 9 || (dayIndex === 0 && startHour === 10);
+        }
+        if (pref === 'evening_only') {
+          // Allow mid10 (10am), mid11 (11am), closer (12pm), Sunday closer (11am)
+          return startHour >= 10;
+        }
+        return true;
+      };
+
       // ========== LEADERSHIP SCHEDULING - TWO-PASS APPROACH ==========
       // Pass 1: Ensure EVERY day gets at least one higher-tier manager (store mgr or asst mgr)
       // Pass 2: Add second manager and team leads for full coverage
@@ -954,7 +974,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         if (pricerCount < targetPricers) {
           const availablePricers = sortByFewestProdShifts(
-            donationPricers.filter(p => canWorkFullShift(p, currentDay, dayIndex))
+            donationPricers.filter(p => canWorkFullShift(p, currentDay, dayIndex) && matchesShiftPreference(p, shifts.opener.start, dayIndex))
           );
           
           for (const pricer of availablePricers) {
@@ -978,7 +998,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         if (apparelCount < targetApparel) {
           const availableApparel = sortByFewestProdShifts(
-            apparelProcessors.filter(p => canWorkFullShift(p, currentDay, dayIndex))
+            apparelProcessors.filter(p => canWorkFullShift(p, currentDay, dayIndex) && matchesShiftPreference(p, shifts.opener.start, dayIndex))
           );
           
           for (const processor of availableApparel) {
@@ -1017,7 +1037,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         let pricerCount = morningPricerByDay.get(dayIndex) || 0;
         
         const extraPricers = sortByFewestProdShifts(
-          donationPricers.filter(p => canWorkFullShift(p, currentDay, dayIndex))
+          donationPricers.filter(p => canWorkFullShift(p, currentDay, dayIndex) && matchesShiftPreference(p, shifts.opener.start, dayIndex))
         );
         
         for (const pricer of extraPricers) {
@@ -1172,7 +1192,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         const shifts = getShiftTimes(currentDay);
         const availableGreeters = shuffleAndSort(
-          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex) && matchesShiftPreference(g, shifts.opener.start, dayIndex))
         );
         
         if (availableGreeters.length > 0) {
@@ -1198,7 +1218,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         const shifts = getShiftTimes(currentDay);
         const availableGreeters = shuffleAndSort(
-          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+          donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex) && matchesShiftPreference(g, shifts.closer.start, dayIndex))
         );
         
         if (availableGreeters.length > 0) {
@@ -1223,7 +1243,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         while (greetersByDay[dayIndex] < target) {
           const shifts = getShiftTimes(currentDay);
           const availableGreeters = shuffleAndSort(
-            donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex))
+            donorGreeters.filter(g => canWorkFullShift(g, currentDay, dayIndex) && matchesShiftPreference(g, shifts.mid10.start, dayIndex))
           );
           
           if (availableGreeters.length === 0) break;
@@ -1295,7 +1315,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         // Schedule opening cashiers (shuffled for variety)
         const openingTarget = Math.ceil(stillNeeded / 2);
         const availableOpeners = shuffleAndSort(
-          cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex))
+          cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex) && matchesShiftPreference(c, shifts.opener.start, dayIndex))
         );
         
         console.log(`[Scheduler] Cashier ${dayName}: openingTarget=${openingTarget}, availableOpeners=${availableOpeners.length}`);
@@ -1312,7 +1332,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         // Use stillNeeded minus openers we already scheduled
         const closingTarget = stillNeeded - openersScheduled;
         const availableClosers = shuffleAndSort(
-          cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex))
+          cashiers.filter(c => canWorkFullShift(c, currentDay, dayIndex) && matchesShiftPreference(c, shifts.closer.start, dayIndex))
         );
         
         console.log(`[Scheduler] Cashier ${dayName}: closingTarget=${closingTarget}, availableClosers=${availableClosers.length}`);
@@ -1399,21 +1419,25 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             
             if (isPartTime(emp)) {
               const bestShift = getBestShiftForPartTimer(emp, currentDay, dayIndex, shifts);
-              if (bestShift) {
+              if (bestShift && matchesShiftPreference(emp, bestShift.start, dayIndex)) {
                 scheduleShift(emp, bestShift.start, bestShift.end, dayIndex);
                 additionalAssigned[dayIndex]++;
                 phase2Progress = true;
                 break; // Move to next day
               }
             } else if (canWorkFullShift(emp, currentDay, dayIndex)) {
-              let shift;
+              let shiftOptions: { start: Date; end: Date }[];
               if (['DONPRI', 'DONPRWV', 'APPROC', 'APWV'].includes(emp.jobTitle)) {
-                shift = randomPick([shifts.opener, shifts.early9]);
+                shiftOptions = [shifts.opener, shifts.early9];
               } else if (['DONDOOR', 'WVDON'].includes(emp.jobTitle)) {
-                shift = randomPick([shifts.closer, shifts.mid11]);
+                shiftOptions = [shifts.closer, shifts.mid11];
               } else {
-                shift = randomPick(shiftRotation);
+                shiftOptions = shiftRotation;
               }
+              // Respect shift preference — only pick from slots that match
+              const validOptions = shiftOptions.filter(s => matchesShiftPreference(emp, s.start, dayIndex));
+              if (validOptions.length === 0) continue;
+              const shift = randomPick(validOptions);
               scheduleShift(emp, shift.start, shift.end, dayIndex);
               additionalAssigned[dayIndex]++;
               phase2Progress = true;
