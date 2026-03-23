@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.32.0";
+export const APP_VERSION = "1.33.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.33.0",
+    date: "2026-03-23",
+    title: "Removed Station Slot Configuration",
+    changes: [
+      { type: "improvement", description: "Station slot limits for apparel processing and donation pricing have been removed. The scheduler now distributes all available production staff evenly across the week without any cap — just equal coverage every day." },
+      { type: "improvement", description: "Locations page now only shows the weekly hours budget. The station limit inputs and columns are gone." },
+    ],
+  },
   {
     version: "1.32.0",
     date: "2026-03-23",

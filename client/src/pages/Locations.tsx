@@ -32,33 +32,22 @@ export default function Locations() {
   
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");
-  const [editingApparelStations, setEditingApparelStations] = useState<string>("");
-  const [editingDonationStations, setEditingDonationStations] = useState<string>("");
 
   const handleEdit = (location: Location) => {
     setEditingId(location.id);
     setEditingHours(location.weeklyHoursLimit.toString());
-    setEditingApparelStations((location.apparelProcessorStations ?? 0).toString());
-    setEditingDonationStations((location.donationPricingStations ?? 0).toString());
   };
 
   const handleSave = async (id: number) => {
     const hours = parseInt(editingHours);
-    const apparelStations = parseInt(editingApparelStations);
-    const donationStations = parseInt(editingDonationStations);
     
-    if (isNaN(hours) || hours < 0 || isNaN(apparelStations) || apparelStations < 0 || isNaN(donationStations) || donationStations < 0) {
-      toast({ variant: "destructive", title: "Invalid values", description: "Please enter valid numbers (0 or greater)." });
+    if (isNaN(hours) || hours < 0) {
+      toast({ variant: "destructive", title: "Invalid value", description: "Please enter a valid number of hours (0 or greater)." });
       return;
     }
     
     try {
-      await updateLocation.mutateAsync({ 
-        id, 
-        weeklyHoursLimit: hours,
-        apparelProcessorStations: apparelStations,
-        donationPricingStations: donationStations
-      });
+      await updateLocation.mutateAsync({ id, weeklyHoursLimit: hours });
       toast({ title: "Settings updated", description: "Store settings have been saved." });
       setEditingId(null);
     } catch (error) {
@@ -69,8 +58,6 @@ export default function Locations() {
   const handleCancel = () => {
     setEditingId(null);
     setEditingHours("");
-    setEditingApparelStations("");
-    setEditingDonationStations("");
   };
 
   const handleToggleActive = async (location: Location) => {
@@ -120,7 +107,7 @@ export default function Locations() {
             Store Locations
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Set weekly hours and station limits for each store.
+            Set the weekly hours budget for each store.
           </p>
         </div>
       </div>
@@ -150,7 +137,7 @@ export default function Locations() {
         <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-4">
           <CardTitle className="text-sm sm:text-base">Store Settings</CardTitle>
           <CardDescription className="text-xs sm:text-sm">
-            Configure hours budget and station limits per store (0 = unlimited).
+            Configure the weekly hours budget per store.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-3 sm:p-6 pt-0">
@@ -221,55 +208,21 @@ export default function Locations() {
                       </div>
                     </div>
                     {editingId === location.id ? (
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="space-y-1">
-                          <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
-                          <Input
-                            type="number"
-                            value={editingHours}
-                            onChange={(e) => setEditingHours(e.target.value)}
-                            min="0"
-                            className="h-8 text-sm"
-                            data-testid={`input-hours-${location.id}`}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[10px] text-muted-foreground">Apparel Stn</p>
-                          <Input
-                            type="number"
-                            value={editingApparelStations}
-                            onChange={(e) => setEditingApparelStations(e.target.value)}
-                            min="0"
-                            className="h-8 text-sm"
-                            data-testid={`input-apparel-stations-${location.id}`}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[10px] text-muted-foreground">Wares Stn</p>
-                          <Input
-                            type="number"
-                            value={editingDonationStations}
-                            onChange={(e) => setEditingDonationStations(e.target.value)}
-                            min="0"
-                            className="h-8 text-sm"
-                            data-testid={`input-donation-stations-${location.id}`}
-                          />
-                        </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
+                        <Input
+                          type="number"
+                          value={editingHours}
+                          onChange={(e) => setEditingHours(e.target.value)}
+                          min="0"
+                          className="h-8 text-sm w-28"
+                          data-testid={`input-hours-${location.id}`}
+                        />
                       </div>
                     ) : (
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        <div>
-                          <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
-                          <p className="font-mono font-medium">{location.weeklyHoursLimit}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-muted-foreground">Apparel Stn</p>
-                          <p className="font-mono font-medium">{location.apparelProcessorStations ?? 0}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-muted-foreground">Wares Stn</p>
-                          <p className="font-mono font-medium">{location.donationPricingStations ?? 0}</p>
-                        </div>
+                      <div className="text-xs">
+                        <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
+                        <p className="font-mono font-medium">{location.weeklyHoursLimit}</p>
                       </div>
                     )}
                   </div>
@@ -283,8 +236,6 @@ export default function Locations() {
                     <TableRow>
                       <TableHead>Store Name</TableHead>
                       <TableHead>Weekly Hours</TableHead>
-                      <TableHead>Apparel Stations</TableHead>
-                      <TableHead>Wares/Shoes Stations</TableHead>
                       {isAdmin && <TableHead>Status</TableHead>}
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -307,34 +258,6 @@ export default function Locations() {
                             />
                           ) : (
                             <span className="font-mono">{location.weeklyHoursLimit}</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {editingId === location.id ? (
-                            <Input
-                              type="number"
-                              value={editingApparelStations}
-                              onChange={(e) => setEditingApparelStations(e.target.value)}
-                              className="w-20"
-                              min="0"
-                              data-testid={`input-apparel-stations-${location.id}`}
-                            />
-                          ) : (
-                            <span className="font-mono">{location.apparelProcessorStations ?? 0}</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {editingId === location.id ? (
-                            <Input
-                              type="number"
-                              value={editingDonationStations}
-                              onChange={(e) => setEditingDonationStations(e.target.value)}
-                              className="w-20"
-                              min="0"
-                              data-testid={`input-donation-stations-${location.id}`}
-                            />
-                          ) : (
-                            <span className="font-mono">{location.donationPricingStations ?? 0}</span>
                           )}
                         </TableCell>
                         {isAdmin && (
