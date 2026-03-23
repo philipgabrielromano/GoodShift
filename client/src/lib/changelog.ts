@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.31.0";
+export const APP_VERSION = "1.32.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.32.0",
+    date: "2026-03-23",
+    title: "Even Daily Staffing for Pricing & Apparel",
+    changes: [
+      { type: "fix", description: "Donation pricing and apparel processing now schedule an equal number of people each day of the week. Previously the scheduler filled all stations for Sunday first, then Monday, Tuesday, etc. — which caused the same employees to burn through their days-per-week budget on early days, leaving Friday and Saturday short. The scheduler now uses a round-robin approach: it fills 'station 1' across all days (Saturday first for priority), then 'station 2' across all days, and so on. This distributes the workforce evenly before anyone hits their schedule limit." },
+    ],
+  },
   {
     version: "1.31.0",
     date: "2026-03-23",

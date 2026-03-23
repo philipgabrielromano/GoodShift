@@ -1010,14 +1010,16 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       // ========== TWO-PHASE PRODUCTION SCHEDULING ==========
       // PHASE 1: Fill ALL station slots for ALL days (up to max stations per day)
       // PHASE 2: If extra labor available, add additional shifts on Fri/Sat first
-      
-      // Use fixed order for Phase 1 to ensure ALL days get station coverage before anyone hits max hours
-      const phase1DayOrder = [0, 1, 2, 3, 4, 5, 6]; // Fixed order for station coverage
-      
+
       // Day order for Phase 2 extra shifts: Fri(5), Sat(6) FIRST, then others
       const phase2ExtraOrder = [5, 6, 0, 1, 2, 3, 4]; // Fri, Sat first for extra shifts
-      
-      console.log(`[Scheduler] Production scheduling: Phase 1 - Fill all station slots every day (Apparel=${maxApparelStations}, Pricers=${maxPricerStations})`);
+
+      // Saturday-first day order for Phase 1 round-robin.
+      // Processing Sat first ensures the busiest day always gets full staffing
+      // before employees hit their days-per-week limit.
+      const phase1DayOrder = [6, 5, 0, 1, 2, 3, 4]; // Sat, Fri, Sun, then weekdays
+
+      console.log(`[Scheduler] Production scheduling: Phase 1 - Round-robin fill (Apparel=${maxApparelStations}, Pricers=${maxPricerStations})`);
       
       // Initialize counts from existing template shifts
       for (const dayIndex of [0, 1, 2, 3, 4, 5, 6]) {
@@ -1032,65 +1034,79 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           console.log(`[Scheduler] Day ${dayIndex}: Found ${existingApparelShifts} existing apparel shift(s) from template`);
         }
       }
-      
-      // PHASE 1: Fill ALL station slots for ALL days
-      for (const dayIndex of phase1DayOrder) {
+
+      // PHASE 1 – ROUND-ROBIN: fill station 1 across every day, then station 2, etc.
+      // This prevents the same employees from being assigned to the first N sequential
+      // days until they run out of days-per-week budget, which would leave later days
+      // (especially Friday and Saturday) under-staffed.
+      const maxStations = Math.max(maxPricerStations, maxApparelStations);
+      for (let station = 0; station < maxStations; station++) {
+        for (const dayIndex of phase1DayOrder) {
+          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          if (isHoliday(currentDay)) continue;
+          const shifts = getShiftTimes(currentDay);
+
+          // ── PRICERS ──────────────────────────────────────────────────────────
+          if (station < maxPricerStations) {
+            let pricerCount = morningPricerByDay.get(dayIndex) || 0;
+            // Only fill this station if the day hasn't reached it yet
+            if (pricerCount === station) {
+              const available = sortByFewestProdShifts(
+                donationPricers.filter(p =>
+                  canWorkFullShift(p, currentDay, dayIndex) &&
+                  matchesShiftPreference(p, shifts.opener.start, dayIndex)
+                )
+              );
+              if (available.length > 0) {
+                const pricer = available[0];
+                scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
+                pricerCount++;
+                morningPricerByDay.set(dayIndex, pricerCount);
+                const ft = isPartTime(pricer) ? 'PT' : 'FT';
+                console.log(`[Scheduler] Pricer station ${station + 1} Day ${dayIndex}: ${ft} ${pricer.name} (total=${pricerCount}/${maxPricerStations}, days_so_far=${employeeState[pricer.id].daysWorked})`);
+              } else {
+                console.log(`[Scheduler] WARNING: Pricer station ${station + 1} Day ${dayIndex}: No staff available`);
+              }
+            }
+          }
+
+          // ── APPAREL PROCESSORS ───────────────────────────────────────────────
+          if (station < maxApparelStations) {
+            let apparelCount = morningApparelByDay.get(dayIndex) || 0;
+            if (apparelCount === station) {
+              const available = sortByFewestProdShifts(
+                apparelProcessors.filter(p =>
+                  canWorkFullShift(p, currentDay, dayIndex) &&
+                  matchesShiftPreference(p, shifts.opener.start, dayIndex)
+                )
+              );
+              if (available.length > 0) {
+                const processor = available[0];
+                // Alternate opener / early-9 times to avoid everyone starting at the same minute
+                const shift = apparelCount % 2 === 0 ? shifts.opener : shifts.early9;
+                scheduleShift(processor, shift.start, shift.end, dayIndex);
+                apparelCount++;
+                morningApparelByDay.set(dayIndex, apparelCount);
+                const ft = isPartTime(processor) ? 'PT' : 'FT';
+                console.log(`[Scheduler] Apparel station ${station + 1} Day ${dayIndex}: ${ft} ${processor.name} (total=${apparelCount}/${maxApparelStations}, days_so_far=${employeeState[processor.id].daysWorked})`);
+              } else {
+                console.log(`[Scheduler] WARNING: Apparel station ${station + 1} Day ${dayIndex}: No staff available`);
+              }
+            }
+          }
+        }
+      }
+
+      // Log any days that ended up short
+      for (const dayIndex of [0, 1, 2, 3, 4, 5, 6]) {
         const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        
-        // Skip holidays - store is closed on Easter, Thanksgiving, Christmas
-        const holidayName = isHoliday(currentDay);
-        if (holidayName) continue;
-        
-        const shifts = getShiftTimes(currentDay);
-        
-        // ========== DONATION/WARES PRICERS - FILL TO MAX STATIONS ==========
-        // Workers sorted by fewest days scheduled so far → equal distribution across the week
-        let pricerCount = morningPricerByDay.get(dayIndex) || 0;
-        const targetPricers = maxPricerStations;
-        
-        if (pricerCount < targetPricers) {
-          const availablePricers = sortByFewestProdShifts(
-            donationPricers.filter(p => canWorkFullShift(p, currentDay, dayIndex) && matchesShiftPreference(p, shifts.opener.start, dayIndex))
-          );
-          
-          for (const pricer of availablePricers) {
-            if (pricerCount >= targetPricers) break;
-            scheduleShift(pricer, shifts.opener.start, shifts.opener.end, dayIndex);
-            pricerCount++;
-            const ftLabel = isPartTime(pricer) ? 'PT' : 'FT';
-            console.log(`[Scheduler] Phase 1 Day ${dayIndex}: ${ftLabel} Pricer ${pricer.name} scheduled as opener (station ${pricerCount}/${targetPricers}, days_so_far=${employeeState[pricer.id].daysWorked})`);
-          }
-          
-          if (pricerCount < targetPricers) {
-            console.log(`[Scheduler] WARNING: Day ${dayIndex} only has ${pricerCount}/${targetPricers} pricers (not enough staff)`);
-          }
-        }
-        morningPricerByDay.set(dayIndex, pricerCount);
-        
-        // ========== APPAREL PROCESSORS - FILL TO MAX STATIONS ==========
-        // Workers sorted by fewest days scheduled so far → equal distribution across the week
-        let apparelCount = morningApparelByDay.get(dayIndex) || 0;
-        const targetApparel = maxApparelStations;
-        
-        if (apparelCount < targetApparel) {
-          const availableApparel = sortByFewestProdShifts(
-            apparelProcessors.filter(p => canWorkFullShift(p, currentDay, dayIndex) && matchesShiftPreference(p, shifts.opener.start, dayIndex))
-          );
-          
-          for (const processor of availableApparel) {
-            if (apparelCount >= targetApparel) break;
-            const shift = apparelCount % 2 === 0 ? shifts.opener : shifts.early9;
-            scheduleShift(processor, shift.start, shift.end, dayIndex);
-            apparelCount++;
-            const ftLabel = isPartTime(processor) ? 'PT' : 'FT';
-            console.log(`[Scheduler] Phase 1 Day ${dayIndex}: ${ftLabel} Apparel ${processor.name} scheduled (station ${apparelCount}/${targetApparel}, days_so_far=${employeeState[processor.id].daysWorked})`);
-          }
-          
-          if (apparelCount < targetApparel) {
-            console.log(`[Scheduler] WARNING: Day ${dayIndex} only has ${apparelCount}/${targetApparel} apparel processors (not enough staff)`);
-          }
-        }
-        morningApparelByDay.set(dayIndex, apparelCount);
+        if (isHoliday(currentDay)) continue;
+        const pCount = morningPricerByDay.get(dayIndex) || 0;
+        const aCount = morningApparelByDay.get(dayIndex) || 0;
+        if (pCount < maxPricerStations)
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} short on pricers: ${pCount}/${maxPricerStations}`);
+        if (aCount < maxApparelStations)
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} short on apparel: ${aCount}/${maxApparelStations}`);
       }
       
       console.log(`[Scheduler] Production scheduling: Phase 2 - Extra shifts beyond stations (Fri/Sat first)`);
