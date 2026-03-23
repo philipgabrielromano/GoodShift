@@ -14,154 +14,19 @@ export const changelog: ChangelogEntry[] = [
   {
     version: "1.34.0",
     date: "2026-03-23",
-    title: "Leadership Scheduling Overhaul",
+    title: "Scheduler Overhaul, Shift Preferences, FTE Roster & Station Removal",
     changes: [
-      { type: "fix", description: "Fixed a bug where two team leads could be scheduled as openers with no closer. Team leads can only open if a higher-tier manager (store manager or assistant manager) is confirmed to close, and vice versa. This constraint is now enforced across all scheduling passes." },
-      { type: "fix", description: "Fixed a missing 'hasHigherTier' flag in Pass 2 that could prevent team leads from being scheduled even when a store or assistant manager was already placed on the same day." },
-      { type: "improvement", description: "Higher-tier managers are now prioritized for days where team leads already have shifts (from fixed schedules or templates). Previously, random day ordering could cause all higher-tier managers to be placed on other days first, leaving team leads without the required supervision." },
-      { type: "improvement", description: "When a team lead already covers an opener or closer slot, the scheduler now puts the higher-tier manager in the opposite slot automatically, instead of choosing randomly." },
-      { type: "improvement", description: "Random days off for higher-tier managers now avoid team-lead-dependent days, so a store manager won't randomly be given a day off on a day where a team lead needs their presence." },
-      { type: "improvement", description: "Template team lead shifts are now tracked in the coverage system so the scheduler knows a team lead is already placed and can complement them with a higher-tier manager." },
-    ],
-  },
-  {
-    version: "1.33.0",
-    date: "2026-03-23",
-    title: "Removed Station Slot Configuration",
-    changes: [
-      { type: "improvement", description: "Station slot limits for apparel processing and donation pricing have been removed. The scheduler now distributes all available production staff evenly across the week without any cap — just equal coverage every day." },
-      { type: "improvement", description: "Locations page now only shows the weekly hours budget. The station limit inputs and columns are gone." },
-    ],
-  },
-  {
-    version: "1.32.0",
-    date: "2026-03-23",
-    title: "Even Daily Staffing for Pricing & Apparel",
-    changes: [
-      { type: "fix", description: "Donation pricing and apparel processing now schedule an equal number of people each day of the week. Previously the scheduler filled all stations for Sunday first, then Monday, Tuesday, etc. — which caused the same employees to burn through their days-per-week budget on early days, leaving Friday and Saturday short. The scheduler now uses a round-robin approach: it fills 'station 1' across all days (Saturday first for priority), then 'station 2' across all days, and so on. This distributes the workforce evenly before anyone hits their schedule limit." },
-    ],
-  },
-  {
-    version: "1.31.0",
-    date: "2026-03-23",
-    title: "Full Fixed-Shift Slot Awareness for All Roles",
-    changes: [
-      { type: "improvement", description: "Extended slot-aware scheduling to greeters and cashiers. Previously, a fixed-shift greeter working a closing shift could cause the opener slot to be skipped entirely (and vice versa). Now the scheduler reads each fixed-shift employee's actual start time to determine which slot they fill, then seeks the correct complementary coverage. For example, a greeter fixed at noon → the scheduler will still go find a morning opener." },
-      { type: "improvement", description: "Cashier opener/closer split now accounts for fixed-shift cashiers. Instead of naively splitting 'still needed' 50/50, the scheduler subtracts confirmed fixed-shift openers from the opener target and confirmed fixed-shift closers from the closer target, producing the right balance." },
-      { type: "improvement", description: "Manager fixed-shift slot awareness (from v1.30.0) is extended with a shared helper used consistently across all roles." },
-    ],
-  },
-  {
-    version: "1.30.0",
-    date: "2026-03-23",
-    title: "Smarter Scheduling Around Fixed Shifts (Managers)",
-    changes: [
-      { type: "improvement", description: "The auto-scheduler now understands what slot a fixed-shift manager actually fills. Previously it could only see 'a manager exists on this day' — now it reads their exact start time to determine opener (≤9am), mid (10am), or closer (≥11am). This means if your store manager has a fixed opener shift, the scheduler correctly knows to find a separate closer, rather than assuming both ends are covered." },
-      { type: "improvement", description: "Fixed-shift managers are excluded from the generic template coverage check and tracked precisely by their actual times, preventing incorrect coverage assumptions for non-fixed template shifts on the same day." },
-    ],
-  },
-  {
-    version: "1.29.0",
-    date: "2026-03-23",
-    title: "Fixed Shift Coverage Fix",
-    changes: [
-      { type: "fix", description: "Fixed a bug where managers set to 'Fixed shift' were not being counted toward opener/closer coverage requirements, causing other days to appear uncovered or without any manager. Fixed-shift managers are now correctly recognised by the coverage tracker before the regular leadership scheduling runs." },
-    ],
-  },
-  {
-    version: "1.28.0",
-    date: "2026-03-23",
-    title: "Fixed Shift Times — Exact Schedule",
-    changes: [
-      { type: "feature", description: "Fixed shift employees now get their exact times stamped directly onto every working day — no slot matching. Set 'Fixed shift' on an employee, enter their start and end time (e.g. 08:00 – 16:30), and the scheduler will assign those precise times each day, respecting only time-off requests, non-working days, and their preferred days per week." },
-      { type: "improvement", description: "Fixed-shift employees cannot be double-booked by any regular scheduling pass." },
-    ],
-  },
-  {
-    version: "1.27.0",
-    date: "2026-03-23",
-    title: "Fixed Shift Times for Employees",
-    changes: [
-      { type: "feature", description: "Added 'Fixed shift' option to Shift Preference with start/end time pickers. Times display in the employee list badge." },
-    ],
-  },
-  {
-    version: "1.26.0",
-    date: "2026-03-23",
-    title: "Shift Preference as a Scheduler Constraint",
-    changes: [
-      { type: "improvement", description: "Shift Preference is now a dropdown (Openers only / Closers only / No preference) instead of a free-text note. The selected value is enforced as a hard constraint by the auto-scheduler — employees marked 'Openers only' will never be assigned a closing shift, and vice versa." },
-    ],
-  },
-  {
-    version: "1.25.0",
-    date: "2026-03-23",
-    title: "FTE Report Always Shows Actual Staffing",
-    changes: [
-      { type: "fix", description: "The FTE Report now shows actual FTE for every job code present at the location — no targets required. Previously the report was blank unless target FTE values had been saved. Job codes without a target now show a 'No Target' status badge." },
-      { type: "fix", description: "The All Locations consolidated report now shows actual FTE for every location with employees, not just those with targets configured." },
-    ],
-  },
-  {
-    version: "1.24.0",
-    date: "2026-03-23",
-    title: "Roster FTE Save Fix",
-    changes: [
-      { type: "fix", description: "Fixed a bug where saving FTE targets more than once would silently discard the updated value. The first save worked, but any edits afterward were lost. Targets now persist correctly on every save." },
-    ],
-  },
-  {
-    version: "1.23.0",
-    date: "2026-03-23",
-    title: "Shift Preference for Employees",
-    changes: [
-      { type: "feature", description: "Managers can now set a shift preference per employee: No preference, Morning only (opener/early), or Afternoon/Evening only (mid/closing). The auto-scheduler respects this when generating schedules." },
-      { type: "improvement", description: "Employees with a shift preference show a colored badge (amber for morning-only, blue for evening-only) under their name in the employee list." },
-    ],
-  },
-  {
-    version: "1.22.0",
-    date: "2026-03-23",
-    title: "Equal Production Scheduling",
-    changes: [
-      { type: "improvement", description: "The auto-scheduler now distributes apparel processors and donation pricers equally across all 7 days. Workers with the fewest shifts so far are always selected first, preventing clustering at the start of the week." },
-    ],
-  },
-  {
-    version: "1.21.0",
-    date: "2026-03-23",
-    title: "Employee-Driven Actual FTE",
-    changes: [
-      { type: "improvement", description: "Actual FTE is now calculated directly from each employee's configured max weekly hours (max hours ÷ 40), not a manual rate. A 40h employee = 1.00 FTE, a 29h employee = 0.725 FTE, etc." },
-      { type: "improvement", description: "Targets tab simplified to a single input per job title: Target FTE. No manual FTE rate entry needed." },
-    ],
-  },
-  {
-    version: "1.20.0",
-    date: "2026-03-23",
-    title: "FTE-Only Roster Mode",
-    changes: [
-      { type: "improvement", description: "Roster is now fully FTE-centric — no headcount columns. Targets tab has two inputs per job: Target FTE (the staffing goal in FTE units) and FTE Rate per employee (e.g. 0.73 for 29h, 1.00 for 40h)." },
-      { type: "improvement", description: "FTE Report and All Locations tabs now show only FTE data: Target FTE, Actual FTE, FTE Variance, and Vacancy Rate. Headcount columns removed throughout." },
-    ],
-  },
-  {
-    version: "1.19.0",
-    date: "2026-03-23",
-    title: "Consolidated Roster Report",
-    changes: [
-      { type: "feature", description: "Added a new 'All Locations' tab on the Roster page showing every location in a single view with Target, Actual, Variance, Vacancy Rate, and FTE columns." },
-      { type: "feature", description: "Vacancy Rate per location is shown as a percentage of unfilled positions relative to target headcount, color-coded red (understaffed), yellow (near target), or green (on track). A grand total row summarizes across all locations." },
-      { type: "feature", description: "Summary cards at the top of the Consolidated tab show overall Total Target, Total Active, Overall Vacancy Rate (with position count), and total FTE (when configured)." },
-    ],
-  },
-  {
-    version: "1.18.0",
-    date: "2026-03-23",
-    title: "FTE Tracking on Roster",
-    changes: [
-      { type: "feature", description: "Managers can now enter an FTE (Full Time Equivalent) value per job title on the Roster Targets page — e.g. 1.00 for a 40-hour role, 0.73 for a 29-hour role." },
-      { type: "feature", description: "The Roster Report now shows Target FTE and Actual FTE columns per job title, calculated as headcount × FTE value. Summary cards for total Target FTE, Actual FTE, and FTE Variance appear when FTE values are configured." },
+      { type: "feature", description: "Shift Preference — employees can be set to 'Morning only', 'Evening only', 'Fixed shift', or 'No preference'. The auto-scheduler enforces these as hard constraints. Fixed-shift employees get their exact configured start/end times every working day." },
+      { type: "feature", description: "FTE tracking on the Roster page. Managers set a Target FTE per job title; Actual FTE is auto-calculated from each employee's max weekly hours (hours ÷ 40). A consolidated 'All Locations' tab shows Target FTE, Actual FTE, Variance, and Vacancy Rate across every store." },
+      { type: "fix", description: "Fixed a critical leadership scheduling bug where two team leads could be scheduled as openers with no closer. Team leads can now only open if a higher-tier manager (store manager or assistant manager) is confirmed to close that day, and vice versa. This constraint is enforced across all scheduling passes." },
+      { type: "fix", description: "Fixed-shift managers and team leads are now correctly recognized by the coverage tracker. The scheduler reads each fixed-shift employee's actual start time to determine opener (≤9am), mid (10am), or closer (≥11am), and places the complementary higher-tier manager in the opposite slot automatically." },
+      { type: "fix", description: "Production staffing (apparel processors and donation pricers) now distributes evenly across all 7 days using a Saturday-first round-robin. Previously, the scheduler filled Sunday first, then Monday, etc., which left Friday and Saturday short." },
+      { type: "fix", description: "FTE Report now shows actual FTE for every job code present at the location — no targets required. Previously blank unless targets had been saved." },
+      { type: "fix", description: "Fixed a bug where saving FTE targets more than once would silently discard the updated value." },
+      { type: "improvement", description: "Station slot limits for apparel processing and donation pricing have been removed. The scheduler distributes all available production staff evenly across the week with no cap. The Locations page now only shows the weekly hours budget." },
+      { type: "improvement", description: "Higher-tier managers are prioritized for days where team leads already have shifts. Random days off for store/assistant managers now avoid team-lead-dependent days." },
+      { type: "improvement", description: "Extended slot-aware scheduling to greeters and cashiers. The scheduler reads each fixed-shift employee's actual start time to determine which slot they fill, then seeks the correct complementary coverage." },
+      { type: "improvement", description: "Cashier opener/closer split now accounts for fixed-shift cashiers, subtracting confirmed fixed openers/closers from the targets before splitting the remainder." },
     ],
   },
   {
