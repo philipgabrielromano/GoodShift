@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.33.0";
+export const APP_VERSION = "1.34.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.34.0",
+    date: "2026-03-23",
+    title: "Leadership Scheduling Overhaul",
+    changes: [
+      { type: "fix", description: "Fixed a bug where two team leads could be scheduled as openers with no closer. Team leads can only open if a higher-tier manager (store manager or assistant manager) is confirmed to close, and vice versa. This constraint is now enforced across all scheduling passes." },
+      { type: "fix", description: "Fixed a missing 'hasHigherTier' flag in Pass 2 that could prevent team leads from being scheduled even when a store or assistant manager was already placed on the same day." },
+      { type: "improvement", description: "Higher-tier managers are now prioritized for days where team leads already have shifts (from fixed schedules or templates). Previously, random day ordering could cause all higher-tier managers to be placed on other days first, leaving team leads without the required supervision." },
+      { type: "improvement", description: "When a team lead already covers an opener or closer slot, the scheduler now puts the higher-tier manager in the opposite slot automatically, instead of choosing randomly." },
+      { type: "improvement", description: "Random days off for higher-tier managers now avoid team-lead-dependent days, so a store manager won't randomly be given a day off on a day where a team lead needs their presence." },
+      { type: "improvement", description: "Template team lead shifts are now tracked in the coverage system so the scheduler knows a team lead is already placed and can complement them with a higher-tier manager." },
+    ],
+  },
   {
     version: "1.33.0",
     date: "2026-03-23",
