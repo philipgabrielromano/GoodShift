@@ -821,6 +821,9 @@ export default function Schedule() {
         const palKey = `${emp.id}-${dateStr}`;
         const palEntry = palByEmpDate.get(palKey);
         
+        const unpaidKey = `${emp.id}-${dateStr}`;
+        const unpaidEntry = unpaidByEmpDate.get(unpaidKey);
+        
         if (dayShifts.length > 0) {
           const shiftStrings = dayShifts.map(s => {
             const start = new Date(s.startTime);
@@ -835,6 +838,9 @@ export default function Schedule() {
         if (palEntry) {
           weeklyHours += palEntry.hoursDecimal;
           return "PAL";
+        }
+        if (unpaidEntry) {
+          return "REQUEST OFF";
         }
         return "-";
       });
