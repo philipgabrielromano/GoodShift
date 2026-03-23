@@ -25,7 +25,6 @@ interface Location {
 
 interface RosterReportRow {
   jobCode: string;
-  fteValue: number | null;
   targetFte: number | null;
   actualFte: number | null;
   fteVariance: number | null;
@@ -100,7 +99,6 @@ export default function Roster() {
   const { toast } = useToast();
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
   const [targetFteDrafts, setTargetFteDrafts] = useState<Record<string, string>>({});
-  const [fteRateDrafts, setFteRateDrafts] = useState<Record<string, string>>({});
 
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
@@ -155,13 +153,10 @@ export default function Roster() {
   // Sync drafts from saved targets
   useEffect(() => {
     const tDrafts: Record<string, string> = {};
-    const rDrafts: Record<string, string> = {};
     for (const t of targets) {
       if (t.targetFte != null) tDrafts[t.jobCode] = String(t.targetFte);
-      if (t.fteValue != null) rDrafts[t.jobCode] = String(t.fteValue);
     }
     setTargetFteDrafts(tDrafts);
-    setFteRateDrafts(rDrafts);
   }, [targets]);
 
   const upsertMutation = useMutation({
@@ -177,20 +172,15 @@ export default function Roster() {
 
   const handleSaveAll = async () => {
     if (!selectedLocationId) return;
-    const allCodes = Array.from(new Set([
-      ...Object.keys(targetFteDrafts),
-      ...Object.keys(fteRateDrafts),
-    ])).filter(code => targetFteDrafts[code] || fteRateDrafts[code]);
+    const allCodes = Object.keys(targetFteDrafts).filter(code => targetFteDrafts[code]);
 
     let saved = 0;
     let failed = 0;
     for (const jobCode of allCodes) {
       const tVal = targetFteDrafts[jobCode];
-      const rVal = fteRateDrafts[jobCode];
       const targetFte = tVal && !isNaN(Number(tVal)) ? parseFloat(tVal) : null;
-      const fteValue = rVal && !isNaN(Number(rVal)) ? parseFloat(rVal) : null;
       try {
-        await upsertMutation.mutateAsync({ locationId: selectedLocationId, jobCode, targetCount: 0, targetFte, fteValue });
+        await upsertMutation.mutateAsync({ locationId: selectedLocationId, jobCode, targetCount: 0, targetFte, fteValue: null });
         saved++;
       } catch {
         failed++;
@@ -279,8 +269,8 @@ export default function Roster() {
               <CardHeader>
                 <CardTitle>FTE Targets</CardTitle>
                 <CardDescription>
-                  For each job title at {selectedLocationName}, set the <strong>Target FTE</strong> (the staffing goal)
-                  and the <strong>FTE Rate</strong> (how many FTE each active employee represents — e.g. 0.73 = 29h/wk, 1.00 = 40h/wk).
+                  Set the <strong>Target FTE</strong> for each job title at {selectedLocationName}.
+                  Actual FTE is calculated automatically from each employee's configured max weekly hours (max hours ÷ 40).
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -295,8 +285,7 @@ export default function Roster() {
                         <thead className="bg-muted/50">
                           <tr>
                             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Title</th>
-                            <th className="px-4 py-3 text-left font-medium text-muted-foreground w-40">Target FTE</th>
-                            <th className="px-4 py-3 text-left font-medium text-muted-foreground w-40">FTE Rate / Employee</th>
+                            <th className="px-4 py-3 text-left font-medium text-muted-foreground w-44">Target FTE</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -312,24 +301,11 @@ export default function Roster() {
                                   type="number"
                                   min={0}
                                   step={0.01}
-                                  className="w-28 h-8"
+                                  className="w-32 h-8"
                                   data-testid={`input-target-fte-${code}`}
                                   value={targetFteDrafts[code] ?? ""}
                                   onChange={(e) => setTargetFteDrafts(prev => ({ ...prev, [code]: e.target.value }))}
                                   placeholder="e.g. 12.50"
-                                />
-                              </td>
-                              <td className="px-4 py-2">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={2}
-                                  step={0.01}
-                                  className="w-28 h-8"
-                                  data-testid={`input-fte-rate-${code}`}
-                                  value={fteRateDrafts[code] ?? ""}
-                                  onChange={(e) => setFteRateDrafts(prev => ({ ...prev, [code]: e.target.value }))}
-                                  placeholder="e.g. 0.73"
                                 />
                               </td>
                             </tr>
@@ -395,7 +371,7 @@ export default function Roster() {
             <Card>
               <CardHeader>
                 <CardTitle>FTE Report — {selectedLocationName}</CardTitle>
-                <CardDescription>Target FTE vs. actual FTE (active headcount × FTE rate) by job title.</CardDescription>
+                <CardDescription>Target FTE vs. actual FTE (sum of max weekly hours ÷ 40 per active employee) by job title.</CardDescription>
               </CardHeader>
               <CardContent>
                 {reportLoading ? (
@@ -412,7 +388,6 @@ export default function Roster() {
                       <thead className="bg-muted/50">
                         <tr>
                           <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Title</th>
-                          <th className="px-4 py-3 text-right font-medium text-muted-foreground">FTE Rate</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target FTE</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual FTE</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Variance</th>
@@ -427,7 +402,6 @@ export default function Roster() {
                             data-testid={`row-report-${row.jobCode}`}
                           >
                             <td className="px-4 py-2">{getLabel(row.jobCode)}</td>
-                            <td className="px-4 py-2 text-right text-muted-foreground">{fmtFte(row.fteValue)}</td>
                             <td className="px-4 py-2 text-right">{fmtFte(row.targetFte)}</td>
                             <td className="px-4 py-2 text-right font-medium">{fmtFte(row.actualFte)}</td>
                             <td className="px-4 py-2 text-right"><VarianceBadge v={row.fteVariance} /></td>

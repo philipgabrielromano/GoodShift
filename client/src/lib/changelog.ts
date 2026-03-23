@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.20.0";
+export const APP_VERSION = "1.21.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.21.0",
+    date: "2026-03-23",
+    title: "Employee-Driven Actual FTE",
+    changes: [
+      { type: "improvement", description: "Actual FTE is now calculated directly from each employee's configured max weekly hours (max hours ÷ 40), not a manual rate. A 40h employee = 1.00 FTE, a 29h employee = 0.725 FTE, etc." },
+      { type: "improvement", description: "Targets tab simplified to a single input per job title: Target FTE. No manual FTE rate entry needed." },
+    ],
+  },
   {
     version: "1.20.0",
     date: "2026-03-23",

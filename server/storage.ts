@@ -110,7 +110,7 @@ export interface IStorage {
   // Roster Targets
   getRosterTargets(locationId: number): Promise<RosterTarget[]>;
   upsertRosterTarget(data: InsertRosterTarget): Promise<RosterTarget>;
-  getRosterReport(locationId: number): Promise<{ jobCode: string; fteValue: number | null; targetFte: number | null; actualFte: number | null; fteVariance: number | null }[]>;
+  getRosterReport(locationId: number): Promise<{ jobCode: string; targetFte: number | null; actualFte: number | null; fteVariance: number | null }[]>;
   getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTargetFte: number | null; totalActualFte: number | null; fteVariance: number | null; vacancyRate: number | null }[]>;
 
   // Occurrences
@@ -609,30 +609,31 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getRosterReport(locationId: number): Promise<{ jobCode: string; fteValue: number | null; targetFte: number | null; actualFte: number | null; fteVariance: number | null }[]> {
+  async getRosterReport(locationId: number): Promise<{ jobCode: string; targetFte: number | null; actualFte: number | null; fteVariance: number | null }[]> {
     const targets = await db.select().from(rosterTargets).where(eq(rosterTargets.locationId, locationId));
-    const activeCounts = await db.execute(sql`
-      SELECT job_title AS job_code, COUNT(*)::int AS actual_count
+    // Actual FTE = SUM(max_weekly_hours / 40) per job title — directly from employee configuration
+    const actuals = await db.execute(sql`
+      SELECT job_title AS job_code,
+             ROUND(SUM(max_weekly_hours / 40.0)::numeric, 2)::float AS actual_fte
       FROM employees
       WHERE is_active = true
         AND (is_hidden_from_schedule IS NULL OR is_hidden_from_schedule = false)
         AND location = (SELECT name FROM locations WHERE id = ${locationId})
       GROUP BY job_title
     `);
-    const actualCountMap = new Map<string, number>();
-    for (const row of activeCounts.rows as { job_code: string; actual_count: number }[]) {
-      actualCountMap.set(row.job_code, row.actual_count);
+    const actualFteMap = new Map<string, number>();
+    for (const row of actuals.rows as { job_code: string; actual_fte: number }[]) {
+      actualFteMap.set(row.job_code, row.actual_fte);
     }
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    // Only return rows that have at least an FTE rate or a target FTE configured
+    // Only show rows that have a target FTE set
     const rows = targets
-      .filter(t => t.fteValue != null || t.targetFte != null)
+      .filter(t => t.targetFte != null)
       .map(t => {
-        const actualCount = actualCountMap.get(t.jobCode) ?? 0;
-        const actualFte = t.fteValue != null ? round2(actualCount * t.fteValue) : null;
-        const targetFte = t.targetFte != null ? round2(t.targetFte) : null;
-        const fteVariance = actualFte != null && targetFte != null ? round2(actualFte - targetFte) : null;
-        return { jobCode: t.jobCode, fteValue: t.fteValue ?? null, targetFte, actualFte, fteVariance };
+        const actualFte = actualFteMap.has(t.jobCode) ? round2(actualFteMap.get(t.jobCode)!) : 0;
+        const targetFte = round2(t.targetFte!);
+        const fteVariance = round2(actualFte - targetFte);
+        return { jobCode: t.jobCode, targetFte, actualFte, fteVariance };
       });
     return rows.sort((a, b) => a.jobCode.localeCompare(b.jobCode));
   }
@@ -648,12 +649,13 @@ export class DatabaseStorage implements IStorage {
       ORDER BY name
     `);
 
-    // All roster targets that have FTE data configured
+    // All roster targets that have a target FTE set
     const allTargets = await db.select().from(rosterTargets);
 
-    // Active non-hidden employee counts by (location_id, job_title)
+    // Actual FTE per (location, job_title) = SUM(max_weekly_hours / 40) from employee config
     const empRows = await db.execute(sql`
-      SELECT l.id AS location_id, e.job_title, COUNT(e.id)::int AS cnt
+      SELECT l.id AS location_id, e.job_title,
+             ROUND(SUM(e.max_weekly_hours / 40.0)::numeric, 2)::float AS actual_fte
       FROM employees e
       JOIN locations l ON l.name = e.location
       WHERE e.is_active = true
@@ -662,9 +664,9 @@ export class DatabaseStorage implements IStorage {
       GROUP BY l.id, e.job_title
     `);
 
-    const empCountMap = new Map<string, number>();
-    for (const row of empRows.rows as { location_id: number; job_title: string; cnt: number }[]) {
-      empCountMap.set(`${row.location_id}:${row.job_title}`, row.cnt);
+    const empFteMap = new Map<string, number>(); // "locationId:jobTitle" -> actual FTE
+    for (const row of empRows.rows as { location_id: number; job_title: string; actual_fte: number }[]) {
+      empFteMap.set(`${row.location_id}:${row.job_title}`, row.actual_fte);
     }
 
     const targetsByLocation = new Map<number, typeof allTargets>();
@@ -675,17 +677,16 @@ export class DatabaseStorage implements IStorage {
 
     return (locRows.rows as { id: number; name: string }[]).map(loc => {
       const targets = targetsByLocation.get(loc.id) ?? [];
-      const fteTargets = targets.filter(t => t.targetFte != null || t.fteValue != null);
+      const fteTargets = targets.filter(t => t.targetFte != null);
 
       if (fteTargets.length === 0) {
         return { locationId: loc.id, locationName: loc.name, totalTargetFte: null, totalActualFte: null, fteVariance: null, vacancyRate: null };
       }
 
       const totalTargetFte = round2(fteTargets.reduce((s, t) => s + (t.targetFte ?? 0), 0));
+      // Actual FTE = sum of (max_weekly_hours / 40) for employees in each targeted job code
       const totalActualFte = round2(fteTargets.reduce((s, t) => {
-        if (t.fteValue == null) return s;
-        const cnt = empCountMap.get(`${loc.id}:${t.jobCode}`) ?? 0;
-        return s + cnt * t.fteValue;
+        return s + (empFteMap.get(`${loc.id}:${t.jobCode}`) ?? 0);
       }, 0));
       const fteVariance = round2(totalActualFte - totalTargetFte);
       const vacancyRate = totalTargetFte > 0 ? round2((totalTargetFte - totalActualFte) / totalTargetFte * 100) : null;

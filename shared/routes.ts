@@ -470,7 +470,6 @@ export const api = {
       responses: {
         200: z.array(z.object({
           jobCode: z.string(),
-          fteValue: z.number().nullable(),
           targetFte: z.number().nullable(),
           actualFte: z.number().nullable(),
           fteVariance: z.number().nullable(),
