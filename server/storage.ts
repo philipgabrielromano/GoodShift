@@ -608,7 +608,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number }[]> {
+  async getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number; fteValue: number | null; actualFte: number | null; targetFte: number | null }[]> {
     const targets = await db.select().from(rosterTargets).where(eq(rosterTargets.locationId, locationId));
     const activeCounts = await db.execute(sql`
       SELECT job_title AS job_code, COUNT(*)::int AS actual_count
@@ -623,14 +623,20 @@ export class DatabaseStorage implements IStorage {
       actualMap.set(row.job_code, row.actual_count);
     }
     const targetMap = new Map<string, number>();
+    const fteMap = new Map<string, number | null>();
     for (const t of targets) {
       targetMap.set(t.jobCode, t.targetCount);
+      fteMap.set(t.jobCode, t.fteValue ?? null);
     }
     const allCodes = new Set([...targetMap.keys(), ...actualMap.keys()]);
     return Array.from(allCodes).map(jobCode => {
       const targetCount = targetMap.get(jobCode) ?? 0;
       const actualCount = actualMap.get(jobCode) ?? 0;
-      return { jobCode, targetCount, actualCount, variance: actualCount - targetCount };
+      const fteValue = fteMap.get(jobCode) ?? null;
+      const round2 = (n: number) => Math.round(n * 100) / 100;
+      const actualFte = fteValue !== null ? round2(actualCount * fteValue) : null;
+      const targetFte = fteValue !== null ? round2(targetCount * fteValue) : null;
+      return { jobCode, targetCount, actualCount, variance: actualCount - targetCount, fteValue, actualFte, targetFte };
     }).sort((a, b) => a.jobCode.localeCompare(b.jobCode));
   }
 

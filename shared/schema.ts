@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -205,6 +205,7 @@ export const rosterTargets = pgTable("roster_targets", {
   locationId: integer("location_id").notNull(),
   jobCode: text("job_code").notNull(),
   targetCount: integer("target_count").notNull().default(0),
+  fteValue: real("fte_value"), // FTE equivalent per employee in this role, e.g. 1.0 = 40h, 0.725 = 29h
 }, (table) => ({
   locationJobIdx: uniqueIndex("roster_targets_location_job_idx").on(table.locationId, table.jobCode),
 }));

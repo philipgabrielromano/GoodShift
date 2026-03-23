@@ -28,6 +28,9 @@ interface RosterReportRow {
   targetCount: number;
   actualCount: number;
   variance: number;
+  fteValue: number | null;
+  actualFte: number | null;
+  targetFte: number | null;
 }
 
 const JOB_CODE_LABELS: Record<string, string> = {
@@ -71,10 +74,16 @@ function getLabel(code: string): string {
   return JOB_CODE_LABELS[code] ?? code;
 }
 
+function fmtFte(val: number | null): string {
+  if (val === null) return "—";
+  return val.toFixed(2);
+}
+
 export default function Roster() {
   const { toast } = useToast();
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
   const [targetDrafts, setTargetDrafts] = useState<Record<string, string>>({});
+  const [fteDrafts, setFteDrafts] = useState<Record<string, string>>({});
 
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
@@ -118,15 +127,18 @@ export default function Roster() {
   });
 
   useEffect(() => {
-    const drafts: Record<string, string> = {};
+    const tDrafts: Record<string, string> = {};
+    const fDrafts: Record<string, string> = {};
     for (const t of targets) {
-      drafts[t.jobCode] = String(t.targetCount);
+      tDrafts[t.jobCode] = String(t.targetCount);
+      if (t.fteValue != null) fDrafts[t.jobCode] = String(t.fteValue);
     }
-    setTargetDrafts(drafts);
+    setTargetDrafts(tDrafts);
+    setFteDrafts(fDrafts);
   }, [targets]);
 
   const upsertMutation = useMutation({
-    mutationFn: async (data: { locationId: number; jobCode: string; targetCount: number }) => {
+    mutationFn: async (data: { locationId: number; jobCode: string; targetCount: number; fteValue?: number | null }) => {
       return apiRequest("POST", "/api/roster-targets", data);
     },
     onSuccess: () => {
@@ -137,23 +149,29 @@ export default function Roster() {
 
   const handleSaveAll = async () => {
     if (!selectedLocationId) return;
-    const entries = Object.entries(targetDrafts).filter(([, v]) => v !== "" && !isNaN(Number(v)));
+    const allCodes = Array.from(new Set([
+      ...Object.keys(targetDrafts).filter(k => targetDrafts[k] !== "" && !isNaN(Number(targetDrafts[k]))),
+      ...Object.keys(fteDrafts).filter(k => fteDrafts[k] !== "" && !isNaN(Number(fteDrafts[k]))),
+    ]));
     let saved = 0;
     let failed = 0;
-    for (const [jobCode, val] of entries) {
+    for (const jobCode of allCodes) {
+      const targetVal = targetDrafts[jobCode];
+      const fteVal = fteDrafts[jobCode];
+      if (!targetVal && !fteVal) continue;
+      const targetCount = targetVal !== "" && !isNaN(Number(targetVal)) ? parseInt(targetVal, 10) : 0;
+      const fteValue = fteVal !== "" && fteVal !== undefined && !isNaN(Number(fteVal))
+        ? parseFloat(fteVal)
+        : null;
       try {
-        await upsertMutation.mutateAsync({
-          locationId: selectedLocationId,
-          jobCode,
-          targetCount: parseInt(val, 10),
-        });
+        await upsertMutation.mutateAsync({ locationId: selectedLocationId, jobCode, targetCount, fteValue });
         saved++;
       } catch {
         failed++;
       }
     }
     if (failed === 0) {
-      toast({ title: "Targets saved", description: `${saved} target${saved !== 1 ? "s" : ""} saved successfully.` });
+      toast({ title: "Targets saved", description: `${saved} position${saved !== 1 ? "s" : ""} saved successfully.` });
     } else {
       toast({ title: "Partial save", description: `${saved} saved, ${failed} failed.`, variant: "destructive" });
     }
@@ -172,11 +190,22 @@ export default function Roster() {
   const totalActual = reportRows.reduce((sum, r) => sum + r.actualCount, 0);
   const totalVariance = totalActual - totalTarget;
 
+  const hasFteData = sortedReportRows.some(r => r.fteValue !== null);
+  const totalActualFte = hasFteData
+    ? Math.round(sortedReportRows.reduce((sum, r) => sum + (r.actualFte ?? 0), 0) * 100) / 100
+    : null;
+  const totalTargetFte = hasFteData
+    ? Math.round(sortedReportRows.reduce((sum, r) => sum + (r.targetFte ?? 0), 0) * 100) / 100
+    : null;
+  const totalFteVariance = totalActualFte !== null && totalTargetFte !== null
+    ? Math.round((totalActualFte - totalTargetFte) * 100) / 100
+    : null;
+
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold" data-testid="text-roster-title">Roster Targets</h1>
-        <p className="text-muted-foreground mt-1">Set expected headcount per job title and compare against active employees.</p>
+        <p className="text-muted-foreground mt-1">Set expected headcount and FTE per job title and compare against active employees.</p>
       </div>
 
       <div className="flex items-center gap-4">
@@ -224,9 +253,10 @@ export default function Roster() {
           <TabsContent value="targets" className="mt-4">
             <Card>
               <CardHeader>
-                <CardTitle>Headcount Targets</CardTitle>
+                <CardTitle>Headcount & FTE Targets</CardTitle>
                 <CardDescription>
-                  Set the expected number of active employees for each job title at {selectedLocationName}.
+                  Set the expected headcount and FTE value per employee for each job title at {selectedLocationName}.
+                  FTE examples: 40h = 1.00, 29h = 0.73, 20h = 0.50.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -242,6 +272,7 @@ export default function Roster() {
                           <tr>
                             <th className="px-4 py-3 text-left font-medium text-muted-foreground">Job Title</th>
                             <th className="px-4 py-3 text-left font-medium text-muted-foreground w-36">Target Count</th>
+                            <th className="px-4 py-3 text-left font-medium text-muted-foreground w-40">FTE Per Employee</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -261,6 +292,19 @@ export default function Roster() {
                                   value={targetDrafts[code] ?? ""}
                                   onChange={(e) => setTargetDrafts(prev => ({ ...prev, [code]: e.target.value }))}
                                   placeholder="0"
+                                />
+                              </td>
+                              <td className="px-4 py-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={2}
+                                  step={0.01}
+                                  className="w-28 h-8"
+                                  data-testid={`input-fte-${code}`}
+                                  value={fteDrafts[code] ?? ""}
+                                  onChange={(e) => setFteDrafts(prev => ({ ...prev, [code]: e.target.value }))}
+                                  placeholder="e.g. 1.00"
                                 />
                               </td>
                             </tr>
@@ -285,48 +329,93 @@ export default function Roster() {
           </TabsContent>
 
           <TabsContent value="report" className="mt-4">
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-                    <Target className="w-4 h-4" />
-                    Total Target
-                  </div>
-                  <div className="text-2xl font-bold" data-testid="text-total-target">{totalTarget}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-                    <Users className="w-4 h-4" />
-                    Total Active
-                  </div>
-                  <div className="text-2xl font-bold" data-testid="text-total-actual">{totalActual}</div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-                    {totalVariance > 0 ? <TrendingUp className="w-4 h-4 text-green-500" /> :
-                      totalVariance < 0 ? <TrendingDown className="w-4 h-4 text-red-500" /> :
-                      <Minus className="w-4 h-4 text-muted-foreground" />}
-                    Overall Variance
-                  </div>
-                  <div
-                    className={`text-2xl font-bold ${totalVariance > 0 ? "text-green-600 dark:text-green-400" : totalVariance < 0 ? "text-red-600 dark:text-red-400" : ""}`}
-                    data-testid="text-total-variance"
-                  >
-                    {totalVariance > 0 ? `+${totalVariance}` : totalVariance}
-                  </div>
-                </CardContent>
-              </Card>
+            <div className="space-y-4 mb-4">
+              <div className="grid grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                      <Target className="w-4 h-4" />
+                      Target Headcount
+                    </div>
+                    <div className="text-2xl font-bold" data-testid="text-total-target">{totalTarget}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                      <Users className="w-4 h-4" />
+                      Actual Headcount
+                    </div>
+                    <div className="text-2xl font-bold" data-testid="text-total-actual">{totalActual}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                      {totalVariance > 0 ? <TrendingUp className="w-4 h-4 text-green-500" /> :
+                        totalVariance < 0 ? <TrendingDown className="w-4 h-4 text-red-500" /> :
+                        <Minus className="w-4 h-4 text-muted-foreground" />}
+                      Headcount Variance
+                    </div>
+                    <div
+                      className={`text-2xl font-bold ${totalVariance > 0 ? "text-green-600 dark:text-green-400" : totalVariance < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+                      data-testid="text-total-variance"
+                    >
+                      {totalVariance > 0 ? `+${totalVariance}` : totalVariance}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {hasFteData && (
+                <div className="grid grid-cols-3 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                        <Target className="w-4 h-4" />
+                        Target FTE
+                      </div>
+                      <div className="text-2xl font-bold" data-testid="text-total-target-fte">
+                        {fmtFte(totalTargetFte)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                        <Users className="w-4 h-4" />
+                        Actual FTE
+                      </div>
+                      <div className="text-2xl font-bold" data-testid="text-total-actual-fte">
+                        {fmtFte(totalActualFte)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
+                        {(totalFteVariance ?? 0) > 0 ? <TrendingUp className="w-4 h-4 text-green-500" /> :
+                          (totalFteVariance ?? 0) < 0 ? <TrendingDown className="w-4 h-4 text-red-500" /> :
+                          <Minus className="w-4 h-4 text-muted-foreground" />}
+                        FTE Variance
+                      </div>
+                      <div
+                        className={`text-2xl font-bold ${(totalFteVariance ?? 0) > 0 ? "text-green-600 dark:text-green-400" : (totalFteVariance ?? 0) < 0 ? "text-red-600 dark:text-red-400" : ""}`}
+                        data-testid="text-total-fte-variance"
+                      >
+                        {totalFteVariance === null ? "—" : totalFteVariance > 0 ? `+${totalFteVariance.toFixed(2)}` : totalFteVariance.toFixed(2)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </div>
 
             <Card>
               <CardHeader>
                 <CardTitle>Roster Comparison Report</CardTitle>
                 <CardDescription>
-                  Target vs. actual active headcount by job title at {selectedLocationName}.
+                  Target vs. actual active headcount and FTE by job title at {selectedLocationName}.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -347,6 +436,8 @@ export default function Roster() {
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual</th>
                           <th className="px-4 py-3 text-right font-medium text-muted-foreground">Variance</th>
+                          {hasFteData && <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target FTE</th>}
+                          {hasFteData && <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual FTE</th>}
                           <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
                         </tr>
                       </thead>
@@ -374,6 +465,16 @@ export default function Roster() {
                             >
                               {row.targetCount === 0 ? "—" : row.variance > 0 ? `+${row.variance}` : row.variance}
                             </td>
+                            {hasFteData && (
+                              <td className="px-4 py-2 text-right text-muted-foreground" data-testid={`text-report-target-fte-${row.jobCode}`}>
+                                {fmtFte(row.targetFte)}
+                              </td>
+                            )}
+                            {hasFteData && (
+                              <td className="px-4 py-2 text-right font-medium" data-testid={`text-report-actual-fte-${row.jobCode}`}>
+                                {fmtFte(row.actualFte)}
+                              </td>
+                            )}
                             <td className="px-4 py-2 text-center">
                               {row.targetCount === 0 ? (
                                 <Badge variant="outline" className="text-xs">No Target</Badge>

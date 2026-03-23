@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.17.0";
+export const APP_VERSION = "1.18.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.18.0",
+    date: "2026-03-23",
+    title: "FTE Tracking on Roster",
+    changes: [
+      { type: "feature", description: "Managers can now enter an FTE (Full Time Equivalent) value per job title on the Roster Targets page — e.g. 1.00 for a 40-hour role, 0.73 for a 29-hour role." },
+      { type: "feature", description: "The Roster Report now shows Target FTE and Actual FTE columns per job title, calculated as headcount × FTE value. Summary cards for total Target FTE, Actual FTE, and FTE Variance appear when FTE values are configured." },
+    ],
+  },
   {
     version: "1.17.0",
     date: "2026-03-18",
