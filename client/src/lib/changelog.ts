@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.29.0";
+export const APP_VERSION = "1.30.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.30.0",
+    date: "2026-03-23",
+    title: "Smarter Scheduling Around Fixed Shifts",
+    changes: [
+      { type: "improvement", description: "The auto-scheduler now understands what slot a fixed-shift manager actually fills. Previously it could only see 'a manager exists on this day' — now it reads their exact start time to determine opener (≤9am), mid (10am), or closer (≥11am). This means if your store manager has a fixed opener shift, the scheduler correctly knows to find a separate closer, rather than assuming both ends are covered." },
+      { type: "improvement", description: "Fixed-shift managers are excluded from the generic template coverage check and tracked precisely by their actual times, preventing incorrect coverage assumptions for non-fixed template shifts on the same day." },
+    ],
+  },
   {
     version: "1.29.0",
     date: "2026-03-23",

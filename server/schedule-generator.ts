@@ -593,9 +593,10 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
 
       // ========== PRE-PASS: FIXED-SHIFT EMPLOYEES ==========
       // These employees always get their exact configured start/end times.
-      // After scheduling each day we also write into existingShiftsByEmpDay so that:
-      //   (a) countExistingShiftsForRole() recognises them as coverage (e.g. manager on opener)
-      //   (b) isOnTimeOff() prevents any regular pass from double-booking them
+      // We write into existingShiftsByEmpDay after each scheduled day so that:
+      //   (a) isOnTimeOff() prevents any regular pass from double-booking them
+      //   (b) the leadership coverage tracker below can see their days and
+      //       determine the correct opener/closer/mid slot they fill.
       {
         const fixedEmps = employees.filter(
           e => e.shiftPreference === 'fixed_shift' && e.fixedShiftStart && e.fixedShiftEnd && e.isActive
@@ -653,21 +654,64 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       const higherTierIds = allHigherTierManagers.map(m => m.id);
       const teamLeadIds = allTeamLeads.map(m => m.id);
       const allManagerIds = managers.map(m => m.id);
+
+      // Fixed-shift managers are handled separately below with their actual slot times.
+      // Exclude them from the generic template coverage check so we don't accidentally
+      // mark the wrong slot as covered.
+      const fixedShiftMgrIds = new Set(
+        [...allHigherTierManagers, ...allTeamLeads]
+          .filter(m => m.shiftPreference === 'fixed_shift' && m.fixedShiftStart)
+          .map(m => m.id)
+      );
+      const nonFixedHigherTierIds = higherTierIds.filter(id => !fixedShiftMgrIds.has(id));
+      const nonFixedTeamLeadIds = teamLeadIds.filter(id => !fixedShiftMgrIds.has(id));
       
-      // Check for existing leadership shifts from templates
+      // Check for existing leadership shifts from manually placed (template) shifts
       for (let d = 0; d < 7; d++) {
-        const existingHigherTier = countExistingShiftsForRole(higherTierIds, d);
-        const existingTeamLeads = countExistingShiftsForRole(teamLeadIds, d);
-        const totalExistingLeadership = existingHigherTier + existingTeamLeads;
+        const existingHigherTier = countExistingShiftsForRole(nonFixedHigherTierIds, d);
+        const existingTeamLeads = countExistingShiftsForRole(nonFixedTeamLeadIds, d);
         
         if (existingHigherTier > 0) {
           leadershipCoverage[d].hasHigherTier = true;
-          // Mark opener/closer as covered if we have existing shifts (we don't know which slot, so be conservative)
+          // We don't know the exact slot from a template shift, so conservatively mark opener
           leadershipCoverage[d].opener = true;
-          console.log(`[Scheduler] Day ${d}: Found ${existingHigherTier} existing higher-tier manager shift(s) from template`);
+          leadershipCoverage[d].openerTier = 'higher';
+          console.log(`[Scheduler] Day ${d}: Found ${existingHigherTier} existing higher-tier template shift(s)`);
         }
         if (existingTeamLeads > 0) {
-          console.log(`[Scheduler] Day ${d}: Found ${existingTeamLeads} existing team lead shift(s) from template`);
+          console.log(`[Scheduler] Day ${d}: Found ${existingTeamLeads} existing team-lead template shift(s)`);
+        }
+      }
+
+      // For fixed-shift managers we know the exact start time, so mark the correct slot.
+      // This ensures Pass 2 looks for the right complementary slot (e.g. a closer when
+      // the fixed-shift manager is an opener, and vice versa).
+      for (let d = 0; d < 7; d++) {
+        for (const emp of [...allHigherTierManagers, ...allTeamLeads]) {
+          if (!fixedShiftMgrIds.has(emp.id)) continue;
+          if (!existingShiftsByEmpDay.has(`${emp.id}-${d}`)) continue; // not working this day
+
+          const isHigherTier = storeManagerCodes.includes(emp.jobTitle) || assistantManagerCodes.includes(emp.jobTitle);
+          const tier: 'higher' | 'teamlead' = isHigherTier ? 'higher' : 'teamlead';
+          const fStartH = parseInt(emp.fixedShiftStart!.split(':')[0], 10);
+
+          if (isHigherTier) leadershipCoverage[d].hasHigherTier = true;
+
+          if (fStartH <= 9) {
+            // Early/opening shift
+            leadershipCoverage[d].opener = true;
+            if (leadershipCoverage[d].openerTier !== 'higher') leadershipCoverage[d].openerTier = tier;
+            console.log(`[Scheduler] Day ${d}: Fixed-shift ${emp.name} covers OPENER slot`);
+          } else if (fStartH >= 11) {
+            // Mid-day or closing shift
+            leadershipCoverage[d].closer = true;
+            if (leadershipCoverage[d].closerTier !== 'higher') leadershipCoverage[d].closerTier = tier;
+            console.log(`[Scheduler] Day ${d}: Fixed-shift ${emp.name} covers CLOSER slot`);
+          } else {
+            // 10am — treat as mid
+            leadershipCoverage[d].mid = true;
+            console.log(`[Scheduler] Day ${d}: Fixed-shift ${emp.name} covers MID slot`);
+          }
         }
       }
       
