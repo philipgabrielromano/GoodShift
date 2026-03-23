@@ -8,15 +8,24 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.27.0";
+export const APP_VERSION = "1.28.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.28.0",
+    date: "2026-03-23",
+    title: "Fixed Shift Times — Exact Schedule",
+    changes: [
+      { type: "feature", description: "Fixed shift employees now get their exact times stamped directly onto every working day — no slot matching. Set 'Fixed shift' on an employee, enter their start and end time (e.g. 08:00 – 16:30), and the scheduler will assign those precise times each day, respecting only time-off requests, non-working days, and their preferred days per week." },
+      { type: "improvement", description: "Fixed-shift employees are fully removed from all regular scheduling pools so the scheduler never overrides or double-books them." },
+    ],
+  },
   {
     version: "1.27.0",
     date: "2026-03-23",
     title: "Fixed Shift Times for Employees",
     changes: [
-      { type: "feature", description: "New 'Fixed shift' option in Shift Preference. When selected, a start time and end time picker appears. The auto-scheduler will only assign this employee to a shift that starts within 30 minutes of their fixed start time. The times display in the employee list badge (e.g. 08:00 – 16:30)." },
+      { type: "feature", description: "Added 'Fixed shift' option to Shift Preference with start/end time pickers. Times display in the employee list badge." },
     ],
   },
   {

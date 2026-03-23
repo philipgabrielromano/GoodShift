@@ -447,17 +447,24 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       const apparelProcessorCodes = ['APPROC', 'APWV']; // Apparel processors only
       const cashierCodes = ['CASHSLS', 'CSHSLSWV', 'SLSFLR'];
       
+      // Employees with a fixed shift are scheduled in a dedicated pre-pass and must not
+      // appear in any of the regular scheduling pools.
+      const fixedShiftEmpIds = new Set(
+        employees.filter(e => e.shiftPreference === 'fixed_shift' && e.fixedShiftStart && e.fixedShiftEnd && e.isActive).map(e => e.id)
+      );
+      const notFixed = (emp: typeof employees[0]) => !fixedShiftEmpIds.has(emp.id);
+
       // Categorize leadership by tier
-      const storeManagers = employees.filter(emp => storeManagerCodes.includes(emp.jobTitle) && emp.isActive);
-      const assistantManagers = employees.filter(emp => assistantManagerCodes.includes(emp.jobTitle) && emp.isActive);
-      const teamLeads = employees.filter(emp => teamLeadCodes.includes(emp.jobTitle) && emp.isActive);
+      const storeManagers = employees.filter(emp => storeManagerCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const assistantManagers = employees.filter(emp => assistantManagerCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const teamLeads = employees.filter(emp => teamLeadCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
       
       // Combined leadership pool (all tiers) - used for flexible coverage
-      const managers = employees.filter(emp => allLeadershipCodes.includes(emp.jobTitle) && emp.isActive);
-      const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive);
-      const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive);
-      const apparelProcessors = employees.filter(emp => apparelProcessorCodes.includes(emp.jobTitle) && emp.isActive);
-      const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive);
+      const managers = employees.filter(emp => allLeadershipCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const donorGreeters = employees.filter(emp => donorGreeterCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const donationPricers = employees.filter(emp => donationPricerCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const apparelProcessors = employees.filter(emp => apparelProcessorCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
+      const cashiers = employees.filter(emp => cashierCodes.includes(emp.jobTitle) && emp.isActive && notFixed(emp));
       
       console.log(`[Scheduler] Total employees: ${employees.length}`);
       console.log(`[Scheduler] Leadership breakdown - Store Mgrs: ${storeManagers.length}, Asst Mgrs: ${assistantManagers.length}, Team Leads: ${teamLeads.length}`);
@@ -587,16 +594,33 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           // Allow mid10 (10am), mid11 (11am), closer (12pm), Sunday closer (11am)
           return startHour >= 10;
         }
-        if (pref === 'fixed_shift') {
-          // Only assign to a slot whose start hour matches the fixed start time (within ±30 min)
-          if (!emp.fixedShiftStart) return true;
-          const [fixedHour, fixedMin] = emp.fixedShiftStart.split(':').map(Number);
-          const shiftMinutes = shiftStart.getHours() * 60 + shiftStart.getMinutes();
-          const fixedMinutes = fixedHour * 60 + (fixedMin || 0);
-          return Math.abs(shiftMinutes - fixedMinutes) <= 30;
-        }
+        // 'fixed_shift' employees are excluded from all regular pools (handled in the pre-pass above)
         return true;
       };
+
+      // ========== PRE-PASS: FIXED-SHIFT EMPLOYEES ==========
+      // These employees always get their exact configured start/end times. They are fully
+      // excluded from all regular scheduling pools (see notFixed filter above).
+      {
+        const fixedEmps = employees.filter(e => fixedShiftEmpIds.has(e.id));
+        if (fixedEmps.length > 0) {
+          console.log(`[Scheduler] Pre-pass: scheduling ${fixedEmps.length} fixed-shift employee(s)`);
+          for (const emp of fixedEmps) {
+            const [fStartH, fStartM] = emp.fixedShiftStart!.split(':').map(Number);
+            const [fEndH, fEndM] = emp.fixedShiftEnd!.split(':').map(Number);
+            let daysScheduled = 0;
+            for (let d = 0; d < 7; d++) {
+              if (daysScheduled >= getMaxDays(emp)) break;
+              const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+              if (isHoliday(currentDay)) continue;
+              if (isOnTimeOff(emp.id, currentDay, d)) continue;
+              scheduleShift(emp, createESTTime(currentDay, fStartH, fStartM), createESTTime(currentDay, fEndH, fEndM), d);
+              daysScheduled++;
+              console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} ${emp.fixedShiftStart}–${emp.fixedShiftEnd}`);
+            }
+          }
+        }
+      }
 
       // ========== LEADERSHIP SCHEDULING - TWO-PASS APPROACH ==========
       // Pass 1: Ensure EVERY day gets at least one higher-tier manager (store mgr or asst mgr)
