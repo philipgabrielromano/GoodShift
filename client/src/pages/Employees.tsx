@@ -286,14 +286,10 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
           {employee.isHiddenFromSchedule && (
             <span className="text-xs text-muted-foreground">Hidden from schedule</span>
           )}
-          {employee.shiftPreference === 'morning_only' && (
-            <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-0.5" title="Morning shifts only">
-              <Clock className="w-3 h-3" />Morning only
-            </span>
-          )}
-          {employee.shiftPreference === 'evening_only' && (
-            <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-0.5" title="Evening/closing shifts only">
-              <Clock className="w-3 h-3" />Evening only
+          {employee.shiftPreference && (
+            <span className="text-xs text-muted-foreground flex items-center gap-0.5" title={`Shift: ${employee.shiftPreference}`}>
+              <Clock className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{employee.shiftPreference}</span>
             </span>
           )}
         </div>
@@ -511,21 +507,14 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
               <Clock className="w-4 h-4" />
               Shift Preference
             </Label>
-            <Select
-              value={formData.shiftPreference ?? 'no_preference'}
-              onValueChange={val => setFormData({ ...formData, shiftPreference: val === 'no_preference' ? null : val })}
-            >
-              <SelectTrigger data-testid="select-shift-preference">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="no_preference">No preference</SelectItem>
-                <SelectItem value="morning_only">Morning only (opener / early shifts)</SelectItem>
-                <SelectItem value="evening_only">Afternoon / Evening only (mid / closing shifts)</SelectItem>
-              </SelectContent>
-            </Select>
+            <Input
+              placeholder="e.g. 8am–4:30pm, Closes only, Opener Mon–Fri"
+              value={formData.shiftPreference ?? ''}
+              onChange={e => setFormData({ ...formData, shiftPreference: e.target.value || null })}
+              data-testid="input-shift-preference"
+            />
             <p className="text-xs text-muted-foreground">
-              Scheduler will only assign this employee to matching shift times.
+              Optional note about this employee's typical or required shift. Displayed on the employee list.
             </p>
           </div>
           <div className="space-y-2">
