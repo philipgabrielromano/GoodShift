@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.26.0";
+export const APP_VERSION = "1.27.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.27.0",
+    date: "2026-03-23",
+    title: "Fixed Shift Times for Employees",
+    changes: [
+      { type: "feature", description: "New 'Fixed shift' option in Shift Preference. When selected, a start time and end time picker appears. The auto-scheduler will only assign this employee to a shift that starts within 30 minutes of their fixed start time. The times display in the employee list badge (e.g. 08:00 – 16:30)." },
+    ],
+  },
   {
     version: "1.26.0",
     date: "2026-03-23",

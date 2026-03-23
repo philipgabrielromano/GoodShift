@@ -22,7 +22,9 @@ export const employees = pgTable("employees", {
   nonWorkingDays: text("non_working_days").array(), // Days employee doesn't work (e.g., ["Sunday", "Saturday"])
   hireDate: date("hire_date"), // Date employee was hired, from UKG
   alternateEmail: text("alternate_email"), // Optional alternate email for notifications
-  shiftPreference: text("shift_preference"), // null/'no_preference' = any shift, 'morning_only' = openers only, 'evening_only' = closers only
+  shiftPreference: text("shift_preference"), // null/'no_preference' = any shift, 'morning_only' = openers only, 'evening_only' = closers only, 'fixed_shift' = exact times
+  fixedShiftStart: text("fixed_shift_start"), // "HH:MM" — only used when shiftPreference = 'fixed_shift'
+  fixedShiftEnd: text("fixed_shift_end"),     // "HH:MM" — only used when shiftPreference = 'fixed_shift'
 }, (table) => [
   index("idx_employees_is_active").on(table.isActive),
   index("idx_employees_email").on(table.email),

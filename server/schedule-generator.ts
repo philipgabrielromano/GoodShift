@@ -587,6 +587,14 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           // Allow mid10 (10am), mid11 (11am), closer (12pm), Sunday closer (11am)
           return startHour >= 10;
         }
+        if (pref === 'fixed_shift') {
+          // Only assign to a slot whose start hour matches the fixed start time (within ±30 min)
+          if (!emp.fixedShiftStart) return true;
+          const [fixedHour, fixedMin] = emp.fixedShiftStart.split(':').map(Number);
+          const shiftMinutes = shiftStart.getHours() * 60 + shiftStart.getMinutes();
+          const fixedMinutes = fixedHour * 60 + (fixedMin || 0);
+          return Math.abs(shiftMinutes - fixedMinutes) <= 30;
+        }
         return true;
       };
 

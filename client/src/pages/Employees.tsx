@@ -290,7 +290,11 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
             <span className="text-xs text-muted-foreground flex items-center gap-0.5">
               <Clock className="w-3 h-3 flex-shrink-0" />
               <span className="truncate">
-                {employee.shiftPreference === 'morning_only' ? 'Openers only' : employee.shiftPreference === 'evening_only' ? 'Closers only' : employee.shiftPreference}
+                {employee.shiftPreference === 'morning_only' ? 'Openers only'
+                  : employee.shiftPreference === 'evening_only' ? 'Closers only'
+                  : employee.shiftPreference === 'fixed_shift'
+                    ? [employee.fixedShiftStart, employee.fixedShiftEnd].filter(Boolean).join(' – ') || 'Fixed shift'
+                    : employee.shiftPreference}
               </span>
             </span>
           )}
@@ -511,7 +515,12 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
             </Label>
             <Select
               value={formData.shiftPreference ?? 'no_preference'}
-              onValueChange={v => setFormData({ ...formData, shiftPreference: v === 'no_preference' ? null : v })}
+              onValueChange={v => setFormData({
+                ...formData,
+                shiftPreference: v === 'no_preference' ? null : v,
+                fixedShiftStart: v !== 'fixed_shift' ? null : formData.fixedShiftStart,
+                fixedShiftEnd: v !== 'fixed_shift' ? null : formData.fixedShiftEnd,
+              })}
             >
               <SelectTrigger data-testid="select-shift-preference">
                 <SelectValue placeholder="No preference" />
@@ -520,8 +529,31 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
                 <SelectItem value="no_preference">No preference</SelectItem>
                 <SelectItem value="morning_only">Openers only (early / opening shifts)</SelectItem>
                 <SelectItem value="evening_only">Closers only (mid / closing shifts)</SelectItem>
+                <SelectItem value="fixed_shift">Fixed shift (specific start &amp; end time)</SelectItem>
               </SelectContent>
             </Select>
+            {formData.shiftPreference === 'fixed_shift' && (
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Start Time</Label>
+                  <Input
+                    type="time"
+                    value={formData.fixedShiftStart ?? ''}
+                    onChange={e => setFormData({ ...formData, fixedShiftStart: e.target.value || null })}
+                    data-testid="input-fixed-shift-start"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">End Time</Label>
+                  <Input
+                    type="time"
+                    value={formData.fixedShiftEnd ?? ''}
+                    onChange={e => setFormData({ ...formData, fixedShiftEnd: e.target.value || null })}
+                    data-testid="input-fixed-shift-end"
+                  />
+                </div>
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
               Restricts the auto-scheduler to only assign this employee to their preferred shift type.
             </p>
