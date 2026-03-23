@@ -470,12 +470,10 @@ export const api = {
       responses: {
         200: z.array(z.object({
           jobCode: z.string(),
-          targetCount: z.number(),
-          actualCount: z.number(),
-          variance: z.number(),
           fteValue: z.number().nullable(),
-          actualFte: z.number().nullable(),
           targetFte: z.number().nullable(),
+          actualFte: z.number().nullable(),
+          fteVariance: z.number().nullable(),
         })),
       },
     },

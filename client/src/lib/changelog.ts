@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.19.0";
+export const APP_VERSION = "1.20.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.20.0",
+    date: "2026-03-23",
+    title: "FTE-Only Roster Mode",
+    changes: [
+      { type: "improvement", description: "Roster is now fully FTE-centric — no headcount columns. Targets tab has two inputs per job: Target FTE (the staffing goal in FTE units) and FTE Rate per employee (e.g. 0.73 for 29h, 1.00 for 40h)." },
+      { type: "improvement", description: "FTE Report and All Locations tabs now show only FTE data: Target FTE, Actual FTE, FTE Variance, and Vacancy Rate. Headcount columns removed throughout." },
+    ],
+  },
   {
     version: "1.19.0",
     date: "2026-03-23",

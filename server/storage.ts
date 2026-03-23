@@ -110,8 +110,8 @@ export interface IStorage {
   // Roster Targets
   getRosterTargets(locationId: number): Promise<RosterTarget[]>;
   upsertRosterTarget(data: InsertRosterTarget): Promise<RosterTarget>;
-  getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number; fteValue: number | null; actualFte: number | null; targetFte: number | null }[]>;
-  getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTarget: number; totalActual: number; variance: number; vacancyRate: number | null; totalTargetFte: number | null; totalActualFte: number | null }[]>;
+  getRosterReport(locationId: number): Promise<{ jobCode: string; fteValue: number | null; targetFte: number | null; actualFte: number | null; fteVariance: number | null }[]>;
+  getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTargetFte: number | null; totalActualFte: number | null; fteVariance: number | null; vacancyRate: number | null }[]>;
 
   // Occurrences
   getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]>;
@@ -609,7 +609,7 @@ export class DatabaseStorage implements IStorage {
     return result;
   }
 
-  async getRosterReport(locationId: number): Promise<{ jobCode: string; targetCount: number; actualCount: number; variance: number; fteValue: number | null; actualFte: number | null; targetFte: number | null }[]> {
+  async getRosterReport(locationId: number): Promise<{ jobCode: string; fteValue: number | null; targetFte: number | null; actualFte: number | null; fteVariance: number | null }[]> {
     const targets = await db.select().from(rosterTargets).where(eq(rosterTargets.locationId, locationId));
     const activeCounts = await db.execute(sql`
       SELECT job_title AS job_code, COUNT(*)::int AS actual_count
@@ -619,32 +619,27 @@ export class DatabaseStorage implements IStorage {
         AND location = (SELECT name FROM locations WHERE id = ${locationId})
       GROUP BY job_title
     `);
-    const actualMap = new Map<string, number>();
+    const actualCountMap = new Map<string, number>();
     for (const row of activeCounts.rows as { job_code: string; actual_count: number }[]) {
-      actualMap.set(row.job_code, row.actual_count);
+      actualCountMap.set(row.job_code, row.actual_count);
     }
-    const targetMap = new Map<string, number>();
-    const fteMap = new Map<string, number | null>();
-    for (const t of targets) {
-      targetMap.set(t.jobCode, t.targetCount);
-      fteMap.set(t.jobCode, t.fteValue ?? null);
-    }
-    const allCodes = new Set([...targetMap.keys(), ...actualMap.keys()]);
-    return Array.from(allCodes).map(jobCode => {
-      const targetCount = targetMap.get(jobCode) ?? 0;
-      const actualCount = actualMap.get(jobCode) ?? 0;
-      const fteValue = fteMap.get(jobCode) ?? null;
-      const round2 = (n: number) => Math.round(n * 100) / 100;
-      const actualFte = fteValue !== null ? round2(actualCount * fteValue) : null;
-      const targetFte = fteValue !== null ? round2(targetCount * fteValue) : null;
-      return { jobCode, targetCount, actualCount, variance: actualCount - targetCount, fteValue, actualFte, targetFte };
-    }).sort((a, b) => a.jobCode.localeCompare(b.jobCode));
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    // Only return rows that have at least an FTE rate or a target FTE configured
+    const rows = targets
+      .filter(t => t.fteValue != null || t.targetFte != null)
+      .map(t => {
+        const actualCount = actualCountMap.get(t.jobCode) ?? 0;
+        const actualFte = t.fteValue != null ? round2(actualCount * t.fteValue) : null;
+        const targetFte = t.targetFte != null ? round2(t.targetFte) : null;
+        const fteVariance = actualFte != null && targetFte != null ? round2(actualFte - targetFte) : null;
+        return { jobCode: t.jobCode, fteValue: t.fteValue ?? null, targetFte, actualFte, fteVariance };
+      });
+    return rows.sort((a, b) => a.jobCode.localeCompare(b.jobCode));
   }
 
-  async getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTarget: number; totalActual: number; variance: number; vacancyRate: number | null; totalTargetFte: number | null; totalActualFte: number | null }[]> {
+  async getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTargetFte: number | null; totalActualFte: number | null; fteVariance: number | null; vacancyRate: number | null }[]> {
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
-    // All active valid locations
     const locRows = await db.execute(sql`
       SELECT id, name FROM locations
       WHERE is_active = true
@@ -653,10 +648,10 @@ export class DatabaseStorage implements IStorage {
       ORDER BY name
     `);
 
-    // All roster targets across all locations
+    // All roster targets that have FTE data configured
     const allTargets = await db.select().from(rosterTargets);
 
-    // Active non-hidden employee counts grouped by (location_id, job_title)
+    // Active non-hidden employee counts by (location_id, job_title)
     const empRows = await db.execute(sql`
       SELECT l.id AS location_id, e.job_title, COUNT(e.id)::int AS cnt
       FROM employees e
@@ -667,15 +662,11 @@ export class DatabaseStorage implements IStorage {
       GROUP BY l.id, e.job_title
     `);
 
-    // Build lookup maps
-    const empCountMap = new Map<string, number>(); // "locationId:jobTitle" -> count
-    const empTotalByLocation = new Map<number, number>(); // locationId -> total
+    const empCountMap = new Map<string, number>();
     for (const row of empRows.rows as { location_id: number; job_title: string; cnt: number }[]) {
       empCountMap.set(`${row.location_id}:${row.job_title}`, row.cnt);
-      empTotalByLocation.set(row.location_id, (empTotalByLocation.get(row.location_id) ?? 0) + row.cnt);
     }
 
-    // Group targets by location
     const targetsByLocation = new Map<number, typeof allTargets>();
     for (const t of allTargets) {
       if (!targetsByLocation.has(t.locationId)) targetsByLocation.set(t.locationId, []);
@@ -684,24 +675,22 @@ export class DatabaseStorage implements IStorage {
 
     return (locRows.rows as { id: number; name: string }[]).map(loc => {
       const targets = targetsByLocation.get(loc.id) ?? [];
-      const totalTarget = targets.reduce((s, t) => s + t.targetCount, 0);
-      const totalActual = empTotalByLocation.get(loc.id) ?? 0;
-      const variance = totalActual - totalTarget;
-      const vacancyRate = totalTarget > 0 ? round2((totalTarget - totalActual) / totalTarget * 100) : null;
+      const fteTargets = targets.filter(t => t.targetFte != null || t.fteValue != null);
 
-      const hasFte = targets.some(t => t.fteValue != null);
-      let totalTargetFte: number | null = null;
-      let totalActualFte: number | null = null;
-      if (hasFte) {
-        totalTargetFte = round2(targets.reduce((s, t) => s + (t.fteValue != null ? t.targetCount * t.fteValue : 0), 0));
-        totalActualFte = round2(targets.reduce((s, t) => {
-          if (t.fteValue == null) return s;
-          const cnt = empCountMap.get(`${loc.id}:${t.jobCode}`) ?? 0;
-          return s + cnt * t.fteValue;
-        }, 0));
+      if (fteTargets.length === 0) {
+        return { locationId: loc.id, locationName: loc.name, totalTargetFte: null, totalActualFte: null, fteVariance: null, vacancyRate: null };
       }
 
-      return { locationId: loc.id, locationName: loc.name, totalTarget, totalActual, variance, vacancyRate, totalTargetFte, totalActualFte };
+      const totalTargetFte = round2(fteTargets.reduce((s, t) => s + (t.targetFte ?? 0), 0));
+      const totalActualFte = round2(fteTargets.reduce((s, t) => {
+        if (t.fteValue == null) return s;
+        const cnt = empCountMap.get(`${loc.id}:${t.jobCode}`) ?? 0;
+        return s + cnt * t.fteValue;
+      }, 0));
+      const fteVariance = round2(totalActualFte - totalTargetFte);
+      const vacancyRate = totalTargetFte > 0 ? round2((totalTargetFte - totalActualFte) / totalTargetFte * 100) : null;
+
+      return { locationId: loc.id, locationName: loc.name, totalTargetFte, totalActualFte, fteVariance, vacancyRate };
     });
   }
 

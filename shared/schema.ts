@@ -204,8 +204,9 @@ export const rosterTargets = pgTable("roster_targets", {
   id: serial("id").primaryKey(),
   locationId: integer("location_id").notNull(),
   jobCode: text("job_code").notNull(),
-  targetCount: integer("target_count").notNull().default(0),
-  fteValue: real("fte_value"), // FTE equivalent per employee in this role, e.g. 1.0 = 40h, 0.725 = 29h
+  targetCount: integer("target_count").notNull().default(0), // kept for backward compat, not shown in UI
+  fteValue: real("fte_value"),   // FTE rate per actual employee (e.g. 0.73 = 29h, 1.0 = 40h) — used to calculate actual FTE
+  targetFte: real("target_fte"), // directly-entered FTE goal for this job code at this location
 }, (table) => ({
   locationJobIdx: uniqueIndex("roster_targets_location_job_idx").on(table.locationId, table.jobCode),
 }));
