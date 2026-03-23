@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.23.0";
+export const APP_VERSION = "1.24.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.24.0",
+    date: "2026-03-23",
+    title: "Roster FTE Reporting Fix",
+    changes: [
+      { type: "fix", description: "Fixed a bug where saving FTE targets more than once would silently discard the updated value. The first save worked, but any edits afterward were lost. Targets now persist correctly on every save." },
+    ],
+  },
   {
     version: "1.23.0",
     date: "2026-03-23",

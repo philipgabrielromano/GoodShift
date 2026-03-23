@@ -603,7 +603,11 @@ export class DatabaseStorage implements IStorage {
     const [result] = await db.insert(rosterTargets).values(data)
       .onConflictDoUpdate({
         target: [rosterTargets.locationId, rosterTargets.jobCode],
-        set: { targetCount: data.targetCount },
+        set: {
+          targetCount: data.targetCount,
+          targetFte: data.targetFte,
+          fteValue: data.fteValue,
+        },
       })
       .returning();
     return result;
