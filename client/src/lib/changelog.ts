@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.21.0";
+export const APP_VERSION = "1.22.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.22.0",
+    date: "2026-03-23",
+    title: "Equal Production Scheduling",
+    changes: [
+      { type: "improvement", description: "The auto-scheduler now distributes apparel processors and donation pricers equally across all 7 days. Workers with the fewest shifts so far are always selected first, preventing clustering at the start of the week." },
+    ],
+  },
   {
     version: "1.21.0",
     date: "2026-03-23",
