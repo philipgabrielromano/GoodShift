@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.35.0";
+export const APP_VERSION = "1.36.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.36.0",
+    date: "2026-03-26",
+    title: "Leadership Shift Preference Enforcement",
+    changes: [
+      { type: "fix", description: "Leadership scheduling now respects morning_only and evening_only shift preferences across all passes. Previously, managers with shift preferences could be assigned opener or closer slots that conflicted with their preference setting." },
+      { type: "improvement", description: "All leadership passes (Pass 1 primary coverage, Pass 2 gap filling and opposite slots, Pass 3/4 fallbacks, and the self-correction pass) now check each manager's shift preference before assigning them to a slot. Morning-only managers will only be assigned opener shifts, and evening-only managers will only be assigned closer shifts." },
+    ],
+  },
   {
     version: "1.35.0",
     date: "2026-03-26",

@@ -855,6 +855,52 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         return canWorkFullShift(mgr, currentDay, dayIndex);
       };
       
+      // Leadership-specific slot preference check: uses slot type directly
+      // to avoid hour-threshold ambiguity (e.g., Sunday opener at 10am matching evening_only)
+      const leadershipSlotMatchesPreference = (mgr: typeof employees[0], slotType: 'opener' | 'closer' | 'mid'): boolean => {
+        const pref = mgr.shiftPreference;
+        if (!pref || pref === 'no_preference') return true;
+        if (pref === 'morning_only') return slotType === 'opener' || slotType === 'mid';
+        if (pref === 'evening_only') return slotType === 'closer';
+        return true;
+      };
+      
+      // Determine which slots a manager can fill based on shift preference
+      const getAllowedSlots = (mgr: typeof employees[0], shifts: ReturnType<typeof getShiftTimes>, dayIndex: number): ('opener' | 'closer')[] => {
+        const allowed: ('opener' | 'closer')[] = [];
+        if (leadershipSlotMatchesPreference(mgr, 'opener')) allowed.push('opener');
+        if (leadershipSlotMatchesPreference(mgr, 'closer')) allowed.push('closer');
+        return allowed;
+      };
+      
+      // Pick the best slot for a manager considering coverage needs and shift preference
+      const pickSlotForManager = (
+        mgr: typeof employees[0],
+        coverage: typeof leadershipCoverage[0],
+        shifts: ReturnType<typeof getShiftTimes>,
+        dayIndex: number
+      ): 'opener' | 'closer' | null => {
+        const allowed = getAllowedSlots(mgr, shifts, dayIndex);
+        if (allowed.length === 0) return null;
+        
+        // Filter to only empty slots
+        const emptyAllowed = allowed.filter(s => !coverage[s]);
+        if (emptyAllowed.length === 0) return null;
+        
+        // If only one option, use it
+        if (emptyAllowed.length === 1) return emptyAllowed[0];
+        
+        // Both empty and both allowed: apply coverage-based logic
+        if (coverage.openerTier === 'teamlead' && coverage.closerTier === 'teamlead') {
+          return emptyAllowed.includes('closer') ? 'closer' : emptyAllowed[0];
+        } else if (coverage.openerTier === 'teamlead' && !coverage.closer) {
+          return emptyAllowed.includes('closer') ? 'closer' : emptyAllowed[0];
+        } else if (coverage.closerTier === 'teamlead' && !coverage.opener) {
+          return emptyAllowed.includes('opener') ? 'opener' : emptyAllowed[0];
+        }
+        return randomPick(emptyAllowed);
+      };
+      
       // PASS 1: Ensure every day gets at least ONE higher-tier manager
       // PRIORITY: Days where team leads already exist (from fixed-shift or template) go FIRST
       // so higher-tier managers are guaranteed to cover the opposite slot.
@@ -896,28 +942,24 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         }
         
         if (availableHigherTier.length > 0) {
-          // Smart slot selection: if a team lead already covers one slot,
-          // put the higher-tier in the OPPOSITE slot (not random).
-          // If BOTH slots are team leads, prefer closer (team leads opening alone
-          // is the primary constraint violation to avoid).
-          let shiftType: 'opener' | 'closer';
-          if (coverage.openerTier === 'teamlead' && coverage.closerTier === 'teamlead') {
-            shiftType = 'closer';
-          } else if (coverage.openerTier === 'teamlead' && !coverage.closer) {
-            shiftType = 'closer';
-          } else if (coverage.closerTier === 'teamlead' && !coverage.opener) {
-            shiftType = 'opener';
-          } else {
-            shiftType = randomPick(['opener', 'closer'] as const);
+          // Try each available manager and find one whose shift preference matches an open slot
+          let scheduled = false;
+          for (const manager of availableHigherTier) {
+            const shiftType = pickSlotForManager(manager, coverage, shifts, dayIndex);
+            if (shiftType) {
+              const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+              scheduleShift(manager, shift.start, shift.end, dayIndex);
+              coverage[shiftType] = true;
+              coverage.hasHigherTier = true;
+              coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
+              console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: ${manager.name} as ${shiftType}${overrodeRandomOff ? ' (overrode random off day)' : ''}${teamLeadDependentDays.has(dayIndex) ? ' (complementing team lead)' : ''}`);
+              scheduled = true;
+              break;
+            }
           }
-          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
-          const manager = availableHigherTier[0];
-          
-          scheduleShift(manager, shift.start, shift.end, dayIndex);
-          coverage[shiftType] = true;
-          coverage.hasHigherTier = true;
-          coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
-          console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: ${manager.name} as ${shiftType}${overrodeRandomOff ? ' (overrode random off day)' : ''}${teamLeadDependentDays.has(dayIndex) ? ' (complementing team lead)' : ''}`);
+          if (!scheduled) {
+            console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: Higher-tier available but no preference-compatible slot`);
+          }
         } else {
           console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: No higher-tier managers available`);
         }
@@ -955,26 +997,23 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         // FIRST: If this day has no higher-tier coverage, try to add one now
         if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
-          // Smart slot: complement team lead if one exists
-          // If BOTH slots are team leads, prefer closer.
-          let shiftType: 'opener' | 'closer';
-          if (coverage.openerTier === 'teamlead' && coverage.closerTier === 'teamlead') {
-            shiftType = 'closer';
-          } else if (coverage.openerTier === 'teamlead' && !coverage.closer) {
-            shiftType = 'closer';
-          } else if (coverage.closerTier === 'teamlead' && !coverage.opener) {
-            shiftType = 'opener';
-          } else {
-            shiftType = randomPick(['opener', 'closer'] as const);
+          let gapFilled = false;
+          for (const manager of availableHigherTier) {
+            const shiftType = pickSlotForManager(manager, coverage, shifts, dayIndex);
+            if (shiftType) {
+              const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+              scheduleShift(manager, shift.start, shift.end, dayIndex);
+              coverage[shiftType] = true;
+              coverage.hasHigherTier = true;
+              coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType} (filling gap)`);
+              gapFilled = true;
+              break;
+            }
           }
-          const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
-          const manager = availableHigherTier[0];
-          
-          scheduleShift(manager, shift.start, shift.end, dayIndex);
-          coverage[shiftType] = true;
-          coverage.hasHigherTier = true;
-          coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
-          console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType} (filling gap)`);
+          if (!gapFilled) {
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Higher-tier available but no preference-compatible slot for gap`);
+          }
         }
         
         // Re-filter and re-shuffle after potential scheduling
@@ -990,29 +1029,32 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         if (stillAvailableHigherTier.length > 0) {
           if (!coverage.opener && !coverage.closer) {
-            // Both slots empty — this day has no coverage at all, always fill it
-            const shiftType = randomPick(['opener', 'closer'] as const);
-            const manager = stillAvailableHigherTier[0];
-            const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
-            scheduleShift(manager, shift.start, shift.end, dayIndex);
-            coverage[shiftType] = true;
-            coverage.hasHigherTier = true;
-            coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
-            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
+            // Both slots empty — find preference-compatible manager
+            for (const manager of stillAvailableHigherTier) {
+              const shiftType = pickSlotForManager(manager, coverage, shifts, dayIndex);
+              if (shiftType) {
+                const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
+                scheduleShift(manager, shift.start, shift.end, dayIndex);
+                coverage[shiftType] = true;
+                coverage.hasHigherTier = true;
+                coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
+                console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
+                break;
+              }
+            }
           } else if (allDaysCoveredForOpposite) {
             // Only fill opposite slot with higher-tier once all days have primary coverage
-            if (coverage.opener && !coverage.closer) {
-              const manager = stillAvailableHigherTier[0];
-              scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
-              coverage.closer = true;
-              coverage.closerTier = 'higher';
-              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as closer`);
-            } else if (coverage.closer && !coverage.opener) {
-              const manager = stillAvailableHigherTier[0];
-              scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
-              coverage.opener = true;
-              coverage.openerTier = 'higher';
-              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
+            const neededSlot: 'opener' | 'closer' | null = (coverage.opener && !coverage.closer) ? 'closer'
+              : (coverage.closer && !coverage.opener) ? 'opener' : null;
+            if (neededSlot) {
+              const neededShift = neededSlot === 'opener' ? shifts.opener : shifts.closer;
+              const compatMgr = stillAvailableHigherTier.find(m => leadershipSlotMatchesPreference(m, neededSlot));
+              if (compatMgr) {
+                scheduleShift(compatMgr, neededShift.start, neededShift.end, dayIndex);
+                coverage[neededSlot] = true;
+                coverage[neededSlot === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
+                console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${compatMgr.name} as ${neededSlot}`);
+              }
             }
           } else {
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Skipping opposite-slot higher-tier — saving capacity for uncovered days`);
@@ -1030,10 +1072,12 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           });
           if (allDaysFullyCoveredForMid) {
             const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
-            const manager = availableForMid[0];
-            scheduleShift(manager, midShift.start, midShift.end, dayIndex);
-            coverage.mid = true;
-            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as mid`);
+            const compatMgr = availableForMid.find(m => leadershipSlotMatchesPreference(m, 'mid'));
+            if (compatMgr) {
+              scheduleShift(compatMgr, midShift.start, midShift.end, dayIndex);
+              coverage.mid = true;
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${compatMgr.name} as mid`);
+            }
           } else {
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Skipping mid shift — saving higher-tier capacity for uncovered days`);
           }
@@ -1048,18 +1092,22 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           for (const teamLead of availableTeamLeads) {
             const openSlots: string[] = [];
             // Team lead can open ONLY if a higher-tier manager is closing (or will close)
-            if (!coverage.opener && coverage.closerTier === 'higher') openSlots.push('opener');
+            // AND shift preference allows opener
+            if (!coverage.opener && coverage.closerTier === 'higher' && leadershipSlotMatchesPreference(teamLead, 'opener')) openSlots.push('opener');
             // Team lead can close ONLY if a higher-tier manager is opening (or has opened)
-            if (!coverage.closer && coverage.openerTier === 'higher') openSlots.push('closer');
+            // AND shift preference allows closer
+            if (!coverage.closer && coverage.openerTier === 'higher' && leadershipSlotMatchesPreference(teamLead, 'closer')) openSlots.push('closer');
             // Mid shift ONLY if opener AND closer are covered on ALL days — never waste
             // a team lead's day quota on mid when other days still need opener/closer
             const allDaysFullyCovered = [0,1,2,3,4,5,6].every(dd => {
               const cd = new Date(startDate.getTime() + dd * 24 * 60 * 60 * 1000);
               return isHoliday(cd) || (leadershipCoverage[dd].opener && leadershipCoverage[dd].closer);
             });
-            if (coverage.opener && coverage.closer && !coverage.mid && allDaysFullyCovered) openSlots.push('mid');
+            if (coverage.opener && coverage.closer && !coverage.mid && allDaysFullyCovered && leadershipSlotMatchesPreference(teamLead, 'mid')) {
+              openSlots.push('mid');
+            }
             
-            if (openSlots.length === 0) break;
+            if (openSlots.length === 0) continue;
             
             // Prioritize opener/closer over mid — only pick mid if no other option
             let chosenSlot: string;
@@ -1108,17 +1156,17 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         const shifts = getShiftTimes(currentDay);
         
-        // First try higher-tier managers (they can fill any slot)
+        // First try higher-tier managers (they can fill any slot) — respect preferences
         const availHigher = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         for (const mgr of availHigher) {
           if (coverage.opener && coverage.closer) break;
-          if (!coverage.opener) {
+          if (!coverage.opener && leadershipSlotMatchesPreference(mgr, 'opener')) {
             scheduleShift(mgr, shifts.opener.start, shifts.opener.end, dayIndex);
             coverage.opener = true;
             coverage.hasHigherTier = true;
             coverage.openerTier = 'higher';
             console.log(`[Scheduler] Pass 3 FALLBACK - Day ${dayIndex}: ${mgr.name} as opener`);
-          } else if (!coverage.closer) {
+          } else if (!coverage.closer && leadershipSlotMatchesPreference(mgr, 'closer')) {
             scheduleShift(mgr, shifts.closer.start, shifts.closer.end, dayIndex);
             coverage.closer = true;
             coverage.hasHigherTier = true;
@@ -1127,17 +1175,17 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           }
         }
         
-        // Then try team leads for slots where the opposite has higher-tier
+        // Then try team leads for slots where the opposite has higher-tier — respect preferences
         if (coverage.opener && coverage.closer) continue;
         const availLeads = shuffleArray(allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         for (const lead of availLeads) {
           if (coverage.opener && coverage.closer) break;
-          if (!coverage.opener && coverage.closerTier === 'higher') {
+          if (!coverage.opener && coverage.closerTier === 'higher' && leadershipSlotMatchesPreference(lead, 'opener')) {
             scheduleShift(lead, shifts.opener.start, shifts.opener.end, dayIndex);
             coverage.opener = true;
             coverage.openerTier = 'teamlead';
             console.log(`[Scheduler] Pass 3 FALLBACK - Day ${dayIndex}: Team lead ${lead.name} as opener (higher-tier has closer)`);
-          } else if (!coverage.closer && coverage.openerTier === 'higher') {
+          } else if (!coverage.closer && coverage.openerTier === 'higher' && leadershipSlotMatchesPreference(lead, 'closer')) {
             scheduleShift(lead, shifts.closer.start, shifts.closer.end, dayIndex);
             coverage.closer = true;
             coverage.closerTier = 'teamlead';
@@ -1161,12 +1209,12 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         for (const lead of availLeads) {
           if (coverage.opener && coverage.closer) break;
-          if (!coverage.opener) {
+          if (!coverage.opener && leadershipSlotMatchesPreference(lead, 'opener')) {
             scheduleShift(lead, shifts.opener.start, shifts.opener.end, dayIndex);
             coverage.opener = true;
             coverage.openerTier = 'teamlead';
             console.log(`[Scheduler] Pass 4 LAST RESORT - Day ${dayIndex}: Team lead ${lead.name} as opener (NO higher-tier available)`);
-          } else if (!coverage.closer) {
+          } else if (!coverage.closer && leadershipSlotMatchesPreference(lead, 'closer')) {
             scheduleShift(lead, shifts.closer.start, shifts.closer.end, dayIndex);
             coverage.closer = true;
             coverage.closerTier = 'teamlead';
@@ -1216,13 +1264,13 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
               for (const mgr of availOverride) {
                 if (coverage.opener && coverage.closer) break;
                 const isHigher = higherTierIds.includes(mgr.id);
-                if (!coverage.opener) {
+                if (!coverage.opener && leadershipSlotMatchesPreference(mgr, 'opener')) {
                   scheduleShift(mgr, shifts.opener.start, shifts.opener.end, dayIndex);
                   coverage.opener = true;
                   coverage.openerTier = isHigher ? 'higher' : 'teamlead';
                   if (isHigher) coverage.hasHigherTier = true;
                   console.log(`[Scheduler] Self-correction Day ${dayIndex}: ${mgr.name} as opener (maxDays overridden)`);
-                } else if (!coverage.closer) {
+                } else if (!coverage.closer && leadershipSlotMatchesPreference(mgr, 'closer')) {
                   scheduleShift(mgr, shifts.closer.start, shifts.closer.end, dayIndex);
                   coverage.closer = true;
                   coverage.closerTier = isHigher ? 'higher' : 'teamlead';
@@ -1245,14 +1293,14 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
               for (const mgr of availShort) {
                 if (coverage.opener && coverage.closer) break;
                 const isHigher = higherTierIds.includes(mgr.id);
-                if (!coverage.opener) {
+                if (!coverage.opener && leadershipSlotMatchesPreference(mgr, 'opener')) {
                   const shortOpener = { start: shifts.opener.start, end: createESTTime(currentDay, 13, 30) };
                   scheduleShift(mgr, shortOpener.start, shortOpener.end, dayIndex);
                   coverage.opener = true;
                   coverage.openerTier = isHigher ? 'higher' : 'teamlead';
                   if (isHigher) coverage.hasHigherTier = true;
                   console.log(`[Scheduler] Self-correction Day ${dayIndex}: ${mgr.name} as SHORT opener 8:00-1:30 (hours constrained)`);
-                } else if (!coverage.closer) {
+                } else if (!coverage.closer && leadershipSlotMatchesPreference(mgr, 'closer')) {
                   const shortCloser = { start: createESTTime(currentDay, 14, 30), end: shifts.closer.end };
                   scheduleShift(mgr, shortCloser.start, shortCloser.end, dayIndex);
                   coverage.closer = true;
