@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.34.0";
+export const APP_VERSION = "1.35.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.35.0",
+    date: "2026-03-26",
+    title: "Leadership Scheduling Fixes for Small Manager Pools",
+    changes: [
+      { type: "fix", description: "Fixed a bug where the scheduler would leave days completely uncovered when there were fewer than 4 managers. Team leads can now fill opener/closer slots as a last resort if no store manager or assistant manager is available for a given day." },
+      { type: "fix", description: "The scheduler no longer wastes higher-tier manager capacity on mid shifts when other days still lack an opener or closer. Mid shifts are only assigned after every day has at least one higher-tier manager." },
+      { type: "fix", description: "Fixed-shift employees are now properly capped by their maximum weekly hours. Previously, the pre-pass only checked days-per-week limits, allowing an employee with a 29-hour max to be scheduled for 40 hours." },
+    ],
+  },
   {
     version: "1.34.0",
     date: "2026-03-23",

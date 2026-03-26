@@ -950,13 +950,23 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         }
         
         // Add third higher-tier manager for mid shift if still available
+        // BUT only if every other day already has at least one higher-tier manager,
+        // otherwise save the capacity for days that still need an opener or closer.
         const availableForMid = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         if (availableForMid.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
-          const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
-          const manager = availableForMid[0];
-          scheduleShift(manager, midShift.start, midShift.end, dayIndex);
-          coverage.mid = true;
-          console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as mid`);
+          const allDaysCoveredByHigherTier = [0,1,2,3,4,5,6].every(d => {
+            const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+            return isHoliday(cd) || leadershipCoverage[d].hasHigherTier;
+          });
+          if (allDaysCoveredByHigherTier) {
+            const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
+            const manager = availableForMid[0];
+            scheduleShift(manager, midShift.start, midShift.end, dayIndex);
+            coverage.mid = true;
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as mid`);
+          } else {
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Skipping mid shift — saving higher-tier capacity for uncovered days`);
+          }
         }
         
         // Add team leads - enforce constraint: team lead can open only if higher-tier closes,
@@ -1034,7 +1044,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           }
         }
         
-        // Then try team leads only for slots where the opposite has higher-tier
+        // Then try team leads for slots where the opposite has higher-tier
         if (coverage.opener && coverage.closer) continue;
         const availLeads = shuffleArray(allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
         for (const lead of availLeads) {
@@ -1050,6 +1060,39 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             coverage.closerTier = 'teamlead';
             console.log(`[Scheduler] Pass 3 FALLBACK - Day ${dayIndex}: Team lead ${lead.name} as closer (higher-tier has opener)`);
           }
+        }
+      }
+      
+      // PASS 4 (LAST RESORT): If any day STILL lacks coverage and no higher-tier is available,
+      // allow team leads to fill slots alone. A team lead with no store/assistant manager
+      // is not ideal, but it's better than zero leadership coverage for the day.
+      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        if (isHoliday(currentDay)) continue;
+        
+        const coverage = leadershipCoverage[dayIndex];
+        if (coverage.opener && coverage.closer) continue;
+        
+        const shifts = getShiftTimes(currentDay);
+        const availLeads = shuffleArray(allTeamLeads.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+        
+        for (const lead of availLeads) {
+          if (coverage.opener && coverage.closer) break;
+          if (!coverage.opener) {
+            scheduleShift(lead, shifts.opener.start, shifts.opener.end, dayIndex);
+            coverage.opener = true;
+            coverage.openerTier = 'teamlead';
+            console.log(`[Scheduler] Pass 4 LAST RESORT - Day ${dayIndex}: Team lead ${lead.name} as opener (NO higher-tier available)`);
+          } else if (!coverage.closer) {
+            scheduleShift(lead, shifts.closer.start, shifts.closer.end, dayIndex);
+            coverage.closer = true;
+            coverage.closerTier = 'teamlead';
+            console.log(`[Scheduler] Pass 4 LAST RESORT - Day ${dayIndex}: Team lead ${lead.name} as closer (NO higher-tier available)`);
+          }
+        }
+        
+        if (!coverage.opener || !coverage.closer) {
+          console.log(`[Scheduler] WARNING: Day ${dayIndex} (${shortDayNames[dayIndex]}) STILL has gaps after all passes — not enough managers available`);
         }
       }
       
