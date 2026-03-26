@@ -891,7 +891,7 @@ export default function Schedule() {
       startY: 24,
       theme: "grid",
       margin: { left: margin, right: margin },
-      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak", font: "Lato" },
+      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak", font: "Lato", fontStyle: "bold", textColor: [0, 0, 0] },
       headStyles: { fillColor: [0, 83, 159], textColor: 255, fontStyle: "bold", fontSize: 7, font: "Lato" }, // Brand blue #00539F
       columnStyles: {
         0: { cellWidth: 35 }, // Employee name
