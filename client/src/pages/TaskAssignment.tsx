@@ -234,6 +234,26 @@ export default function TaskAssignment() {
     },
   });
 
+  const copyDayMutation = useMutation({
+    mutationFn: async () => {
+      const prevDate = new Date(selectedDate + "T12:00:00");
+      prevDate.setDate(prevDate.getDate() - 1);
+      const sourceDate = getDateString(prevDate);
+      await apiRequest("POST", "/api/task-assignments/copy-day", {
+        sourceDate,
+        targetDate: selectedDate,
+        location: selectedLocation,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/task-assignments", selectedDate] });
+      toast({ title: "Copied", description: "Task assignments copied from previous day." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Copy failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const todaysShifts = useMemo(() => {
     return shifts.filter(s => {
       const shiftDate = getDateString(new Date(s.startTime));
@@ -541,6 +561,17 @@ export default function TaskAssignment() {
         </Select>
 
         <Button
+          variant="outline"
+          size="sm"
+          onClick={() => copyDayMutation.mutate()}
+          disabled={copyDayMutation.isPending}
+          data-testid="button-copy-previous-day"
+        >
+          <Copy className="w-4 h-4 mr-1" />
+          Copy Previous Day
+        </Button>
+
+        <Button
           variant="destructive"
           size="sm"
           onClick={() => clearDayMutation.mutate()}
@@ -597,6 +628,7 @@ export default function TaskAssignment() {
                 const shift = shiftByEmployee.get(emp.id);
                 const empAssignments = assignmentsByEmployee.get(emp.id) || [];
                 const jobColor = JOB_COLORS[emp.jobTitle] || "#6B7280";
+                const isProductionWorker = ["APPROC", "APWV", "DONPRI", "DONPRWV"].includes(emp.jobTitle);
 
                 let shiftStartMin = 0;
                 let shiftEndMin = 0;
@@ -607,17 +639,33 @@ export default function TaskAssignment() {
                   shiftEndMin = etLocal.getHours() * 60 + etLocal.getMinutes();
                 }
 
+                let empEstimate = 0;
+                if (isProductionWorker) {
+                  const totalAssignedMinutes = empAssignments.reduce((s, a) => s + a.durationMinutes, 0);
+                  const effectiveHours = totalAssignedMinutes / 60;
+                  empEstimate = Math.round(effectiveHours * 60);
+                }
+
                 const isDropTarget = dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id;
 
                 return (
-                  <div key={emp.id} className={cn("flex border-b hover:bg-muted/20 transition-colors", isDropTarget && "bg-primary/5")} style={{ height: ROW_HEIGHT }}>
+                  <div key={emp.id} className={cn("flex border-b hover:bg-muted/20 transition-colors", isDropTarget && "bg-primary/5")} style={{ height: ROW_HEIGHT, borderLeft: `3px solid ${jobColor}` }}>
                     <div
                       className="shrink-0 border-r px-3 flex items-center gap-2 text-sm"
-                      style={{ width: LABEL_WIDTH }}
+                      style={{ width: LABEL_WIDTH, backgroundColor: `${jobColor}08` }}
                       data-testid={`text-employee-name-${emp.id}`}
                     >
-                      <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: jobColor }} />
-                      <span className="truncate font-medium">{emp.name}</span>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="truncate font-medium leading-tight">{emp.name}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground truncate">{emp.jobTitle}</span>
+                          {isProductionWorker && empEstimate > 0 && (
+                            <span className="text-[10px] font-semibold text-primary" data-testid={`text-production-estimate-${emp.id}`}>
+                              ({empEstimate} pcs)
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <div

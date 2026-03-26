@@ -19,7 +19,17 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
     }
-    const assignments = await storage.getTaskAssignments(date);
+    let assignments = await storage.getTaskAssignments(date);
+
+    const location = req.query.location as string;
+    if (location && location !== "all") {
+      const employees = await storage.getEmployees();
+      const locationEmpIds = new Set(
+        employees.filter(e => e.location === location).map(e => e.id)
+      );
+      assignments = assignments.filter(a => locationEmpIds.has(a.employeeId));
+    }
+
     res.json(assignments);
   });
 
@@ -62,10 +72,53 @@ export function registerTaskAssignmentRoutes(app: Express) {
         return res.status(400).json({ message: parsed.error.errors[0].message });
       }
       const updated = await storage.updateTaskAssignment(id, parsed.data);
+      if (!updated) {
+        return res.status(404).json({ message: "Task assignment not found" });
+      }
       res.json(updated);
     } catch {
       res.status(404).json({ message: "Task assignment not found" });
     }
+  });
+
+  app.post("/api/task-assignments/copy-day", requireManager, async (req, res) => {
+    const { sourceDate, targetDate, location } = req.body;
+    if (!sourceDate || !targetDate) {
+      return res.status(400).json({ message: "sourceDate and targetDate are required" });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate) || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      return res.status(400).json({ message: "Dates must be YYYY-MM-DD format" });
+    }
+
+    let sourceAssignments = await storage.getTaskAssignments(sourceDate);
+    if (location && location !== "all") {
+      const employees = await storage.getEmployees();
+      const locationEmpIds = new Set(
+        employees.filter(e => e.location === location).map(e => e.id)
+      );
+      sourceAssignments = sourceAssignments.filter(a => locationEmpIds.has(a.employeeId));
+    }
+
+    if (sourceAssignments.length === 0) {
+      return res.status(400).json({ message: "No task assignments to copy from source date" });
+    }
+
+    await storage.deleteTaskAssignmentsByDate(targetDate);
+
+    const results = [];
+    for (const a of sourceAssignments) {
+      const created = await storage.createTaskAssignment({
+        employeeId: a.employeeId,
+        taskName: a.taskName,
+        date: targetDate,
+        startMinute: a.startMinute,
+        durationMinutes: a.durationMinutes,
+        createdBy: a.createdBy,
+      });
+      results.push(created);
+    }
+
+    res.status(201).json({ message: `Copied ${results.length} task assignments`, count: results.length });
   });
 
   app.delete("/api/task-assignments/:id", requireManager, async (req, res) => {
