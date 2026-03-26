@@ -129,7 +129,7 @@ export async function checkAndSendHRNotification(
       }
       
       // Find the Store Manager for this employee's store location
-      const STORE_MANAGER_TITLES = ['STSUPER', 'WVSTMNG'];
+      const STORE_MANAGER_TITLES = ['STSUPER', 'WVSTMNG', 'ECOMDIR'];
       if (employee.location) {
         const allEmployees = await storage.getEmployees();
         const storeManagerEmployees = allEmployees.filter(emp =>

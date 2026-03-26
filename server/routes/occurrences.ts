@@ -3,8 +3,8 @@ import { storage } from "../storage";
 import { requireAuth } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
 
-const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG"];
-const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
+const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
+const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "ECMCOMLD"];
 const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK"];
 
 function getHierarchyLevel(jobTitle: string | null): number {
