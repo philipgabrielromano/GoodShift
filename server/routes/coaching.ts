@@ -4,8 +4,8 @@ import { requireAuth } from "../middleware";
 import { insertCoachingLogSchema } from "@shared/schema";
 
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
-const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "ECMCOMLD"];
-const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK"];
+const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "EASSIS"];
+const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD"];
 
 function getHierarchyLevel(jobTitle: string | null): number {
   if (!jobTitle) return 0;
