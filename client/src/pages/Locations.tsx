@@ -80,9 +80,12 @@ export default function Locations() {
   };
 
   // Filter out invalid/excluded locations; managers further restricted to their assigned locations
+  // Admins can see inactive locations (to re-enable them), but excluded names are always hidden
   const displayedLocations = (locations?.filter(l => {
+    if (isAdmin) {
+      return isValidLocation({ ...l, isActive: true });
+    }
     if (!isValidLocation(l)) return false;
-    if (isAdmin) return true;
     return userLocationIds.includes(String(l.id));
   }) || []);
   
