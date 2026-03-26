@@ -582,6 +582,9 @@ export const TASK_LIST = [
   "Run the Floor Machine",
   "Stock New Goods",
   "Flex Assigned Clothing Racks",
+  "Resize Assigned Clothing Racks",
+  "Empty Trash",
+  "Complete SPOC Request",
 ] as const;
 
 export const taskAssignments = pgTable("task_assignments", {
