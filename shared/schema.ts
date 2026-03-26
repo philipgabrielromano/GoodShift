@@ -583,6 +583,7 @@ export const TASK_LIST = [
   "Stock New Goods",
   "Flex Assigned Clothing Racks",
   "Resize Assigned Clothing Racks",
+  "Maintain Fitting Rooms",
   "Empty Trash",
   "Complete SPOC Request",
 ] as const;

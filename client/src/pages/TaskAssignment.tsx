@@ -70,6 +70,7 @@ const TASK_COLORS: Record<string, string> = {
   "Stock New Goods": "#84CC16",
   "Flex Assigned Clothing Racks": "#EF4444",
   "Resize Assigned Clothing Racks": "#DC2626",
+  "Maintain Fitting Rooms": "#E11D48",
   "Empty Trash": "#737373",
   "Complete SPOC Request": "#7C3AED",
 };
