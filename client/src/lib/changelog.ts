@@ -12,7 +12,7 @@ export const APP_VERSION = "1.5";
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: "1.40.0",
+    version: "1.5",
     date: "2026-03-26",
     title: "Custom Tasks",
     changes: [
