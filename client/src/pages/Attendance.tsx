@@ -18,8 +18,9 @@ import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User, CheckSquare, Trash2, Download } from "lucide-react";
+import { AlertTriangle, MinusCircle, Undo2, Award, Loader2, FileText, User, CheckSquare, Trash2, Download, PlusCircle } from "lucide-react";
 import { getJobTitle } from "@/lib/utils";
+import { OccurrenceDialog } from "@/components/OccurrenceDialog";
 import type { Employee } from "@shared/schema";
 import { ABSENCE_REASONS } from "@shared/schema";
 
@@ -52,6 +53,7 @@ interface AttendanceEmployee {
 export default function Attendance() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number | null>(null);
   const [showInactive, setShowInactive] = useState(false);
+  const [showOccurrenceDialog, setShowOccurrenceDialog] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const searchString = useSearch();
@@ -365,10 +367,16 @@ export default function Attendance() {
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">Track and manage employee attendance records.</p>
         </div>
         {canManageOccurrences && selectedEmployeeId && summary && (
-          <Button variant="outline" size="sm" onClick={exportOccurrencePDF} data-testid="button-export-pdf">
-            <Download className="w-4 h-4 mr-2" />
-            Export PDF
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="default" size="sm" onClick={() => setShowOccurrenceDialog(true)} data-testid="button-add-occurrence">
+              <PlusCircle className="w-4 h-4 mr-2" />
+              Add Occurrence
+            </Button>
+            <Button variant="outline" size="sm" onClick={exportOccurrencePDF} data-testid="button-export-pdf">
+              <Download className="w-4 h-4 mr-2" />
+              Export PDF
+            </Button>
+          </div>
         )}
       </div>
 
@@ -1113,6 +1121,16 @@ export default function Attendance() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {selectedEmployeeId && selectedEmployee && (
+        <OccurrenceDialog
+          isOpen={showOccurrenceDialog}
+          onClose={() => setShowOccurrenceDialog(false)}
+          employeeId={selectedEmployeeId}
+          employeeName={selectedEmployee.name}
+          occurrenceDate={format(new Date(), "yyyy-MM-dd")}
+        />
+      )}
     </div>
   );
 }
