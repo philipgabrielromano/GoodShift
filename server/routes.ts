@@ -17,6 +17,7 @@ import { registerShiftTradeRoutes } from "./routes/shift-trades";
 import { registerReportRoutes } from "./routes/reports";
 import { registerCoachingRoutes } from "./routes/coaching";
 import { registerRosterRoutes } from "./routes/roster";
+import { registerTaskAssignmentRoutes } from "./routes/task-assignments";
 
 function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTime: Date }[]) {
   const seen = new Set<string>();
@@ -1192,6 +1193,8 @@ export async function registerRoutes(
   registerCoachingRoutes(app);
 
   registerRosterRoutes(app);
+
+  registerTaskAssignmentRoutes(app);
 
   // === SEED DATA ===
   await seedDatabase();

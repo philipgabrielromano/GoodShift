@@ -21,6 +21,7 @@ import OccurrenceReport from "@/pages/OccurrenceReport";
 import VarianceReport from "@/pages/VarianceReport";
 import Coaching from "@/pages/Coaching";
 import Roster from "@/pages/Roster";
+import TaskAssignment from "@/pages/TaskAssignment";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -46,6 +47,7 @@ function Router() {
       <Route path="/reports/variance" component={VarianceReport} />
       <Route path="/coaching" component={Coaching} />
       <Route path="/roster" component={Roster} />
+      <Route path="/tasks" component={TaskAssignment} />
       <Route component={NotFound} />
     </Switch>
   );

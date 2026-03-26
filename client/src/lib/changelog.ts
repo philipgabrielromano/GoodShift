@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.38.0";
+export const APP_VERSION = "1.39.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.39.0",
+    date: "2026-03-26",
+    title: "Task Assignment Timeline",
+    changes: [
+      { type: "feature", description: "New Task Assignment page with an interactive day timeline view for assigning daily tasks to scheduled employees." },
+      { type: "feature", description: "14 predefined tasks: Complete Pulls, Run Register, Run Rack, Process Clothes/Wares/Shoes/Accessories, Complete eCommerce, restroom cleaning, dust mop, floor machine, Stock New Goods, and Flex Assigned Clothing Racks." },
+      { type: "feature", description: "Click and drag on the timeline to create task blocks, drag blocks to move, drag the right edge to resize, and Ctrl+drag to copy." },
+      { type: "feature", description: "Right-click any task block to delete it. Clear Day button removes all task assignments for the selected date." },
+      { type: "feature", description: "Each task has a distinct color. Employee rows show shift background and job title color indicators." },
+      { type: "feature", description: "Production estimates for Apparel (APPROC/APWV) and Wares (DONPRI/DONPRWV) are displayed based on scheduled effective hours." },
+    ],
+  },
   {
     version: "1.38.0",
     date: "2026-03-26",

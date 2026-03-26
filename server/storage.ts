@@ -20,7 +20,8 @@ import {
   notifications, type Notification, type InsertNotification,
   coachingLogs, type CoachingLog, type InsertCoachingLog,
   emailLogs, type EmailLog, type InsertEmailLog,
-  rosterTargets, type RosterTarget, type InsertRosterTarget
+  rosterTargets, type RosterTarget, type InsertRosterTarget,
+  taskAssignments, type TaskAssignment, type InsertTaskAssignment
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -156,6 +157,13 @@ export interface IStorage {
   // Coaching Logs
   getCoachingLogs(filters?: { employeeId?: number; category?: string; startDate?: string; endDate?: string }): Promise<CoachingLog[]>;
   createCoachingLog(log: InsertCoachingLog): Promise<CoachingLog>;
+
+  // Task Assignments
+  getTaskAssignments(date: string): Promise<TaskAssignment[]>;
+  createTaskAssignment(assignment: InsertTaskAssignment): Promise<TaskAssignment>;
+  updateTaskAssignment(id: number, assignment: Partial<InsertTaskAssignment>): Promise<TaskAssignment>;
+  deleteTaskAssignment(id: number): Promise<void>;
+  deleteTaskAssignmentsByDate(date: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -952,6 +960,36 @@ export class DatabaseStorage implements IStorage {
   async createCoachingLog(log: InsertCoachingLog): Promise<CoachingLog> {
     const [newLog] = await db.insert(coachingLogs).values(log).returning();
     return newLog;
+  }
+
+  // Task Assignments
+  async getTaskAssignments(date: string): Promise<TaskAssignment[]> {
+    return await db.select().from(taskAssignments)
+      .where(eq(taskAssignments.date, date));
+  }
+
+  async createTaskAssignment(assignment: InsertTaskAssignment): Promise<TaskAssignment> {
+    const [newAssignment] = await db.insert(taskAssignments).values(assignment).returning();
+    return newAssignment;
+  }
+
+  async updateTaskAssignment(id: number, assignment: Partial<InsertTaskAssignment>): Promise<TaskAssignment> {
+    const [updated] = await db.update(taskAssignments)
+      .set(assignment)
+      .where(eq(taskAssignments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTaskAssignment(id: number): Promise<void> {
+    await db.delete(taskAssignments).where(eq(taskAssignments.id, id));
+  }
+
+  async deleteTaskAssignmentsByDate(date: string): Promise<number> {
+    const result = await db.delete(taskAssignments)
+      .where(eq(taskAssignments.date, date))
+      .returning({ id: taskAssignments.id });
+    return result.length;
   }
 }
 

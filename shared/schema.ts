@@ -564,3 +564,43 @@ export const insertCoachingLogSchema = createInsertSchema(coachingLogs).omit({
 });
 export type CoachingLog = typeof coachingLogs.$inferSelect;
 export type InsertCoachingLog = z.infer<typeof insertCoachingLogSchema>;
+
+// === TASK ASSIGNMENTS ===
+
+export const TASK_LIST = [
+  "Complete Pulls",
+  "Run Register",
+  "Run Rack",
+  "Process Clothes",
+  "Process Wares",
+  "Process Shoes",
+  "Process Accessories",
+  "Complete eCommerce",
+  "Clean Women's Restroom",
+  "Clean Men's Restroom",
+  "Use the Dust Mop",
+  "Run the Floor Machine",
+  "Stock New Goods",
+  "Flex Assigned Clothing Racks",
+] as const;
+
+export const taskAssignments = pgTable("task_assignments", {
+  id: serial("id").primaryKey(),
+  employeeId: integer("employee_id").notNull(),
+  taskName: text("task_name").notNull(),
+  date: date("date").notNull(),
+  startMinute: integer("start_minute").notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  createdBy: integer("created_by"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index("idx_task_assignments_date").on(table.date),
+  index("idx_task_assignments_employee").on(table.employeeId),
+]);
+
+export const insertTaskAssignmentSchema = createInsertSchema(taskAssignments).omit({
+  id: true,
+  createdAt: true,
+});
+export type TaskAssignment = typeof taskAssignments.$inferSelect;
+export type InsertTaskAssignment = z.infer<typeof insertTaskAssignmentSchema>;

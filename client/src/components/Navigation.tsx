@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -20,6 +20,7 @@ interface AuthStatus {
 // Scheduling section - shown to all
 const schedulingItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
+  { href: "/tasks", label: "Task Assignment", icon: ListTodo },
   { href: "/trades", label: "Shift Trades", icon: ArrowLeftRight },
   { href: "/attendance", label: "Attendance", icon: AlertTriangle },
 ];
