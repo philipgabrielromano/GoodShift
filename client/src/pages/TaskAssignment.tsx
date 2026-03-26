@@ -165,6 +165,7 @@ export default function TaskAssignment() {
   const { data: currentUser } = useCurrentUser();
   const [, navigate] = useLocation();
   const userRole = currentUser?.user?.role;
+  const isReadOnly = userRole === "employee";
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
     return getDateString(now);
@@ -928,32 +929,40 @@ export default function TaskAssignment() {
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" onClick={() => navigateDate(-1)} data-testid="button-prev-day">
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
+          {!isReadOnly && (
+            <Button variant="outline" size="icon" onClick={() => navigateDate(-1)} data-testid="button-prev-day">
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+          )}
           <div className="relative">
-            <input
-              ref={dateInputRef}
-              type="date"
-              value={selectedDate}
-              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="sr-only"
-              data-testid="input-date-picker"
-            />
+            {!isReadOnly && (
+              <input
+                ref={dateInputRef}
+                type="date"
+                value={selectedDate}
+                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                className="sr-only"
+                data-testid="input-date-picker"
+              />
+            )}
             <div
-              className="px-3 py-1.5 text-sm font-medium min-w-[200px] text-center cursor-pointer hover:bg-muted/50 rounded transition-colors"
+              className={cn("px-3 py-1.5 text-sm font-medium min-w-[200px] text-center rounded transition-colors", !isReadOnly && "cursor-pointer hover:bg-muted/50")}
               data-testid="text-selected-date"
-              onClick={() => dateInputRef.current?.showPicker()}
+              onClick={() => !isReadOnly && dateInputRef.current?.showPicker()}
             >
               {dayLabel}
             </div>
           </div>
-          <Button variant="outline" size="icon" onClick={() => navigateDate(1)} data-testid="button-next-day">
-            <ChevronRight className="w-4 h-4" />
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setSelectedDate(getDateString(new Date()))} data-testid="button-today">
-            Today
-          </Button>
+          {!isReadOnly && (
+            <>
+              <Button variant="outline" size="icon" onClick={() => navigateDate(1)} data-testid="button-next-day">
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setSelectedDate(getDateString(new Date()))} data-testid="button-today">
+                Today
+              </Button>
+            </>
+          )}
         </div>
 
         <Select value={selectedLocation} onValueChange={setSelectedLocation}>
@@ -968,110 +977,116 @@ export default function TaskAssignment() {
           </SelectContent>
         </Select>
 
-        <Dialog open={showCustomTaskDialog} onOpenChange={setShowCustomTaskDialog}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm" data-testid="button-manage-custom-tasks">
-              <Plus className="w-4 h-4 mr-1" />
-              Custom Task
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Manage Custom Tasks</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Task name..."
-                  value={newTaskName}
-                  onChange={(e) => setNewTaskName(e.target.value)}
-                  className="flex-1"
-                  maxLength={100}
-                  data-testid="input-custom-task-name"
-                />
-                <input
-                  type="color"
-                  value={newTaskColor}
-                  onChange={(e) => setNewTaskColor(e.target.value)}
-                  className="w-10 h-10 rounded border cursor-pointer"
-                  data-testid="input-custom-task-color"
-                />
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    if (newTaskName.trim()) {
-                      createCustomTaskMutation.mutate({ taskName: newTaskName.trim(), color: newTaskColor });
-                      setNewTaskName("");
-                      setNewTaskColor("#6B7280");
-                    }
-                  }}
-                  disabled={!newTaskName.trim() || createCustomTaskMutation.isPending}
-                  data-testid="button-add-custom-task"
-                >
-                  <Plus className="w-4 h-4" />
+        {!isReadOnly && (
+          <>
+            <Dialog open={showCustomTaskDialog} onOpenChange={setShowCustomTaskDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" data-testid="button-manage-custom-tasks">
+                  <Plus className="w-4 h-4 mr-1" />
+                  Custom Task
                 </Button>
-              </div>
-              {customTasksList.length > 0 ? (
-                <div className="space-y-2">
-                  {customTasksList.map(ct => (
-                    <div key={ct.id} className="flex items-center justify-between gap-2 p-2 rounded border">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: ct.color }} />
-                        <span className="text-sm font-medium">{ct.taskName}</span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => deleteCustomTaskMutation.mutate(ct.id)}
-                        disabled={deleteCustomTaskMutation.isPending}
-                        data-testid={`button-delete-custom-task-${ct.id}`}
-                      >
-                        <X className="w-4 h-4 text-destructive" />
-                      </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Manage Custom Tasks</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Task name..."
+                      value={newTaskName}
+                      onChange={(e) => setNewTaskName(e.target.value)}
+                      className="flex-1"
+                      maxLength={100}
+                      data-testid="input-custom-task-name"
+                    />
+                    <input
+                      type="color"
+                      value={newTaskColor}
+                      onChange={(e) => setNewTaskColor(e.target.value)}
+                      className="w-10 h-10 rounded border cursor-pointer"
+                      data-testid="input-custom-task-color"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        if (newTaskName.trim()) {
+                          createCustomTaskMutation.mutate({ taskName: newTaskName.trim(), color: newTaskColor });
+                          setNewTaskName("");
+                          setNewTaskColor("#6B7280");
+                        }
+                      }}
+                      disabled={!newTaskName.trim() || createCustomTaskMutation.isPending}
+                      data-testid="button-add-custom-task"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {customTasksList.length > 0 ? (
+                    <div className="space-y-2">
+                      {customTasksList.map(ct => (
+                        <div key={ct.id} className="flex items-center justify-between gap-2 p-2 rounded border">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: ct.color }} />
+                            <span className="text-sm font-medium">{ct.taskName}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => deleteCustomTaskMutation.mutate(ct.id)}
+                            disabled={deleteCustomTaskMutation.isPending}
+                            data-testid={`button-delete-custom-task-${ct.id}`}
+                          >
+                            <X className="w-4 h-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No custom tasks yet. Add one above and it will appear in your task list.
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No custom tasks yet. Add one above and it will appear in your task list.
-                </p>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+              </DialogContent>
+            </Dialog>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleExportPDF}
-          disabled={scheduledEmployees.length === 0}
-          data-testid="button-export-pdf"
-        >
-          <FileDown className="w-4 h-4 mr-1" />
-          Export PDF
-        </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPDF}
+              disabled={scheduledEmployees.length === 0}
+              data-testid="button-export-pdf"
+            >
+              <FileDown className="w-4 h-4 mr-1" />
+              Export PDF
+            </Button>
 
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => clearDayMutation.mutate()}
-          disabled={clearDayMutation.isPending || assignments.length === 0}
-          data-testid="button-clear-day"
-        >
-          <Trash2 className="w-4 h-4 mr-1" />
-          Clear Day
-        </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => clearDayMutation.mutate()}
+              disabled={clearDayMutation.isPending || assignments.length === 0}
+              data-testid="button-clear-day"
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Clear Day
+            </Button>
+          </>
+        )}
       </div>
 
-      <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
-        <span>Click to assign full shift, drag to set custom duration</span>
-        <span>Drag block to move (across employees too)</span>
-        <span>Drag left or right edge to resize</span>
-        <span>Ctrl+drag to copy</span>
-        <span>Right-click to delete</span>
-        <span>Click date to use date picker</span>
-      </div>
+      {!isReadOnly && (
+        <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
+          <span>Click to assign full shift, drag to set custom duration</span>
+          <span>Drag block to move (across employees too)</span>
+          <span>Drag left or right edge to resize</span>
+          <span>Ctrl+drag to copy</span>
+          <span>Right-click to delete</span>
+          <span>Click date to use date picker</span>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         {allTasks.map(task => {
@@ -1080,12 +1095,13 @@ export default function TaskAssignment() {
             <div
               key={task.name}
               className={cn(
-                "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border cursor-pointer transition-all",
-                selectedTask === task.name
+                "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border transition-all",
+                isReadOnly ? "" : "cursor-pointer",
+                selectedTask === task.name && !isReadOnly
                   ? "ring-2 ring-primary border-primary font-semibold"
                   : "border-border hover:border-primary/50"
               )}
-              onClick={() => setSelectedTask(task.name)}
+              onClick={() => !isReadOnly && setSelectedTask(task.name)}
               data-testid={`legend-task-${task.name.replace(/\s+/g, '-').toLowerCase()}`}
             >
               <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: task.color }} />
@@ -1196,8 +1212,8 @@ export default function TaskAssignment() {
                       className="relative select-none flex-1"
                       data-timeline-row
                       style={{ height: ROW_HEIGHT }}
-                      onMouseDown={(e) => handleTimelineMouseDown(e, emp.id)}
-                      onMouseEnter={() => setHoveredEmployeeId(emp.id)}
+                      onMouseDown={(e) => !isReadOnly && handleTimelineMouseDown(e, emp.id)}
+                      onMouseEnter={() => !isReadOnly && setHoveredEmployeeId(emp.id)}
                     >
                       {Array.from({ length: TOTAL_HOURS }, (_, i) => (
                         <div
@@ -1233,7 +1249,8 @@ export default function TaskAssignment() {
                           <div
                             key={a.id}
                             className={cn(
-                              "absolute top-1 bottom-1 rounded-md flex items-center px-1.5 cursor-grab active:cursor-grabbing transition-shadow",
+                              "absolute top-1 bottom-1 rounded-md flex items-center px-1.5 transition-shadow",
+                              !isReadOnly && "cursor-grab active:cursor-grabbing",
                               isDragging && "opacity-80 shadow-lg ring-2 ring-white/50 z-20",
                               !isDragging && "hover:shadow-md hover:brightness-110 z-10"
                             )}
@@ -1242,32 +1259,36 @@ export default function TaskAssignment() {
                               width: `${Math.max(durationToPercent(displayDuration), 1)}%`,
                               backgroundColor: taskColor,
                             }}
-                            onMouseDown={(e) => handleBlockMouseDown(e, a)}
+                            onMouseDown={(e) => !isReadOnly && handleBlockMouseDown(e, a)}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              deleteMutation.mutate(a.id);
+                              if (!isReadOnly) deleteMutation.mutate(a.id);
                             }}
                             title={`${a.taskName}\n${formatMinute(a.startMinute)} - ${formatMinute(a.startMinute + a.durationMinutes)}\nRight-click to delete | Ctrl+drag to copy | Drag edges to resize`}
                             data-testid={`task-block-${a.id}`}
                           >
-                            <div
-                              className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-black/20 rounded-l-md flex items-center justify-center"
-                              onMouseDown={(e) => handleResizeStartMouseDown(e, a)}
-                              data-testid={`resize-start-handle-${a.id}`}
-                            >
-                              <span className="text-[8px] text-black/70 select-none">◀</span>
-                            </div>
+                            {!isReadOnly && (
+                              <div
+                                className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-black/20 rounded-l-md flex items-center justify-center"
+                                onMouseDown={(e) => handleResizeStartMouseDown(e, a)}
+                                data-testid={`resize-start-handle-${a.id}`}
+                              >
+                                <span className="text-[8px] text-black/70 select-none">◀</span>
+                              </div>
+                            )}
                             <span className="text-[10px] font-semibold text-white truncate leading-tight drop-shadow-sm">
                               {a.taskName}
                             </span>
-                            <div
-                              className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-black/20 rounded-r-md flex items-center justify-center"
-                              onMouseDown={(e) => handleResizeEndMouseDown(e, a)}
-                              data-testid={`resize-end-handle-${a.id}`}
-                            >
-                              <span className="text-[8px] text-black/70 select-none">▶</span>
-                            </div>
+                            {!isReadOnly && (
+                              <div
+                                className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-black/20 rounded-r-md flex items-center justify-center"
+                                onMouseDown={(e) => handleResizeEndMouseDown(e, a)}
+                                data-testid={`resize-end-handle-${a.id}`}
+                              >
+                                <span className="text-[8px] text-black/70 select-none">▶</span>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
