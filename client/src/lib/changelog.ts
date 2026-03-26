@@ -21,6 +21,7 @@ export const changelog: ChangelogEntry[] = [
       { type: "fix", description: "Random off days for managers are now automatically overridden in Pass 1 and Pass 2 when no higher-tier manager would otherwise be available for a day. Coverage always takes priority over schedule variety." },
       { type: "fix", description: "Fixed-shift employees are now properly capped by their maximum weekly hours. Previously, the pre-pass only checked days-per-week limits, allowing an employee with a 29-hour max to be scheduled for 40 hours." },
       { type: "fix", description: "Team leads and higher-tier managers no longer receive mid shifts until every day of the week has both an opener and closer. Previously, mid shifts consumed day quotas early, leaving later days without critical coverage." },
+      { type: "feature", description: "Day-specific shift overrides: set exact start and end times for individual days per employee (e.g., 'Wednesday 10:00–18:30'). The scheduler uses these times on the specified days, overriding all other shift preference settings." },
       { type: "feature", description: "Added a self-correction pass at the end of leadership scheduling. After all regular passes, the scheduler scans for any remaining gaps and actively fills them by relaxing constraints: first overriding max-days limits, then trying short shifts (5.5 hours) for managers near their weekly hour cap." },
     ],
   },

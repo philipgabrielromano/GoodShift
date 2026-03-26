@@ -298,6 +298,19 @@ function EmployeeRow({ employee, onEdit }: { employee: Employee; onEdit: () => v
               </span>
             </span>
           )}
+          {employee.daySpecificShifts && (() => {
+            try {
+              const parsed = JSON.parse(employee.daySpecificShifts);
+              const count = Object.keys(parsed).length;
+              if (count === 0) return null;
+              return (
+                <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                  <Clock className="w-3 h-3 flex-shrink-0" />
+                  <span className="truncate">{count} day override{count > 1 ? 's' : ''}</span>
+                </span>
+              );
+            } catch { return null; }
+          })()}
         </div>
       </div>
       <div className="text-sm truncate">{getJobTitle(employee.jobTitle)}</div>
@@ -557,6 +570,72 @@ function EmployeeDialog({ open, onOpenChange, employee }: { open: boolean; onOpe
             <p className="text-xs text-muted-foreground">
               Restricts the auto-scheduler to only assign this employee to their preferred shift type.
             </p>
+          </div>
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Day-Specific Shifts
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Set a specific shift for individual days. The scheduler will use these exact times on the specified days.
+            </p>
+            {(() => {
+              const parsed: Record<string, { start: string; end: string }> = (() => {
+                try { return formData.daySpecificShifts ? JSON.parse(formData.daySpecificShifts) : {}; } catch { return {}; }
+              })();
+              const updateDayShift = (day: string, field: 'start' | 'end', value: string) => {
+                const updated = { ...parsed };
+                if (!updated[day]) updated[day] = { start: '', end: '' };
+                updated[day][field] = value;
+                if (!updated[day].start && !updated[day].end) delete updated[day];
+                setFormData({ ...formData, daySpecificShifts: Object.keys(updated).length > 0 ? JSON.stringify(updated) : null });
+              };
+              const removeDayShift = (day: string) => {
+                const updated = { ...parsed };
+                delete updated[day];
+                setFormData({ ...formData, daySpecificShifts: Object.keys(updated).length > 0 ? JSON.stringify(updated) : null });
+              };
+              const availableDays = DAYS_OF_WEEK.filter(d => !parsed[d] && !(formData.nonWorkingDays || []).includes(d));
+              return (
+                <div className="space-y-2">
+                  {Object.entries(parsed).map(([day, times]) => (
+                    <div key={day} className="flex items-center gap-2 p-2 rounded-md border bg-muted/30">
+                      <span className="text-sm font-medium w-12 shrink-0">{day.slice(0, 3)}</span>
+                      <Input
+                        type="time"
+                        className="h-8 text-xs"
+                        value={times.start}
+                        onChange={e => updateDayShift(day, 'start', e.target.value)}
+                        data-testid={`input-dayshift-start-${day.toLowerCase()}`}
+                      />
+                      <span className="text-muted-foreground text-xs">to</span>
+                      <Input
+                        type="time"
+                        className="h-8 text-xs"
+                        value={times.end}
+                        onChange={e => updateDayShift(day, 'end', e.target.value)}
+                        data-testid={`input-dayshift-end-${day.toLowerCase()}`}
+                      />
+                      <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0" onClick={() => removeDayShift(day)} data-testid={`btn-remove-dayshift-${day.toLowerCase()}`}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  ))}
+                  {availableDays.length > 0 && (
+                    <Select onValueChange={day => updateDayShift(day, 'start', '08:00')}>
+                      <SelectTrigger className="h-8 text-xs" data-testid="select-add-dayshift">
+                        <SelectValue placeholder="+ Add a day..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableDays.map(day => (
+                          <SelectItem key={day} value={day}>{day}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <div className="space-y-2">
             <Label className="flex items-center gap-2">

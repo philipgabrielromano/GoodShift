@@ -585,6 +585,44 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       };
 
       // ========== PRE-PASS: FIXED-SHIFT EMPLOYEES ==========
+      // ========== DAY-SPECIFIC SHIFT PRE-PASS ==========
+      // Employees can have specific shifts for specific days (e.g., "Wednesday: 10:00-18:30").
+      // These take highest priority and are scheduled before everything else.
+      {
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const empsWithDayShifts = employees.filter(
+          e => e.isActive && e.daySpecificShifts
+        );
+        if (empsWithDayShifts.length > 0) {
+          console.log(`[Scheduler] Day-specific pre-pass: ${empsWithDayShifts.length} employee(s) with day overrides`);
+          for (const emp of empsWithDayShifts) {
+            let parsed: Record<string, { start: string; end: string }>;
+            try { parsed = JSON.parse(emp.daySpecificShifts!); } catch { continue; }
+            for (let d = 0; d < 7; d++) {
+              const dayEntry = parsed[dayNames[d]];
+              if (!dayEntry || !dayEntry.start || !dayEntry.end) continue;
+              const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+              if (isHoliday(currentDay)) continue;
+              if (isOnTimeOff(emp.id, currentDay, d)) continue;
+              const [sH, sM] = dayEntry.start.split(':').map(Number);
+              const [eH, eM] = dayEntry.end.split(':').map(Number);
+              const shiftPaidHours = calculateShiftPaidHours(
+                createESTTime(currentDay, sH, sM),
+                createESTTime(currentDay, eH, eM)
+              );
+              if (employeeState[emp.id].hoursScheduled + shiftPaidHours > emp.maxWeeklyHours) {
+                console.log(`[Scheduler] Day-specific: ${emp.name} → ${dayNames[d]} SKIPPED (would exceed ${emp.maxWeeklyHours}h max)`);
+                continue;
+              }
+              scheduleShift(emp, createESTTime(currentDay, sH, sM), createESTTime(currentDay, eH, eM), d);
+              existingShiftsByEmpDay.add(`${emp.id}-${d}`);
+              console.log(`[Scheduler] Day-specific: ${emp.name} → ${dayNames[d]} ${dayEntry.start}–${dayEntry.end} (${employeeState[emp.id].hoursScheduled.toFixed(1)}h total)`);
+            }
+          }
+        }
+      }
+
+      // ========== FIXED-SHIFT PRE-PASS ==========
       // These employees always get their exact configured start/end times.
       // We write into existingShiftsByEmpDay after each scheduled day so that:
       //   (a) isOnTimeOff() prevents any regular pass from double-booking them
@@ -613,6 +651,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
               const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
               if (isHoliday(currentDay)) continue;
               if (isOnTimeOff(emp.id, currentDay, d)) continue;
+              if (employeeState[emp.id].daysWorkedOn.has(d)) { daysScheduled++; continue; }
               scheduleShift(emp, createESTTime(currentDay, fStartH, fStartM), createESTTime(currentDay, fEndH, fEndM), d);
               existingShiftsByEmpDay.add(`${emp.id}-${d}`);
               daysScheduled++;

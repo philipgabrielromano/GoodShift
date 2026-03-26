@@ -25,6 +25,7 @@ export const employees = pgTable("employees", {
   shiftPreference: text("shift_preference"), // null/'no_preference' = any shift, 'morning_only' = openers only, 'evening_only' = closers only, 'fixed_shift' = exact times
   fixedShiftStart: text("fixed_shift_start"), // "HH:MM" — only used when shiftPreference = 'fixed_shift'
   fixedShiftEnd: text("fixed_shift_end"),     // "HH:MM" — only used when shiftPreference = 'fixed_shift'
+  daySpecificShifts: text("day_specific_shifts"), // JSON string: {"Wednesday": {"start": "10:00", "end": "18:30"}, ...} — per-day shift overrides
 }, (table) => [
   index("idx_employees_is_active").on(table.isActive),
   index("idx_employees_email").on(table.email),
