@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.37.0";
+export const APP_VERSION = "1.38.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.38.0",
+    date: "2026-03-26",
+    title: "Cross-Trained Role Shift Notes",
+    changes: [
+      { type: "feature", description: "Shifts can now be marked as 'Cross-Trained Role' when an employee is performing a different role than their normal job title for that day." },
+      { type: "feature", description: "Cross-trained shifts display in white with a purple glow animation to visually distinguish them on the schedule." },
+      { type: "feature", description: "The cross-trained role name is shown below the shift time in purple italic text." },
+      { type: "improvement", description: "eCommerce Director (ECOMDIR) is now Level 3, eCommerce Assistant (EASSIS) is Level 2, and eCommerce Lead (ECMCOMLD) is Level 1 in the attendance and coaching permission hierarchy." },
+    ],
+  },
   {
     version: "1.37.0",
     date: "2026-03-26",

@@ -12,7 +12,7 @@ import { format } from "date-fns";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { type Shift } from "@shared/schema";
 import { Trash2, Loader2, Clock } from "lucide-react";
-import { getJobTitle } from "@/lib/utils";
+import { getJobTitle, JOB_CODE_TITLES } from "@/lib/utils";
 
 const TIMEZONE = "America/New_York";
 
@@ -44,6 +44,8 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
   const [endTime, setEndTime] = useState("");
   const [date, setDate] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<string>("");
+  const [isCrossTrained, setIsCrossTrained] = useState(false);
+  const [crossTrainedRole, setCrossTrainedRole] = useState<string>("");
 
   useEffect(() => {
     if (isOpen) {
@@ -53,11 +55,15 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
         setDate(formatInTimeZone(shift.startTime, TIMEZONE, "yyyy-MM-dd"));
         setStartTime(formatInTimeZone(shift.startTime, TIMEZONE, "HH:mm"));
         setEndTime(formatInTimeZone(shift.endTime, TIMEZONE, "HH:mm"));
+        setIsCrossTrained(!!shift.crossTrainedRole);
+        setCrossTrainedRole(shift.crossTrainedRole || "");
       } else {
         setEmployeeId(defaultEmployeeId?.toString() || "");
         setDate(defaultDate ? formatInTimeZone(defaultDate, TIMEZONE, "yyyy-MM-dd") : formatInTimeZone(new Date(), TIMEZONE, "yyyy-MM-dd"));
         setStartTime("09:00");
         setEndTime("17:00");
+        setIsCrossTrained(false);
+        setCrossTrainedRole("");
       }
     }
   }, [isOpen, shift, defaultDate, defaultEmployeeId]);
@@ -84,6 +90,13 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
       endDateTime = new Date(endDateTime.getTime() + 24 * 60 * 60 * 1000);
     }
 
+    if (isCrossTrained && !crossTrainedRole) {
+      toast({ variant: "destructive", title: "Missing role", description: "Please select a cross-trained role or uncheck the option." });
+      return;
+    }
+
+    const crossTrainedValue = isCrossTrained && crossTrainedRole ? crossTrainedRole : null;
+
     try {
       if (shift) {
         await updateShift.mutateAsync({
@@ -91,6 +104,7 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
           employeeId: parseInt(employeeId),
           startTime: startDateTime,
           endTime: endDateTime,
+          crossTrainedRole: crossTrainedValue,
         });
         toast({ title: "Shift updated", description: "The schedule has been updated." });
       } else {
@@ -98,6 +112,7 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
           employeeId: parseInt(employeeId),
           startTime: startDateTime,
           endTime: endDateTime,
+          crossTrainedRole: crossTrainedValue,
         });
         toast({ title: "Shift created", description: "New shift added to schedule." });
       }
@@ -187,6 +202,43 @@ export function ShiftDialog({ isOpen, onClose, shift, defaultDate, defaultEmploy
               <Label>End Time</Label>
               <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} required data-testid="input-end-time" />
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="cross-trained"
+                checked={isCrossTrained}
+                onChange={(e) => {
+                  setIsCrossTrained(e.target.checked);
+                  if (!e.target.checked) setCrossTrainedRole("");
+                }}
+                className="h-4 w-4 rounded border-gray-300 accent-primary"
+                data-testid="checkbox-cross-trained"
+              />
+              <Label htmlFor="cross-trained" className="cursor-pointer">Cross-Trained Role</Label>
+            </div>
+            {isCrossTrained && (
+              <Select value={crossTrainedRole} onValueChange={setCrossTrainedRole}>
+                <SelectTrigger data-testid="select-cross-trained-role">
+                  <SelectValue placeholder="Select role..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(JOB_CODE_TITLES)
+                    .filter(([code]) => {
+                      const selectedEmp = employees?.find(e => e.id.toString() === employeeId);
+                      return !selectedEmp || code.toUpperCase() !== (selectedEmp.jobTitle || "").toUpperCase();
+                    })
+                    .sort(([, a], [, b]) => a.localeCompare(b))
+                    .map(([code, title]) => (
+                      <SelectItem key={code} value={code} data-testid={`cross-role-${code}`}>
+                        {title}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <DialogFooter className="flex items-center justify-between mt-6">

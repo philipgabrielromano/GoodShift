@@ -148,3 +148,16 @@
   animation: notification-glow 2s ease-in-out infinite;
   border-radius: 0.375rem;
 }
+
+@keyframes cross-train-glow {
+  0%, 100% {
+    box-shadow: 0 0 6px 1px rgba(168, 85, 247, 0.3), 0 0 12px 3px rgba(168, 85, 247, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px rgba(168, 85, 247, 0.5), 0 0 20px 6px rgba(168, 85, 247, 0.25);
+  }
+}
+
+.animate-cross-train-glow {
+  animation: cross-train-glow 2s ease-in-out infinite;
+}

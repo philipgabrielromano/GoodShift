@@ -1972,12 +1972,16 @@ export default function Schedule() {
                                           onDragStart={(e) => userRole !== "viewer" && handleDragStart(e, shift)}
                                           onDragEnd={userRole !== "viewer" ? handleDragEnd : undefined}
                                           onClick={(e) => { e.stopPropagation(); handleEditShift(shift, emp); }}
-                                          className={`p-1.5 rounded text-[10px] font-medium border border-transparent hover:border-black/10 hover:shadow-md transition-all text-white flex items-center gap-1 ${
+                                          className={`p-1.5 rounded text-[10px] font-medium border hover:shadow-md transition-all flex items-center gap-1 ${
+                                            shift.crossTrainedRole
+                                              ? "bg-white text-gray-900 border-gray-300 animate-cross-train-glow"
+                                              : "text-white border-transparent hover:border-black/10"
+                                          } ${
                                             userRole === "viewer" && currentEmployee && shift.employeeId !== currentEmployee.id && currentEmployee.jobTitle === emp.jobTitle
                                               ? "cursor-pointer ring-1 ring-white/30 hover:ring-white/60"
                                               : userRole === "viewer" ? "cursor-default" : "cursor-grab active:cursor-grabbing"
                                           }`}
-                                          style={{ backgroundColor: getJobColor(emp.jobTitle) }}
+                                          style={shift.crossTrainedRole ? {} : { backgroundColor: getJobColor(emp.jobTitle) }}
                                           data-testid={`shift-${shift.id}`}
                                         >
                                           {isCopyMode && draggedShift?.id === shift.id ? (
@@ -1988,8 +1992,13 @@ export default function Schedule() {
                                           <div className="flex flex-col leading-tight">
                                             <span>{formatInTimeZone(shift.startTime, TIMEZONE, "h:mma")}</span>
                                             <span>{formatInTimeZone(shift.endTime, TIMEZONE, "h:mma")}</span>
+                                            {shift.crossTrainedRole && (
+                                              <span className={`text-[9px] font-semibold mt-0.5 border-t pt-0.5 italic ${shift.crossTrainedRole ? "border-gray-300 text-purple-700" : "border-white/30"}`} data-testid={`text-cross-role-${shift.id}`}>
+                                                {getJobTitle(shift.crossTrainedRole)}
+                                              </span>
+                                            )}
                                             {actualHours && (
-                                              <span className="text-[9px] opacity-80 mt-0.5 border-t border-white/30 pt-0.5" data-testid={`text-worked-hours-${shift.id}`}>
+                                              <span className={`text-[9px] opacity-80 mt-0.5 border-t pt-0.5 ${shift.crossTrainedRole ? "border-gray-300" : "border-white/30"}`} data-testid={`text-worked-hours-${shift.id}`}>
                                                 {actualHours.totalHours.toFixed(1)}h
                                                 {actualHours.clockIn && actualHours.clockOut && (
                                                   <span className="block">

@@ -46,6 +46,7 @@ export const shifts = pgTable("shifts", {
   employeeId: integer("employee_id").notNull(),
   startTime: timestamp("start_time").notNull(),
   endTime: timestamp("end_time").notNull(),
+  crossTrainedRole: text("cross_trained_role"),
 }, (table) => [
   index("idx_shifts_start_time").on(table.startTime),
   index("idx_shifts_employee_id").on(table.employeeId),

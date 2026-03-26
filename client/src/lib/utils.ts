@@ -98,7 +98,7 @@ export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
   return holidays;
 }
 
-const JOB_CODE_TITLES: Record<string, string> = {
+export const JOB_CODE_TITLES: Record<string, string> = {
   // Standard job codes
   APPROC: "Apparel Processor",
   DONDOOR: "Donor Greeter",
