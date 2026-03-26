@@ -855,7 +855,11 @@ export default function Schedule() {
             weeklyHours += calculatePaidHours(start, end);
             const startStr = formatInTimeZone(start, TIMEZONE, "h:mma").toLowerCase();
             const endStr = formatInTimeZone(end, TIMEZONE, "h:mma").toLowerCase();
-            return `${startStr}-${endStr}`;
+            const timeStr = `${startStr}-${endStr}`;
+            if (s.crossTrainedRole) {
+              return `${timeStr}\n(${getJobTitle(s.crossTrainedRole)})`;
+            }
+            return timeStr;
           });
           return shiftStrings.join("\n");
         }
