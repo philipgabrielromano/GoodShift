@@ -8,7 +8,7 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.40.0";
+export const APP_VERSION = "1.5";
 
 export const changelog: ChangelogEntry[] = [
   {
