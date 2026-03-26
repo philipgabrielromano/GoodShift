@@ -181,9 +181,11 @@ export default function TaskAssignment() {
   });
 
   const { data: assignments = [], isLoading: assignmentsLoading } = useQuery<TaskAssignmentType[]>({
-    queryKey: ["/api/task-assignments", selectedDate],
+    queryKey: ["/api/task-assignments", selectedDate, selectedLocation],
     queryFn: async () => {
-      const res = await fetch(`/api/task-assignments?date=${selectedDate}`, { credentials: "include" });
+      const params = new URLSearchParams({ date: selectedDate });
+      if (selectedLocation !== "all") params.set("location", selectedLocation);
+      const res = await fetch(`/api/task-assignments?${params}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch task assignments");
       return res.json();
     },
@@ -641,11 +643,8 @@ export default function TaskAssignment() {
 
                 let empEstimate = 0;
                 if (isProductionWorker && shift) {
-                  const shiftTotalMinutes = shiftEndMin - shiftStartMin;
-                  const breakMinutes = shiftTotalMinutes >= 360 ? 30 : 0;
-                  const effectiveMinutes = Math.max(0, shiftTotalMinutes - breakMinutes);
-                  const effectiveHours = effectiveMinutes / 60;
-                  empEstimate = Math.round(effectiveHours * 60);
+                  const effectiveHours = calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
+                  empEstimate = Math.round(effectiveHours * PIECES_PER_EFFECTIVE_HOUR);
                 }
 
                 const isDropTarget = dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id;
