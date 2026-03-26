@@ -985,11 +985,11 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         // otherwise save the capacity for days that still need an opener or closer.
         const availableForMid = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         if (availableForMid.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
-          const allDaysCoveredByHigherTier = [0,1,2,3,4,5,6].every(d => {
+          const allDaysFullyCoveredForMid = [0,1,2,3,4,5,6].every(d => {
             const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-            return isHoliday(cd) || leadershipCoverage[d].hasHigherTier;
+            return isHoliday(cd) || (leadershipCoverage[d].opener && leadershipCoverage[d].closer);
           });
-          if (allDaysCoveredByHigherTier) {
+          if (allDaysFullyCoveredForMid) {
             const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
             const manager = availableForMid[0];
             scheduleShift(manager, midShift.start, midShift.end, dayIndex);
@@ -1012,9 +1012,13 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             if (!coverage.opener && coverage.closerTier === 'higher') openSlots.push('opener');
             // Team lead can close ONLY if a higher-tier manager is opening (or has opened)
             if (!coverage.closer && coverage.openerTier === 'higher') openSlots.push('closer');
-            // Mid shift ONLY if opener AND closer are already covered — never waste
-            // a team lead on mid when an opener or closer gap still exists
-            if (coverage.opener && coverage.closer && !coverage.mid) openSlots.push('mid');
+            // Mid shift ONLY if opener AND closer are covered on ALL days — never waste
+            // a team lead's day quota on mid when other days still need opener/closer
+            const allDaysFullyCovered = [0,1,2,3,4,5,6].every(dd => {
+              const cd = new Date(startDate.getTime() + dd * 24 * 60 * 60 * 1000);
+              return isHoliday(cd) || (leadershipCoverage[dd].opener && leadershipCoverage[dd].closer);
+            });
+            if (coverage.opener && coverage.closer && !coverage.mid && allDaysFullyCovered) openSlots.push('mid');
             
             if (openSlots.length === 0) break;
             
