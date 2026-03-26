@@ -422,7 +422,7 @@ export default function VarianceReport() {
                   ) : (
                     <>
                       <p className="text-xs text-muted-foreground mb-3">
-                        Shifts over 5 hours require 4 punches (IN, OUT, IN, OUT). Shifts of 5 hours or less require 2 punches (IN, OUT).
+                        Shifts of 6 hours or more require 4 punches (IN, OUT, IN, OUT) due to mandatory lunch. Shifts under 6 hours require 2 punches (IN, OUT).
                       </p>
                       {/* Mobile cards */}
                       <div className="sm:hidden space-y-2">

@@ -247,8 +247,8 @@ export function registerReportRoutes(app: Express) {
         // Calculate scheduled shift length in hours
         const shiftHours = (shiftEnd.getTime() - shiftStart.getTime()) / 3600000;
 
-        // Determine expected punches: >5 hours = 4 punches (IN,OUT,IN,OUT), <=5 hours = 2 punches (IN,OUT)
-        const expectedPunches = shiftHours > 5 ? 4 : 2;
+        // Determine expected punches: >=6 hours = 4 punches (IN,OUT,IN,OUT) due to mandatory lunch, <6 hours = 2 punches (IN,OUT)
+        const expectedPunches = shiftHours >= 6 ? 4 : 2;
 
         // Count actual individual punch events (each clockIn and each clockOut counts as one)
         let actualPunchCount = 0;
