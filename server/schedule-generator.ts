@@ -1127,6 +1127,99 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         }
       }
       
+      // ========== SELF-CORRECTION PASS ==========
+      // Validate all leadership coverage and actively fix any remaining gaps.
+      // Strategy: progressively relax constraints to guarantee every non-holiday
+      // day has both an opener and a closer.
+      {
+        const gapDays: number[] = [];
+        for (let d = 0; d < 7; d++) {
+          const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+          if (isHoliday(cd)) continue;
+          const c = leadershipCoverage[d];
+          if (!c.opener || !c.closer) gapDays.push(d);
+        }
+
+        if (gapDays.length > 0) {
+          console.log(`[Scheduler] Self-correction: ${gapDays.length} day(s) still have gaps — ${gapDays.map(d => shortDayNames[d]).join(', ')}`);
+          const allLeadership = [...allHigherTierManagers, ...allTeamLeads];
+
+          for (const dayIndex of gapDays) {
+            const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+            const shifts = getShiftTimes(currentDay);
+            const coverage = leadershipCoverage[dayIndex];
+
+            // STEP 1: Try any leadership employee who isn't on time off and hasn't
+            // already worked this day — ignore maxDays (they'll work an extra day
+            // rather than leave the store unstaffed).
+            if (!coverage.opener || !coverage.closer) {
+              const availOverride = shuffleArray(allLeadership.filter(m => {
+                if (!m.isActive) return false;
+                if (isOnTimeOff(m.id, currentDay, dayIndex)) return false;
+                if (employeeState[m.id].daysWorkedOn.has(dayIndex)) return false;
+                if (employeeState[m.id].hoursScheduled + FULL_SHIFT_HOURS > m.maxWeeklyHours) return false;
+                return true;
+              }));
+
+              for (const mgr of availOverride) {
+                if (coverage.opener && coverage.closer) break;
+                const isHigher = higherTierIds.includes(mgr.id);
+                if (!coverage.opener) {
+                  scheduleShift(mgr, shifts.opener.start, shifts.opener.end, dayIndex);
+                  coverage.opener = true;
+                  coverage.openerTier = isHigher ? 'higher' : 'teamlead';
+                  if (isHigher) coverage.hasHigherTier = true;
+                  console.log(`[Scheduler] Self-correction Day ${dayIndex}: ${mgr.name} as opener (maxDays overridden)`);
+                } else if (!coverage.closer) {
+                  scheduleShift(mgr, shifts.closer.start, shifts.closer.end, dayIndex);
+                  coverage.closer = true;
+                  coverage.closerTier = isHigher ? 'higher' : 'teamlead';
+                  if (isHigher) coverage.hasHigherTier = true;
+                  console.log(`[Scheduler] Self-correction Day ${dayIndex}: ${mgr.name} as closer (maxDays overridden)`);
+                }
+              }
+            }
+
+            // STEP 2: If STILL a gap, try short shifts (5.5h) to fit under maxWeeklyHours
+            if (!coverage.opener || !coverage.closer) {
+              const availShort = shuffleArray(allLeadership.filter(m => {
+                if (!m.isActive) return false;
+                if (isOnTimeOff(m.id, currentDay, dayIndex)) return false;
+                if (employeeState[m.id].daysWorkedOn.has(dayIndex)) return false;
+                if (employeeState[m.id].hoursScheduled + SHORT_SHIFT_HOURS > m.maxWeeklyHours) return false;
+                return true;
+              }));
+
+              for (const mgr of availShort) {
+                if (coverage.opener && coverage.closer) break;
+                const isHigher = higherTierIds.includes(mgr.id);
+                if (!coverage.opener) {
+                  const shortOpener = { start: shifts.opener.start, end: createESTTime(currentDay, 13, 30) };
+                  scheduleShift(mgr, shortOpener.start, shortOpener.end, dayIndex);
+                  coverage.opener = true;
+                  coverage.openerTier = isHigher ? 'higher' : 'teamlead';
+                  if (isHigher) coverage.hasHigherTier = true;
+                  console.log(`[Scheduler] Self-correction Day ${dayIndex}: ${mgr.name} as SHORT opener 8:00-1:30 (hours constrained)`);
+                } else if (!coverage.closer) {
+                  const shortCloser = { start: createESTTime(currentDay, 14, 30), end: shifts.closer.end };
+                  scheduleShift(mgr, shortCloser.start, shortCloser.end, dayIndex);
+                  coverage.closer = true;
+                  coverage.closerTier = isHigher ? 'higher' : 'teamlead';
+                  if (isHigher) coverage.hasHigherTier = true;
+                  console.log(`[Scheduler] Self-correction Day ${dayIndex}: ${mgr.name} as SHORT closer 2:30-8:30 (hours constrained)`);
+                }
+              }
+            }
+
+            if (!coverage.opener || !coverage.closer) {
+              console.log(`[Scheduler] UNRESOLVED: Day ${dayIndex} (${shortDayNames[dayIndex]}) still missing ${!coverage.opener ? 'opener' : ''}${!coverage.opener && !coverage.closer ? ' & ' : ''}${!coverage.closer ? 'closer' : ''} — all managers exhausted`);
+            }
+          }
+        } else {
+          console.log(`[Scheduler] Self-correction: No gaps detected — all days fully covered`);
+        }
+      }
+
       // Final summary and validation of leadership coverage
       console.log(`[Scheduler] Leadership coverage summary:`);
       const uncoveredDaysAfterPass2: string[] = [];
@@ -1143,7 +1236,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         console.log(`[Scheduler]   ${shortDayNames[d]}: opener=${c.opener}, closer=${c.closer}, mid=${c.mid}, hasHigherTier=${c.hasHigherTier}`);
         
-        if (!c.hasHigherTier) {
+        if (!c.opener || !c.closer) {
           uncoveredDaysAfterPass2.push(shortDayNames[d]);
         }
         if (c.opener) totalLeadershipShifts++;
@@ -1152,10 +1245,10 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       }
       
       if (uncoveredDaysAfterPass2.length > 0) {
-        console.log(`[Scheduler] ERROR: ${uncoveredDaysAfterPass2.length} days have NO higher-tier manager coverage: ${uncoveredDaysAfterPass2.join(', ')}`);
-        console.log(`[Scheduler] This may indicate insufficient store managers/assistant managers, or too many time-off conflicts`);
+        console.log(`[Scheduler] ERROR: ${uncoveredDaysAfterPass2.length} day(s) still have coverage gaps: ${uncoveredDaysAfterPass2.join(', ')}`);
+        console.log(`[Scheduler] This may indicate insufficient leadership staff or too many time-off conflicts`);
       } else {
-        console.log(`[Scheduler] SUCCESS: All days have higher-tier manager coverage (${totalLeadershipShifts} leadership shifts scheduled)`);
+        console.log(`[Scheduler] SUCCESS: All days fully covered (${totalLeadershipShifts} leadership shifts scheduled)`);
       }
       
       // Phase 1a: Schedule pricers and apparel processors with MORNING PRIORITY
