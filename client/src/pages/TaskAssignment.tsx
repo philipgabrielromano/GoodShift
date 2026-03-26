@@ -136,17 +136,10 @@ function formatMinute(m: number): string {
   return `${h12}:${min.toString().padStart(2, "0")} ${ampm}`;
 }
 
-function calculateEffectiveHours(startTime: Date, endTime: Date): number {
-  if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) return 0;
-  const clockHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
-  if (clockHours < 0) return 0;
-  const paidHours = clockHours >= 6 ? clockHours - 0.5 : clockHours;
-  if (paidHours >= 8) return 7;
-  if (paidHours >= 5) return paidHours - 0.25;
-  return paidHours;
-}
-
 const PIECES_PER_EFFECTIVE_HOUR = 60;
+
+const APPAREL_PRODUCTION_TASKS = new Set(["Process Clothes", "Process Shoes", "Process Accessories", "Complete Pulls"]);
+const WARES_PRODUCTION_TASKS = new Set(["Process Wares"]);
 
 function getDateString(date: Date): string {
   return formatInTimeZone(date, TIMEZONE, "yyyy-MM-dd");
@@ -172,6 +165,8 @@ export default function TaskAssignment() {
     originalDuration: number;
     currentMinute: number;
     currentDuration: number;
+    clickMinute?: number;
+    didDrag?: boolean;
   } | null>(null);
   const [hoveredEmployeeId, setHoveredEmployeeId] = useState<number | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -424,26 +419,40 @@ export default function TaskAssignment() {
     return map;
   }, [assignments]);
 
-  const apparelJobCodes = useMemo(() => new Set(["APPROC", "APWV"]), []);
-  const waresJobCodes = useMemo(() => new Set(["DONPRI", "DONPRWV"]), []);
+  const shiftMinutesByEmployee = useMemo(() => {
+    const map = new Map<number, { start: number; end: number }>();
+    for (const [empId, shift] of shiftByEmployee) {
+      const stLocal = toZonedTime(new Date(shift.startTime), TIMEZONE);
+      const etLocal = toZonedTime(new Date(shift.endTime), TIMEZONE);
+      map.set(empId, {
+        start: stLocal.getHours() * 60 + stLocal.getMinutes(),
+        end: etLocal.getHours() * 60 + etLocal.getMinutes(),
+      });
+    }
+    return map;
+  }, [shiftByEmployee]);
 
   const productionEstimates = useMemo(() => {
-    let apparelHours = 0;
-    let waresHours = 0;
+    let apparelMinutes = 0;
+    let waresMinutes = 0;
 
-    for (const emp of scheduledEmployees) {
-      const shift = shiftByEmployee.get(emp.id);
-      if (!shift) continue;
-      const eff = calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
-      if (apparelJobCodes.has(emp.jobTitle)) apparelHours += eff;
-      if (waresJobCodes.has(emp.jobTitle)) waresHours += eff;
+    for (const a of assignments) {
+      if (APPAREL_PRODUCTION_TASKS.has(a.taskName)) {
+        apparelMinutes += a.durationMinutes;
+      } else if (WARES_PRODUCTION_TASKS.has(a.taskName)) {
+        waresMinutes += a.durationMinutes;
+      }
     }
+
+    const apparelHours = apparelMinutes / 60;
+    const waresHours = waresMinutes / 60;
 
     return {
       apparel: Math.round(apparelHours * PIECES_PER_EFFECTIVE_HOUR),
       wares: Math.round(waresHours * PIECES_PER_EFFECTIVE_HOUR),
+      totalPieces: Math.round(apparelHours * PIECES_PER_EFFECTIVE_HOUR) + Math.round(waresHours * PIECES_PER_EFFECTIVE_HOUR),
     };
-  }, [scheduledEmployees, shiftByEmployee, apparelJobCodes, waresJobCodes]);
+  }, [assignments]);
 
   const navigateDate = (offset: number) => {
     const d = new Date(dateObj);
@@ -453,22 +462,27 @@ export default function TaskAssignment() {
 
   const handleTimelineMouseDown = useCallback((e: React.MouseEvent, employeeId: number) => {
     if (e.button !== 0) return;
+    const shiftBounds = shiftMinutesByEmployee.get(employeeId);
+    if (!shiftBounds) return;
+
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
     const minute = xToMinute(x);
-    if (minute < HOUR_START * 60 || minute >= HOUR_END * 60) return;
+    if (minute < shiftBounds.start || minute >= shiftBounds.end) return;
 
     setDragState({
       type: "create",
       employeeId,
       targetEmployeeId: employeeId,
       startX: e.clientX,
-      originalStartMinute: minute,
-      originalDuration: 15,
-      currentMinute: minute,
-      currentDuration: 15,
-    });
-  }, [xToMinute]);
+      originalStartMinute: shiftBounds.start,
+      originalDuration: shiftBounds.end - shiftBounds.start,
+      currentMinute: shiftBounds.start,
+      currentDuration: shiftBounds.end - shiftBounds.start,
+      clickMinute: minute,
+      didDrag: false,
+    } as any);
+  }, [xToMinute, shiftMinutesByEmployee]);
 
   const handleBlockMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
     e.stopPropagation();
@@ -529,25 +543,38 @@ export default function TaskAssignment() {
     const handleMouseMove = (e: MouseEvent) => {
       const dx = e.clientX - dragState.startX;
       const dMinutes = Math.round((dx * minutesPerPixel) / 15) * 15;
+      const shiftBounds = shiftMinutesByEmployee.get(dragState.employeeId);
+      const shiftStart = shiftBounds?.start ?? HOUR_START * 60;
+      const shiftEnd = shiftBounds?.end ?? HOUR_END * 60;
 
       if (dragState.type === "resize-end") {
         const newDuration = Math.max(15, dragState.originalDuration + dMinutes);
-        const maxDuration = HOUR_END * 60 - dragState.originalStartMinute;
+        const maxDuration = shiftEnd - dragState.originalStartMinute;
         setDragState(prev => prev ? { ...prev, currentDuration: Math.min(newDuration, maxDuration) } : null);
       } else if (dragState.type === "resize-start") {
         const newStart = dragState.originalStartMinute + dMinutes;
-        const clampedStart = Math.max(HOUR_START * 60, Math.min(newStart, dragState.originalStartMinute + dragState.originalDuration - 15));
+        const clampedStart = Math.max(shiftStart, Math.min(newStart, dragState.originalStartMinute + dragState.originalDuration - 15));
         const newDuration = dragState.originalDuration - (clampedStart - dragState.originalStartMinute);
         setDragState(prev => prev ? { ...prev, currentMinute: clampedStart, currentDuration: newDuration } : null);
       } else if (dragState.type === "move" || dragState.type === "copy") {
-        const newMinute = dragState.originalStartMinute + dMinutes;
-        const clampedMinute = Math.max(HOUR_START * 60, Math.min(newMinute, HOUR_END * 60 - dragState.originalDuration));
         const targetEmp = hoveredEmployeeId ?? dragState.employeeId;
+        const targetBounds = shiftMinutesByEmployee.get(targetEmp);
+        const tStart = targetBounds?.start ?? HOUR_START * 60;
+        const tEnd = targetBounds?.end ?? HOUR_END * 60;
+        const newMinute = dragState.originalStartMinute + dMinutes;
+        const clampedMinute = Math.max(tStart, Math.min(newMinute, tEnd - dragState.originalDuration));
         setDragState(prev => prev ? { ...prev, currentMinute: clampedMinute, targetEmployeeId: targetEmp } : null);
       } else if (dragState.type === "create") {
-        const endMinute = dragState.originalStartMinute + dMinutes + 15;
-        const clampedEnd = Math.max(dragState.originalStartMinute + 15, Math.min(endMinute, HOUR_END * 60));
-        setDragState(prev => prev ? { ...prev, currentDuration: clampedEnd - dragState.originalStartMinute } : null);
+        if (!dragState.didDrag && Math.abs(dx) > 5) {
+          const clickMin = dragState.clickMinute ?? shiftStart;
+          const snappedClick = Math.round(clickMin / 15) * 15;
+          setDragState(prev => prev ? { ...prev, didDrag: true, originalStartMinute: snappedClick, currentMinute: snappedClick, currentDuration: 15 } : null);
+        } else if (dragState.didDrag) {
+          const dragStartMin = dragState.originalStartMinute;
+          const endMinute = dragStartMin + dMinutes + 15;
+          const clampedEnd = Math.max(dragStartMin + 15, Math.min(endMinute, shiftEnd));
+          setDragState(prev => prev ? { ...prev, currentDuration: clampedEnd - dragStartMin } : null);
+        }
       }
     };
 
@@ -605,7 +632,7 @@ export default function TaskAssignment() {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId, minutesPerPixel]);
+  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId, minutesPerPixel, shiftMinutesByEmployee]);
 
   const dayLabel = useMemo(() => {
     return formatInTimeZone(dateObj, TIMEZONE, "EEEE, MMMM d, yyyy");
@@ -673,6 +700,7 @@ export default function TaskAssignment() {
     doc.text(dayLabel, margin + logoWidth + 4, 18);
 
     let summaryParts: string[] = [];
+    if (productionEstimates.totalPieces > 0) summaryParts.push(`Total: ${productionEstimates.totalPieces.toLocaleString()} pcs`);
     if (productionEstimates.apparel > 0) summaryParts.push(`Apparel: ${productionEstimates.apparel.toLocaleString()} pcs`);
     if (productionEstimates.wares > 0) summaryParts.push(`Wares: ${productionEstimates.wares.toLocaleString()} pcs`);
     if (summaryParts.length > 0) {
@@ -729,19 +757,20 @@ export default function TaskAssignment() {
         doc.setTextColor(0, 0, 0);
         doc.text(emp.name, margin + 2.5, y + rowHeight / 2 + 0.5, { maxWidth: 28 });
 
-        const isProductionWorker = ["APPROC", "APWV", "DONPRI", "DONPRWV"].includes(emp.jobTitle);
-        const shift = shiftByEmployee.get(emp.id);
-        if (isProductionWorker && shift) {
-          const eff = calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
-          const estimate = Math.round(eff * PIECES_PER_EFFECTIVE_HOUR);
-          doc.setFont(fontFamily, "normal");
-          doc.setFontSize(5);
-          doc.setTextColor(100, 100, 100);
-          doc.text(`${emp.jobTitle} (${estimate}pcs)`, margin + 2.5, y + rowHeight - 0.8);
+        const pdfEmpAssignments = assignmentsByEmployee.get(emp.id) || [];
+        let pdfProdMinutes = 0;
+        pdfEmpAssignments.forEach(a => {
+          if (APPAREL_PRODUCTION_TASKS.has(a.taskName) || WARES_PRODUCTION_TASKS.has(a.taskName)) {
+            pdfProdMinutes += a.durationMinutes;
+          }
+        });
+        const pdfEmpEstimate = Math.round((pdfProdMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
+        doc.setFont(fontFamily, "normal");
+        doc.setFontSize(5);
+        doc.setTextColor(100, 100, 100);
+        if (pdfEmpEstimate > 0) {
+          doc.text(`${emp.jobTitle} (${pdfEmpEstimate}pcs)`, margin + 2.5, y + rowHeight - 0.8);
         } else {
-          doc.setFont(fontFamily, "normal");
-          doc.setFontSize(5);
-          doc.setTextColor(100, 100, 100);
           doc.text(emp.jobTitle, margin + 2.5, y + rowHeight - 0.8);
         }
 
@@ -867,6 +896,11 @@ export default function TaskAssignment() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {productionEstimates.totalPieces > 0 && (
+            <div className="text-sm px-3 py-1.5 rounded-md bg-primary/10 text-primary font-bold border border-primary/20" data-testid="text-total-production">
+              Planned Production: {productionEstimates.totalPieces.toLocaleString()} pcs
+            </div>
+          )}
           {productionEstimates.apparel > 0 && (
             <div className="text-xs px-2 py-1 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" data-testid="text-apparel-production">
               Apparel: {productionEstimates.apparel.toLocaleString()} pcs
@@ -1042,7 +1076,7 @@ export default function TaskAssignment() {
       </div>
 
       <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
-        <span>Click + drag on timeline to create a task block</span>
+        <span>Click to assign full shift, drag to set custom duration</span>
         <span>Drag block to move (across employees too)</span>
         <span>Drag left or right edge to resize</span>
         <span>Ctrl+drag to copy</span>
@@ -1103,22 +1137,17 @@ export default function TaskAssignment() {
                 const shift = shiftByEmployee.get(emp.id);
                 const empAssignments = assignmentsByEmployee.get(emp.id) || [];
                 const jobColor = JOB_COLORS[emp.jobTitle] || "#6B7280";
-                const isProductionWorker = ["APPROC", "APWV", "DONPRI", "DONPRWV"].includes(emp.jobTitle);
+                const shiftBounds = shiftMinutesByEmployee.get(emp.id);
+                const shiftStartMin = shiftBounds?.start ?? 0;
+                const shiftEndMin = shiftBounds?.end ?? 0;
 
-                let shiftStartMin = 0;
-                let shiftEndMin = 0;
-                if (shift) {
-                  const stLocal = toZonedTime(new Date(shift.startTime), TIMEZONE);
-                  const etLocal = toZonedTime(new Date(shift.endTime), TIMEZONE);
-                  shiftStartMin = stLocal.getHours() * 60 + stLocal.getMinutes();
-                  shiftEndMin = etLocal.getHours() * 60 + etLocal.getMinutes();
-                }
-
-                let empEstimate = 0;
-                if (isProductionWorker && shift) {
-                  const effectiveHours = calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
-                  empEstimate = Math.round(effectiveHours * PIECES_PER_EFFECTIVE_HOUR);
-                }
+                let empProductionMinutes = 0;
+                empAssignments.forEach(a => {
+                  if (APPAREL_PRODUCTION_TASKS.has(a.taskName) || WARES_PRODUCTION_TASKS.has(a.taskName)) {
+                    empProductionMinutes += a.durationMinutes;
+                  }
+                });
+                const empEstimate = Math.round((empProductionMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
 
                 const isDropTarget = dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id;
 
@@ -1133,7 +1162,7 @@ export default function TaskAssignment() {
                         <span className="truncate font-medium leading-tight">{emp.name}</span>
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] text-muted-foreground truncate">{emp.jobTitle}</span>
-                          {isProductionWorker && empEstimate >= 0 && shift && (
+                          {empEstimate > 0 && (
                             <span className="text-[10px] font-semibold text-primary" data-testid={`text-production-estimate-${emp.id}`}>
                               ({empEstimate} pcs)
                             </span>
