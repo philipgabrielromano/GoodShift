@@ -844,7 +844,17 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         }
         
         // Find available higher-tier managers for this day using random off days
-        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
+        let availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
+        
+        // If nobody available with random off days, override them — primary coverage
+        // is more important than schedule variety
+        let overrodeRandomOff = false;
+        if (availableHigherTier.length === 0) {
+          availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+          if (availableHigherTier.length > 0) {
+            overrodeRandomOff = true;
+          }
+        }
         
         if (availableHigherTier.length > 0) {
           // Smart slot selection: if a team lead already covers one slot,
@@ -868,7 +878,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           coverage[shiftType] = true;
           coverage.hasHigherTier = true;
           coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
-          console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: ${manager.name} as ${shiftType}${teamLeadDependentDays.has(dayIndex) ? ' (complementing team lead)' : ''}`);
+          console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: ${manager.name} as ${shiftType}${overrodeRandomOff ? ' (overrode random off day)' : ''}${teamLeadDependentDays.has(dayIndex) ? ' (complementing team lead)' : ''}`);
         } else {
           console.log(`[Scheduler] Pass 1 - Day ${dayIndex}: No higher-tier managers available`);
         }
@@ -894,7 +904,15 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const coverage = leadershipCoverage[dayIndex];
         
         // Find available higher-tier managers for this day using random off days
-        const availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
+        let availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
+        
+        // If no higher-tier available with random off days, override them for gap filling
+        if (!coverage.hasHigherTier && availableHigherTier.length === 0) {
+          availableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canWorkFullShift(m, currentDay, dayIndex)));
+          if (availableHigherTier.length > 0) {
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Overriding random off days for gap filling`);
+          }
+        }
         
         // FIRST: If this day has no higher-tier coverage, try to add one now
         if (!coverage.hasHigherTier && availableHigherTier.length > 0) {
@@ -924,20 +942,16 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const stillAvailableHigherTier = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         
         // Add second higher-tier manager for the opposite shift if available
+        // BUT only if all days already have at least one higher-tier manager — otherwise
+        // save the capacity for primary coverage on uncovered days
+        const allDaysCoveredForOpposite = [0,1,2,3,4,5,6].every(d => {
+          const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
+          return isHoliday(cd) || leadershipCoverage[d].hasHigherTier;
+        });
+        
         if (stillAvailableHigherTier.length > 0) {
-          if (coverage.opener && !coverage.closer) {
-            const manager = stillAvailableHigherTier[0];
-            scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
-            coverage.closer = true;
-            coverage.closerTier = 'higher';
-            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as closer`);
-          } else if (coverage.closer && !coverage.opener) {
-            const manager = stillAvailableHigherTier[0];
-            scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
-            coverage.opener = true;
-            coverage.openerTier = 'higher';
-            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
-          } else if (!coverage.opener && !coverage.closer) {
+          if (!coverage.opener && !coverage.closer) {
+            // Both slots empty — this day has no coverage at all, always fill it
             const shiftType = randomPick(['opener', 'closer'] as const);
             const manager = stillAvailableHigherTier[0];
             const shift = shiftType === 'opener' ? shifts.opener : shifts.closer;
@@ -946,6 +960,23 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             coverage.hasHigherTier = true;
             coverage[shiftType === 'opener' ? 'openerTier' : 'closerTier'] = 'higher';
             console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as ${shiftType}`);
+          } else if (allDaysCoveredForOpposite) {
+            // Only fill opposite slot with higher-tier once all days have primary coverage
+            if (coverage.opener && !coverage.closer) {
+              const manager = stillAvailableHigherTier[0];
+              scheduleShift(manager, shifts.closer.start, shifts.closer.end, dayIndex);
+              coverage.closer = true;
+              coverage.closerTier = 'higher';
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as closer`);
+            } else if (coverage.closer && !coverage.opener) {
+              const manager = stillAvailableHigherTier[0];
+              scheduleShift(manager, shifts.opener.start, shifts.opener.end, dayIndex);
+              coverage.opener = true;
+              coverage.openerTier = 'higher';
+              console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: ${manager.name} as opener`);
+            }
+          } else {
+            console.log(`[Scheduler] Pass 2 - Day ${dayIndex}: Skipping opposite-slot higher-tier — saving capacity for uncovered days`);
           }
         }
         
