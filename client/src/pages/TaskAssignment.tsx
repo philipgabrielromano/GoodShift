@@ -138,8 +138,9 @@ function formatMinute(m: number): string {
 
 const PIECES_PER_EFFECTIVE_HOUR = 60;
 
-const APPAREL_PRODUCTION_TASKS = new Set(["Process Clothes", "Process Shoes", "Process Accessories", "Complete Pulls"]);
+const APPAREL_PRODUCTION_TASKS = new Set(["Process Clothes"]);
 const WARES_PRODUCTION_TASKS = new Set(["Process Wares"]);
+const OTHER_PRODUCTION_TASKS = new Set(["Process Shoes", "Process Accessories"]);
 
 function getDateString(date: Date): string {
   return formatInTimeZone(date, TIMEZONE, "yyyy-MM-dd");
@@ -416,22 +417,27 @@ export default function TaskAssignment() {
   const productionEstimates = useMemo(() => {
     let apparelMinutes = 0;
     let waresMinutes = 0;
+    let otherMinutes = 0;
 
     for (const a of assignments) {
       if (APPAREL_PRODUCTION_TASKS.has(a.taskName)) {
         apparelMinutes += a.durationMinutes;
       } else if (WARES_PRODUCTION_TASKS.has(a.taskName)) {
         waresMinutes += a.durationMinutes;
+      } else if (OTHER_PRODUCTION_TASKS.has(a.taskName)) {
+        otherMinutes += a.durationMinutes;
       }
     }
 
-    const apparelHours = apparelMinutes / 60;
-    const waresHours = waresMinutes / 60;
+    const apparelPcs = Math.round((apparelMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
+    const waresPcs = Math.round((waresMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
+    const otherPcs = Math.round((otherMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
 
     return {
-      apparel: Math.round(apparelHours * PIECES_PER_EFFECTIVE_HOUR),
-      wares: Math.round(waresHours * PIECES_PER_EFFECTIVE_HOUR),
-      totalPieces: Math.round(apparelHours * PIECES_PER_EFFECTIVE_HOUR) + Math.round(waresHours * PIECES_PER_EFFECTIVE_HOUR),
+      apparel: apparelPcs,
+      wares: waresPcs,
+      other: otherPcs,
+      totalPieces: apparelPcs + waresPcs + otherPcs,
     };
   }, [assignments]);
 
@@ -741,7 +747,7 @@ export default function TaskAssignment() {
         const pdfEmpAssignments = assignmentsByEmployee.get(emp.id) || [];
         let pdfProdMinutes = 0;
         pdfEmpAssignments.forEach(a => {
-          if (APPAREL_PRODUCTION_TASKS.has(a.taskName) || WARES_PRODUCTION_TASKS.has(a.taskName)) {
+          if (APPAREL_PRODUCTION_TASKS.has(a.taskName) || WARES_PRODUCTION_TASKS.has(a.taskName) || OTHER_PRODUCTION_TASKS.has(a.taskName)) {
             pdfProdMinutes += a.durationMinutes;
           }
         });
@@ -890,6 +896,11 @@ export default function TaskAssignment() {
           {productionEstimates.wares > 0 && (
             <div className="text-xs px-2 py-1 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300" data-testid="text-wares-production">
               Wares: {productionEstimates.wares.toLocaleString()} pcs
+            </div>
+          )}
+          {productionEstimates.other > 0 && (
+            <div className="text-xs px-2 py-1 rounded bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300" data-testid="text-other-production">
+              Shoes/Acc: {productionEstimates.other.toLocaleString()} pcs
             </div>
           )}
         </div>
@@ -1127,7 +1138,7 @@ export default function TaskAssignment() {
 
                 let empProductionMinutes = 0;
                 empAssignments.forEach(a => {
-                  if (APPAREL_PRODUCTION_TASKS.has(a.taskName) || WARES_PRODUCTION_TASKS.has(a.taskName)) {
+                  if (APPAREL_PRODUCTION_TASKS.has(a.taskName) || WARES_PRODUCTION_TASKS.has(a.taskName) || OTHER_PRODUCTION_TASKS.has(a.taskName)) {
                     empProductionMinutes += a.durationMinutes;
                   }
                 });
