@@ -149,6 +149,14 @@ const APPAREL_PRODUCTION_TASKS = new Set(["Process Clothes"]);
 const WARES_PRODUCTION_TASKS = new Set(["Process Wares"]);
 const OTHER_PRODUCTION_TASKS = new Set(["Process Shoes", "Process Accessories"]);
 
+function calculateEffectiveHours(shiftHours: number): number {
+  if (shiftHours <= 0) return 0;
+  const paidHours = shiftHours >= 6 ? shiftHours - 0.5 : shiftHours;
+  if (paidHours >= 8) return 7;
+  if (paidHours >= 5) return paidHours - 0.25;
+  return paidHours;
+}
+
 function getDateString(date: Date): string {
   return formatInTimeZone(date, TIMEZONE, "yyyy-MM-dd");
 }
@@ -402,23 +410,37 @@ export default function TaskAssignment() {
   }, [shiftByEmployee]);
 
   const productionEstimates = useMemo(() => {
-    let apparelMinutes = 0;
-    let waresMinutes = 0;
-    let otherMinutes = 0;
+    const empProdMinutes = new Map<number, { apparel: number; wares: number; other: number }>();
 
     for (const a of assignments) {
-      if (APPAREL_PRODUCTION_TASKS.has(a.taskName)) {
-        apparelMinutes += a.durationMinutes;
-      } else if (WARES_PRODUCTION_TASKS.has(a.taskName)) {
-        waresMinutes += a.durationMinutes;
-      } else if (OTHER_PRODUCTION_TASKS.has(a.taskName)) {
-        otherMinutes += a.durationMinutes;
-      }
+      let cat: "apparel" | "wares" | "other" | null = null;
+      if (APPAREL_PRODUCTION_TASKS.has(a.taskName)) cat = "apparel";
+      else if (WARES_PRODUCTION_TASKS.has(a.taskName)) cat = "wares";
+      else if (OTHER_PRODUCTION_TASKS.has(a.taskName)) cat = "other";
+      if (!cat) continue;
+
+      const curr = empProdMinutes.get(a.employeeId) || { apparel: 0, wares: 0, other: 0 };
+      curr[cat] += a.durationMinutes;
+      empProdMinutes.set(a.employeeId, curr);
     }
 
-    const apparelPcs = Math.round((apparelMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
-    const waresPcs = Math.round((waresMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
-    const otherPcs = Math.round((otherMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
+    let apparelPcs = 0;
+    let waresPcs = 0;
+    let otherPcs = 0;
+
+    for (const [empId, mins] of empProdMinutes) {
+      const shift = shiftByEmployee.get(empId);
+      let effectiveRatio = 1;
+      if (shift) {
+        const shiftHours = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
+        const effectiveHrs = calculateEffectiveHours(shiftHours);
+        effectiveRatio = shiftHours > 0 ? effectiveHrs / shiftHours : 1;
+      }
+
+      apparelPcs += Math.round((mins.apparel / 60) * effectiveRatio * PIECES_PER_EFFECTIVE_HOUR);
+      waresPcs += Math.round((mins.wares / 60) * effectiveRatio * PIECES_PER_EFFECTIVE_HOUR);
+      otherPcs += Math.round((mins.other / 60) * effectiveRatio * PIECES_PER_EFFECTIVE_HOUR);
+    }
 
     return {
       apparel: apparelPcs,
@@ -426,7 +448,7 @@ export default function TaskAssignment() {
       other: otherPcs,
       totalPieces: apparelPcs + waresPcs + otherPcs,
     };
-  }, [assignments]);
+  }, [assignments, shiftByEmployee]);
 
   const navigateDate = (offset: number) => {
     const d = new Date(dateObj);
@@ -741,7 +763,14 @@ export default function TaskAssignment() {
             pdfProdMinutes += a.durationMinutes;
           }
         });
-        const pdfEmpEstimate = Math.round((pdfProdMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
+        const pdfShift = shiftByEmployee.get(emp.id);
+        let pdfEffRatio = 1;
+        if (pdfShift) {
+          const pdfShiftHrs = (new Date(pdfShift.endTime).getTime() - new Date(pdfShift.startTime).getTime()) / (1000 * 60 * 60);
+          const pdfEffHrs = calculateEffectiveHours(pdfShiftHrs);
+          pdfEffRatio = pdfShiftHrs > 0 ? pdfEffHrs / pdfShiftHrs : 1;
+        }
+        const pdfEmpEstimate = Math.round((pdfProdMinutes / 60) * pdfEffRatio * PIECES_PER_EFFECTIVE_HOUR);
         doc.setFont(fontFamily, "normal");
         doc.setFontSize(5);
         doc.setTextColor(100, 100, 100);
@@ -1133,7 +1162,13 @@ export default function TaskAssignment() {
                     empProductionMinutes += a.durationMinutes;
                   }
                 });
-                const empEstimate = Math.round((empProductionMinutes / 60) * PIECES_PER_EFFECTIVE_HOUR);
+                let empEffectiveRatio = 1;
+                if (shift) {
+                  const shiftHrs = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60);
+                  const effectiveHrs = calculateEffectiveHours(shiftHrs);
+                  empEffectiveRatio = shiftHrs > 0 ? effectiveHrs / shiftHrs : 1;
+                }
+                const empEstimate = Math.round((empProductionMinutes / 60) * empEffectiveRatio * PIECES_PER_EFFECTIVE_HOUR);
 
                 const isDropTarget = dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id;
 
