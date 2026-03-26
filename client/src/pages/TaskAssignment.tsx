@@ -751,9 +751,10 @@ export default function TaskAssignment() {
           doc.text(getJobTitle(emp.jobTitle), margin + 2.5, y + rowHeight - 0.8);
         }
 
-        if (shift) {
-          const stLocal = toZonedTime(new Date(shift.startTime), TIMEZONE);
-          const etLocal = toZonedTime(new Date(shift.endTime), TIMEZONE);
+        const empShift = shiftByEmployee.get(emp.id);
+        if (empShift) {
+          const stLocal = toZonedTime(new Date(empShift.startTime), TIMEZONE);
+          const etLocal = toZonedTime(new Date(empShift.endTime), TIMEZONE);
           const shiftStartMin = stLocal.getHours() * 60 + stLocal.getMinutes();
           const shiftEndMin = etLocal.getHours() * 60 + etLocal.getMinutes();
           const sx = minuteToTimelineX(Math.max(shiftStartMin, HOUR_START * 60));
