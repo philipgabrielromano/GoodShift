@@ -349,26 +349,6 @@ export default function TaskAssignment() {
     },
   });
 
-  const copyDayMutation = useMutation({
-    mutationFn: async () => {
-      const prevDate = new Date(selectedDate + "T12:00:00");
-      prevDate.setDate(prevDate.getDate() - 1);
-      const sourceDate = getDateString(prevDate);
-      await apiRequest("POST", "/api/task-assignments/copy-day", {
-        sourceDate,
-        targetDate: selectedDate,
-        location: selectedLocation,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/task-assignments", selectedDate] });
-      toast({ title: "Copied", description: "Task assignments copied from previous day." });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Copy failed", description: err.message, variant: "destructive" });
-    },
-  });
-
   const todaysShifts = useMemo(() => {
     return shifts.filter(s => {
       const shiftDate = getDateString(new Date(s.startTime));
@@ -1029,17 +1009,6 @@ export default function TaskAssignment() {
             </div>
           </DialogContent>
         </Dialog>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => copyDayMutation.mutate()}
-          disabled={copyDayMutation.isPending}
-          data-testid="button-copy-previous-day"
-        >
-          <Copy className="w-4 h-4 mr-1" />
-          Copy Previous Day
-        </Button>
 
         <Button
           variant="outline"
