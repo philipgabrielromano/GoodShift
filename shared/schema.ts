@@ -340,6 +340,7 @@ export const ABSENCE_REASONS = [
   { value: "self_sick", label: "Self Sick", notesAvailable: false },
   { value: "family_sick", label: "Family Sick", notesAvailable: false },
   { value: "transportation", label: "Transportation Issue", notesAvailable: true },
+  { value: "other", label: "Other", notesAvailable: true },
 ] as const;
 
 export type AbsenceReasonType = typeof ABSENCE_REASONS[number]["value"];
