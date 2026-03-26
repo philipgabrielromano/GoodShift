@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronRight, Plus, Trash2, Copy, GripVertical, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Copy, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
 import type { TaskAssignment as TaskAssignmentType } from "@shared/schema";
@@ -132,15 +132,17 @@ export default function TaskAssignment() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedTask, setSelectedTask] = useState<string>(TASK_LIST[0]);
   const [dragState, setDragState] = useState<{
-    type: "move" | "resize-end" | "create" | "copy";
+    type: "move" | "resize-start" | "resize-end" | "create" | "copy";
     assignmentId?: number;
     employeeId: number;
+    targetEmployeeId: number;
     startX: number;
     originalStartMinute: number;
     originalDuration: number;
     currentMinute: number;
     currentDuration: number;
   } | null>(null);
+  const [hoveredEmployeeId, setHoveredEmployeeId] = useState<number | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -201,7 +203,7 @@ export default function TaskAssignment() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, ...data }: { id: number; startMinute?: number; durationMinutes?: number; taskName?: string }) => {
+    mutationFn: async ({ id, ...data }: { id: number; startMinute?: number; durationMinutes?: number; taskName?: string; employeeId?: number }) => {
       const res = await apiRequest("PUT", `/api/task-assignments/${id}`, data);
       return res.json();
     },
@@ -309,6 +311,7 @@ export default function TaskAssignment() {
     setDragState({
       type: "create",
       employeeId,
+      targetEmployeeId: employeeId,
       startX: e.clientX,
       originalStartMinute: minute,
       originalDuration: 15,
@@ -327,6 +330,7 @@ export default function TaskAssignment() {
       type: isCopy ? "copy" : "move",
       assignmentId: assignment.id,
       employeeId: assignment.employeeId,
+      targetEmployeeId: assignment.employeeId,
       startX: e.clientX,
       originalStartMinute: assignment.startMinute,
       originalDuration: assignment.durationMinutes,
@@ -335,7 +339,7 @@ export default function TaskAssignment() {
     });
   }, []);
 
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
+  const handleResizeEndMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
     e.stopPropagation();
     if (e.button !== 0) return;
 
@@ -343,6 +347,24 @@ export default function TaskAssignment() {
       type: "resize-end",
       assignmentId: assignment.id,
       employeeId: assignment.employeeId,
+      targetEmployeeId: assignment.employeeId,
+      startX: e.clientX,
+      originalStartMinute: assignment.startMinute,
+      originalDuration: assignment.durationMinutes,
+      currentMinute: assignment.startMinute,
+      currentDuration: assignment.durationMinutes,
+    });
+  }, []);
+
+  const handleResizeStartMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+
+    setDragState({
+      type: "resize-start",
+      assignmentId: assignment.id,
+      employeeId: assignment.employeeId,
+      targetEmployeeId: assignment.employeeId,
       startX: e.clientX,
       originalStartMinute: assignment.startMinute,
       originalDuration: assignment.durationMinutes,
@@ -362,10 +384,16 @@ export default function TaskAssignment() {
         const newDuration = Math.max(15, dragState.originalDuration + dMinutes);
         const maxDuration = HOUR_END * 60 - dragState.originalStartMinute;
         setDragState(prev => prev ? { ...prev, currentDuration: Math.min(newDuration, maxDuration) } : null);
+      } else if (dragState.type === "resize-start") {
+        const newStart = dragState.originalStartMinute + dMinutes;
+        const clampedStart = Math.max(HOUR_START * 60, Math.min(newStart, dragState.originalStartMinute + dragState.originalDuration - 15));
+        const newDuration = dragState.originalDuration - (clampedStart - dragState.originalStartMinute);
+        setDragState(prev => prev ? { ...prev, currentMinute: clampedStart, currentDuration: newDuration } : null);
       } else if (dragState.type === "move" || dragState.type === "copy") {
         const newMinute = dragState.originalStartMinute + dMinutes;
         const clampedMinute = Math.max(HOUR_START * 60, Math.min(newMinute, HOUR_END * 60 - dragState.originalDuration));
-        setDragState(prev => prev ? { ...prev, currentMinute: clampedMinute } : null);
+        const targetEmp = hoveredEmployeeId ?? dragState.employeeId;
+        setDragState(prev => prev ? { ...prev, currentMinute: clampedMinute, targetEmployeeId: targetEmp } : null);
       } else if (dragState.type === "create") {
         const endMinute = dragState.originalStartMinute + dMinutes + 15;
         const clampedEnd = Math.max(dragState.originalStartMinute + 15, Math.min(endMinute, HOUR_END * 60));
@@ -379,7 +407,7 @@ export default function TaskAssignment() {
       if (dragState.type === "create") {
         if (dragState.currentDuration >= 15) {
           createMutation.mutate({
-            employeeId: dragState.employeeId,
+            employeeId: dragState.targetEmployeeId,
             taskName: selectedTask,
             date: selectedDate,
             startMinute: dragState.currentMinute,
@@ -387,16 +415,21 @@ export default function TaskAssignment() {
           });
         }
       } else if (dragState.type === "move" && dragState.assignmentId) {
-        if (dragState.currentMinute !== dragState.originalStartMinute) {
+        const changed = dragState.currentMinute !== dragState.originalStartMinute || dragState.targetEmployeeId !== dragState.employeeId;
+        if (changed) {
           updateMutation.mutate({
             id: dragState.assignmentId,
             startMinute: dragState.currentMinute,
+            employeeId: dragState.targetEmployeeId,
           });
         }
-      } else if (dragState.type === "resize-end" && dragState.assignmentId) {
-        if (dragState.currentDuration !== dragState.originalDuration) {
+      } else if ((dragState.type === "resize-end" || dragState.type === "resize-start") && dragState.assignmentId) {
+        const startChanged = dragState.currentMinute !== dragState.originalStartMinute;
+        const durationChanged = dragState.currentDuration !== dragState.originalDuration;
+        if (startChanged || durationChanged) {
           updateMutation.mutate({
             id: dragState.assignmentId,
+            startMinute: dragState.currentMinute,
             durationMinutes: dragState.currentDuration,
           });
         }
@@ -404,7 +437,7 @@ export default function TaskAssignment() {
         const origAssignment = assignments.find(a => a.id === dragState.assignmentId);
         if (origAssignment) {
           createMutation.mutate({
-            employeeId: dragState.employeeId,
+            employeeId: dragState.targetEmployeeId,
             taskName: origAssignment.taskName,
             date: selectedDate,
             startMinute: dragState.currentMinute,
@@ -422,7 +455,7 @@ export default function TaskAssignment() {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation]);
+  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId]);
 
   const dayLabel = useMemo(() => {
     return formatInTimeZone(dateObj, TIMEZONE, "EEEE, MMMM d, yyyy");
@@ -459,8 +492,17 @@ export default function TaskAssignment() {
           <Button variant="outline" size="icon" onClick={() => navigateDate(-1)} data-testid="button-prev-day">
             <ChevronLeft className="w-4 h-4" />
           </Button>
-          <div className="px-3 py-1.5 text-sm font-medium min-w-[200px] text-center" data-testid="text-selected-date">
-            {dayLabel}
+          <div className="relative">
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
+              data-testid="input-date-picker"
+            />
+            <div className="px-3 py-1.5 text-sm font-medium min-w-[200px] text-center cursor-pointer hover:bg-muted/50 rounded transition-colors" data-testid="text-selected-date">
+              {dayLabel}
+            </div>
           </div>
           <Button variant="outline" size="icon" onClick={() => navigateDate(1)} data-testid="button-next-day">
             <ChevronRight className="w-4 h-4" />
@@ -512,10 +554,11 @@ export default function TaskAssignment() {
 
       <div className="text-xs text-muted-foreground flex flex-wrap gap-4">
         <span>Click + drag on timeline to create a task block</span>
-        <span>Drag block to move</span>
-        <span>Drag right edge to resize</span>
+        <span>Drag block to move (across employees too)</span>
+        <span>Drag left or right edge to resize</span>
         <span>Ctrl+drag to copy</span>
         <span>Right-click to delete</span>
+        <span>Click date to use date picker</span>
       </div>
 
       {assignmentsLoading ? (
@@ -564,8 +607,10 @@ export default function TaskAssignment() {
                   shiftEndMin = etLocal.getHours() * 60 + etLocal.getMinutes();
                 }
 
+                const isDropTarget = dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id;
+
                 return (
-                  <div key={emp.id} className="flex border-b hover:bg-muted/20 transition-colors" style={{ height: ROW_HEIGHT }}>
+                  <div key={emp.id} className={cn("flex border-b hover:bg-muted/20 transition-colors", isDropTarget && "bg-primary/5")} style={{ height: ROW_HEIGHT }}>
                     <div
                       className="shrink-0 border-r px-3 flex items-center gap-2 text-sm"
                       style={{ width: LABEL_WIDTH }}
@@ -579,6 +624,7 @@ export default function TaskAssignment() {
                       className="relative select-none"
                       style={{ width: TIMELINE_WIDTH, height: ROW_HEIGHT }}
                       onMouseDown={(e) => handleTimelineMouseDown(e, emp.id)}
+                      onMouseEnter={() => setHoveredEmployeeId(emp.id)}
                     >
                       {Array.from({ length: TOTAL_HOURS }, (_, i) => (
                         <div
@@ -601,13 +647,16 @@ export default function TaskAssignment() {
 
                       {empAssignments.map((a) => {
                         const isDragging = dragState?.assignmentId === a.id;
-                        const displayMinute = isDragging && (dragState.type === "move" || dragState.type === "copy")
+                        const isBeingMovedAway = isDragging && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId !== emp.id;
+                        const displayMinute = isDragging && (dragState.type === "move" || dragState.type === "copy" || dragState.type === "resize-start")
                           ? dragState.currentMinute : a.startMinute;
-                        const displayDuration = isDragging && dragState.type === "resize-end"
+                        const displayDuration = isDragging && (dragState.type === "resize-end" || dragState.type === "resize-start")
                           ? dragState.currentDuration : a.durationMinutes;
                         const taskColor = TASK_COLORS[a.taskName] || "#6B7280";
                         const left = minuteToX(displayMinute);
                         const width = displayDuration / MINUTES_PER_PIXEL;
+
+                        if (isBeingMovedAway && dragState.type === "move") return null;
 
                         return (
                           <div
@@ -628,20 +677,40 @@ export default function TaskAssignment() {
                               e.stopPropagation();
                               deleteMutation.mutate(a.id);
                             }}
-                            title={`${a.taskName}\n${formatMinute(a.startMinute)} - ${formatMinute(a.startMinute + a.durationMinutes)}\nRight-click to delete | Ctrl+drag to copy`}
+                            title={`${a.taskName}\n${formatMinute(a.startMinute)} - ${formatMinute(a.startMinute + a.durationMinutes)}\nRight-click to delete | Ctrl+drag to copy | Drag edges to resize`}
                             data-testid={`task-block-${a.id}`}
                           >
+                            <div
+                              className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/30 rounded-l-md"
+                              onMouseDown={(e) => handleResizeStartMouseDown(e, a)}
+                              data-testid={`resize-start-handle-${a.id}`}
+                            />
                             <span className="text-[10px] font-semibold text-white truncate leading-tight drop-shadow-sm">
                               {a.taskName}
                             </span>
                             <div
                               className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/30 rounded-r-md"
-                              onMouseDown={(e) => handleResizeMouseDown(e, a)}
-                              data-testid={`resize-handle-${a.id}`}
+                              onMouseDown={(e) => handleResizeEndMouseDown(e, a)}
+                              data-testid={`resize-end-handle-${a.id}`}
                             />
                           </div>
                         );
                       })}
+
+                      {dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id && (
+                        <div
+                          className="absolute top-1 bottom-1 rounded-md opacity-60 z-20 border-2 border-dashed border-white"
+                          style={{
+                            left: minuteToX(dragState.currentMinute),
+                            width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
+                            backgroundColor: TASK_COLORS[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
+                          }}
+                        >
+                          <span className="text-[10px] font-semibold text-white px-1 truncate">
+                            {assignments.find(a => a.id === dragState.assignmentId)?.taskName}
+                          </span>
+                        </div>
+                      )}
 
                       {dragState?.type === "create" && dragState.employeeId === emp.id && (
                         <div

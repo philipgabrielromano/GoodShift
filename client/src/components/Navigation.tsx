@@ -20,10 +20,12 @@ interface AuthStatus {
 // Scheduling section - shown to all
 const schedulingItems = [
   { href: "/", label: "Schedule", icon: LayoutDashboard },
-  { href: "/tasks", label: "Task Assignment", icon: ListTodo },
   { href: "/trades", label: "Shift Trades", icon: ArrowLeftRight },
   { href: "/attendance", label: "Attendance", icon: AlertTriangle },
 ];
+
+// Task assignment - managers/admins only
+const taskAssignmentItem = { href: "/tasks", label: "Task Assignment", icon: ListTodo };
 
 // Coaching - standalone link for all
 const coachingItem = { href: "/coaching", label: "Coaching", icon: MessageSquare };
@@ -114,6 +116,7 @@ export function Navigation() {
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
           </div>
           {schedulingItems.map((item) => renderNavItem(item, "nav"))}
+          {isManagerOrAdmin && renderNavItem(taskAssignmentItem, "nav")}
 
           <div className="pt-3 pb-1 px-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
@@ -200,6 +203,7 @@ export function Navigation() {
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
               </div>
               {schedulingItems.map((item) => renderMobileNavItem(item))}
+              {isManagerOrAdmin && renderMobileNavItem(taskAssignmentItem)}
 
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>

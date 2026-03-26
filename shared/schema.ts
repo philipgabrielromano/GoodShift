@@ -593,6 +593,7 @@ export const taskAssignments = pgTable("task_assignments", {
   durationMinutes: integer("duration_minutes").notNull(),
   createdBy: integer("created_by"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 }, (table) => [
   index("idx_task_assignments_date").on(table.date),
   index("idx_task_assignments_employee").on(table.employeeId),
@@ -601,6 +602,7 @@ export const taskAssignments = pgTable("task_assignments", {
 export const insertTaskAssignmentSchema = createInsertSchema(taskAssignments).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 export type TaskAssignment = typeof taskAssignments.$inferSelect;
 export type InsertTaskAssignment = z.infer<typeof insertTaskAssignmentSchema>;
