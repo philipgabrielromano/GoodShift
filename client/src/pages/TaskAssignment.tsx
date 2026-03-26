@@ -73,6 +73,7 @@ const TASK_COLORS: Record<string, string> = {
   "Maintain Fitting Rooms": "#E11D48",
   "Empty Trash": "#737373",
   "Complete SPOC Request": "#7C3AED",
+  "Greet Donors": "#2563EB",
 };
 
 const JOB_PRIORITY: Record<string, number> = {

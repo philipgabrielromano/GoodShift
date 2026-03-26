@@ -586,6 +586,7 @@ export const TASK_LIST = [
   "Maintain Fitting Rooms",
   "Empty Trash",
   "Complete SPOC Request",
+  "Greet Donors",
 ] as const;
 
 export const taskAssignments = pgTable("task_assignments", {
