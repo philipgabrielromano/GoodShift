@@ -9,6 +9,8 @@ import { cn } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
 import type { TaskAssignment as TaskAssignmentType } from "@shared/schema";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
+import { useCurrentUser } from "@/hooks/use-users";
+import { useLocation } from "wouter";
 
 const TIMEZONE = "America/New_York";
 
@@ -125,6 +127,9 @@ function getDateString(date: Date): string {
 }
 
 export default function TaskAssignment() {
+  const { data: currentUser } = useCurrentUser();
+  const [, navigate] = useLocation();
+  const userRole = currentUser?.user?.role;
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
     return getDateString(now);
@@ -486,6 +491,11 @@ export default function TaskAssignment() {
   const activeLocations = useMemo(() => {
     return locations.filter(l => l.isActive).sort((a, b) => a.name.localeCompare(b.name));
   }, [locations]);
+
+  if (currentUser && userRole !== "manager" && userRole !== "admin") {
+    navigate("/");
+    return null;
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-4" data-testid="page-task-assignment">
