@@ -21,7 +21,8 @@ import {
   coachingLogs, type CoachingLog, type InsertCoachingLog,
   emailLogs, type EmailLog, type InsertEmailLog,
   rosterTargets, type RosterTarget, type InsertRosterTarget,
-  taskAssignments, type TaskAssignment, type InsertTaskAssignment
+  taskAssignments, type TaskAssignment, type InsertTaskAssignment,
+  customTasks, type CustomTask, type InsertCustomTask
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -164,6 +165,11 @@ export interface IStorage {
   updateTaskAssignment(id: number, assignment: Partial<InsertTaskAssignment>): Promise<TaskAssignment>;
   deleteTaskAssignment(id: number): Promise<void>;
   deleteTaskAssignmentsByDate(date: string): Promise<number>;
+
+  // Custom Tasks
+  getCustomTasks(userId: number): Promise<CustomTask[]>;
+  createCustomTask(task: InsertCustomTask): Promise<CustomTask>;
+  deleteCustomTask(id: number, userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -990,6 +996,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(taskAssignments.date, date))
       .returning({ id: taskAssignments.id });
     return result.length;
+  }
+
+  async getCustomTasks(userId: number): Promise<CustomTask[]> {
+    return await db.select().from(customTasks).where(eq(customTasks.userId, userId));
+  }
+
+  async createCustomTask(task: InsertCustomTask): Promise<CustomTask> {
+    const [created] = await db.insert(customTasks).values(task).returning();
+    return created;
+  }
+
+  async deleteCustomTask(id: number, userId: number): Promise<void> {
+    await db.delete(customTasks).where(and(eq(customTasks.id, id), eq(customTasks.userId, userId)));
   }
 }
 

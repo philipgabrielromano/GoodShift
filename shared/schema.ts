@@ -606,3 +606,20 @@ export const insertTaskAssignmentSchema = createInsertSchema(taskAssignments).om
 });
 export type TaskAssignment = typeof taskAssignments.$inferSelect;
 export type InsertTaskAssignment = z.infer<typeof insertTaskAssignmentSchema>;
+
+export const customTasks = pgTable("custom_tasks", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  taskName: text("task_name").notNull(),
+  color: text("color").notNull().default("#6B7280"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index("idx_custom_tasks_user").on(table.userId),
+]);
+
+export const insertCustomTaskSchema = createInsertSchema(customTasks).omit({
+  id: true,
+  createdAt: true,
+});
+export type CustomTask = typeof customTasks.$inferSelect;
+export type InsertCustomTask = z.infer<typeof insertCustomTaskSchema>;

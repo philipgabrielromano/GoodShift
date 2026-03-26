@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.39.0";
+export const APP_VERSION = "1.40.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.40.0",
+    date: "2026-03-26",
+    title: "Custom Tasks",
+    changes: [
+      { type: "feature", description: "Users can now create their own custom tasks with a name and color via the 'Custom Task' button on the Task Assignment page." },
+      { type: "feature", description: "Custom tasks are saved per user and only visible to the creator, not shared with other users." },
+      { type: "feature", description: "Custom tasks appear in the task selector dropdown, bottom legend, and PDF export alongside the 14 predefined tasks." },
+      { type: "feature", description: "Custom tasks can be deleted from the manage dialog without affecting predefined tasks." },
+    ],
+  },
   {
     version: "1.39.0",
     date: "2026-03-26",

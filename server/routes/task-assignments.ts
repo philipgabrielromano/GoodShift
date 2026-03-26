@@ -6,7 +6,7 @@ import { z } from "zod";
 
 const taskAssignmentValidation = z.object({
   employeeId: z.number().int().positive(),
-  taskName: z.enum(TASK_LIST as unknown as [string, ...string[]]),
+  taskName: z.string().min(1).max(100),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   startMinute: z.number().int().min(0).max(1439),
   durationMinutes: z.number().int().min(15).max(960),
@@ -143,5 +143,38 @@ export function registerTaskAssignmentRoutes(app: Express) {
     }
     const count = await storage.deleteTaskAssignmentsByDate(date);
     res.json({ deleted: count });
+  });
+
+  app.get("/api/custom-tasks", requireManager, async (req, res) => {
+    const user = (req.session as any)?.user;
+    if (!user?.id) return res.status(401).json({ message: "Not authenticated" });
+    const tasks = await storage.getCustomTasks(user.id);
+    res.json(tasks);
+  });
+
+  app.post("/api/custom-tasks", requireManager, async (req, res) => {
+    const user = (req.session as any)?.user;
+    if (!user?.id) return res.status(401).json({ message: "Not authenticated" });
+    const schema = z.object({
+      taskName: z.string().min(1).max(100),
+      color: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: parsed.error.errors[0].message });
+    }
+    const task = await storage.createCustomTask({
+      userId: user.id,
+      taskName: parsed.data.taskName,
+      color: parsed.data.color,
+    });
+    res.status(201).json(task);
+  });
+
+  app.delete("/api/custom-tasks/:id", requireManager, async (req, res) => {
+    const user = (req.session as any)?.user;
+    if (!user?.id) return res.status(401).json({ message: "Not authenticated" });
+    await storage.deleteCustomTask(Number(req.params.id), user.id);
+    res.status(204).send();
   });
 }

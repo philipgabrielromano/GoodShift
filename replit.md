@@ -38,7 +38,7 @@ Preferred communication style: Simple, everyday language.
 - **Schema**: Defined in `shared/schema.ts`
 - **Migrations**: Drizzle Kit
 
-**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`, `roster_targets`, `task_assignments`.
+**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`, `roster_targets`, `task_assignments`, `custom_tasks`.
 
 ### Shared Code
 The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod insert schemas) and `routes.ts` (API contract definitions) to ensure type safety across the full stack.
@@ -48,7 +48,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Color Scheme**: Core brand colors (Blue, Black, Gray, White) with various accent colors.
 
 ### Key Features
-- **Task Assignment Timeline**: Interactive day-view timeline (`/tasks`) for assigning tasks to scheduled employees. 14 predefined tasks with color coding. Drag-to-create, drag-to-move, drag-to-resize, Ctrl+drag-to-copy, right-click-to-delete. The `task_assignments` table stores: employeeId, taskName, date, startMinute (minutes from midnight), durationMinutes. Production estimates for Apparel (APPROC/APWV) and Wares (DONPRI/DONPRWV) shown based on effective hours. Routes in `server/routes/task-assignments.ts`.
+- **Task Assignment Timeline**: Interactive day-view timeline (`/tasks`) for assigning tasks to scheduled employees. 14 predefined tasks with color coding plus user-defined custom tasks. Drag-to-create, drag-to-move, drag-to-resize, Ctrl+drag-to-copy, right-click-to-delete. The `task_assignments` table stores: employeeId, taskName, date, startMinute (minutes from midnight), durationMinutes. The `custom_tasks` table stores per-user custom task definitions (userId, taskName, color). Production estimates for Apparel (APPROC/APWV) and Wares (DONPRI/DONPRWV) shown based on effective hours. PDF export available. Routes in `server/routes/task-assignments.ts`.
 - **Cross-Trained Role Shifts**: Shifts can be marked with a cross-trained role when an employee performs a different role than their normal job title. These shifts display in white with a purple glow animation, and the role name appears below the time. The `shifts` table has a `crossTrainedRole` nullable text column.
 - **Auto-Generate Schedule**: Creates schedules based on availability, role requirements, time-off, and manager coverage.
 - **Schedule Validation**: Real-time checks for max hours, role coverage, budget, time-off conflicts, manager coverage, clopening detection, and consecutive days worked (warns if >5 days in a row, checking across schedule boundaries).

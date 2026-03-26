@@ -4,10 +4,12 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronRight, Trash2, Copy, Loader2, FileDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Copy, Loader2, FileDown, Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
-import type { TaskAssignment as TaskAssignmentType } from "@shared/schema";
+import type { TaskAssignment as TaskAssignmentType, CustomTask } from "@shared/schema";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { useCurrentUser } from "@/hooks/use-users";
 import { useLocation } from "wouter";
@@ -188,6 +190,57 @@ export default function TaskAssignment() {
       return res.json();
     },
   });
+
+  const { data: customTasksList = [] } = useQuery<CustomTask[]>({
+    queryKey: ["/api/custom-tasks"],
+    queryFn: async () => {
+      const res = await fetch("/api/custom-tasks", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const allTasks = useMemo(() => {
+    const predefined = TASK_LIST.map(name => ({ name, color: TASK_COLORS[name] || "#6B7280", isCustom: false, id: 0 }));
+    const custom = customTasksList.map(ct => ({ name: ct.taskName, color: ct.color, isCustom: true, id: ct.id }));
+    return [...predefined, ...custom];
+  }, [customTasksList]);
+
+  const allTaskColors = useMemo(() => {
+    const colors: Record<string, string> = { ...TASK_COLORS };
+    for (const ct of customTasksList) {
+      colors[ct.taskName] = ct.color;
+    }
+    return colors;
+  }, [customTasksList]);
+
+  const createCustomTaskMutation = useMutation({
+    mutationFn: async (data: { taskName: string; color: string }) => {
+      const res = await apiRequest("POST", "/api/custom-tasks", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-tasks"] });
+      toast({ title: "Custom Task Added", description: "Your custom task is now available in the task list." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteCustomTaskMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/custom-tasks/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/custom-tasks"] });
+      toast({ title: "Custom Task Removed" });
+    },
+  });
+
+  const [newTaskName, setNewTaskName] = useState("");
+  const [newTaskColor, setNewTaskColor] = useState("#6B7280");
+  const [showCustomTaskDialog, setShowCustomTaskDialog] = useState(false);
 
   const { data: assignments = [], isLoading: assignmentsLoading } = useQuery<TaskAssignmentType[]>({
     queryKey: ["/api/task-assignments", selectedDate, selectedLocation],
@@ -639,7 +692,7 @@ export default function TaskAssignment() {
 
         const empAssignments = assignmentsByEmployee.get(emp.id) || [];
         empAssignments.forEach((a) => {
-          const taskColor = TASK_COLORS[a.taskName] || "#6B7280";
+          const taskColor = allTaskColors[a.taskName] || "#6B7280";
           const [tr, tg, tb] = hexToRgb(taskColor);
           const clampedStart = Math.max(a.startMinute, HOUR_START * 60);
           const clampedEnd = Math.min(a.startMinute + a.durationMinutes, HOUR_END * 60);
@@ -711,12 +764,13 @@ export default function TaskAssignment() {
 
       const cols = 3;
       const colWidth = (pageWidth - 2 * margin) / cols;
-      TASK_LIST.forEach((taskName, idx) => {
+      const allTaskNames = [...TASK_LIST, ...customTasksList.map(ct => ct.taskName)];
+      allTaskNames.forEach((taskName, idx) => {
         const col = idx % cols;
         const row = Math.floor(idx / cols);
         const lx = margin + col * colWidth;
         const ly = legendStartY + 4 + row * 5;
-        const color = TASK_COLORS[taskName] || "#6B7280";
+        const color = allTaskColors[taskName] || "#6B7280";
         const [lr, lg, lb] = hexToRgb(color);
         doc.setFillColor(lr, lg, lb);
         doc.roundedRect(lx, ly - 2.5, 3, 3, 0.5, 0.5, "F");
@@ -801,16 +855,90 @@ export default function TaskAssignment() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {TASK_LIST.map(task => (
-              <SelectItem key={task} value={task}>
+            {allTasks.map(task => (
+              <SelectItem key={task.name} value={task.name}>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: TASK_COLORS[task] || "#6B7280" }} />
-                  {task}
+                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: task.color }} />
+                  {task.name}
+                  {task.isCustom && <span className="text-[10px] text-muted-foreground ml-1">(custom)</span>}
                 </div>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+
+        <Dialog open={showCustomTaskDialog} onOpenChange={setShowCustomTaskDialog}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm" data-testid="button-manage-custom-tasks">
+              <Plus className="w-4 h-4 mr-1" />
+              Custom Task
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Manage Custom Tasks</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Task name..."
+                  value={newTaskName}
+                  onChange={(e) => setNewTaskName(e.target.value)}
+                  className="flex-1"
+                  maxLength={100}
+                  data-testid="input-custom-task-name"
+                />
+                <input
+                  type="color"
+                  value={newTaskColor}
+                  onChange={(e) => setNewTaskColor(e.target.value)}
+                  className="w-10 h-10 rounded border cursor-pointer"
+                  data-testid="input-custom-task-color"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (newTaskName.trim()) {
+                      createCustomTaskMutation.mutate({ taskName: newTaskName.trim(), color: newTaskColor });
+                      setNewTaskName("");
+                      setNewTaskColor("#6B7280");
+                    }
+                  }}
+                  disabled={!newTaskName.trim() || createCustomTaskMutation.isPending}
+                  data-testid="button-add-custom-task"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+              {customTasksList.length > 0 ? (
+                <div className="space-y-2">
+                  {customTasksList.map(ct => (
+                    <div key={ct.id} className="flex items-center justify-between gap-2 p-2 rounded border">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: ct.color }} />
+                        <span className="text-sm font-medium">{ct.taskName}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => deleteCustomTaskMutation.mutate(ct.id)}
+                        disabled={deleteCustomTaskMutation.isPending}
+                        data-testid={`button-delete-custom-task-${ct.id}`}
+                      >
+                        <X className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No custom tasks yet. Add one above and it will appear in your task list.
+                </p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Button
           variant="outline"
@@ -962,7 +1090,7 @@ export default function TaskAssignment() {
                           ? dragState.currentMinute : a.startMinute;
                         const displayDuration = isDragging && (dragState.type === "resize-end" || dragState.type === "resize-start")
                           ? dragState.currentDuration : a.durationMinutes;
-                        const taskColor = TASK_COLORS[a.taskName] || "#6B7280";
+                        const taskColor = allTaskColors[a.taskName] || "#6B7280";
                         const left = minuteToX(displayMinute);
                         const width = displayDuration / MINUTES_PER_PIXEL;
 
@@ -1013,7 +1141,7 @@ export default function TaskAssignment() {
                           style={{
                             left: minuteToX(dragState.currentMinute),
                             width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
-                            backgroundColor: TASK_COLORS[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
+                            backgroundColor: allTaskColors[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
                           }}
                         >
                           <span className="text-[10px] font-semibold text-white px-1 truncate">
@@ -1028,7 +1156,7 @@ export default function TaskAssignment() {
                           style={{
                             left: minuteToX(dragState.currentMinute),
                             width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
-                            backgroundColor: TASK_COLORS[selectedTask] || "#6B7280",
+                            backgroundColor: allTaskColors[selectedTask] || "#6B7280",
                           }}
                         >
                           <span className="text-[10px] font-semibold text-white px-1 truncate">
@@ -1043,7 +1171,7 @@ export default function TaskAssignment() {
                           style={{
                             left: minuteToX(dragState.currentMinute),
                             width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
-                            backgroundColor: TASK_COLORS[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
+                            backgroundColor: allTaskColors[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
                           }}
                         >
                           <div className="flex items-center gap-1 px-1">
@@ -1062,22 +1190,23 @@ export default function TaskAssignment() {
       )}
 
       <div className="flex flex-wrap gap-2 mt-2">
-        {TASK_LIST.map(task => {
-          const count = assignments.filter(a => a.taskName === task).length;
+        {allTasks.map(task => {
+          const count = assignments.filter(a => a.taskName === task.name).length;
           return (
             <div
-              key={task}
+              key={task.name}
               className={cn(
                 "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border cursor-pointer transition-all",
-                selectedTask === task
+                selectedTask === task.name
                   ? "ring-2 ring-primary border-primary font-semibold"
                   : "border-border hover:border-primary/50"
               )}
-              onClick={() => setSelectedTask(task)}
-              data-testid={`legend-task-${task.replace(/\s+/g, '-').toLowerCase()}`}
+              onClick={() => setSelectedTask(task.name)}
+              data-testid={`legend-task-${task.name.replace(/\s+/g, '-').toLowerCase()}`}
             >
-              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: TASK_COLORS[task] || "#6B7280" }} />
-              <span>{task}</span>
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: task.color }} />
+              <span>{task.name}</span>
+              {task.isCustom && <span className="text-[9px] text-muted-foreground italic">custom</span>}
               {count > 0 && (
                 <span className="ml-0.5 text-[10px] bg-muted rounded-full px-1.5 font-medium">{count}</span>
               )}
