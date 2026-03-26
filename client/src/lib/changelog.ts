@@ -22,6 +22,10 @@ export const changelog: ChangelogEntry[] = [
       { type: "feature", description: "Right-click any task block to delete it. Clear Day button removes all task assignments for the selected date." },
       { type: "feature", description: "Each task has a distinct color. Employee rows show shift background and job title color indicators." },
       { type: "feature", description: "Production estimates for Apparel (APPROC/APWV) and Wares (DONPRI/DONPRWV) are displayed based on scheduled effective hours." },
+      { type: "feature", description: "Export PDF button generates a landscape PDF with visual timeline, task blocks with colors, employee rows with job codes, production estimates, and a task legend." },
+      { type: "feature", description: "Cross-employee drag and drop: move or copy task blocks between employees. Left and right edge resize handles." },
+      { type: "feature", description: "Copy Previous Day button to bulk-copy task assignments from the previous day." },
+      { type: "feature", description: "Date picker for direct date navigation (click on the date label)." },
     ],
   },
   {

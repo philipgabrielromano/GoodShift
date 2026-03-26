@@ -4,13 +4,17 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronRight, Trash2, Copy, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Copy, Loader2, FileDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
 import type { TaskAssignment as TaskAssignmentType } from "@shared/schema";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { useCurrentUser } from "@/hooks/use-users";
 import { useLocation } from "wouter";
+import { jsPDF } from "jspdf";
+import goodwillLogo from "@assets/goodshift_1770590279218.png";
+import latoRegularUrl from "@/assets/Lato-Regular.ttf";
+import latoBoldUrl from "@/assets/Lato-Bold.ttf";
 
 const TIMEZONE = "America/New_York";
 
@@ -492,6 +496,242 @@ export default function TaskAssignment() {
     return locations.filter(l => l.isActive).sort((a, b) => a.name.localeCompare(b.name));
   }, [locations]);
 
+  const handleExportPDF = async () => {
+    if (scheduledEmployees.length === 0) {
+      toast({ variant: "destructive", title: "No Data", description: "No scheduled employees to export." });
+      return;
+    }
+
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "letter" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+
+    let fontFamily = "helvetica";
+    try {
+      const [latoRegularData, latoBoldData] = await Promise.all([
+        fetch(latoRegularUrl).then(r => r.arrayBuffer()),
+        fetch(latoBoldUrl).then(r => r.arrayBuffer())
+      ]);
+      const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+      };
+      doc.addFileToVFS("Lato-Regular.ttf", arrayBufferToBase64(latoRegularData));
+      doc.addFont("Lato-Regular.ttf", "Lato", "normal");
+      doc.addFileToVFS("Lato-Bold.ttf", arrayBufferToBase64(latoBoldData));
+      doc.addFont("Lato-Bold.ttf", "Lato", "bold");
+      fontFamily = "Lato";
+    } catch {
+      console.warn("Could not load Lato font, using default helvetica");
+    }
+    doc.setFont(fontFamily);
+
+    const margin = 10;
+    const labelColWidth = 42;
+    const timelineStartX = margin + labelColWidth;
+    const timelineWidth = pageWidth - timelineStartX - margin;
+    const rowHeight = 6;
+    const headerHeight = 8;
+
+    const logoHeight = 10;
+    const logoWidth = 30;
+    try {
+      doc.addImage(goodwillLogo, "PNG", margin, 6, logoWidth, logoHeight);
+    } catch {
+      console.warn("Could not load logo image");
+    }
+
+    const locationName = selectedLocation === "all" ? "All Locations" : selectedLocation;
+    doc.setFont(fontFamily, "bold");
+    doc.setFontSize(14);
+    doc.text(`Task Assignments - ${locationName}`, margin + logoWidth + 4, 12);
+    doc.setFont(fontFamily, "normal");
+    doc.setFontSize(10);
+    doc.text(dayLabel, margin + logoWidth + 4, 18);
+
+    let summaryParts: string[] = [];
+    if (productionEstimates.apparel > 0) summaryParts.push(`Apparel: ${productionEstimates.apparel.toLocaleString()} pcs`);
+    if (productionEstimates.wares > 0) summaryParts.push(`Wares: ${productionEstimates.wares.toLocaleString()} pcs`);
+    if (summaryParts.length > 0) {
+      doc.setFontSize(9);
+      doc.text(summaryParts.join("  |  "), pageWidth - margin, 12, { align: "right" });
+    }
+
+    const minuteToTimelineX = (minute: number) => {
+      const fraction = (minute - HOUR_START * 60) / (TOTAL_HOURS * 60);
+      return timelineStartX + fraction * timelineWidth;
+    };
+
+    const hexToRgb = (hex: string): [number, number, number] => {
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return [r, g, b];
+    };
+
+    const drawPage = (emps: typeof scheduledEmployees, startY: number) => {
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.2);
+
+      doc.setFillColor(0, 83, 159);
+      doc.rect(margin, startY, pageWidth - 2 * margin, headerHeight, "F");
+
+      doc.setFont(fontFamily, "bold");
+      doc.setFontSize(7);
+      doc.setTextColor(255, 255, 255);
+      doc.text("Employee", margin + 2, startY + headerHeight / 2 + 1);
+
+      for (let h = HOUR_START; h <= HOUR_END; h++) {
+        const x = minuteToTimelineX(h * 60);
+        const label = h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`;
+        doc.text(label, x, startY + headerHeight / 2 + 1);
+      }
+
+      doc.setTextColor(0, 0, 0);
+      let y = startY + headerHeight;
+
+      emps.forEach((emp, idx) => {
+        if (idx % 2 === 0) {
+          doc.setFillColor(245, 247, 250);
+          doc.rect(margin, y, pageWidth - 2 * margin, rowHeight, "F");
+        }
+
+        const jobColor = JOB_COLORS[emp.jobTitle] || "#6B7280";
+        const [jr, jg, jb] = hexToRgb(jobColor);
+        doc.setFillColor(jr, jg, jb);
+        doc.rect(margin, y, 1, rowHeight, "F");
+
+        doc.setFont(fontFamily, "bold");
+        doc.setFontSize(6);
+        doc.setTextColor(0, 0, 0);
+        doc.text(emp.name, margin + 2.5, y + rowHeight / 2 + 0.5, { maxWidth: 28 });
+
+        const isProductionWorker = ["APPROC", "APWV", "DONPRI", "DONPRWV"].includes(emp.jobTitle);
+        const shift = shiftByEmployee.get(emp.id);
+        if (isProductionWorker && shift) {
+          const eff = calculateEffectiveHours(new Date(shift.startTime), new Date(shift.endTime));
+          const estimate = Math.round(eff * PIECES_PER_EFFECTIVE_HOUR);
+          doc.setFont(fontFamily, "normal");
+          doc.setFontSize(5);
+          doc.setTextColor(100, 100, 100);
+          doc.text(`${emp.jobTitle} (${estimate}pcs)`, margin + 2.5, y + rowHeight - 0.8);
+        } else {
+          doc.setFont(fontFamily, "normal");
+          doc.setFontSize(5);
+          doc.setTextColor(100, 100, 100);
+          doc.text(emp.jobTitle, margin + 2.5, y + rowHeight - 0.8);
+        }
+
+        if (shift) {
+          const stLocal = toZonedTime(new Date(shift.startTime), TIMEZONE);
+          const etLocal = toZonedTime(new Date(shift.endTime), TIMEZONE);
+          const shiftStartMin = stLocal.getHours() * 60 + stLocal.getMinutes();
+          const shiftEndMin = etLocal.getHours() * 60 + etLocal.getMinutes();
+          const sx = minuteToTimelineX(Math.max(shiftStartMin, HOUR_START * 60));
+          const ex = minuteToTimelineX(Math.min(shiftEndMin, HOUR_END * 60));
+          doc.setFillColor(230, 240, 250);
+          doc.rect(sx, y + 0.5, ex - sx, rowHeight - 1, "F");
+        }
+
+        const empAssignments = assignmentsByEmployee.get(emp.id) || [];
+        empAssignments.forEach((a) => {
+          const taskColor = TASK_COLORS[a.taskName] || "#6B7280";
+          const [tr, tg, tb] = hexToRgb(taskColor);
+          const clampedStart = Math.max(a.startMinute, HOUR_START * 60);
+          const clampedEnd = Math.min(a.startMinute + a.durationMinutes, HOUR_END * 60);
+          if (clampedEnd <= clampedStart) return;
+          const ax = minuteToTimelineX(clampedStart);
+          const aw = minuteToTimelineX(clampedEnd) - ax;
+
+          doc.setFillColor(tr, tg, tb);
+          doc.roundedRect(ax, y + 0.8, Math.max(aw, 2), rowHeight - 1.6, 0.5, 0.5, "F");
+
+          doc.setFont(fontFamily, "bold");
+          doc.setFontSize(4.5);
+          doc.setTextColor(255, 255, 255);
+          if (aw > 10) {
+            doc.text(a.taskName, ax + 0.8, y + rowHeight / 2 + 0.5, { maxWidth: aw - 1.5 });
+          }
+        });
+
+        for (let h = HOUR_START; h <= HOUR_END; h++) {
+          const x = minuteToTimelineX(h * 60);
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(0.1);
+          doc.line(x, y, x, y + rowHeight);
+        }
+
+        doc.setDrawColor(200, 200, 200);
+        doc.setLineWidth(0.1);
+        doc.line(margin, y + rowHeight, pageWidth - margin, y + rowHeight);
+
+        y += rowHeight;
+      });
+
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.2);
+      doc.rect(margin, startY, pageWidth - 2 * margin, y - startY);
+      doc.line(timelineStartX, startY, timelineStartX, y);
+
+      return y;
+    };
+
+    const startY = 24;
+    const maxRowsPerPage = Math.floor((pageHeight - startY - 20) / rowHeight);
+
+    for (let i = 0; i < scheduledEmployees.length; i += maxRowsPerPage) {
+      if (i > 0) doc.addPage();
+      const pageEmps = scheduledEmployees.slice(i, i + maxRowsPerPage);
+      const finalY = drawPage(pageEmps, startY);
+
+      doc.setFont(fontFamily, "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Generated: ${formatInTimeZone(new Date(), TIMEZONE, "MMM d, yyyy h:mm a")}`, pageWidth - margin, finalY + 5, { align: "right" });
+      doc.text(`Total employees: ${scheduledEmployees.length}  |  Assignments: ${assignments.length}`, margin, finalY + 5);
+    }
+
+    if (scheduledEmployees.length > 0) {
+      const lastPageCount = scheduledEmployees.length - (Math.ceil(scheduledEmployees.length / maxRowsPerPage) - 1) * maxRowsPerPage;
+      const lastPageEndY = startY + headerHeight + lastPageCount * rowHeight + 12;
+
+      if (lastPageEndY + 30 > pageHeight) {
+        doc.addPage();
+      }
+
+      const legendStartY = lastPageEndY + 30 > pageHeight ? startY : lastPageEndY;
+      doc.setFont(fontFamily, "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(0, 0, 0);
+      doc.text("Task Legend", margin, legendStartY);
+
+      const cols = 3;
+      const colWidth = (pageWidth - 2 * margin) / cols;
+      TASK_LIST.forEach((taskName, idx) => {
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        const lx = margin + col * colWidth;
+        const ly = legendStartY + 4 + row * 5;
+        const color = TASK_COLORS[taskName] || "#6B7280";
+        const [lr, lg, lb] = hexToRgb(color);
+        doc.setFillColor(lr, lg, lb);
+        doc.roundedRect(lx, ly - 2.5, 3, 3, 0.5, 0.5, "F");
+        doc.setFont(fontFamily, "normal");
+        doc.setFontSize(6);
+        doc.setTextColor(0, 0, 0);
+        doc.text(taskName, lx + 4, ly);
+      });
+    }
+
+    const filename = `task_assignments_${selectedDate}_${locationName.replace(/\s+/g, '_')}.pdf`;
+    doc.save(filename);
+    toast({ title: "PDF Exported", description: `Task assignments saved as ${filename}` });
+  };
+
   if (currentUser && userRole !== "manager" && userRole !== "admin") {
     navigate("/");
     return null;
@@ -581,6 +821,17 @@ export default function TaskAssignment() {
         >
           <Copy className="w-4 h-4 mr-1" />
           Copy Previous Day
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExportPDF}
+          disabled={scheduledEmployees.length === 0}
+          data-testid="button-export-pdf"
+        >
+          <FileDown className="w-4 h-4 mr-1" />
+          Export PDF
         </Button>
 
         <Button
