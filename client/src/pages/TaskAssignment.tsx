@@ -1232,18 +1232,22 @@ export default function TaskAssignment() {
                             data-testid={`task-block-${a.id}`}
                           >
                             <div
-                              className="absolute left-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/30 rounded-l-md"
+                              className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-black/20 rounded-l-md flex items-center justify-center"
                               onMouseDown={(e) => handleResizeStartMouseDown(e, a)}
                               data-testid={`resize-start-handle-${a.id}`}
-                            />
+                            >
+                              <span className="text-[8px] text-black/70 select-none">◀</span>
+                            </div>
                             <span className="text-[10px] font-semibold text-white truncate leading-tight drop-shadow-sm">
                               {a.taskName}
                             </span>
                             <div
-                              className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/30 rounded-r-md"
+                              className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize hover:bg-black/20 rounded-r-md flex items-center justify-center"
                               onMouseDown={(e) => handleResizeEndMouseDown(e, a)}
                               data-testid={`resize-end-handle-${a.id}`}
-                            />
+                            >
+                              <span className="text-[8px] text-black/70 select-none">▶</span>
+                            </div>
                           </div>
                         );
                       })}
