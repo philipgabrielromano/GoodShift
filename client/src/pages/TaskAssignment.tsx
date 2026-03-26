@@ -4,8 +4,9 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronRight, Trash2, Copy, Loader2, FileDown, Plus, X } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ChevronLeft, ChevronRight, ChevronDown, Trash2, Copy, Loader2, FileDown, Plus, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn, getJobTitle, getCanonicalJobCode } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
 import type { TaskAssignment as TaskAssignmentType, CustomTask } from "@shared/schema";
 import { Input } from "@/components/ui/input";
@@ -70,6 +71,33 @@ const TASK_COLORS: Record<string, string> = {
   "Flex Assigned Clothing Racks": "#EF4444",
 };
 
+const JOB_PRIORITY: Record<string, number> = {
+  "STSUPER": 1,
+  "STASSTSP": 2,
+  "STLDWKR": 3,
+  "CASHSLS": 4,
+  "APPROC": 5,
+  "DONPRI": 6,
+  "DONDOOR": 7,
+  "ECOMDIR": 8,
+  "ECMCOMLD": 9,
+  "EASSIS": 10,
+  "ECOMSL": 11,
+  "ECSHIP": 12,
+  "ECOMCOMP": 13,
+  "ECOMJSE": 14,
+  "ECOMJSO": 15,
+  "ECQCS": 16,
+  "EPROCOOR": 17,
+  "ECCUST": 18,
+  "ECOPAS": 19,
+};
+
+function getJobPriority(jobTitle: string): number {
+  const canonical = getCanonicalJobCode(jobTitle);
+  return JOB_PRIORITY[canonical] ?? 99;
+}
+
 interface Employee {
   id: number;
   name: string;
@@ -95,18 +123,10 @@ interface Location {
 const HOUR_START = 7;
 const HOUR_END = 22;
 const TOTAL_HOURS = HOUR_END - HOUR_START;
-const MINUTES_PER_PIXEL = 2;
+const TOTAL_MINUTES = TOTAL_HOURS * 60;
 const ROW_HEIGHT = 52;
-const TIMELINE_WIDTH = TOTAL_HOURS * 60 / MINUTES_PER_PIXEL;
 const LABEL_WIDTH = 180;
-
-function minuteToX(minute: number): number {
-  return (minute - HOUR_START * 60) / MINUTES_PER_PIXEL;
-}
-
-function xToMinute(x: number): number {
-  return Math.round((x * MINUTES_PER_PIXEL + HOUR_START * 60) / 15) * 15;
-}
+const MIN_TIMELINE_WIDTH = 600;
 
 function formatMinute(m: number): string {
   const h = Math.floor(m / 60);
@@ -154,8 +174,43 @@ export default function TaskAssignment() {
     currentDuration: number;
   } | null>(null);
   const [hoveredEmployeeId, setHoveredEmployeeId] = useState<number | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [timelineWidth, setTimelineWidth] = useState(MIN_TIMELINE_WIDTH);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const availableWidth = entry.contentRect.width - LABEL_WIDTH - 20;
+        setTimelineWidth(Math.max(availableWidth, MIN_TIMELINE_WIDTH));
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const minutesPerPixel = TOTAL_MINUTES / timelineWidth;
+
+  const minuteToX = useCallback((minute: number): number => {
+    return (minute - HOUR_START * 60) / minutesPerPixel;
+  }, [minutesPerPixel]);
+
+  const xToMinute = useCallback((x: number): number => {
+    return Math.round((x * minutesPerPixel + HOUR_START * 60) / 15) * 15;
+  }, [minutesPerPixel]);
+
+  const toggleGroupCollapse = useCallback((jobTitle: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(jobTitle)) next.delete(jobTitle);
+      else next.add(jobTitle);
+      return next;
+    });
+  }, []);
 
   const { data: employees = [] } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
@@ -338,6 +393,17 @@ export default function TaskAssignment() {
     return filtered;
   }, [employees, todaysShifts, selectedLocation]);
 
+  const groupedEmployees = useMemo(() => {
+    return Object.entries(
+      scheduledEmployees.reduce((acc, emp) => {
+        const canonical = getCanonicalJobCode(emp.jobTitle);
+        if (!acc[canonical]) acc[canonical] = [];
+        acc[canonical].push(emp);
+        return acc;
+      }, {} as Record<string, Employee[]>)
+    ).sort(([a], [b]) => getJobPriority(a) - getJobPriority(b));
+  }, [scheduledEmployees]);
+
   const shiftByEmployee = useMemo(() => {
     const map = new Map<number, Shift>();
     for (const s of todaysShifts) {
@@ -402,7 +468,7 @@ export default function TaskAssignment() {
       currentMinute: minute,
       currentDuration: 15,
     });
-  }, []);
+  }, [xToMinute]);
 
   const handleBlockMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
     e.stopPropagation();
@@ -462,7 +528,7 @@ export default function TaskAssignment() {
 
     const handleMouseMove = (e: MouseEvent) => {
       const dx = e.clientX - dragState.startX;
-      const dMinutes = Math.round((dx * MINUTES_PER_PIXEL) / 15) * 15;
+      const dMinutes = Math.round((dx * minutesPerPixel) / 15) * 15;
 
       if (dragState.type === "resize-end") {
         const newDuration = Math.max(15, dragState.originalDuration + dMinutes);
@@ -539,7 +605,7 @@ export default function TaskAssignment() {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId]);
+  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId, minutesPerPixel]);
 
   const dayLabel = useMemo(() => {
     return formatInTimeZone(dateObj, TIMEZONE, "EEEE, MMMM d, yyyy");
@@ -735,17 +801,18 @@ export default function TaskAssignment() {
 
     const startY = 24;
     const maxRowsPerPage = Math.floor((pageHeight - startY - 20) / rowHeight);
+    const sortedEmployees = groupedEmployees.flatMap(([, emps]) => emps);
 
-    for (let i = 0; i < scheduledEmployees.length; i += maxRowsPerPage) {
+    for (let i = 0; i < sortedEmployees.length; i += maxRowsPerPage) {
       if (i > 0) doc.addPage();
-      const pageEmps = scheduledEmployees.slice(i, i + maxRowsPerPage);
+      const pageEmps = sortedEmployees.slice(i, i + maxRowsPerPage);
       const finalY = drawPage(pageEmps, startY);
 
       doc.setFont(fontFamily, "normal");
       doc.setFontSize(7);
       doc.setTextColor(100, 100, 100);
       doc.text(`Generated: ${formatInTimeZone(new Date(), TIMEZONE, "MMM d, yyyy h:mm a")}`, pageWidth - margin, finalY + 5, { align: "right" });
-      doc.text(`Total employees: ${scheduledEmployees.length}  |  Assignments: ${assignments.length}`, margin, finalY + 5);
+      doc.text(`Total employees: ${sortedEmployees.length}  |  Assignments: ${assignments.length}`, margin, finalY + 5);
     }
 
     if (scheduledEmployees.length > 0) {
@@ -992,14 +1059,14 @@ export default function TaskAssignment() {
           No employees scheduled for this day.
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden bg-card">
+        <div className="border rounded-lg overflow-hidden bg-card" ref={containerRef}>
           <div className="overflow-x-auto" ref={timelineRef}>
-            <div style={{ minWidth: LABEL_WIDTH + TIMELINE_WIDTH + 20 }}>
+            <div style={{ minWidth: LABEL_WIDTH + MIN_TIMELINE_WIDTH + 20 }}>
               <div className="flex border-b bg-muted/50 sticky top-0 z-10">
                 <div className="shrink-0 border-r px-3 py-2 font-medium text-xs text-muted-foreground" style={{ width: LABEL_WIDTH }}>
                   Employee
                 </div>
-                <div className="relative" style={{ width: TIMELINE_WIDTH }}>
+                <div className="relative flex-1" style={{ minWidth: MIN_TIMELINE_WIDTH }}>
                   {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => {
                     const hour = HOUR_START + i;
                     return (
@@ -1015,7 +1082,24 @@ export default function TaskAssignment() {
                 </div>
               </div>
 
-              {scheduledEmployees.map((emp) => {
+              {groupedEmployees.map(([jobTitle, groupEmps]) => {
+                const isCollapsed = collapsedGroups.has(jobTitle);
+                const groupColor = JOB_COLORS[jobTitle] || "#6B7280";
+
+                return (
+                  <div key={jobTitle} className="border-b last:border-b-0">
+                    <button
+                      onClick={() => toggleGroupCollapse(jobTitle)}
+                      className="w-full px-4 py-1.5 font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2 hover:bg-muted/30 transition-colors focus:outline-none bg-muted/20 border-b"
+                      data-testid={`button-toggle-group-${jobTitle}`}
+                      style={{ borderLeft: `3px solid ${groupColor}` }}
+                    >
+                      {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      <span>{getJobTitle(jobTitle)}</span>
+                      <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">{groupEmps.length}</Badge>
+                    </button>
+
+                    {!isCollapsed && groupEmps.map((emp) => {
                 const shift = shiftByEmployee.get(emp.id);
                 const empAssignments = assignmentsByEmployee.get(emp.id) || [];
                 const jobColor = JOB_COLORS[emp.jobTitle] || "#6B7280";
@@ -1039,7 +1123,7 @@ export default function TaskAssignment() {
                 const isDropTarget = dragState && (dragState.type === "move" || dragState.type === "copy") && dragState.targetEmployeeId === emp.id && dragState.employeeId !== emp.id;
 
                 return (
-                  <div key={emp.id} className={cn("flex border-b hover:bg-muted/20 transition-colors", isDropTarget && "bg-primary/5")} style={{ height: ROW_HEIGHT, borderLeft: `3px solid ${jobColor}` }}>
+                  <div key={emp.id} className={cn("flex border-b last:border-b-0 hover:bg-muted/20 transition-colors", isDropTarget && "bg-primary/5")} style={{ height: ROW_HEIGHT, borderLeft: `3px solid ${jobColor}` }}>
                     <div
                       className="shrink-0 border-r px-3 flex items-center gap-2 text-sm"
                       style={{ width: LABEL_WIDTH, backgroundColor: `${jobColor}08` }}
@@ -1059,8 +1143,8 @@ export default function TaskAssignment() {
                     </div>
 
                     <div
-                      className="relative select-none"
-                      style={{ width: TIMELINE_WIDTH, height: ROW_HEIGHT }}
+                      className="relative select-none flex-1"
+                      style={{ minWidth: MIN_TIMELINE_WIDTH, height: ROW_HEIGHT }}
                       onMouseDown={(e) => handleTimelineMouseDown(e, emp.id)}
                       onMouseEnter={() => setHoveredEmployeeId(emp.id)}
                     >
@@ -1092,7 +1176,7 @@ export default function TaskAssignment() {
                           ? dragState.currentDuration : a.durationMinutes;
                         const taskColor = allTaskColors[a.taskName] || "#6B7280";
                         const left = minuteToX(displayMinute);
-                        const width = displayDuration / MINUTES_PER_PIXEL;
+                        const width = displayDuration / minutesPerPixel;
 
                         if (isBeingMovedAway && dragState.type === "move") return null;
 
@@ -1140,7 +1224,7 @@ export default function TaskAssignment() {
                           className="absolute top-1 bottom-1 rounded-md opacity-60 z-20 border-2 border-dashed border-white"
                           style={{
                             left: minuteToX(dragState.currentMinute),
-                            width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
+                            width: Math.max(dragState.currentDuration / minutesPerPixel, 10),
                             backgroundColor: allTaskColors[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
                           }}
                         >
@@ -1155,7 +1239,7 @@ export default function TaskAssignment() {
                           className="absolute top-1 bottom-1 rounded-md opacity-60 z-20"
                           style={{
                             left: minuteToX(dragState.currentMinute),
-                            width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
+                            width: Math.max(dragState.currentDuration / minutesPerPixel, 10),
                             backgroundColor: allTaskColors[selectedTask] || "#6B7280",
                           }}
                         >
@@ -1170,7 +1254,7 @@ export default function TaskAssignment() {
                           className="absolute top-1 bottom-1 rounded-md opacity-50 border-2 border-dashed border-white z-20"
                           style={{
                             left: minuteToX(dragState.currentMinute),
-                            width: Math.max(dragState.currentDuration / MINUTES_PER_PIXEL, 10),
+                            width: Math.max(dragState.currentDuration / minutesPerPixel, 10),
                             backgroundColor: allTaskColors[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
                           }}
                         >
@@ -1181,6 +1265,9 @@ export default function TaskAssignment() {
                         </div>
                       )}
                     </div>
+                  </div>
+                );
+              })}
                   </div>
                 );
               })}
