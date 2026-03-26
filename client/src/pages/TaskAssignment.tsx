@@ -957,23 +957,6 @@ export default function TaskAssignment() {
           </SelectContent>
         </Select>
 
-        <Select value={selectedTask} onValueChange={setSelectedTask}>
-          <SelectTrigger className="w-[220px]" data-testid="select-task">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {allTasks.map(task => (
-              <SelectItem key={task.name} value={task.name}>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: task.color }} />
-                  {task.name}
-                  {task.isCustom && <span className="text-[10px] text-muted-foreground ml-1">(custom)</span>}
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <Dialog open={showCustomTaskDialog} onOpenChange={setShowCustomTaskDialog}>
           <DialogTrigger asChild>
             <Button variant="outline" size="sm" data-testid="button-manage-custom-tasks">
@@ -1088,6 +1071,32 @@ export default function TaskAssignment() {
         <span>Ctrl+drag to copy</span>
         <span>Right-click to delete</span>
         <span>Click date to use date picker</span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {allTasks.map(task => {
+          const count = assignments.filter(a => a.taskName === task.name).length;
+          return (
+            <div
+              key={task.name}
+              className={cn(
+                "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border cursor-pointer transition-all",
+                selectedTask === task.name
+                  ? "ring-2 ring-primary border-primary font-semibold"
+                  : "border-border hover:border-primary/50"
+              )}
+              onClick={() => setSelectedTask(task.name)}
+              data-testid={`legend-task-${task.name.replace(/\s+/g, '-').toLowerCase()}`}
+            >
+              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: task.color }} />
+              <span>{task.name}</span>
+              {task.isCustom && <span className="text-[9px] text-muted-foreground italic">custom</span>}
+              {count > 0 && (
+                <span className="ml-0.5 text-[10px] bg-muted rounded-full px-1.5 font-medium">{count}</span>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {assignmentsLoading ? (
@@ -1315,31 +1324,6 @@ export default function TaskAssignment() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mt-2">
-        {allTasks.map(task => {
-          const count = assignments.filter(a => a.taskName === task.name).length;
-          return (
-            <div
-              key={task.name}
-              className={cn(
-                "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border cursor-pointer transition-all",
-                selectedTask === task.name
-                  ? "ring-2 ring-primary border-primary font-semibold"
-                  : "border-border hover:border-primary/50"
-              )}
-              onClick={() => setSelectedTask(task.name)}
-              data-testid={`legend-task-${task.name.replace(/\s+/g, '-').toLowerCase()}`}
-            >
-              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: task.color }} />
-              <span>{task.name}</span>
-              {task.isCustom && <span className="text-[9px] text-muted-foreground italic">custom</span>}
-              {count > 0 && (
-                <span className="ml-0.5 text-[10px] bg-muted rounded-full px-1.5 font-medium">{count}</span>
-              )}
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
