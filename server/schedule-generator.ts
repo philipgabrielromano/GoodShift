@@ -599,18 +599,24 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           for (const emp of fixedEmps) {
             const [fStartH, fStartM] = emp.fixedShiftStart!.split(':').map(Number);
             const [fEndH, fEndM] = emp.fixedShiftEnd!.split(':').map(Number);
+            const fixedShiftPaidHours = calculateShiftPaidHours(
+              createESTTime(startDate, fStartH, fStartM),
+              createESTTime(startDate, fEndH, fEndM)
+            );
             let daysScheduled = 0;
             for (let d = 0; d < 7; d++) {
               if (daysScheduled >= getMaxDays(emp)) break;
+              if (employeeState[emp.id].hoursScheduled + fixedShiftPaidHours > emp.maxWeeklyHours) {
+                console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} SKIPPED (would exceed ${emp.maxWeeklyHours}h max)`);
+                break;
+              }
               const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
               if (isHoliday(currentDay)) continue;
               if (isOnTimeOff(emp.id, currentDay, d)) continue;
               scheduleShift(emp, createESTTime(currentDay, fStartH, fStartM), createESTTime(currentDay, fEndH, fEndM), d);
-              // Register in existingShiftsByEmpDay so coverage tracking and double-booking
-              // guards both treat this as a confirmed shift going forward.
               existingShiftsByEmpDay.add(`${emp.id}-${d}`);
               daysScheduled++;
-              console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} ${emp.fixedShiftStart}–${emp.fixedShiftEnd}`);
+              console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} ${emp.fixedShiftStart}–${emp.fixedShiftEnd} (${employeeState[emp.id].hoursScheduled.toFixed(1)}h total)`);
             }
           }
         }
