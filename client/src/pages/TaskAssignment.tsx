@@ -173,6 +173,7 @@ export default function TaskAssignment() {
   const [timelineWidth, setTimelineWidth] = useState(MIN_TIMELINE_WIDTH);
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -921,13 +922,18 @@ export default function TaskAssignment() {
           </Button>
           <div className="relative">
             <input
+              ref={dateInputRef}
               type="date"
               value={selectedDate}
               onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-              className="opacity-0 absolute inset-0 w-full h-full cursor-pointer z-10"
+              className="sr-only"
               data-testid="input-date-picker"
             />
-            <div className="px-3 py-1.5 text-sm font-medium min-w-[200px] text-center cursor-pointer hover:bg-muted/50 rounded transition-colors" data-testid="text-selected-date">
+            <div
+              className="px-3 py-1.5 text-sm font-medium min-w-[200px] text-center cursor-pointer hover:bg-muted/50 rounded transition-colors"
+              data-testid="text-selected-date"
+              onClick={() => dateInputRef.current?.showPicker()}
+            >
               {dayLabel}
             </div>
           </div>
