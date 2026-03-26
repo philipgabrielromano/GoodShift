@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.36.0";
+export const APP_VERSION = "1.37.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.37.0",
+    date: "2026-03-26",
+    title: "eCommerce Location & Position Support",
+    changes: [
+      { type: "feature", description: "Added support for 12 eCommerce position codes: Director, Commerce Lead, Assistant, Sales Lister, Shipper, Computer/Tech, Junior Seller, Junior Sorter, QC Specialist, Coordinator, Custodian, and Operations Assistant." },
+      { type: "feature", description: "eCommerce employees now appear in the Employees page with proper grouping and on the Schedule page with distinct color coding per role." },
+      { type: "improvement", description: "The eCommerce location is now fully visible across all pages including Schedule, Employees, Locations, and Roster views." },
+    ],
+  },
   {
     version: "1.36.0",
     date: "2026-03-26",

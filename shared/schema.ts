@@ -110,6 +110,19 @@ export const RETAIL_JOB_CODES = [
   "ALTSTLD",   // Alternative Store Lead
   // Sales floor
   "SLSFLR",    // Sales Floor Associate
+  // eCommerce job codes
+  "ECOMSL",    // eCommerce Sales Lister
+  "ECSHIP",    // eCommerce Shipper
+  "ECOMCOMP",  // eCommerce Computer/Tech
+  "ECOMJSE",   // eCommerce Junior Seller
+  "ECOMJSO",   // eCommerce Junior Sorter
+  "EASSIS",    // eCommerce Assistant
+  "ECMCOMLD",  // eCommerce Commerce Lead
+  "ECQCS",     // eCommerce QC Specialist
+  "EPROCOOR",  // eCommerce Processor/Coordinator
+  "ECCUST",    // eCommerce Custodian
+  "ECOMDIR",   // eCommerce Director
+  "ECOPAS",    // eCommerce Operations Assistant
 ] as const;
 
 // Users table for authentication and role management

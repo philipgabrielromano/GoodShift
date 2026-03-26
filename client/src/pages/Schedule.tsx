@@ -65,6 +65,18 @@ const JOB_PRIORITY: Record<string, number> = {
   "APPROC": 5,
   "DONPRI": 6,
   "DONDOOR": 7,
+  "ECOMDIR": 8,
+  "ECMCOMLD": 9,
+  "EASSIS": 10,
+  "ECOMSL": 11,
+  "ECSHIP": 12,
+  "ECOMCOMP": 13,
+  "ECOMJSE": 14,
+  "ECOMJSO": 15,
+  "ECQCS": 16,
+  "EPROCOOR": 17,
+  "ECCUST": 18,
+  "ECOPAS": 19,
 };
 
 // Job-specific colors for schedule display
@@ -76,6 +88,18 @@ const JOB_COLORS: Record<string, string> = {
   "APPROC": "#3B82F6",    // Electric blue
   "DONPRI": "#22C55E",    // Green
   "DONDOOR": "#F472B6",   // Pink
+  "ECOMDIR": "#9333EA",   // Purple (director)
+  "ECMCOMLD": "#F97316",  // Orange (lead)
+  "EASSIS": "#84CC16",    // Lime (assistant)
+  "ECOMSL": "#06B6D4",    // Cyan
+  "ECSHIP": "#8B5CF6",    // Violet
+  "ECOMCOMP": "#14B8A6",  // Teal
+  "ECOMJSE": "#F59E0B",   // Amber
+  "ECOMJSO": "#EF4444",   // Red
+  "ECQCS": "#10B981",     // Emerald
+  "EPROCOOR": "#6366F1",  // Indigo
+  "ECCUST": "#78716C",    // Stone
+  "ECOPAS": "#D946EF",    // Fuchsia
 };
 
 function getJobColor(jobTitle: string): string {

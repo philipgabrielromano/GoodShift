@@ -119,6 +119,18 @@ const JOB_CODE_TITLES: Record<string, string> = {
   WVSTAST: "Assistant Manager",
   WVLDWRK: "Team Lead",
   SLSFLR: "Sales Floor",
+  ECOMDIR: "eCommerce Director",
+  ECMCOMLD: "eCommerce Commerce Lead",
+  EASSIS: "eCommerce Assistant",
+  ECOMSL: "eCommerce Sales Lister",
+  ECSHIP: "eCommerce Shipper",
+  ECOMCOMP: "eCommerce Computer/Tech",
+  ECOMJSE: "eCommerce Junior Seller",
+  ECOMJSO: "eCommerce Junior Sorter",
+  ECQCS: "eCommerce QC Specialist",
+  EPROCOOR: "eCommerce Coordinator",
+  ECCUST: "eCommerce Custodian",
+  ECOPAS: "eCommerce Operations Asst",
 };
 
 // Mapping of equivalent job codes (WV variants map to standard codes)

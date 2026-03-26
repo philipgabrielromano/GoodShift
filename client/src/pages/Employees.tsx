@@ -27,6 +27,18 @@ const JOB_PRIORITY: Record<string, number> = {
   "APPROC": 5,
   "DONPRI": 6,
   "DONDOOR": 7,
+  "ECOMDIR": 8,
+  "ECMCOMLD": 9,
+  "EASSIS": 10,
+  "ECOMSL": 11,
+  "ECSHIP": 12,
+  "ECOMCOMP": 13,
+  "ECOMJSE": 14,
+  "ECOMJSO": 15,
+  "ECQCS": 16,
+  "EPROCOOR": 17,
+  "ECCUST": 18,
+  "ECOPAS": 19,
 };
 
 function getJobPriority(jobTitle: string): number {
