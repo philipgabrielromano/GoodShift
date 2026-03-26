@@ -769,9 +769,9 @@ export default function TaskAssignment() {
         doc.setFontSize(5);
         doc.setTextColor(100, 100, 100);
         if (pdfEmpEstimate > 0) {
-          doc.text(`${emp.jobTitle} (${pdfEmpEstimate}pcs)`, margin + 2.5, y + rowHeight - 0.8);
+          doc.text(`${getJobTitle(emp.jobTitle)} (${pdfEmpEstimate}pcs)`, margin + 2.5, y + rowHeight - 0.8);
         } else {
-          doc.text(emp.jobTitle, margin + 2.5, y + rowHeight - 0.8);
+          doc.text(getJobTitle(emp.jobTitle), margin + 2.5, y + rowHeight - 0.8);
         }
 
         if (shift) {
@@ -1161,7 +1161,7 @@ export default function TaskAssignment() {
                       <div className="flex flex-col min-w-0 flex-1">
                         <span className="truncate font-medium leading-tight">{emp.name}</span>
                         <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-muted-foreground truncate">{emp.jobTitle}</span>
+                          <span className="text-[10px] text-muted-foreground truncate">{getJobTitle(emp.jobTitle)}</span>
                           {empEstimate > 0 && (
                             <span className="text-[10px] font-semibold text-primary" data-testid={`text-production-estimate-${emp.id}`}>
                               ({empEstimate} pcs)
