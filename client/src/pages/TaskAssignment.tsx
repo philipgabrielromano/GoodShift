@@ -640,9 +640,11 @@ export default function TaskAssignment() {
                 }
 
                 let empEstimate = 0;
-                if (isProductionWorker) {
-                  const totalAssignedMinutes = empAssignments.reduce((s, a) => s + a.durationMinutes, 0);
-                  const effectiveHours = totalAssignedMinutes / 60;
+                if (isProductionWorker && shift) {
+                  const shiftTotalMinutes = shiftEndMin - shiftStartMin;
+                  const breakMinutes = shiftTotalMinutes >= 360 ? 30 : 0;
+                  const effectiveMinutes = Math.max(0, shiftTotalMinutes - breakMinutes);
+                  const effectiveHours = effectiveMinutes / 60;
                   empEstimate = Math.round(effectiveHours * 60);
                 }
 
@@ -659,7 +661,7 @@ export default function TaskAssignment() {
                         <span className="truncate font-medium leading-tight">{emp.name}</span>
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] text-muted-foreground truncate">{emp.jobTitle}</span>
-                          {isProductionWorker && empEstimate > 0 && (
+                          {isProductionWorker && empEstimate >= 0 && shift && (
                             <span className="text-[10px] font-semibold text-primary" data-testid={`text-production-estimate-${emp.id}`}>
                               ({empEstimate} pcs)
                             </span>

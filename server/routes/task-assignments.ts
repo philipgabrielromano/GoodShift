@@ -91,19 +91,29 @@ export function registerTaskAssignmentRoutes(app: Express) {
     }
 
     let sourceAssignments = await storage.getTaskAssignments(sourceDate);
+    let locationEmpIds: Set<number> | null = null;
     if (location && location !== "all") {
       const employees = await storage.getEmployees();
-      const locationEmpIds = new Set(
+      locationEmpIds = new Set(
         employees.filter(e => e.location === location).map(e => e.id)
       );
-      sourceAssignments = sourceAssignments.filter(a => locationEmpIds.has(a.employeeId));
+      sourceAssignments = sourceAssignments.filter(a => locationEmpIds!.has(a.employeeId));
     }
 
     if (sourceAssignments.length === 0) {
       return res.status(400).json({ message: "No task assignments to copy from source date" });
     }
 
-    await storage.deleteTaskAssignmentsByDate(targetDate);
+    if (locationEmpIds) {
+      const existingTarget = await storage.getTaskAssignments(targetDate);
+      for (const a of existingTarget) {
+        if (locationEmpIds.has(a.employeeId)) {
+          await storage.deleteTaskAssignment(a.id);
+        }
+      }
+    } else {
+      await storage.deleteTaskAssignmentsByDate(targetDate);
+    }
 
     const results = [];
     for (const a of sourceAssignments) {
