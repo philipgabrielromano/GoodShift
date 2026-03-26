@@ -79,7 +79,8 @@ export interface IStorage {
   getPALEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   getUnpaidTimeOffEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
-  deleteTimeClockEntries(startDate: string, endDate: string): Promise<void>;
+  deleteTimeClockEntries(startDate: string, endDate: string, paycodeIds?: number[]): Promise<number>;
+  getTimeClockEntryCountForRange(startDate: string, endDate: string): Promise<number>;
   getLastTimeClockSyncDate(): Promise<string | null>;
   getEmployeeCount(): Promise<number>;
   getTimeClockEntryCount(): Promise<number>;
@@ -87,7 +88,7 @@ export interface IStorage {
   // Time Clock Punches (individual punch pairs)
   getTimeClockPunches(startDate: string, endDate: string): Promise<TimeClockPunch[]>;
   insertTimeClockPunches(punches: InsertTimeClockPunch[]): Promise<number>;
-  deleteTimeClockPunches(startDate: string, endDate: string): Promise<void>;
+  deleteTimeClockPunches(startDate: string, endDate: string, paycodeIds?: number[]): Promise<void>;
 
   // Schedule Templates
   getScheduleTemplates(): Promise<ScheduleTemplate[]>;
@@ -474,12 +475,28 @@ export class DatabaseStorage implements IStorage {
     return upserted;
   }
 
-  async deleteTimeClockEntries(startDate: string, endDate: string): Promise<void> {
-    await db.delete(timeClockEntries)
+  async deleteTimeClockEntries(startDate: string, endDate: string, paycodeIds?: number[]): Promise<number> {
+    const conditions = [
+      gte(timeClockEntries.workDate, startDate),
+      lte(timeClockEntries.workDate, endDate),
+    ];
+    if (paycodeIds && paycodeIds.length > 0) {
+      conditions.push(inArray(timeClockEntries.paycodeId, paycodeIds));
+    }
+    const result = await db.delete(timeClockEntries)
+      .where(and(...conditions))
+      .returning({ id: timeClockEntries.id });
+    return result.length;
+  }
+
+  async getTimeClockEntryCountForRange(startDate: string, endDate: string): Promise<number> {
+    const [result] = await db.select({ count: sql<number>`count(*)` })
+      .from(timeClockEntries)
       .where(and(
         gte(timeClockEntries.workDate, startDate),
         lte(timeClockEntries.workDate, endDate)
       ));
+    return Number(result?.count ?? 0);
   }
 
   async getLastTimeClockSyncDate(): Promise<string | null> {
@@ -520,12 +537,16 @@ export class DatabaseStorage implements IStorage {
     return inserted;
   }
 
-  async deleteTimeClockPunches(startDate: string, endDate: string): Promise<void> {
+  async deleteTimeClockPunches(startDate: string, endDate: string, paycodeIds?: number[]): Promise<void> {
+    const conditions = [
+      gte(timeClockPunches.workDate, startDate),
+      lte(timeClockPunches.workDate, endDate),
+    ];
+    if (paycodeIds && paycodeIds.length > 0) {
+      conditions.push(inArray(timeClockPunches.paycodeId, paycodeIds));
+    }
     await db.delete(timeClockPunches)
-      .where(and(
-        gte(timeClockPunches.workDate, startDate),
-        lte(timeClockPunches.workDate, endDate)
-      ));
+      .where(and(...conditions));
   }
 
   // Schedule Templates

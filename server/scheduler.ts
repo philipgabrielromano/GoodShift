@@ -219,13 +219,28 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
       ukgStatus: entry.status ?? null,
     }));
 
-  // Delete existing entries for this date window before inserting fresh data.
-  // This ensures records that were rescinded/removed in UKG don't persist in our database.
-  await storage.deleteTimeClockEntries(startDate, endDate);
-  console.log(`[Scheduler] Cleared existing entries for ${startDate} → ${endDate} (${label})`);
+  const incomingPaycodeIds = [...new Set(timeClockData.map(e => e.paycodeId || 0))];
+  console.log(`[Scheduler] Paycode IDs in incoming data (${label}):`, incomingPaycodeIds);
+
+  const existingCount = await storage.getTimeClockEntryCountForRange(startDate, endDate);
+  const incomingCount = aggregatedMap.size;
+  const skipDelete = existingCount > 0 && incomingCount < existingCount * 0.5;
+
+  if (skipDelete) {
+    console.warn(
+      `[Scheduler] Safety check: incoming data (${incomingCount} entries) is less than 50% of existing data ` +
+      `(${existingCount} entries) for ${startDate} → ${endDate} (${label}). Skipping delete to prevent accidental mass wipe. ` +
+      `Proceeding with upsert only.`
+    );
+  } else {
+    const deleted = await storage.deleteTimeClockEntries(startDate, endDate, incomingPaycodeIds);
+    console.log(`[Scheduler] Cleared ${deleted} existing entries (paycodes: ${incomingPaycodeIds.join(', ')}) for ${startDate} → ${endDate} (${label})`);
+  }
 
   if (rawPunches.length > 0) {
-    await storage.deleteTimeClockPunches(startDate, endDate);
+    if (!skipDelete) {
+      await storage.deleteTimeClockPunches(startDate, endDate, incomingPaycodeIds);
+    }
     const punchCount = await storage.insertTimeClockPunches(rawPunches);
     console.log(`[Scheduler] Stored ${punchCount} individual punch records (${label})`);
   }
