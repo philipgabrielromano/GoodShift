@@ -1012,12 +1012,21 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             if (!coverage.opener && coverage.closerTier === 'higher') openSlots.push('opener');
             // Team lead can close ONLY if a higher-tier manager is opening (or has opened)
             if (!coverage.closer && coverage.openerTier === 'higher') openSlots.push('closer');
-            // Mid shift is always okay if higher-tier is present somewhere that day
-            if (!coverage.mid) openSlots.push('mid');
+            // Mid shift ONLY if opener AND closer are already covered — never waste
+            // a team lead on mid when an opener or closer gap still exists
+            if (coverage.opener && coverage.closer && !coverage.mid) openSlots.push('mid');
             
             if (openSlots.length === 0) break;
             
-            const chosenSlot = randomPick(openSlots);
+            // Prioritize opener/closer over mid — only pick mid if no other option
+            let chosenSlot: string;
+            const criticalSlots = openSlots.filter(s => s === 'opener' || s === 'closer');
+            if (criticalSlots.length > 0) {
+              chosenSlot = randomPick(criticalSlots);
+            } else {
+              chosenSlot = randomPick(openSlots);
+            }
+            
             if (chosenSlot === 'opener') {
               scheduleShift(teamLead, shifts.opener.start, shifts.opener.end, dayIndex);
               coverage.opener = true;
