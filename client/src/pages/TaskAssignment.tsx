@@ -126,7 +126,14 @@ const TOTAL_HOURS = HOUR_END - HOUR_START;
 const TOTAL_MINUTES = TOTAL_HOURS * 60;
 const ROW_HEIGHT = 52;
 const LABEL_WIDTH = 180;
-const MIN_TIMELINE_WIDTH = 600;
+
+function minuteToPercent(minute: number): number {
+  return ((minute - HOUR_START * 60) / TOTAL_MINUTES) * 100;
+}
+
+function durationToPercent(durationMinutes: number): number {
+  return (durationMinutes / TOTAL_MINUTES) * 100;
+}
 
 function formatMinute(m: number): string {
   const h = Math.floor(m / 60);
@@ -171,34 +178,14 @@ export default function TaskAssignment() {
   } | null>(null);
   const [hoveredEmployeeId, setHoveredEmployeeId] = useState<number | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [timelineWidth, setTimelineWidth] = useState(MIN_TIMELINE_WIDTH);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const availableWidth = entry.contentRect.width - LABEL_WIDTH - 20;
-        setTimelineWidth(Math.max(availableWidth, MIN_TIMELINE_WIDTH));
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+  const xToMinute = useCallback((x: number, containerWidth: number): number => {
+    const fraction = x / containerWidth;
+    return Math.round((fraction * TOTAL_MINUTES + HOUR_START * 60) / 15) * 15;
   }, []);
-
-  const minutesPerPixel = TOTAL_MINUTES / timelineWidth;
-
-  const minuteToX = useCallback((minute: number): number => {
-    return (minute - HOUR_START * 60) / minutesPerPixel;
-  }, [minutesPerPixel]);
-
-  const xToMinute = useCallback((x: number): number => {
-    return Math.round((x * minutesPerPixel + HOUR_START * 60) / 15) * 15;
-  }, [minutesPerPixel]);
 
   const toggleGroupCollapse = useCallback((jobTitle: string) => {
     setCollapsedGroups(prev => {
@@ -454,7 +441,7 @@ export default function TaskAssignment() {
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const minute = xToMinute(x);
+    const minute = xToMinute(x, rect.width);
     if (minute < shiftBounds.start || minute >= shiftBounds.end) return;
 
     setDragState({
@@ -529,7 +516,10 @@ export default function TaskAssignment() {
 
     const handleMouseMove = (e: MouseEvent) => {
       const dx = e.clientX - dragState.startX;
-      const dMinutes = Math.round((dx * minutesPerPixel) / 15) * 15;
+      const timelineEl = timelineRef.current?.querySelector('[data-timeline-row]') as HTMLElement | null;
+      const tlWidth = timelineEl?.getBoundingClientRect().width || 800;
+      const pxToMin = TOTAL_MINUTES / tlWidth;
+      const dMinutes = Math.round((dx * pxToMin) / 15) * 15;
       const shiftBounds = shiftMinutesByEmployee.get(dragState.employeeId);
       const shiftStart = shiftBounds?.start ?? HOUR_START * 60;
       const shiftEnd = shiftBounds?.end ?? HOUR_END * 60;
@@ -619,7 +609,7 @@ export default function TaskAssignment() {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId, minutesPerPixel, shiftMinutesByEmployee]);
+  }, [dragState, selectedTask, selectedDate, assignments, createMutation, updateMutation, hoveredEmployeeId, shiftMinutesByEmployee]);
 
   const dayLabel = useMemo(() => {
     return formatInTimeZone(dateObj, TIMEZONE, "EEEE, MMMM d, yyyy");
@@ -1088,21 +1078,21 @@ export default function TaskAssignment() {
           No employees scheduled for this day.
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden bg-card" ref={containerRef}>
-          <div className="overflow-x-auto" ref={timelineRef}>
-            <div style={{ minWidth: LABEL_WIDTH + MIN_TIMELINE_WIDTH + 20 }}>
+        <div className="border rounded-lg overflow-hidden bg-card">
+          <div className="overflow-hidden" ref={timelineRef}>
+            <div>
               <div className="flex border-b bg-muted/50 sticky top-0 z-10">
                 <div className="shrink-0 border-r px-3 py-2 font-medium text-xs text-muted-foreground" style={{ width: LABEL_WIDTH }}>
                   Employee
                 </div>
-                <div className="relative flex-1" style={{ minWidth: MIN_TIMELINE_WIDTH }}>
+                <div className="relative flex-1">
                   {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => {
                     const hour = HOUR_START + i;
                     return (
                       <div
                         key={hour}
                         className="absolute top-0 bottom-0 border-l border-border/50 text-[10px] text-muted-foreground pl-1 pt-1"
-                        style={{ left: minuteToX(hour * 60) }}
+                        style={{ left: `${minuteToPercent(hour * 60)}%` }}
                       >
                         {hour === 0 ? "12 AM" : hour <= 12 ? `${hour} ${hour === 12 ? "PM" : "AM"}` : `${hour - 12} PM`}
                       </div>
@@ -1168,7 +1158,8 @@ export default function TaskAssignment() {
 
                     <div
                       className="relative select-none flex-1"
-                      style={{ minWidth: MIN_TIMELINE_WIDTH, height: ROW_HEIGHT }}
+                      data-timeline-row
+                      style={{ height: ROW_HEIGHT }}
                       onMouseDown={(e) => handleTimelineMouseDown(e, emp.id)}
                       onMouseEnter={() => setHoveredEmployeeId(emp.id)}
                     >
@@ -1176,7 +1167,7 @@ export default function TaskAssignment() {
                         <div
                           key={i}
                           className="absolute top-0 bottom-0 border-l border-border/20"
-                          style={{ left: minuteToX((HOUR_START + i) * 60) }}
+                          style={{ left: `${minuteToPercent((HOUR_START + i) * 60)}%` }}
                         />
                       ))}
 
@@ -1184,8 +1175,8 @@ export default function TaskAssignment() {
                         <div
                           className="absolute top-1 bottom-1 rounded opacity-10 bg-foreground"
                           style={{
-                            left: minuteToX(shiftStartMin),
-                            width: Math.max(0, minuteToX(shiftEndMin) - minuteToX(shiftStartMin)),
+                            left: `${minuteToPercent(shiftStartMin)}%`,
+                            width: `${durationToPercent(shiftEndMin - shiftStartMin)}%`,
                           }}
                           data-testid={`shift-bg-${emp.id}`}
                         />
@@ -1199,8 +1190,6 @@ export default function TaskAssignment() {
                         const displayDuration = isDragging && (dragState.type === "resize-end" || dragState.type === "resize-start")
                           ? dragState.currentDuration : a.durationMinutes;
                         const taskColor = allTaskColors[a.taskName] || "#6B7280";
-                        const left = minuteToX(displayMinute);
-                        const width = displayDuration / minutesPerPixel;
 
                         if (isBeingMovedAway && dragState.type === "move") return null;
 
@@ -1213,8 +1202,8 @@ export default function TaskAssignment() {
                               !isDragging && "hover:shadow-md hover:brightness-110 z-10"
                             )}
                             style={{
-                              left,
-                              width: Math.max(width, 20),
+                              left: `${minuteToPercent(displayMinute)}%`,
+                              width: `${Math.max(durationToPercent(displayDuration), 1)}%`,
                               backgroundColor: taskColor,
                             }}
                             onMouseDown={(e) => handleBlockMouseDown(e, a)}
@@ -1251,8 +1240,8 @@ export default function TaskAssignment() {
                         <div
                           className="absolute top-1 bottom-1 rounded-md opacity-60 z-20 border-2 border-dashed border-white"
                           style={{
-                            left: minuteToX(dragState.currentMinute),
-                            width: Math.max(dragState.currentDuration / minutesPerPixel, 10),
+                            left: `${minuteToPercent(dragState.currentMinute)}%`,
+                            width: `${Math.max(durationToPercent(dragState.currentDuration), 1)}%`,
                             backgroundColor: allTaskColors[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
                           }}
                         >
@@ -1266,8 +1255,8 @@ export default function TaskAssignment() {
                         <div
                           className="absolute top-1 bottom-1 rounded-md opacity-60 z-20"
                           style={{
-                            left: minuteToX(dragState.currentMinute),
-                            width: Math.max(dragState.currentDuration / minutesPerPixel, 10),
+                            left: `${minuteToPercent(dragState.currentMinute)}%`,
+                            width: `${Math.max(durationToPercent(dragState.currentDuration), 1)}%`,
                             backgroundColor: allTaskColors[selectedTask] || "#6B7280",
                           }}
                         >
@@ -1281,8 +1270,8 @@ export default function TaskAssignment() {
                         <div
                           className="absolute top-1 bottom-1 rounded-md opacity-50 border-2 border-dashed border-white z-20"
                           style={{
-                            left: minuteToX(dragState.currentMinute),
-                            width: Math.max(dragState.currentDuration / minutesPerPixel, 10),
+                            left: `${minuteToPercent(dragState.currentMinute)}%`,
+                            width: `${Math.max(durationToPercent(dragState.currentDuration), 1)}%`,
                             backgroundColor: allTaskColors[assignments.find(a => a.id === dragState.assignmentId)?.taskName || ""] || "#6B7280",
                           }}
                         >
