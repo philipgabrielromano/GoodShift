@@ -472,19 +472,40 @@ export default function TaskAssignment() {
     const minute = xToMinute(x, rect.width);
     if (minute < shiftBounds.start || minute >= shiftBounds.end) return;
 
+    const empAssigns = assignmentsByEmployee.get(employeeId) || [];
+    let gapStart = shiftBounds.start;
+    let gapEnd = shiftBounds.end;
+
+    if (empAssigns.length > 0) {
+      const sorted = [...empAssigns].sort((a, b) => a.startMinute - b.startMinute);
+      for (const a of sorted) {
+        const aEnd = a.startMinute + a.durationMinutes;
+        if (a.startMinute <= minute && aEnd > minute) return;
+        if (aEnd <= minute) {
+          gapStart = Math.max(gapStart, aEnd);
+        }
+        if (a.startMinute > minute) {
+          gapEnd = Math.min(gapEnd, a.startMinute);
+          break;
+        }
+      }
+    }
+
+    if (gapEnd <= gapStart) return;
+
     setDragState({
       type: "create",
       employeeId,
       targetEmployeeId: employeeId,
       startX: e.clientX,
-      originalStartMinute: shiftBounds.start,
-      originalDuration: shiftBounds.end - shiftBounds.start,
-      currentMinute: shiftBounds.start,
-      currentDuration: shiftBounds.end - shiftBounds.start,
+      originalStartMinute: gapStart,
+      originalDuration: gapEnd - gapStart,
+      currentMinute: gapStart,
+      currentDuration: gapEnd - gapStart,
       clickMinute: minute,
       didDrag: false,
     } as any);
-  }, [xToMinute, shiftMinutesByEmployee]);
+  }, [xToMinute, shiftMinutesByEmployee, assignmentsByEmployee]);
 
   const handleBlockMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
     e.stopPropagation();
