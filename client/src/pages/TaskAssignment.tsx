@@ -76,6 +76,20 @@ const TASK_COLORS: Record<string, string> = {
   "Greet Donors": "#2563EB",
 };
 
+const TASK_GROUPS: { label: string; tasks: Set<string> }[] = [
+  { label: "Processing", tasks: new Set(["Complete Pulls", "Process Clothes", "Process Wares", "Process Shoes", "Process Accessories", "Complete eCommerce"]) },
+  { label: "Sales Floor", tasks: new Set(["Run Register", "Run Rack", "Stock New Goods", "Flex Assigned Clothing Racks", "Resize Assigned Clothing Racks", "Maintain Fitting Rooms"]) },
+  { label: "Cleaning & Maintenance", tasks: new Set(["Clean Women's Restroom", "Clean Men's Restroom", "Use the Dust Mop", "Run the Floor Machine", "Empty Trash"]) },
+  { label: "Other", tasks: new Set(["Complete SPOC Request", "Greet Donors"]) },
+];
+
+function getTaskGroup(taskName: string): string {
+  for (const g of TASK_GROUPS) {
+    if (g.tasks.has(taskName)) return g.label;
+  }
+  return "Custom";
+}
+
 const JOB_PRIORITY: Record<string, number> = {
   "STSUPER": 1,
   "STASSTSP": 2,
@@ -1114,28 +1128,39 @@ export default function TaskAssignment() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        {allTasks.map(task => {
-          const count = assignments.filter(a => a.taskName === task.name).length;
+      <div className="space-y-2">
+        {[...TASK_GROUPS, { label: "Custom", tasks: new Set<string>() }].map(group => {
+          const groupTasks = group.label === "Custom"
+            ? allTasks.filter(t => t.isCustom)
+            : allTasks.filter(t => group.tasks.has(t.name));
+          if (groupTasks.length === 0) return null;
           return (
-            <div
-              key={task.name}
-              className={cn(
-                "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border transition-all",
-                isReadOnly ? "" : "cursor-pointer",
-                selectedTask === task.name && !isReadOnly
-                  ? "ring-2 ring-primary border-primary font-semibold"
-                  : "border-border hover:border-primary/50"
-              )}
-              onClick={() => !isReadOnly && setSelectedTask(task.name)}
-              data-testid={`legend-task-${task.name.replace(/\s+/g, '-').toLowerCase()}`}
-            >
-              <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: task.color }} />
-              <span>{task.name}</span>
-              {task.isCustom && <span className="text-[9px] text-muted-foreground italic">custom</span>}
-              {count > 0 && (
-                <span className="ml-0.5 text-[10px] bg-muted rounded-full px-1.5 font-medium">{count}</span>
-              )}
+            <div key={group.label} className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider w-auto shrink-0">{group.label}</span>
+              {groupTasks.map(task => {
+                const count = assignments.filter(a => a.taskName === task.name).length;
+                return (
+                  <div
+                    key={task.name}
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border transition-all",
+                      isReadOnly ? "" : "cursor-pointer",
+                      selectedTask === task.name && !isReadOnly
+                        ? "ring-2 ring-primary border-primary font-semibold"
+                        : "border-border hover:border-primary/50"
+                    )}
+                    onClick={() => !isReadOnly && setSelectedTask(task.name)}
+                    data-testid={`legend-task-${task.name.replace(/\s+/g, '-').toLowerCase()}`}
+                  >
+                    <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: task.color }} />
+                    <span>{task.name}</span>
+                    {task.isCustom && <span className="text-[9px] text-muted-foreground italic">custom</span>}
+                    {count > 0 && (
+                      <span className="ml-0.5 text-[10px] bg-muted rounded-full px-1.5 font-medium">{count}</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           );
         })}
