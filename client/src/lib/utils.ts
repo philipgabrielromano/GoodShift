@@ -131,6 +131,8 @@ export const JOB_CODE_TITLES: Record<string, string> = {
   EPROCOOR: "eCommerce Coordinator",
   ECCUST: "eCommerce Customer Service",
   ECOPAS: "eCommerce Operations Asst",
+  WIRELD: "Wired Up Lead",
+  ALTSTRLD: "Alternative Store Lead",
 };
 
 // Mapping of equivalent job codes (WV variants map to standard codes)
