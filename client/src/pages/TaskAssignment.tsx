@@ -77,8 +77,8 @@ const TASK_COLORS: Record<string, string> = {
 };
 
 const TASK_GROUPS: { label: string; tasks: Set<string> }[] = [
-  { label: "Processing", tasks: new Set(["Complete Pulls", "Process Clothes", "Process Wares", "Process Shoes", "Process Accessories", "Complete eCommerce"]) },
-  { label: "Sales Floor", tasks: new Set(["Run Register", "Run Rack", "Stock New Goods", "Flex Assigned Clothing Racks", "Resize Assigned Clothing Racks", "Maintain Fitting Rooms"]) },
+  { label: "Processing", tasks: new Set(["Process Clothes", "Process Wares", "Process Shoes", "Process Accessories", "Complete eCommerce"]) },
+  { label: "Sales Floor", tasks: new Set(["Complete Pulls", "Run Register", "Run Rack", "Stock New Goods", "Flex Assigned Clothing Racks", "Resize Assigned Clothing Racks", "Maintain Fitting Rooms"]) },
   { label: "Cleaning & Maintenance", tasks: new Set(["Clean Women's Restroom", "Clean Men's Restroom", "Use the Dust Mop", "Run the Floor Machine", "Empty Trash"]) },
   { label: "Other", tasks: new Set(["Complete SPOC Request", "Greet Donors"]) },
 ];
