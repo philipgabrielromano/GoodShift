@@ -751,7 +751,7 @@ export default function TaskAssignment() {
             other.startMinute < dragState.originalStartMinute + dragState.originalDuration &&
             (other.startMinute + other.durationMinutes) > dragState.originalStartMinute
           );
-          if (overlapping.length === 0) {
+          if (overlapping.length <= 1) {
             createMutation.mutate({
               employeeId: dragState.employeeId,
               taskName: selectedTask,
