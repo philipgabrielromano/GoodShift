@@ -4,7 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronRight, ChevronDown, Trash2, Copy, Loader2, FileDown, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Trash2, Copy, Loader2, FileDown, Plus, X, Volume2, VolumeX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, getJobTitle, getCanonicalJobCode } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
@@ -83,7 +83,10 @@ const TASK_GROUPS: { label: string; tasks: Set<string> }[] = [
   { label: "Other", tasks: new Set(["Complete SPOC Request", "Greet Donors"]) },
 ];
 
+let _soundMuted = false;
+
 function playBloopSound() {
+  if (_soundMuted) return;
   try {
     const ctx = new AudioContext();
     const t = ctx.currentTime;
@@ -120,6 +123,7 @@ function playBloopSound() {
 }
 
 function playWhooshSound() {
+  if (_soundMuted) return;
   try {
     const ctx = new AudioContext();
     const bufferSize = ctx.sampleRate * 0.5;
@@ -249,6 +253,19 @@ export default function TaskAssignment() {
   const [, navigate] = useLocation();
   const userRole = currentUser?.user?.role;
   const isReadOnly = userRole === "employee";
+  const [isMuted, setIsMuted] = useState(() => {
+    const stored = localStorage.getItem("taskAssignmentMuted") === "true";
+    _soundMuted = stored;
+    return stored;
+  });
+  const toggleMute = useCallback(() => {
+    setIsMuted(prev => {
+      const next = !prev;
+      _soundMuted = next;
+      localStorage.setItem("taskAssignmentMuted", String(next));
+      return next;
+    });
+  }, []);
   const [selectedDate, setSelectedDate] = useState(() => {
     const now = new Date();
     return getDateString(now);
@@ -1228,6 +1245,15 @@ export default function TaskAssignment() {
             </Button>
           </>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={toggleMute}
+          title={isMuted ? "Unmute sounds" : "Mute sounds"}
+          data-testid="button-toggle-mute"
+        >
+          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+        </Button>
       </div>
 
       {!isReadOnly && (
