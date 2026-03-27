@@ -1303,8 +1303,8 @@ export default function TaskAssignment() {
                                 <span className="text-[8px] text-black/70 select-none">◀</span>
                               </div>
                             )}
-                            <span className="text-[10px] font-semibold text-white truncate leading-tight drop-shadow-sm">
-                              {a.taskName}
+                            <span className="text-[10px] font-semibold text-white truncate leading-tight drop-shadow-sm overflow-hidden whitespace-nowrap min-w-0">
+                              {displayDuration <= 30 ? a.taskName.split(" ").map(w => w[0]).join("") : a.taskName}
                             </span>
                             {!isReadOnly && (
                               <div
