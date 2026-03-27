@@ -537,18 +537,40 @@ export default function TaskAssignment() {
     const empAssigns = assignmentsByEmployee.get(employeeId) || [];
     let gapStart = shiftBounds.start;
     let gapEnd = shiftBounds.end;
+    let isSecondary = false;
 
     if (empAssigns.length > 0) {
       const sorted = [...empAssigns].sort((a, b) => a.startMinute - b.startMinute);
+      let clickedOnExisting = false;
       for (const a of sorted) {
         const aEnd = a.startMinute + a.durationMinutes;
-        if (a.startMinute <= minute && aEnd > minute) return;
-        if (aEnd <= minute) {
-          gapStart = Math.max(gapStart, aEnd);
-        }
-        if (a.startMinute > minute) {
-          gapEnd = Math.min(gapEnd, a.startMinute);
+        if (a.startMinute <= minute && aEnd > minute) {
+          clickedOnExisting = true;
           break;
+        }
+      }
+
+      if (clickedOnExisting) {
+        const overlapping = sorted.filter(a => {
+          const aEnd = a.startMinute + a.durationMinutes;
+          return a.startMinute <= minute && aEnd > minute;
+        });
+        const hasSecondary = overlapping.length >= 2;
+        if (hasSecondary) return;
+        const primary = overlapping[0];
+        gapStart = primary.startMinute;
+        gapEnd = primary.startMinute + primary.durationMinutes;
+        isSecondary = true;
+      } else {
+        for (const a of sorted) {
+          const aEnd = a.startMinute + a.durationMinutes;
+          if (aEnd <= minute) {
+            gapStart = Math.max(gapStart, aEnd);
+          }
+          if (a.startMinute > minute) {
+            gapEnd = Math.min(gapEnd, a.startMinute);
+            break;
+          }
         }
       }
     }
@@ -1342,21 +1364,34 @@ export default function TaskAssignment() {
                           ? dragState.currentDuration : a.durationMinutes;
                         const taskColor = allTaskColors[a.taskName] || "#6B7280";
 
+                        const aStart = isDragging ? displayMinute : a.startMinute;
+                        const aEnd = aStart + (isDragging ? displayDuration : a.durationMinutes);
+                        const isSecondaryTask = empAssignments.some(other =>
+                          other.id !== a.id &&
+                          other.startMinute < aEnd &&
+                          (other.startMinute + other.durationMinutes) > aStart &&
+                          other.id < a.id
+                        );
+
                         if (isBeingMovedAway && dragState.type === "move") return null;
 
                         return (
                           <div
                             key={a.id}
                             className={cn(
-                              "absolute top-1 bottom-1 rounded-md flex items-center px-1.5 transition-shadow",
+                              "absolute rounded-md flex items-center px-1.5 transition-shadow",
                               !isReadOnly && "cursor-grab active:cursor-grabbing",
                               isDragging && "opacity-80 shadow-lg ring-2 ring-white/50 z-20",
-                              !isDragging && "hover:shadow-md hover:brightness-110 z-10"
+                              !isDragging && "hover:shadow-md hover:brightness-110",
+                              isSecondaryTask ? "z-20 border border-dashed border-white/60" : "z-10"
                             )}
                             style={{
                               left: `${minuteToPercent(displayMinute)}%`,
                               width: `${Math.max(durationToPercent(displayDuration), 1)}%`,
                               backgroundColor: taskColor,
+                              top: isSecondaryTask ? `${ROW_HEIGHT / 2}px` : "4px",
+                              bottom: isSecondaryTask ? "4px" : (empAssignments.some(other => other.id !== a.id && other.id > a.id && other.startMinute < aEnd && (other.startMinute + other.durationMinutes) > aStart) ? `${ROW_HEIGHT / 2}px` : "4px"),
+                              opacity: isSecondaryTask ? 0.85 : 1,
                             }}
                             onMouseDown={(e) => !isReadOnly && handleBlockMouseDown(e, a)}
                             onContextMenu={(e) => {
@@ -1364,7 +1399,7 @@ export default function TaskAssignment() {
                               e.stopPropagation();
                               if (!isReadOnly) deleteMutation.mutate(a.id);
                             }}
-                            title={`${a.taskName}\n${formatMinute(a.startMinute)} - ${formatMinute(a.startMinute + a.durationMinutes)}\nRight-click to delete | Ctrl+drag to copy | Drag edges to resize`}
+                            title={`${isSecondaryTask ? "(Secondary) " : ""}${a.taskName}\n${formatMinute(a.startMinute)} - ${formatMinute(a.startMinute + a.durationMinutes)}\nRight-click to delete | Ctrl+drag to copy | Drag edges to resize`}
                             data-testid={`task-block-${a.id}`}
                           >
                             {!isReadOnly && (
