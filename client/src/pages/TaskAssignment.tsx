@@ -243,10 +243,10 @@ const OTHER_PRODUCTION_TASKS = new Set(["Process Shoes", "Process Accessories"])
 
 function calculateEffectiveHours(shiftHours: number): number {
   if (shiftHours <= 0) return 0;
-  const paidHours = shiftHours >= 6 ? shiftHours - 0.5 : shiftHours;
-  if (paidHours >= 8) return paidHours - 1;
-  if (paidHours >= 5) return paidHours - 0.25;
-  return paidHours;
+  let deduction = 0;
+  if (shiftHours >= 6) deduction += 0.5;
+  if (shiftHours >= 5) deduction += 0.25;
+  return shiftHours - deduction;
 }
 
 function getDateString(date: Date): string {
