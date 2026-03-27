@@ -83,6 +83,24 @@ const TASK_GROUPS: { label: string; tasks: Set<string> }[] = [
   { label: "Other", tasks: new Set(["Complete SPOC Request", "Greet Donors"]) },
 ];
 
+function playBloopSound() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.2);
+    osc.onended = () => ctx.close();
+  } catch {}
+}
+
 function getTaskGroup(taskName: string): string {
   for (const g of TASK_GROUPS) {
     if (g.tasks.has(taskName)) return g.label;
@@ -327,6 +345,7 @@ export default function TaskAssignment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-assignments", selectedDate] });
+      playBloopSound();
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
