@@ -850,7 +850,7 @@ export default function TaskAssignment() {
     const labelColWidth = 42;
     const timelineStartX = margin + labelColWidth;
     const timelineWidth = pageWidth - timelineStartX - margin;
-    const rowHeight = 6;
+    const rowHeight = 10;
     const headerHeight = 8;
 
     const logoHeight = 10;
@@ -923,9 +923,9 @@ export default function TaskAssignment() {
         doc.rect(margin, y, 1, rowHeight, "F");
 
         doc.setFont(fontFamily, "bold");
-        doc.setFontSize(6);
+        doc.setFontSize(6.5);
         doc.setTextColor(0, 0, 0);
-        doc.text(emp.name, margin + 2.5, y + rowHeight / 2 + 0.5, { maxWidth: 28 });
+        doc.text(emp.name, margin + 2.5, y + rowHeight / 2 - 0.5, { maxWidth: 38 });
 
         const pdfEmpAssignments = assignmentsByEmployee.get(emp.id) || [];
         let pdfProdMinutes = 0;
@@ -946,9 +946,9 @@ export default function TaskAssignment() {
         doc.setFontSize(5);
         doc.setTextColor(100, 100, 100);
         if (pdfEmpEstimate > 0) {
-          doc.text(`${getJobTitle(emp.jobTitle)} (${pdfEmpEstimate}pcs)`, margin + 2.5, y + rowHeight - 0.8);
+          doc.text(`${getJobTitle(emp.jobTitle)} (${pdfEmpEstimate}pcs)`, margin + 2.5, y + rowHeight / 2 + 2.5);
         } else {
-          doc.text(getJobTitle(emp.jobTitle), margin + 2.5, y + rowHeight - 0.8);
+          doc.text(getJobTitle(emp.jobTitle), margin + 2.5, y + rowHeight / 2 + 2.5);
         }
 
         const empShift = shiftByEmployee.get(emp.id);
@@ -964,7 +964,8 @@ export default function TaskAssignment() {
         }
 
         const empAssignments = assignmentsByEmployee.get(emp.id) || [];
-        empAssignments.forEach((a) => {
+        const sortedAssignments = [...empAssignments].sort((a, b) => a.id - b.id);
+        sortedAssignments.forEach((a) => {
           const taskColor = allTaskColors[a.taskName] || "#6B7280";
           const [tr, tg, tb] = hexToRgb(taskColor);
           const clampedStart = Math.max(a.startMinute, HOUR_START * 60);
@@ -973,14 +974,35 @@ export default function TaskAssignment() {
           const ax = minuteToTimelineX(clampedStart);
           const aw = minuteToTimelineX(clampedEnd) - ax;
 
+          const isSecondary = sortedAssignments.some(other =>
+            other.id !== a.id &&
+            other.id < a.id &&
+            other.startMinute < a.startMinute + a.durationMinutes &&
+            (other.startMinute + other.durationMinutes) > a.startMinute
+          );
+          const hasPeer = sortedAssignments.some(other =>
+            other.id !== a.id &&
+            other.startMinute < a.startMinute + a.durationMinutes &&
+            (other.startMinute + other.durationMinutes) > a.startMinute
+          );
+
+          const blockTop = isSecondary ? y + rowHeight / 2 : y + 0.8;
+          const blockHeight = hasPeer ? (rowHeight / 2 - 0.8) : (rowHeight - 1.6);
+
           doc.setFillColor(tr, tg, tb);
-          doc.roundedRect(ax, y + 0.8, Math.max(aw, 2), rowHeight - 1.6, 0.5, 0.5, "F");
+          doc.roundedRect(ax, blockTop, Math.max(aw, 2), blockHeight, 0.5, 0.5, "F");
+
+          if (isSecondary) {
+            doc.setDrawColor(255, 255, 255);
+            doc.setLineWidth(0.2);
+            doc.roundedRect(ax, blockTop, Math.max(aw, 2), blockHeight, 0.5, 0.5, "S");
+          }
 
           doc.setFont(fontFamily, "bold");
-          doc.setFontSize(4.5);
+          doc.setFontSize(5);
           doc.setTextColor(255, 255, 255);
-          if (aw > 10) {
-            doc.text(a.taskName, ax + 0.8, y + rowHeight / 2 + 0.5, { maxWidth: aw - 1.5 });
+          if (aw > 8) {
+            doc.text(a.taskName, ax + 0.8, blockTop + blockHeight / 2 + 0.8, { maxWidth: aw - 1.5 });
           }
         });
 
@@ -1020,39 +1042,6 @@ export default function TaskAssignment() {
       doc.setTextColor(100, 100, 100);
       doc.text(`Generated: ${formatInTimeZone(new Date(), TIMEZONE, "MMM d, yyyy h:mm a")}`, pageWidth - margin, finalY + 5, { align: "right" });
       doc.text(`Total employees: ${sortedEmployees.length}  |  Assignments: ${assignments.length}`, margin, finalY + 5);
-    }
-
-    if (scheduledEmployees.length > 0) {
-      const lastPageCount = scheduledEmployees.length - (Math.ceil(scheduledEmployees.length / maxRowsPerPage) - 1) * maxRowsPerPage;
-      const lastPageEndY = startY + headerHeight + lastPageCount * rowHeight + 12;
-
-      if (lastPageEndY + 30 > pageHeight) {
-        doc.addPage();
-      }
-
-      const legendStartY = lastPageEndY + 30 > pageHeight ? startY : lastPageEndY;
-      doc.setFont(fontFamily, "bold");
-      doc.setFontSize(8);
-      doc.setTextColor(0, 0, 0);
-      doc.text("Task Legend", margin, legendStartY);
-
-      const cols = 3;
-      const colWidth = (pageWidth - 2 * margin) / cols;
-      const allTaskNames = [...TASK_LIST, ...customTasksList.map(ct => ct.taskName)];
-      allTaskNames.forEach((taskName, idx) => {
-        const col = idx % cols;
-        const row = Math.floor(idx / cols);
-        const lx = margin + col * colWidth;
-        const ly = legendStartY + 4 + row * 5;
-        const color = allTaskColors[taskName] || "#6B7280";
-        const [lr, lg, lb] = hexToRgb(color);
-        doc.setFillColor(lr, lg, lb);
-        doc.roundedRect(lx, ly - 2.5, 3, 3, 0.5, 0.5, "F");
-        doc.setFont(fontFamily, "normal");
-        doc.setFontSize(6);
-        doc.setTextColor(0, 0, 0);
-        doc.text(taskName, lx + 4, ly);
-      });
     }
 
     const filename = `task_assignments_${selectedDate}_${locationName.replace(/\s+/g, '_')}.pdf`;
