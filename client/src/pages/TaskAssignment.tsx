@@ -621,7 +621,7 @@ export default function TaskAssignment() {
     const taskDefault = defaultDurations[selectedTask];
     let createDuration = gapEnd - gapStart;
     let createStart = gapStart;
-    if (taskDefault && !isSecondary) {
+    if (taskDefault) {
       const snappedMinute = Math.round(minute / 15) * 15;
       createStart = Math.max(gapStart, Math.min(snappedMinute, gapEnd - taskDefault));
       createDuration = Math.min(taskDefault, gapEnd - createStart);
@@ -766,12 +766,15 @@ export default function TaskAssignment() {
             (other.startMinute + other.durationMinutes) > dragState.originalStartMinute
           );
           if (overlapping.length <= 1) {
+            const defaultDurations: Record<string, number> = { "Break": 15, "Lunch": 30 };
+            const taskDefault = defaultDurations[selectedTask];
+            const secDuration = taskDefault ? Math.min(taskDefault, dragState.originalDuration) : dragState.originalDuration;
             createMutation.mutate({
               employeeId: dragState.employeeId,
               taskName: selectedTask,
               date: selectedDate,
               startMinute: dragState.originalStartMinute,
-              durationMinutes: dragState.originalDuration,
+              durationMinutes: secDuration,
             });
           }
         } else {
