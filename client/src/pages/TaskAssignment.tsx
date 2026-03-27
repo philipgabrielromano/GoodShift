@@ -626,7 +626,8 @@ export default function TaskAssignment() {
       originalDuration: assignment.durationMinutes,
       currentMinute: assignment.startMinute,
       currentDuration: assignment.durationMinutes,
-    });
+      didDrag: false,
+    } as any);
   }, []);
 
   const handleResizeEndMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
@@ -686,13 +687,18 @@ export default function TaskAssignment() {
         const newDuration = dragState.originalDuration - (clampedStart - dragState.originalStartMinute);
         setDragState(prev => prev ? { ...prev, currentMinute: clampedStart, currentDuration: newDuration } : null);
       } else if (dragState.type === "move" || dragState.type === "copy") {
-        const targetEmp = hoveredEmployeeId ?? dragState.employeeId;
-        const targetBounds = shiftMinutesByEmployee.get(targetEmp);
-        const tStart = targetBounds?.start ?? HOUR_START * 60;
-        const tEnd = targetBounds?.end ?? HOUR_END * 60;
-        const newMinute = dragState.originalStartMinute + dMinutes;
-        const clampedMinute = Math.max(tStart, Math.min(newMinute, tEnd - dragState.originalDuration));
-        setDragState(prev => prev ? { ...prev, currentMinute: clampedMinute, targetEmployeeId: targetEmp } : null);
+        if (!dragState.didDrag && Math.abs(dx) > 5) {
+          setDragState(prev => prev ? { ...prev, didDrag: true } : null);
+        }
+        if (dragState.didDrag || Math.abs(dx) > 5) {
+          const targetEmp = hoveredEmployeeId ?? dragState.employeeId;
+          const targetBounds = shiftMinutesByEmployee.get(targetEmp);
+          const tStart = targetBounds?.start ?? HOUR_START * 60;
+          const tEnd = targetBounds?.end ?? HOUR_END * 60;
+          const newMinute = dragState.originalStartMinute + dMinutes;
+          const clampedMinute = Math.max(tStart, Math.min(newMinute, tEnd - dragState.originalDuration));
+          setDragState(prev => prev ? { ...prev, currentMinute: clampedMinute, targetEmployeeId: targetEmp, didDrag: true } : null);
+        }
       } else if (dragState.type === "create") {
         if (!dragState.didDrag && Math.abs(dx) > 5) {
           const clickMin = dragState.clickMinute ?? shiftStart;
@@ -721,13 +727,31 @@ export default function TaskAssignment() {
           });
         }
       } else if (dragState.type === "move" && dragState.assignmentId) {
-        const changed = dragState.currentMinute !== dragState.originalStartMinute || dragState.targetEmployeeId !== dragState.employeeId;
-        if (changed) {
-          updateMutation.mutate({
-            id: dragState.assignmentId,
-            startMinute: dragState.currentMinute,
-            employeeId: dragState.targetEmployeeId,
-          });
+        if (!dragState.didDrag) {
+          const empAssigns = assignmentsByEmployee.get(dragState.employeeId) || [];
+          const overlapping = empAssigns.filter(other =>
+            other.id !== dragState.assignmentId &&
+            other.startMinute < dragState.originalStartMinute + dragState.originalDuration &&
+            (other.startMinute + other.durationMinutes) > dragState.originalStartMinute
+          );
+          if (overlapping.length === 0) {
+            createMutation.mutate({
+              employeeId: dragState.employeeId,
+              taskName: selectedTask,
+              date: selectedDate,
+              startMinute: dragState.originalStartMinute,
+              durationMinutes: dragState.originalDuration,
+            });
+          }
+        } else {
+          const changed = dragState.currentMinute !== dragState.originalStartMinute || dragState.targetEmployeeId !== dragState.employeeId;
+          if (changed) {
+            updateMutation.mutate({
+              id: dragState.assignmentId,
+              startMinute: dragState.currentMinute,
+              employeeId: dragState.targetEmployeeId,
+            });
+          }
         }
       } else if ((dragState.type === "resize-end" || dragState.type === "resize-start") && dragState.assignmentId) {
         const startChanged = dragState.currentMinute !== dragState.originalStartMinute;
