@@ -101,6 +101,34 @@ function playBloopSound() {
   } catch {}
 }
 
+function playWhooshSound() {
+  try {
+    const ctx = new AudioContext();
+    const bufferSize = ctx.sampleRate * 0.5;
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const bandpass = ctx.createBiquadFilter();
+    bandpass.type = "bandpass";
+    bandpass.frequency.setValueAtTime(2000, ctx.currentTime);
+    bandpass.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.4);
+    bandpass.Q.value = 2;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
+    noise.connect(bandpass);
+    bandpass.connect(gain);
+    gain.connect(ctx.destination);
+    noise.start(ctx.currentTime);
+    noise.stop(ctx.currentTime + 0.5);
+    noise.onended = () => ctx.close();
+  } catch {}
+}
+
 function getTaskGroup(taskName: string): string {
   for (const g of TASK_GROUPS) {
     if (g.tasks.has(taskName)) return g.label;
@@ -381,6 +409,7 @@ export default function TaskAssignment() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-assignments", selectedDate] });
       toast({ title: "Cleared", description: "All task assignments for this day have been removed." });
+      playWhooshSound();
     },
   });
 
