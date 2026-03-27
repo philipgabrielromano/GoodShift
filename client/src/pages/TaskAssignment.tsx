@@ -74,13 +74,18 @@ const TASK_COLORS: Record<string, string> = {
   "Empty Trash": "#737373",
   "Complete SPOC Request": "#7C3AED",
   "Greet Donors": "#2563EB",
+  "Break": "#FACC15",
+  "Lunch": "#FB923C",
 };
+
+const LIGHT_TASK_COLORS = new Set(["Break"]);
 
 const TASK_GROUPS: { label: string; tasks: Set<string> }[] = [
   { label: "Processing", tasks: new Set(["Process Clothes", "Process Wares", "Process Shoes", "Process Accessories", "Complete eCommerce"]) },
   { label: "Sales Floor", tasks: new Set(["Complete Pulls", "Run Register", "Run Rack", "Stock New Goods", "Flex Assigned Clothing Racks", "Resize Assigned Clothing Racks", "Maintain Fitting Rooms"]) },
   { label: "Cleaning & Maintenance", tasks: new Set(["Clean Women's Restroom", "Clean Men's Restroom", "Use the Dust Mop", "Run the Floor Machine", "Empty Trash"]) },
   { label: "Other", tasks: new Set(["Complete SPOC Request", "Greet Donors"]) },
+  { label: "Breaks & Lunches", tasks: new Set(["Break", "Lunch"]) },
 ];
 
 let _soundMuted = false;
@@ -612,19 +617,29 @@ export default function TaskAssignment() {
 
     if (gapEnd <= gapStart) return;
 
+    const defaultDurations: Record<string, number> = { "Break": 15, "Lunch": 30 };
+    const taskDefault = defaultDurations[selectedTask];
+    let createDuration = gapEnd - gapStart;
+    let createStart = gapStart;
+    if (taskDefault && !isSecondary) {
+      const snappedMinute = Math.round(minute / 15) * 15;
+      createStart = Math.max(gapStart, Math.min(snappedMinute, gapEnd - taskDefault));
+      createDuration = Math.min(taskDefault, gapEnd - createStart);
+    }
+
     setDragState({
       type: "create",
       employeeId,
       targetEmployeeId: employeeId,
       startX: e.clientX,
-      originalStartMinute: gapStart,
-      originalDuration: gapEnd - gapStart,
-      currentMinute: gapStart,
-      currentDuration: gapEnd - gapStart,
+      originalStartMinute: createStart,
+      originalDuration: createDuration,
+      currentMinute: createStart,
+      currentDuration: createDuration,
       clickMinute: minute,
       didDrag: false,
     } as any);
-  }, [xToMinute, shiftMinutesByEmployee, assignmentsByEmployee]);
+  }, [xToMinute, shiftMinutesByEmployee, assignmentsByEmployee, selectedTask]);
 
   const handleBlockMouseDown = useCallback((e: React.MouseEvent, assignment: TaskAssignmentType) => {
     e.stopPropagation();
@@ -999,7 +1014,11 @@ export default function TaskAssignment() {
 
           doc.setFont(fontFamily, "bold");
           doc.setFontSize(5);
-          doc.setTextColor(255, 255, 255);
+          if (LIGHT_TASK_COLORS.has(a.taskName)) {
+            doc.setTextColor(30, 30, 30);
+          } else {
+            doc.setTextColor(255, 255, 255);
+          }
           if (aw > 8) {
             doc.text(a.taskName, ax + 0.8, blockTop + blockHeight / 2 + 0.8, { maxWidth: aw - 1.5 });
           }
@@ -1007,8 +1026,8 @@ export default function TaskAssignment() {
 
         for (let h = HOUR_START; h <= HOUR_END; h++) {
           const x = minuteToTimelineX(h * 60);
-          doc.setDrawColor(220, 220, 220);
-          doc.setLineWidth(0.1);
+          doc.setDrawColor(160, 160, 160);
+          doc.setLineWidth(0.15);
           doc.line(x, y, x, y + rowHeight);
         }
 
@@ -1315,7 +1334,7 @@ export default function TaskAssignment() {
                     return (
                       <div
                         key={hour}
-                        className="absolute top-0 bottom-0 border-l border-border/50 text-[10px] text-muted-foreground pl-1 pt-1"
+                        className="absolute top-0 bottom-0 border-l border-border text-[10px] text-muted-foreground pl-1 pt-1"
                         style={{ left: `${minuteToPercent(hour * 60)}%` }}
                       >
                         {hour === 0 ? "12 AM" : hour <= 12 ? `${hour} ${hour === 12 ? "PM" : "AM"}` : `${hour - 12} PM`}
@@ -1396,7 +1415,7 @@ export default function TaskAssignment() {
                       {Array.from({ length: TOTAL_HOURS }, (_, i) => (
                         <div
                           key={i}
-                          className="absolute top-0 bottom-0 border-l border-border/20"
+                          className="absolute top-0 bottom-0 border-l border-border/60"
                           style={{ left: `${minuteToPercent((HOUR_START + i) * 60)}%` }}
                         />
                       ))}
@@ -1468,7 +1487,7 @@ export default function TaskAssignment() {
                                 <span className="text-[8px] text-black/70 select-none">◀</span>
                               </div>
                             )}
-                            <span className="text-[10px] font-semibold text-white truncate leading-tight drop-shadow-sm overflow-hidden whitespace-nowrap min-w-0">
+                            <span className={cn("text-[10px] font-semibold truncate leading-tight drop-shadow-sm overflow-hidden whitespace-nowrap min-w-0", LIGHT_TASK_COLORS.has(a.taskName) ? "text-gray-900 drop-shadow-none" : "text-white")}>
                               {displayDuration <= 30 ? a.taskName.split(" ").map(w => w[0]).join("") : a.taskName}
                             </span>
                             {!isReadOnly && (
