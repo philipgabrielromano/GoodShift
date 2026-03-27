@@ -1012,16 +1012,16 @@ export default function TaskAssignment() {
             doc.roundedRect(ax, blockTop, Math.max(aw, 2), blockHeight, 0.5, 0.5, "S");
           }
 
+          const fontSize = hasPeer ? 3.5 : 5;
           doc.setFont(fontFamily, "bold");
-          doc.setFontSize(5);
+          doc.setFontSize(fontSize);
           if (LIGHT_TASK_COLORS.has(a.taskName)) {
             doc.setTextColor(30, 30, 30);
           } else {
             doc.setTextColor(255, 255, 255);
           }
-          if (aw > 8) {
-            doc.text(a.taskName, ax + 0.8, blockTop + blockHeight / 2 + 0.8, { maxWidth: aw - 1.5 });
-          }
+          const label = aw < 8 ? a.taskName.split(" ").map(w => w[0]).join("") : a.taskName;
+          doc.text(label, ax + 0.5, blockTop + blockHeight / 2 + (fontSize / 4), { maxWidth: Math.max(aw - 1, 2) });
         });
 
         for (let h = HOUR_START; h <= HOUR_END; h++) {
