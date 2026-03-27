@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.5";
+export const APP_VERSION = "1.5.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "1.5.1",
+    date: "2026-03-27",
+    title: "Dual Tasks, Sound Controls & PDF Improvements",
+    changes: [
+      { type: "feature", description: "Dual/secondary task support: click on an existing task block to assign a second task for the same time slot. Primary tasks display in the top half and secondary tasks in the bottom half with a dashed border." },
+      { type: "feature", description: "Mute toggle button added to the toolbar — click the speaker icon to silence sound effects. Preference is saved across sessions." },
+      { type: "improvement", description: "PDF export now renders dual tasks with primary/secondary split layout matching the on-screen view." },
+      { type: "improvement", description: "PDF rows are taller with larger text for better readability. Task legend removed to save space." },
+      { type: "improvement", description: "Task creation sound replaced with a cheerful ascending chime instead of the previous laser-style tone." },
+      { type: "improvement", description: "Whoosh sound now plays when deleting individual tasks, not just when clearing the whole day." },
+    ],
+  },
   {
     version: "1.5",
     date: "2026-03-26",
