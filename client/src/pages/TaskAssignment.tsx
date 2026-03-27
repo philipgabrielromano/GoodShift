@@ -86,18 +86,36 @@ const TASK_GROUPS: { label: string; tasks: Set<string> }[] = [
 function playBloopSound() {
   try {
     const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(600, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.2);
-    osc.onended = () => ctx.close();
+    const t = ctx.currentTime;
+
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    osc1.type = "sine";
+    osc1.frequency.setValueAtTime(523, t);
+    osc1.frequency.setValueAtTime(659, t + 0.08);
+    osc1.frequency.setValueAtTime(784, t + 0.16);
+    gain1.gain.setValueAtTime(0.25, t);
+    gain1.gain.setValueAtTime(0.25, t + 0.16);
+    gain1.gain.exponentialRampToValueAtTime(0.01, t + 0.3);
+    osc1.start(t);
+    osc1.stop(t + 0.3);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    osc2.type = "triangle";
+    osc2.frequency.setValueAtTime(784, t + 0.12);
+    osc2.frequency.setValueAtTime(1047, t + 0.2);
+    gain2.gain.setValueAtTime(0, t);
+    gain2.gain.setValueAtTime(0.15, t + 0.12);
+    gain2.gain.exponentialRampToValueAtTime(0.01, t + 0.35);
+    osc2.start(t);
+    osc2.stop(t + 0.35);
+
+    osc2.onended = () => ctx.close();
   } catch {}
 }
 
