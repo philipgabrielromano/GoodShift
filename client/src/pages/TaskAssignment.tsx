@@ -399,6 +399,7 @@ export default function TaskAssignment() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-assignments", selectedDate] });
+      playWhooshSound();
     },
   });
 
