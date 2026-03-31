@@ -555,6 +555,7 @@ export const coachingLogs = pgTable("coaching_logs", {
   reason: text("reason").notNull(),
   actionTaken: text("action_taken").notNull(),
   employeeResponse: text("employee_response").notNull(),
+  date: date("date"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

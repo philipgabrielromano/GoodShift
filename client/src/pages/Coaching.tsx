@@ -40,6 +40,7 @@ interface CoachingLog {
   reason: string;
   actionTaken: string;
   employeeResponse: string;
+  date: string | null;
   createdAt: string;
 }
 
@@ -79,6 +80,7 @@ export default function Coaching() {
   const [formReason, setFormReason] = useState("");
   const [formAction, setFormAction] = useState("");
   const [formResponse, setFormResponse] = useState("");
+  const [formDate, setFormDate] = useState(() => new Date().toISOString().split("T")[0]);
 
   const { toast } = useToast();
 
@@ -105,7 +107,7 @@ export default function Coaching() {
   });
 
   const createLogMutation = useMutation({
-    mutationFn: async (data: { employeeId: number; category: string; reason: string; actionTaken: string; employeeResponse: string }) => {
+    mutationFn: async (data: { employeeId: number; category: string; reason: string; actionTaken: string; employeeResponse: string; date: string }) => {
       const res = await apiRequest("POST", "/api/coaching/logs", data);
       return res.json();
     },
@@ -129,6 +131,7 @@ export default function Coaching() {
     setFormReason("");
     setFormAction("");
     setFormResponse("");
+    setFormDate(new Date().toISOString().split("T")[0]);
   }
 
   function handleSubmit() {
@@ -142,6 +145,7 @@ export default function Coaching() {
       reason: formReason.trim(),
       actionTaken: formAction.trim(),
       employeeResponse: formResponse.trim(),
+      date: formDate,
     });
   }
 
@@ -181,7 +185,7 @@ export default function Coaching() {
       startY: 44,
       head: [["Date", "Employee", "Title", "Category", "Reason", "Action Taken", "Response", "Manager"]],
       body: enrichedLogs.map(log => [
-        format(new Date(log.createdAt), "MMM d, yyyy"),
+        format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "MMM d, yyyy"),
         log.employeeName,
         getJobTitleDisplay(log.employeeJobTitle),
         log.category,
@@ -261,6 +265,15 @@ export default function Coaching() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Date</Label>
+                  <Input
+                    type="date"
+                    value={formDate}
+                    onChange={(e) => setFormDate(e.target.value)}
+                    data-testid="input-date"
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label>Reason / Topic</Label>
@@ -419,7 +432,7 @@ export default function Coaching() {
                           {log.category}
                         </Badge>
                         <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                          {format(new Date(log.createdAt), "M/d/yy")}
+                          {format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "M/d/yy")}
                         </span>
                       </div>
                     </div>
@@ -451,7 +464,7 @@ export default function Coaching() {
                         onClick={() => setDetailLog(log)}
                       >
                         <TableCell className="whitespace-nowrap text-sm">
-                          {format(new Date(log.createdAt), "MMM d, yyyy")}
+                          {format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "MMM d, yyyy")}
                         </TableCell>
                         <TableCell>
                           <div>
@@ -507,7 +520,7 @@ export default function Coaching() {
                   </div>
                   <div className="text-right">
                     <p className="text-muted-foreground text-xs">Date</p>
-                    <p className="font-medium">{format(new Date(detailLog.createdAt), "MMM d, yyyy")}</p>
+                    <p className="font-medium">{format(detailLog.date ? new Date(detailLog.date + "T00:00:00") : new Date(detailLog.createdAt), "MMM d, yyyy")}</p>
                     <p className="text-xs text-muted-foreground">by {detailLog.managerName}</p>
                   </div>
                 </div>
