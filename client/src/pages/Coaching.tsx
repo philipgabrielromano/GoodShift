@@ -220,12 +220,6 @@ export default function Coaching() {
         </div>
         {isManagerOrAdmin && (
           <div className="flex items-center gap-2">
-            {enrichedLogs.length > 0 && (
-              <Button variant="outline" size="sm" onClick={exportCoachingPDF} data-testid="button-export-coaching-pdf">
-                <Download className="w-4 h-4 mr-2" />
-                <span className="hidden sm:inline">Export </span>PDF
-              </Button>
-            )}
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
               <Button data-testid="button-new-coaching-log">
@@ -233,6 +227,12 @@ export default function Coaching() {
                 New Coaching Log
               </Button>
             </DialogTrigger>
+            {enrichedLogs.length > 0 && (
+              <Button variant="outline" size="sm" onClick={exportCoachingPDF} data-testid="button-export-coaching-pdf">
+                <Download className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Export </span>PDF
+              </Button>
+            )}
             <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>New Coaching Log</DialogTitle>
