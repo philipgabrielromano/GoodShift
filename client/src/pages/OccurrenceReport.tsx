@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -141,9 +142,11 @@ export default function OccurrenceReport() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="font-medium text-sm truncate" data-testid={`text-employee-name-${row.employeeId}`}>
-                          {row.employeeName}
-                        </p>
+                        <Link href={`/attendance?employeeId=${row.employeeId}`}>
+                          <p className="font-medium text-sm truncate text-primary hover:underline cursor-pointer" data-testid={`link-employee-name-${row.employeeId}`}>
+                            {row.employeeName}
+                          </p>
+                        </Link>
                         <p className="text-[10px] text-muted-foreground" data-testid={`text-job-title-${row.employeeId}`}>
                           {row.jobTitle} &middot; {row.location}
                         </p>
@@ -179,7 +182,11 @@ export default function OccurrenceReport() {
                         data-testid={`row-occurrence-desktop-${row.employeeId}`}
                       >
                         <TableCell className="font-medium" data-testid={`text-employee-name-${row.employeeId}`}>
-                          {row.employeeName}
+                          <Link href={`/attendance?employeeId=${row.employeeId}`}>
+                            <span className="text-primary hover:underline cursor-pointer" data-testid={`link-employee-name-desktop-${row.employeeId}`}>
+                              {row.employeeName}
+                            </span>
+                          </Link>
                         </TableCell>
                         <TableCell data-testid={`text-job-title-${row.employeeId}`}>
                           {row.jobTitle}
