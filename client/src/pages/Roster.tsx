@@ -61,6 +61,7 @@ const JOB_CODE_LABELS: Record<string, string> = {
   OUTSHS: "Outlet Sales/Softlines",
   OUTAM: "Outlet Asst. Manager",
   OUTMGR: "Outlet Manager",
+  EBCLK: "eBooks Clerk",
 };
 
 const JOB_CODE_ORDER = Object.keys(JOB_CODE_LABELS);

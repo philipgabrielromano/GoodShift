@@ -133,6 +133,7 @@ export const JOB_CODE_TITLES: Record<string, string> = {
   ECOPAS: "eCommerce Operations Asst",
   WIRELD: "Wired Up Lead",
   ALTSTRLD: "Alternative Store Lead",
+  EBCLK: "eBooks Clerk",
 };
 
 // Mapping of equivalent job codes (WV variants map to standard codes)

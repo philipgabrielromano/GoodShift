@@ -52,6 +52,7 @@ const JOB_COLORS: Record<string, string> = {
   "WVSTMNG": "#9333EA",
   "WVSTAST": "#F97316",
   "WVLDWRK": "#84CC16",
+  "EBCLK": "#A78BFA",
   "WIRELD": "#F59E0B",
   "ALTSTRLD": "#7C3AED",
 };
