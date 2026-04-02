@@ -1,5 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +48,7 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
   const [isConsecutiveSickness, setIsConsecutiveSickness] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(occurrenceDate);
 
   const selectedReason = ABSENCE_REASONS.find(r => r.value === reason);
   const notesAvailable = selectedReason?.notesAvailable ?? false;
@@ -60,8 +62,9 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
       setIsConsecutiveSickness(false);
       setSelectedFile(null);
       setUploadedDocumentUrl(null);
+      setSelectedDate(occurrenceDate);
     }
-  }, [isOpen]);
+  }, [isOpen, occurrenceDate]);
 
   useEffect(() => {
     if (!notesAvailable) {
@@ -140,7 +143,7 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
     try {
       await createOccurrence.mutateAsync({
         employeeId,
-        occurrenceDate,
+        occurrenceDate: selectedDate,
         occurrenceType,
         occurrenceValue: typeInfo.points,
         isNcns: occurrenceType === "ncns",
@@ -166,8 +169,6 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
     }
   };
 
-  const formattedDate = format(new Date(occurrenceDate + "T12:00:00"), "EEEE, MMMM d, yyyy");
-
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md" data-testid="dialog-occurrence">
@@ -186,7 +187,12 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
 
           <div className="space-y-2">
             <Label>Date</Label>
-            <div className="text-sm text-muted-foreground" data-testid="text-occurrence-date">{formattedDate}</div>
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              data-testid="input-occurrence-date"
+            />
           </div>
 
           <div className="space-y-2">
