@@ -61,10 +61,13 @@ async function syncEmployeesFromUKG(): Promise<void> {
           // Do not overwrite location if UKG returned null/empty — this happens when
           // OrgLevel1 data is missing or partially loaded, and would erase manually
           // assigned store locations from the database.
+          // Do not overwrite maxWeeklyHours — managers set custom values per employee
+          // and UKG's scheduledHours is a generic default that would reset them.
           const updateData = { ...appEmployee };
           if (!updateData.location) {
             delete updateData.location;
           }
+          delete updateData.maxWeeklyHours;
           await storage.updateEmployee(existingByUkgId.id, updateData);
           updated++;
         } else {
