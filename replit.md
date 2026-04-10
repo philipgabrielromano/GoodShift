@@ -29,6 +29,7 @@ Preferred communication style: Simple, everyday language.
   - `server/routes/coaching.ts` - Coaching logs with hierarchical access control
   - `server/routes/roster.ts` - Roster targets (headcount targets per job code per location) and comparison report
   - `server/routes/task-assignments.ts` - Task assignment CRUD (daily task timeline)
+  - `server/routes/optimization.ts` - Store optimization event tracking (checklist, surveys)
   - `server/schedule-generator.ts` - Auto-schedule generation algorithm
   - `server/middleware.ts` - Shared middleware (auth, timezone helpers, HR notification logic)
 
@@ -38,7 +39,7 @@ Preferred communication style: Simple, everyday language.
 - **Schema**: Defined in `shared/schema.ts`
 - **Migrations**: Drizzle Kit
 
-**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`, `roster_targets`, `task_assignments`, `custom_tasks`.
+**Core Tables**: `employees`, `shifts`, `time_off_requests`, `role_requirements`, `global_settings`, `users`, `locations`, `time_clock_entries`, `schedule_templates`, `shift_presets`, `corrective_actions`, `shift_trades`, `notifications`, `roster_targets`, `task_assignments`, `custom_tasks`, `optimization_events`, `optimization_checklist_items`, `optimization_survey_responses`.
 
 ### Shared Code
 The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod insert schemas) and `routes.ts` (API contract definitions) to ensure type safety across the full stack.
@@ -53,7 +54,8 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Auto-Generate Schedule**: Creates schedules based on availability, role requirements, time-off, and manager coverage.
 - **Schedule Validation**: Real-time checks for max hours, role coverage, budget, time-off conflicts, manager coverage, clopening detection, and consecutive days worked (warns if >5 days in a row, checking across schedule boundaries).
 - **Schedule Publishing**: Controls visibility of schedules to employees (viewers) while managers/admins always see full schedules.
-- **User Administration**: Role-based access control (Admin, Manager, Viewer) with location-based restrictions for Managers.
+- **User Administration**: Role-based access control (Admin, Manager, Store Optimizer, Viewer) with location-based restrictions for Managers. Store Optimizers can only access the Store Optimization section.
+- **Store Optimization**: Continuous improvement program event tracking (`/optimization`). Create events per store location with structured checklists covering Pre-Event, Day 1-3, and Post-Event phases. Includes post-event survey collection with 1-5 star ratings and average calculations. Tablet-optimized with large touch targets. Accessible to Admin, Manager, and Store Optimizer roles. Routes in `server/routes/optimization.ts`, page in `client/src/pages/Optimization.tsx`.
 - **Retail Job Codes**: Manages scheduling for specific retail job codes and translates them for display. Includes West Virginia (Weirton) variants: APWV→APPROC, WVDON→DONDOOR, CSHSLSWV→CASHSLS, DONPRWV→DONPRI, WVSTMNG→STSUPER, WVSTAST→STASSTSP, WVLDWRK→STLDWKR. Also includes Outlet store codes (OUTAM, OUTCP, OUTMGR, OUTMH, OUTSHS), Bookstore codes (ALTSTLD), Sales Floor (SLSFLR, scheduled as Cashiers), and eCommerce codes (ECOMDIR, ECMCOMLD, EASSIS, ECOMSL, ECSHIP, ECOMCOMP, ECOMJSE, ECOMJSO, ECQCS, EPROCOOR, ECCUST, ECOPAS). eCommerce positions are recognized and displayed but do not yet have custom scheduling logic.
 - **Part-Time Scheduling Flexibility**: Accommodates part-time employees with flexible shift lengths and preferred days per week.
 - **Schedule Templates & Copy**: Allows managers to save, apply, and copy schedule patterns.

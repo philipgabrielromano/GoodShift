@@ -631,3 +631,132 @@ export const insertCustomTaskSchema = createInsertSchema(customTasks).omit({
 });
 export type CustomTask = typeof customTasks.$inferSelect;
 export type InsertCustomTask = z.infer<typeof insertCustomTaskSchema>;
+
+// === OPTIMIZATION EVENTS ===
+
+export const optimizationEvents = pgTable("optimization_events", {
+  id: serial("id").primaryKey(),
+  locationId: integer("location_id").notNull(),
+  locationName: text("location_name").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  status: text("status").notNull().default("planning"),
+  createdBy: integer("created_by").notNull(),
+  createdByName: text("created_by_name").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const optimizationChecklistItems = pgTable("optimization_checklist_items", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").notNull(),
+  phase: text("phase").notNull(),
+  itemKey: text("item_key").notNull(),
+  completed: boolean("completed").notNull().default(false),
+  completedBy: text("completed_by"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+}, (table) => [
+  index("idx_opt_checklist_event").on(table.eventId),
+]);
+
+export const optimizationSurveyResponses = pgTable("optimization_survey_responses", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").notNull(),
+  respondentName: text("respondent_name"),
+  responses: text("responses").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+}, (table) => [
+  index("idx_opt_survey_event").on(table.eventId),
+]);
+
+export const insertOptimizationEventSchema = createInsertSchema(optimizationEvents).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type OptimizationEvent = typeof optimizationEvents.$inferSelect;
+export type InsertOptimizationEvent = z.infer<typeof insertOptimizationEventSchema>;
+
+export const insertOptimizationChecklistItemSchema = createInsertSchema(optimizationChecklistItems).omit({
+  id: true,
+});
+export type OptimizationChecklistItem = typeof optimizationChecklistItems.$inferSelect;
+export type InsertOptimizationChecklistItem = z.infer<typeof insertOptimizationChecklistItemSchema>;
+
+export const insertOptimizationSurveyResponseSchema = createInsertSchema(optimizationSurveyResponses).omit({
+  id: true,
+  createdAt: true,
+});
+export type OptimizationSurveyResponse = typeof optimizationSurveyResponses.$inferSelect;
+export type InsertOptimizationSurveyResponse = z.infer<typeof insertOptimizationSurveyResponseSchema>;
+
+export const OPTIMIZATION_PHASES = {
+  PRE_EVENT: "Pre-Event Preparation",
+  DAY_1: "Day 1: Assessment, Discovery & Planning",
+  DAY_2: "Day 2: Implementation & Execution",
+  DAY_3: "Day 3: Finalization & Sustainability",
+  POST_EVENT: "Post-Event Follow-up",
+} as const;
+
+export const OPTIMIZATION_CHECKLIST: Record<string, { key: string; label: string }[]> = {
+  "Pre-Event Preparation": [
+    { key: "data_analysis", label: "Data Analysis Package: Compile sales trends, donation volumes, inventory turnover, labor costs, and customer feedback" },
+    { key: "store_walkthrough", label: "Store Walk-through and Checklist: Comprehensive assessment of sales floor, production area, donation door, backroom, and facility" },
+    { key: "stakeholder_alignment", label: "Stakeholder Alignment: Kickoff call with District Manager and Director of Retail" },
+    { key: "team_assembly", label: "Team Assembly: Confirm participants including store management, key associates, and cross-functional support" },
+    { key: "action_plan", label: "Action Plan Development: Create detailed improvement plans with owners, timelines, and success measures" },
+    { key: "dm_participation", label: "DM Participation: Confirmed through duration of event" },
+    { key: "retail_director", label: "Retail Director: Must be present as schedule allows and participate a minimum of 1 day" },
+    { key: "pre_event_survey", label: "Pre-event Survey: Collect input from store staff on pain points, obstacles, and improvement ideas" },
+    { key: "staff_interviews", label: "Staff Interviews: One-on-one discussions with team members to understand challenges" },
+    { key: "operations_review", label: "Operations Review: Analyze workflows for receiving, sorting, pricing, merchandising, and rotation" },
+  ],
+  "Day 1: Assessment, Discovery & Planning": [
+    { key: "opening_meeting", label: "Opening Meeting: Review event goals, timeline, expectations, and success metrics" },
+    { key: "quick_wins", label: "Quick Wins Identification: Highlight immediate improvements for the event" },
+    { key: "day1_debrief", label: "Day 1 Debrief: Team huddle to share observations and align on priorities" },
+    { key: "gap_analysis", label: "Gap Analysis: Compare current state vs. best practices and company standards" },
+    { key: "root_cause", label: "Root Cause Analysis: Identify underlying issues contributing to performance challenges" },
+    { key: "opportunity_brainstorm", label: "Opportunity Brainstorm: Facilitated session to generate improvement ideas" },
+    { key: "priority_matrix", label: "Priority Matrix: Rank opportunities by impact and feasibility" },
+    { key: "resource_assessment", label: "Resource Assessment: Identify budget, equipment, staffing, or training needs" },
+  ],
+  "Day 2: Implementation & Execution": [
+    { key: "morning_rally", label: "Morning Rally: Energize team and review day's objectives and assignments" },
+    { key: "begin_implementation", label: "Begin Implementation: Start executing quick wins and high-priority actions" },
+    { key: "hands_on", label: "Hands-on Improvements: Active implementation of planned changes" },
+    { key: "visual_management", label: "Visual Management: Install performance boards, workflow guides, or other visual tools" },
+    { key: "sm_coaching", label: "Store Manager Coaching: One-on-one development session focused on leadership" },
+    { key: "workflow_training", label: "Workflow Training: Skill-building mini sessions on new processes or best practices" },
+    { key: "progress_tracking", label: "Progress Tracking: Monitor completion of action items and adjust plan" },
+    { key: "afternoon_review", label: "Afternoon Review: Assess progress and finalize plans" },
+  ],
+  "Day 3: Finalization & Sustainability": [
+    { key: "complete_implementation", label: "Complete Implementation: Finish remaining priority actions and improvements" },
+    { key: "store_team_training", label: "Store Team Training: Comprehensive walk-through of all changes with full staff" },
+    { key: "accountability_framework", label: "Accountability Framework: Establish follow-up schedule, check-ins, and performance monitoring" },
+    { key: "compile_debrief", label: "Compile Debrief Summary: Notes/documents to share with leadership" },
+    { key: "knowledge_capture", label: "Knowledge Capture: Document lessons learned, replicable solutions, and best practices" },
+    { key: "recognition", label: "Recognition & Celebration: Acknowledge team efforts and early wins" },
+    { key: "future_roadmap", label: "Future Forward Roadmap: Outline continued improvement activities and milestones" },
+    { key: "closing_meeting", label: "Closing Meeting: Review accomplishments, next steps, and commitment to ongoing excellence" },
+  ],
+  "Post-Event Follow-up": [
+    { key: "week1_checkin", label: "Week 1 Check-in: Update with Store Manager and District Manager" },
+    { key: "week3_review", label: "Week 3 Review: Assess progress on action items and review performance data" },
+    { key: "best_practice_sharing", label: "Best Practice Sharing: Communicate successful strategies to other stores" },
+    { key: "program_refinement", label: "Program Refinement: Incorporate lessons learned into future events" },
+    { key: "post_event_survey", label: "Post-Event Survey: Collect feedback from participants" },
+  ],
+};
+
+export const OPTIMIZATION_SURVEY_QUESTIONS = [
+  "Was the event engaging?",
+  "Do you feel the facilitator communicated effectively?",
+  "Did the changes set the store up for success?",
+  "Did you learn something new?",
+  "Did you feel comfortable sharing your ideas?",
+  "Would you appreciate a return visit?",
+];

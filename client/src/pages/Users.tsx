@@ -145,7 +145,7 @@ export default function Users() {
     return sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />;
   };
 
-  const roleOrder: Record<string, number> = { admin: 0, manager: 1, viewer: 2 };
+  const roleOrder: Record<string, number> = { admin: 0, manager: 1, optimizer: 2, viewer: 3 };
 
   const sortedUsers = useMemo(() => {
     if (!users) return [];
@@ -234,11 +234,11 @@ export default function Users() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-medium text-sm" data-testid={`text-user-name-${user.id}`}>{user.name}</span>
                           <Badge
-                            variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
+                            variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : user.role === "optimizer" ? "secondary" : "outline"}
                             className="text-[10px] capitalize"
                             data-testid={`badge-user-role-${user.id}`}
                           >
-                            {user.role}
+                            {user.role === "optimizer" ? "Store Optimizer" : user.role}
                           </Badge>
                           {!user.isActive && (
                             <Badge variant="destructive" className="text-[10px]" data-testid={`badge-user-inactive-${user.id}`}>
@@ -338,11 +338,11 @@ export default function Users() {
 
                         <TableCell>
                           <Badge
-                            variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : "outline"}
+                            variant={user.role === "admin" ? "default" : user.role === "manager" ? "secondary" : user.role === "optimizer" ? "secondary" : "outline"}
                             className="text-xs capitalize"
                             data-testid={`badge-user-role-${user.id}`}
                           >
-                            {user.role}
+                            {user.role === "optimizer" ? "Store Optimizer" : user.role}
                           </Badge>
                         </TableCell>
 
@@ -443,6 +443,7 @@ export default function Users() {
                 <SelectContent>
                   <SelectItem value="admin" data-testid="option-role-admin">Admin</SelectItem>
                   <SelectItem value="manager" data-testid="option-role-manager">Manager</SelectItem>
+                  <SelectItem value="optimizer" data-testid="option-role-optimizer">Store Optimizer</SelectItem>
                   <SelectItem value="viewer" data-testid="option-role-viewer">Viewer</SelectItem>
                 </SelectContent>
               </Select>
@@ -478,8 +479,10 @@ export default function Users() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                {formData.role === "manager"
-                  ? "Managers will only see employees from their assigned locations."
+                {formData.role === "manager" || formData.role === "optimizer"
+                  ? formData.role === "optimizer" 
+                    ? "Store Optimizers can only access the Store Optimization section."
+                    : "Managers will only see employees from their assigned locations."
                   : "Users are automatically assigned locations based on their employee record."}
               </p>
             </div>

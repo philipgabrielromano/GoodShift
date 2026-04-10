@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -29,6 +29,9 @@ const taskAssignmentItem = { href: "/tasks", label: "Task Assignment", icon: Lis
 
 // Coaching - standalone link for all
 const coachingItem = { href: "/coaching", label: "Coaching", icon: MessageSquare };
+
+// Store Optimization - optimizers, managers, admins
+const optimizationItem = { href: "/optimization", label: "Store Optimization", icon: Target };
 
 // Configuration section - managers and admins
 const configItems = [
@@ -63,7 +66,9 @@ export function Navigation() {
 
   const isAdmin = authStatus?.user?.role === "admin";
   const isManager = authStatus?.user?.role === "manager";
+  const isOptimizer = authStatus?.user?.role === "optimizer";
   const isManagerOrAdmin = isAdmin || isManager;
+  const canAccessOptimization = isAdmin || isManager || isOptimizer;
 
   const renderNavItem = (item: typeof schedulingItems[0], prefix: string = "nav") => (
     <Link key={item.href} href={item.href}>
@@ -112,18 +117,31 @@ export function Navigation() {
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          <div className="pt-1 pb-1 px-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
-          </div>
-          {schedulingItems.map((item) => renderNavItem(item, "nav"))}
-          {isManagerOrAdmin && renderNavItem(taskAssignmentItem, "nav")}
+          {!isOptimizer && (
+            <>
+              <div className="pt-1 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
+              </div>
+              {schedulingItems.map((item) => renderNavItem(item, "nav"))}
+              {isManagerOrAdmin && renderNavItem(taskAssignmentItem, "nav")}
 
-          <div className="pt-3 pb-1 px-4">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
-          </div>
-          {renderNavItem(coachingItem, "nav")}
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
+              </div>
+              {renderNavItem(coachingItem, "nav")}
+            </>
+          )}
 
-          {isManagerOrAdmin && (
+          {canAccessOptimization && (
+            <>
+              <div className={`${isOptimizer ? "pt-1" : "pt-3"} pb-1 px-4`}>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-optimization-heading">Optimization</p>
+              </div>
+              {renderNavItem(optimizationItem, "nav")}
+            </>
+          )}
+
+          {!isOptimizer && isManagerOrAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-configuration-heading">Configuration</p>
@@ -131,9 +149,9 @@ export function Navigation() {
               {configItems.map((item) => renderNavItem(item, "nav"))}
             </>
           )}
-          {!isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
+          {!isOptimizer && !isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
 
-          {isManagerOrAdmin && (
+          {!isOptimizer && isManagerOrAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-reports-heading">Reports</p>
@@ -164,7 +182,7 @@ export function Navigation() {
               <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-accent to-primary"></div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold break-words">{authStatus?.user?.name || "Guest"}</p>
-                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
+                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role === "optimizer" ? "Store Optimizer" : authStatus?.user?.role || "Viewer"}</p>
               </div>
             </div>
             <div className="flex items-center justify-end gap-1">
@@ -199,18 +217,31 @@ export function Navigation() {
               <img src={goodshiftLogo} alt="GoodShift" className="w-48 h-auto" data-testid="img-logo-mobile" />
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-              <div className="pt-1 pb-1 px-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
-              </div>
-              {schedulingItems.map((item) => renderMobileNavItem(item))}
-              {isManagerOrAdmin && renderMobileNavItem(taskAssignmentItem)}
+              {!isOptimizer && (
+                <>
+                  <div className="pt-1 pb-1 px-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
+                  </div>
+                  {schedulingItems.map((item) => renderMobileNavItem(item))}
+                  {isManagerOrAdmin && renderMobileNavItem(taskAssignmentItem)}
 
-              <div className="pt-3 pb-1 px-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
-              </div>
-              {renderMobileNavItem(coachingItem)}
+                  <div className="pt-3 pb-1 px-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
+                  </div>
+                  {renderMobileNavItem(coachingItem)}
+                </>
+              )}
 
-              {isManagerOrAdmin && (
+              {canAccessOptimization && (
+                <>
+                  <div className={`${isOptimizer ? "pt-1" : "pt-3"} pb-1 px-4`}>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Optimization</p>
+                  </div>
+                  {renderMobileNavItem(optimizationItem)}
+                </>
+              )}
+
+              {!isOptimizer && isManagerOrAdmin && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Configuration</p>
@@ -218,9 +249,9 @@ export function Navigation() {
                   {configItems.map((item) => renderMobileNavItem(item))}
                 </>
               )}
-              {!isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
+              {!isOptimizer && !isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
 
-              {isManagerOrAdmin && (
+              {!isOptimizer && isManagerOrAdmin && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>
@@ -250,7 +281,7 @@ export function Navigation() {
                   <ThemeToggle />
                 </div>
                 <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
-                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role || "Viewer"}</p>
+                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role === "optimizer" ? "Store Optimizer" : authStatus?.user?.role || "Viewer"}</p>
               </div>
               <Button
                 variant="outline"
