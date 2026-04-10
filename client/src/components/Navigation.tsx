@@ -67,7 +67,7 @@ export function Navigation() {
   const isAdmin = authStatus?.user?.role === "admin";
   const isManager = authStatus?.user?.role === "manager";
   const isOptimizer = authStatus?.user?.role === "optimizer";
-  const isManagerOrAdmin = isAdmin || isManager;
+  const isManagerOrAdmin = isAdmin || isManager || isOptimizer;
   const canAccessOptimization = isAdmin || isOptimizer;
 
   const renderNavItem = (item: typeof schedulingItems[0], prefix: string = "nav") => (
@@ -117,31 +117,27 @@ export function Navigation() {
         </div>
         
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-          {!isOptimizer && (
-            <>
-              <div className="pt-1 pb-1 px-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
-              </div>
-              {schedulingItems.map((item) => renderNavItem(item, "nav"))}
-              {isManagerOrAdmin && renderNavItem(taskAssignmentItem, "nav")}
+          <div className="pt-1 pb-1 px-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
+          </div>
+          {schedulingItems.map((item) => renderNavItem(item, "nav"))}
+          {isManagerOrAdmin && renderNavItem(taskAssignmentItem, "nav")}
 
-              <div className="pt-3 pb-1 px-4">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
-              </div>
-              {renderNavItem(coachingItem, "nav")}
-            </>
-          )}
+          <div className="pt-3 pb-1 px-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
+          </div>
+          {renderNavItem(coachingItem, "nav")}
 
           {canAccessOptimization && (
             <>
-              <div className={`${isOptimizer ? "pt-1" : "pt-3"} pb-1 px-4`}>
+              <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-optimization-heading">Optimization</p>
               </div>
               {renderNavItem(optimizationItem, "nav")}
             </>
           )}
 
-          {!isOptimizer && isManagerOrAdmin && (
+          {isManagerOrAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-configuration-heading">Configuration</p>
@@ -149,9 +145,9 @@ export function Navigation() {
               {configItems.map((item) => renderNavItem(item, "nav"))}
             </>
           )}
-          {!isOptimizer && !isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
+          {!isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
 
-          {!isOptimizer && isManagerOrAdmin && (
+          {isManagerOrAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-reports-heading">Reports</p>
@@ -217,31 +213,27 @@ export function Navigation() {
               <img src={goodshiftLogo} alt="GoodShift" className="w-48 h-auto" data-testid="img-logo-mobile" />
             </div>
             <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-              {!isOptimizer && (
-                <>
-                  <div className="pt-1 pb-1 px-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
-                  </div>
-                  {schedulingItems.map((item) => renderMobileNavItem(item))}
-                  {isManagerOrAdmin && renderMobileNavItem(taskAssignmentItem)}
+              <div className="pt-1 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
+              </div>
+              {schedulingItems.map((item) => renderMobileNavItem(item))}
+              {isManagerOrAdmin && renderMobileNavItem(taskAssignmentItem)}
 
-                  <div className="pt-3 pb-1 px-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
-                  </div>
-                  {renderMobileNavItem(coachingItem)}
-                </>
-              )}
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
+              </div>
+              {renderMobileNavItem(coachingItem)}
 
               {canAccessOptimization && (
                 <>
-                  <div className={`${isOptimizer ? "pt-1" : "pt-3"} pb-1 px-4`}>
+                  <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Optimization</p>
                   </div>
                   {renderMobileNavItem(optimizationItem)}
                 </>
               )}
 
-              {!isOptimizer && isManagerOrAdmin && (
+              {isManagerOrAdmin && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Configuration</p>
@@ -249,9 +241,9 @@ export function Navigation() {
                   {configItems.map((item) => renderMobileNavItem(item))}
                 </>
               )}
-              {!isOptimizer && !isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
+              {!isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
 
-              {!isOptimizer && isManagerOrAdmin && (
+              {isManagerOrAdmin && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>

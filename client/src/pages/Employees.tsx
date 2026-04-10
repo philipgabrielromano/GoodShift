@@ -55,7 +55,7 @@ interface AuthStatus {
 export default function Employees() {
   const [showInactive, setShowInactive] = useState(false);
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
-  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
   const { data: employees, isLoading } = useEmployees({ showInactive });
   const [search, setSearch] = useState(() => {
     const params = new URLSearchParams(window.location.search);

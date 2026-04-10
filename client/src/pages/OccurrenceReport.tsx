@@ -46,7 +46,7 @@ export default function OccurrenceReport() {
   const { data: authStatus } = useQuery<AuthStatus>({
     queryKey: ["/api/auth/status"],
   });
-  const canToggle = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+  const canToggle = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
 
   const { data: reportLocations, isLoading: locationsLoading } = useQuery<string[]>({
     queryKey: ["/api/reports/locations"],

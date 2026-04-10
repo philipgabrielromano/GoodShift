@@ -88,7 +88,7 @@ export default function Coaching() {
     queryKey: ["/api/auth/status"],
   });
 
-  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
 
   const coachingEmployeesUrl = showInactive ? "/api/coaching/employees?showInactive=true" : "/api/coaching/employees";
   const { data: employees, isLoading: employeesLoading } = useQuery<CoachingEmployee[]>({

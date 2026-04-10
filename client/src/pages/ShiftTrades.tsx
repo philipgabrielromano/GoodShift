@@ -61,7 +61,7 @@ export default function ShiftTrades() {
   });
 
   const userRole = authStatus?.user?.role ?? "viewer";
-  const isManagerOrAdmin = userRole === "manager" || userRole === "admin";
+  const isManagerOrAdmin = userRole === "manager" || userRole === "admin" || userRole === "optimizer";
 
   const currentEmployee = useMemo(() => {
     if (!authStatus?.user?.email) return null;

@@ -69,7 +69,7 @@ export default function Attendance() {
   });
   
   const isViewer = authStatus?.user?.role === "viewer";
-  const canManageOccurrences = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager";
+  const canManageOccurrences = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
   
   const attendanceUrl = showInactive ? "/api/attendance/employees?showInactive=true" : "/api/attendance/employees";
   const { data: employees, isLoading: employeesLoading } = useQuery<AttendanceEmployee[]>({
