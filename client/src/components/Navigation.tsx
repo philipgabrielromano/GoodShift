@@ -68,7 +68,7 @@ export function Navigation() {
   const isManager = authStatus?.user?.role === "manager";
   const isOptimizer = authStatus?.user?.role === "optimizer";
   const isManagerOrAdmin = isAdmin || isManager;
-  const canAccessOptimization = isAdmin || isManager || isOptimizer;
+  const canAccessOptimization = isAdmin || isOptimizer;
 
   const renderNavItem = (item: typeof schedulingItems[0], prefix: string = "nav") => (
     <Link key={item.href} href={item.href}>
