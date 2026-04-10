@@ -122,6 +122,16 @@ export function registerOptimizationRoutes(app: Express) {
         .returning();
 
       if (!item) return res.status(404).json({ message: "Checklist item not found" });
+
+      if (completed) {
+        const [event] = await db.select().from(optimizationEvents).where(eq(optimizationEvents.id, item.eventId));
+        if (event && event.status === "planning") {
+          await db.update(optimizationEvents)
+            .set({ status: "in_progress", updatedAt: new Date() })
+            .where(eq(optimizationEvents.id, event.id));
+        }
+      }
+
       res.json(item);
     } catch (error) {
       console.error("Error updating checklist item:", error);

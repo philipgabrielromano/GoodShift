@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
-import { Plus, ArrowLeft, CheckCircle2, Circle, ClipboardList, BarChart3, MessageSquare, Trash2, ChevronDown, ChevronRight, Star } from "lucide-react";
+import { Plus, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Star, ClipboardList, BarChart3, MessageSquare, Trash2, StickyNote, Clock, Check } from "lucide-react";
 import { OPTIMIZATION_CHECKLIST, OPTIMIZATION_SURVEY_QUESTIONS } from "@shared/schema";
 import type { OptimizationEvent, OptimizationChecklistItem, OptimizationSurveyResponse } from "@shared/schema";
 
@@ -37,6 +37,85 @@ const STATUS_COLORS: Record<string, string> = {
   follow_up: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
 };
 
+function ChecklistItemRow({ item, dbItem, onToggle, onNotesChange }: {
+  item: { key: string; label: string };
+  dbItem: OptimizationChecklistItem;
+  onToggle: (id: number, completed: boolean) => void;
+  onNotesChange: (id: number, notes: string) => void;
+}) {
+  const [showNotes, setShowNotes] = useState(!!dbItem.notes);
+  const [localNotes, setLocalNotes] = useState(dbItem.notes || "");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setLocalNotes(dbItem.notes || "");
+  }, [dbItem.notes]);
+
+  const handleNotesChange = useCallback((value: string) => {
+    setLocalNotes(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      onNotesChange(dbItem.id, value);
+    }, 800);
+  }, [dbItem.id, onNotesChange]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  return (
+    <div
+      className={`p-3 rounded-lg border transition-colors ${dbItem.completed ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800" : "bg-card border-border"}`}
+      data-testid={`checklist-item-${item.key}`}
+    >
+      <div className="flex items-start gap-3">
+        <Checkbox
+          checked={dbItem.completed}
+          onCheckedChange={(checked) => onToggle(dbItem.id, !!checked)}
+          className="mt-0.5 h-6 w-6"
+          data-testid={`checkbox-${item.key}`}
+        />
+        <div className="flex-1 min-w-0">
+          <p className={`text-sm lg:text-base ${dbItem.completed ? "line-through text-muted-foreground" : ""}`}>
+            {item.label}
+          </p>
+          {dbItem.completed && dbItem.completedBy && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Completed by {dbItem.completedBy}
+              {dbItem.completedAt && ` on ${format(new Date(dbItem.completedAt), "MMM d, yyyy")}`}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`h-8 w-8 shrink-0 ${showNotes || dbItem.notes ? "text-primary" : "text-muted-foreground"}`}
+          onClick={() => setShowNotes(!showNotes)}
+          data-testid={`button-notes-${item.key}`}
+        >
+          <StickyNote className="w-4 h-4" />
+        </Button>
+      </div>
+      {showNotes && (
+        <div className="mt-2 ml-9">
+          <Textarea
+            value={localNotes}
+            onChange={(e) => handleNotesChange(e.target.value)}
+            placeholder="Add notes..."
+            className="min-h-[60px] text-sm"
+            data-testid={`notes-${item.key}`}
+          />
+          {dbItem.notes !== localNotes && localNotes !== "" && (
+            <p className="text-xs text-muted-foreground mt-1 italic">Saving...</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Optimization() {
   const { toast } = useToast();
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
@@ -44,6 +123,7 @@ export default function Optimization() {
   const [surveyDialogOpen, setSurveyDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"checklist" | "survey">("checklist");
   const [collapsedPhases, setCollapsedPhases] = useState<Set<string>>(new Set());
+  const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
 
   const [formLocation, setFormLocation] = useState("");
   const [formStartDate, setFormStartDate] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -72,10 +152,13 @@ export default function Optimization() {
       const res = await apiRequest("POST", "/api/optimization/events", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (newEvent: OptimizationEvent) => {
       queryClient.invalidateQueries({ queryKey: ["/api/optimization/events"] });
       setCreateDialogOpen(false);
-      toast({ title: "Event created" });
+      setFormLocation("");
+      setFormNotes("");
+      setSelectedEventId(newEvent.id);
+      toast({ title: "Event created", description: "Your checklist is ready. Start checking off items!" });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create event", variant: "destructive" });
@@ -164,6 +247,13 @@ export default function Optimization() {
     });
   }
 
+  function handleMarkComplete() {
+    if (!selectedEventId) return;
+    updateEventMutation.mutate({ id: selectedEventId, status: "completed" });
+    setCompleteDialogOpen(false);
+    toast({ title: "Event marked complete", description: "All checklist progress has been saved." });
+  }
+
   function togglePhase(phase: string) {
     setCollapsedPhases(prev => {
       const next = new Set(prev);
@@ -172,6 +262,14 @@ export default function Optimization() {
       return next;
     });
   }
+
+  const handleToggleItem = useCallback((id: number, completed: boolean) => {
+    toggleChecklistMutation.mutate({ id, completed });
+  }, [toggleChecklistMutation]);
+
+  const handleNotesChange = useCallback((id: number, notes: string) => {
+    toggleChecklistMutation.mutate({ id, notes });
+  }, [toggleChecklistMutation]);
 
   const checklistByPhase = useMemo(() => {
     if (!eventDetail?.checklist) return {};
@@ -216,8 +314,26 @@ export default function Optimization() {
     return sums.map(s => (s / count).toFixed(1));
   }, [eventDetail?.surveys]);
 
+  const inProgressEvents = useMemo(() => {
+    return events?.filter(e => e.status === "in_progress") || [];
+  }, [events]);
+
+  const otherEvents = useMemo(() => {
+    return events?.filter(e => e.status !== "in_progress")
+      .sort((a, b) => {
+        const order: Record<string, number> = { planning: 0, follow_up: 1, completed: 2 };
+        const oa = order[a.status] ?? 3;
+        const ob = order[b.status] ?? 3;
+        if (oa !== ob) return oa - ob;
+        return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+      }) || [];
+  }, [events]);
+
   if (selectedEventId && eventDetail) {
     const ev = eventDetail.event;
+    const isCompleted = ev.status === "completed";
+    const allDone = totalProgress.done === totalProgress.total && totalProgress.total > 0;
+
     return (
       <div className="p-4 lg:p-8 space-y-4 max-w-[1200px] mx-auto">
         <div className="flex items-center gap-3">
@@ -260,16 +376,77 @@ export default function Optimization() {
           </div>
         </div>
 
+        {ev.notes && (
+          <div className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
+            {ev.notes}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Progress: {totalProgress.done}/{totalProgress.total}</span>
           <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all"
+              className={`h-full rounded-full transition-all ${allDone ? "bg-green-500" : "bg-primary"}`}
               style={{ width: totalProgress.total ? `${(totalProgress.done / totalProgress.total) * 100}%` : "0%" }}
             />
           </div>
           <span>{totalProgress.total ? Math.round((totalProgress.done / totalProgress.total) * 100) : 0}%</span>
         </div>
+
+        {!isCompleted && (
+          <div className="flex gap-2">
+            {ev.status === "planning" && totalProgress.done > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => updateEventMutation.mutate({ id: ev.id, status: "in_progress" })}
+                data-testid="button-start-event"
+              >
+                <Clock className="w-4 h-4 mr-2" />
+                Mark In Progress
+              </Button>
+            )}
+            <Dialog open={completeDialogOpen} onOpenChange={setCompleteDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant={allDone ? "default" : "outline"}
+                  size="sm"
+                  className={allDone ? "bg-green-600 hover:bg-green-700" : ""}
+                  data-testid="button-mark-complete"
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Mark Complete
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Mark Event Complete?</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    {allDone
+                      ? "All checklist items are finished. Ready to mark this event as complete?"
+                      : `${totalProgress.total - totalProgress.done} of ${totalProgress.total} checklist items are still incomplete. Are you sure you want to mark this event as complete?`}
+                  </p>
+                  {!allDone && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-200">
+                      Incomplete items will keep their current state. You can reopen this event later if needed.
+                    </div>
+                  )}
+                </div>
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" onClick={() => setCompleteDialogOpen(false)} data-testid="button-cancel-complete">
+                    Cancel
+                  </Button>
+                  <Button onClick={handleMarkComplete} className="bg-green-600 hover:bg-green-700" data-testid="button-confirm-complete">
+                    <Check className="w-4 h-4 mr-2" />
+                    Mark Complete
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        )}
 
         <div className="flex gap-2 border-b">
           <button
@@ -295,7 +472,7 @@ export default function Optimization() {
             {Object.entries(OPTIMIZATION_CHECKLIST).map(([phase, items]) => {
               const progress = phaseProgress[phase] || { done: 0, total: items.length };
               const isCollapsed = collapsedPhases.has(phase);
-              const isComplete = progress.done === progress.total;
+              const isPhaseComplete = progress.done === progress.total;
 
               return (
                 <Card key={phase}>
@@ -310,14 +487,14 @@ export default function Optimization() {
                       <div className="flex items-center gap-2 mt-1">
                         <div className="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all ${isComplete ? "bg-green-500" : "bg-primary"}`}
+                            className={`h-full rounded-full transition-all ${isPhaseComplete ? "bg-green-500" : "bg-primary"}`}
                             style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }}
                           />
                         </div>
                         <span className="text-xs text-muted-foreground">{progress.done}/{progress.total}</span>
                       </div>
                     </div>
-                    {isComplete && <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />}
+                    {isPhaseComplete && <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />}
                   </button>
                   {!isCollapsed && (
                     <CardContent className="pt-0 px-4 lg:px-6 pb-4 space-y-1">
@@ -325,31 +502,13 @@ export default function Optimization() {
                         const dbItem = checklistByPhase[phase]?.find(ci => ci.itemKey === item.key);
                         if (!dbItem) return null;
                         return (
-                          <div
+                          <ChecklistItemRow
                             key={item.key}
-                            className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${dbItem.completed ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800" : "bg-card border-border"}`}
-                            data-testid={`checklist-item-${item.key}`}
-                          >
-                            <Checkbox
-                              checked={dbItem.completed}
-                              onCheckedChange={(checked) => {
-                                toggleChecklistMutation.mutate({ id: dbItem.id, completed: !!checked });
-                              }}
-                              className="mt-0.5 h-6 w-6"
-                              data-testid={`checkbox-${item.key}`}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-sm lg:text-base ${dbItem.completed ? "line-through text-muted-foreground" : ""}`}>
-                                {item.label}
-                              </p>
-                              {dbItem.completed && dbItem.completedBy && (
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Completed by {dbItem.completedBy}
-                                  {dbItem.completedAt && ` on ${format(new Date(dbItem.completedAt), "MMM d, yyyy")}`}
-                                </p>
-                              )}
-                            </div>
-                          </div>
+                            item={item}
+                            dbItem={dbItem}
+                            onToggle={handleToggleItem}
+                            onNotesChange={handleNotesChange}
+                          />
                         );
                       })}
                     </CardContent>
@@ -492,6 +651,16 @@ export default function Optimization() {
     );
   }
 
+  if (selectedEventId && detailLoading) {
+    return (
+      <div className="p-4 lg:p-8 space-y-4 max-w-[1200px] mx-auto">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-6 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1200px] mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -561,37 +730,90 @@ export default function Optimization() {
           <p className="text-sm mt-1">Create your first event to get started.</p>
         </div>
       ) : (
-        <div className="grid gap-3">
-          {events?.sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()).map(event => {
-            return (
-              <Card
-                key={event.id}
-                className="cursor-pointer hover-elevate transition-all"
-                onClick={() => setSelectedEventId(event.id)}
-                data-testid={`card-event-${event.id}`}
-              >
-                <CardContent className="p-4 lg:p-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-base lg:text-lg">{event.locationName}</h3>
-                        <Badge className={`text-xs ${STATUS_COLORS[event.status] || ""}`}>
-                          {STATUS_LABELS[event.status] || event.status}
-                        </Badge>
+        <div className="space-y-6">
+          {inProgressEvents.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                <h2 className="text-sm font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wider" data-testid="text-in-progress-heading">
+                  In Progress ({inProgressEvents.length})
+                </h2>
+              </div>
+              <div className="grid gap-3">
+                {inProgressEvents.map(event => (
+                  <Card
+                    key={event.id}
+                    className="cursor-pointer hover-elevate transition-all border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20"
+                    onClick={() => setSelectedEventId(event.id)}
+                    data-testid={`card-event-${event.id}`}
+                  >
+                    <CardContent className="p-4 lg:p-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold text-base lg:text-lg">{event.locationName}</h3>
+                            <Badge className={`text-xs ${STATUS_COLORS[event.status] || ""}`}>
+                              {STATUS_LABELS[event.status] || event.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {format(new Date(event.startDate + "T00:00:00"), "MMM d")} – {format(new Date(event.endDate + "T00:00:00"), "MMM d, yyyy")}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Created by {event.createdByName}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Resume</span>
+                          <ChevronRight className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {format(new Date(event.startDate + "T00:00:00"), "MMM d")} – {format(new Date(event.endDate + "T00:00:00"), "MMM d, yyyy")}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Created by {event.createdByName}
-                      </p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {otherEvents.length > 0 && (
+            <div className="space-y-3">
+              {inProgressEvents.length > 0 && (
+                <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-all-events-heading">
+                  All Events
+                </h2>
+              )}
+              <div className="grid gap-3">
+                {otherEvents.map(event => (
+                  <Card
+                    key={event.id}
+                    className="cursor-pointer hover-elevate transition-all"
+                    onClick={() => setSelectedEventId(event.id)}
+                    data-testid={`card-event-${event.id}`}
+                  >
+                    <CardContent className="p-4 lg:p-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold text-base lg:text-lg">{event.locationName}</h3>
+                            <Badge className={`text-xs ${STATUS_COLORS[event.status] || ""}`}>
+                              {STATUS_LABELS[event.status] || event.status}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {format(new Date(event.startDate + "T00:00:00"), "MMM d")} – {format(new Date(event.endDate + "T00:00:00"), "MMM d, yyyy")}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Created by {event.createdByName}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-muted-foreground shrink-0" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
