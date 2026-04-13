@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { MessageSquare, Plus, Filter, Download } from "lucide-react";
+import { MessageSquare, Plus, Filter, Download, Paperclip, FileText, X, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
@@ -41,6 +41,8 @@ interface CoachingLog {
   actionTaken: string;
   employeeResponse: string;
   date: string | null;
+  attachmentUrl: string | null;
+  attachmentName: string | null;
   createdAt: string;
 }
 
@@ -81,6 +83,9 @@ export default function Coaching() {
   const [formAction, setFormAction] = useState("");
   const [formResponse, setFormResponse] = useState("");
   const [formDate, setFormDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [formFile, setFormFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { toast } = useToast();
 
@@ -111,7 +116,10 @@ export default function Coaching() {
       const res = await apiRequest("POST", "/api/coaching/logs", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (newLog: CoachingLog) => {
+      if (formFile) {
+        await uploadAttachment(newLog.id, formFile);
+      }
       queryClient.invalidateQueries({ predicate: (query) => {
         const key = query.queryKey[0];
         return typeof key === "string" && key.startsWith("/api/coaching/logs");
@@ -125,6 +133,69 @@ export default function Coaching() {
     },
   });
 
+  async function uploadAttachment(logId: number, file: File): Promise<void> {
+    try {
+      const urlRes = await apiRequest("POST", "/api/coaching/upload-url", {
+        fileName: file.name,
+        fileSize: file.size,
+        contentType: file.type,
+      });
+      const { uploadURL, objectPath } = await urlRes.json();
+
+      await fetch(uploadURL, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      });
+
+      await apiRequest("PATCH", `/api/coaching/logs/${logId}/attachment`, {
+        attachmentUrl: objectPath,
+        attachmentName: file.name,
+      });
+    } catch (err) {
+      console.error("Error uploading attachment:", err);
+      toast({ title: "Warning", description: "Coaching log saved but PDF attachment failed to upload.", variant: "destructive" });
+    }
+  }
+
+  const uploadToExistingMutation = useMutation({
+    mutationFn: async ({ logId, file }: { logId: number; file: File }) => {
+      setIsUploading(true);
+      await uploadAttachment(logId, file);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith("/api/coaching/logs");
+      }});
+      toast({ title: "Attachment uploaded" });
+      setIsUploading(false);
+    },
+    onError: () => {
+      setIsUploading(false);
+      toast({ title: "Error", description: "Failed to upload attachment.", variant: "destructive" });
+    },
+  });
+
+  const removeAttachmentMutation = useMutation({
+    mutationFn: async (logId: number) => {
+      await apiRequest("PATCH", `/api/coaching/logs/${logId}/attachment`, {
+        attachmentUrl: null,
+        attachmentName: null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith("/api/coaching/logs");
+      }});
+      if (detailLog) {
+        setDetailLog({ ...detailLog, attachmentUrl: null, attachmentName: null });
+      }
+      toast({ title: "Attachment removed" });
+    },
+  });
+
   function resetForm() {
     setFormEmployee("");
     setFormCategory("");
@@ -132,6 +203,8 @@ export default function Coaching() {
     setFormAction("");
     setFormResponse("");
     setFormDate(new Date().toISOString().split("T")[0]);
+    setFormFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function handleSubmit() {
@@ -147,6 +220,25 @@ export default function Coaching() {
       employeeResponse: formResponse.trim(),
       date: formDate,
     });
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      toast({ title: "Invalid file", description: "Only PDF files are allowed.", variant: "destructive" });
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "File too large", description: "Maximum file size is 10MB.", variant: "destructive" });
+      e.target.value = "";
+      return;
+    }
+
+    setFormFile(file);
   }
 
   const employeeMap = new Map<number, CoachingEmployee>();
@@ -305,6 +397,46 @@ export default function Coaching() {
                     rows={3}
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Attach PDF (optional)</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      data-testid="input-file"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                      data-testid="button-attach-pdf"
+                    >
+                      <Paperclip className="w-4 h-4 mr-2" />
+                      {formFile ? "Change File" : "Choose PDF"}
+                    </Button>
+                    {formFile && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground flex-1 min-w-0">
+                        <FileText className="w-4 h-4 shrink-0 text-red-500" />
+                        <span className="truncate">{formFile.name}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 shrink-0"
+                          onClick={() => { setFormFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                          data-testid="button-remove-form-file"
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">PDF only, max 10MB</p>
+                </div>
               </div>
               <DialogFooter className="gap-2">
                 <DialogClose asChild>
@@ -428,6 +560,7 @@ export default function Coaching() {
                         <p className="text-[10px] text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {log.attachmentUrl && <Paperclip className="w-3 h-3 text-muted-foreground" />}
                         <Badge className={`no-default-hover-elevate no-default-active-elevate text-[10px] ${categoryColors[log.category] || ""}`} data-testid={`badge-category-${log.id}`}>
                           {log.category}
                         </Badge>
@@ -453,6 +586,7 @@ export default function Coaching() {
                       <TableHead>Action Taken</TableHead>
                       <TableHead>Response</TableHead>
                       <TableHead>Manager</TableHead>
+                      <TableHead className="w-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -488,6 +622,11 @@ export default function Coaching() {
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                           {log.managerName}
+                        </TableCell>
+                        <TableCell>
+                          {log.attachmentUrl && (
+                            <Paperclip className="w-4 h-4 text-muted-foreground" data-testid={`icon-attachment-${log.id}`} />
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -535,6 +674,86 @@ export default function Coaching() {
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Employee Response</p>
                   <p className="text-sm whitespace-pre-wrap" data-testid="text-detail-response">{detailLog.employeeResponse}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Attachment</p>
+                  {detailLog.attachmentUrl ? (
+                    <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30">
+                      <FileText className="w-5 h-5 text-red-500 shrink-0" />
+                      <a
+                        href={detailLog.attachmentUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline truncate flex-1"
+                        onClick={(e) => e.stopPropagation()}
+                        data-testid="link-attachment"
+                      >
+                        {detailLog.attachmentName || "Download PDF"}
+                      </a>
+                      {isManagerOrAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeAttachmentMutation.mutate(detailLog.id);
+                          }}
+                          data-testid="button-remove-attachment"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  ) : isManagerOrAdmin ? (
+                    <div>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        id="detail-file-input"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.type !== "application/pdf") {
+                            toast({ title: "Invalid file", description: "Only PDF files are allowed.", variant: "destructive" });
+                            return;
+                          }
+                          if (file.size > 10 * 1024 * 1024) {
+                            toast({ title: "File too large", description: "Maximum file size is 10MB.", variant: "destructive" });
+                            return;
+                          }
+                          uploadToExistingMutation.mutate({ logId: detailLog.id, file });
+                          setDetailLog({ ...detailLog, attachmentUrl: "pending", attachmentName: file.name });
+                          e.target.value = "";
+                        }}
+                        data-testid="input-detail-file"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isUploading}
+                        onClick={() => document.getElementById("detail-file-input")?.click()}
+                        data-testid="button-attach-to-existing"
+                      >
+                        {isUploading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Uploading...
+                          </>
+                        ) : (
+                          <>
+                            <Paperclip className="w-4 h-4 mr-2" />
+                            Attach PDF
+                          </>
+                        )}
+                      </Button>
+                      <p className="text-xs text-muted-foreground mt-1">PDF only, max 10MB</p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">No attachment</p>
+                  )}
                 </div>
               </div>
             </>

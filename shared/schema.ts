@@ -556,6 +556,8 @@ export const coachingLogs = pgTable("coaching_logs", {
   actionTaken: text("action_taken").notNull(),
   employeeResponse: text("employee_response").notNull(),
   date: date("date"),
+  attachmentUrl: text("attachment_url"),
+  attachmentName: text("attachment_name"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

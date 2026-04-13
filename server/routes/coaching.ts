@@ -1,7 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth } from "../middleware";
-import { insertCoachingLogSchema } from "@shared/schema";
+import { insertCoachingLogSchema, coachingLogs } from "@shared/schema";
+import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
 
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
 const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "EASSIS"];
@@ -190,6 +193,69 @@ export function registerCoachingRoutes(app: Express) {
     } catch (err) {
       console.error("Error creating coaching log:", err);
       res.status(500).json({ error: "Failed to create coaching log" });
+    }
+  });
+
+  const objectStorageService = new ObjectStorageService();
+
+  app.post("/api/coaching/upload-url", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (!user || (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer")) {
+        return res.status(403).json({ message: "Manager access required" });
+      }
+
+      const { fileName, fileSize, contentType } = req.body;
+
+      if (!fileName || !contentType) {
+        return res.status(400).json({ error: "Missing fileName or contentType" });
+      }
+
+      if (contentType !== "application/pdf") {
+        return res.status(400).json({ error: "Only PDF files are allowed" });
+      }
+
+      const maxSize = 10 * 1024 * 1024;
+      if (fileSize && fileSize > maxSize) {
+        return res.status(400).json({ error: "File too large. Maximum size is 10MB." });
+      }
+
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+
+      res.json({ uploadURL, objectPath });
+    } catch (err) {
+      console.error("Error generating upload URL:", err);
+      res.status(500).json({ error: "Failed to generate upload URL" });
+    }
+  });
+
+  app.patch("/api/coaching/logs/:id/attachment", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (!user || (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer")) {
+        return res.status(403).json({ message: "Manager access required" });
+      }
+
+      const logId = Number(req.params.id);
+      const { attachmentUrl, attachmentName } = req.body;
+
+      const [updated] = await db.update(coachingLogs)
+        .set({
+          attachmentUrl: attachmentUrl || null,
+          attachmentName: attachmentName || null,
+        })
+        .where(eq(coachingLogs.id, logId))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ error: "Coaching log not found" });
+      }
+
+      res.json(updated);
+    } catch (err) {
+      console.error("Error updating coaching log attachment:", err);
+      res.status(500).json({ error: "Failed to update attachment" });
     }
   });
 }
