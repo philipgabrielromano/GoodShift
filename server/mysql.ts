@@ -2,8 +2,7 @@ import mysql from "mysql2/promise";
 
 const LOCAL_PROXY_PORT = 13306;
 
-const isProduction = process.env.NODE_ENV === "production";
-const useTailscale = !isProduction && !!process.env.TAILSCALE_AUTH_KEY;
+const useTailscale = !!process.env.TAILSCALE_AUTH_KEY;
 const mysqlHost = useTailscale ? "127.0.0.1" : process.env.MYSQL_HOST;
 const mysqlPort = useTailscale ? LOCAL_PROXY_PORT : (Number(process.env.MYSQL_PORT) || 3306);
 
