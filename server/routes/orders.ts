@@ -212,6 +212,39 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
 }
 
 export function registerOrderRoutes(app: Express) {
+  app.post("/api/internal/import-orders", async (req, res) => {
+    try {
+      const { rows, columns } = req.body as {
+        rows: Record<string, string | number | null>[];
+        columns: string[];
+      };
+
+      if (!rows || !columns || rows.length === 0) {
+        return res.status(400).json({ message: "No data" });
+      }
+
+      const singlePlaceholders = `(${columns.map(() => "?").join(", ")})`;
+      const allPlaceholders = rows.map(() => singlePlaceholders).join(", ");
+      const bulkSQL = `INSERT INTO orders (${columns.join(", ")}) VALUES ${allPlaceholders}`;
+      const flatValues = rows.flatMap(row => columns.map(col => row[col] ?? null));
+
+      await mysqlPool.execute(bulkSQL, flatValues);
+      res.json({ inserted: rows.length });
+    } catch (err) {
+      console.error("[Import] Error:", err);
+      res.status(500).json({ message: "Import failed", error: String(err) });
+    }
+  });
+
+  app.get("/api/internal/import-orders-count", async (_req, res) => {
+    try {
+      const [rows] = await mysqlPool.execute<CountRow[]>("SELECT COUNT(*) as total FROM orders");
+      res.json({ count: rows[0]?.total || 0 });
+    } catch (err) {
+      res.status(500).json({ message: "Count failed" });
+    }
+  });
+
   app.post("/api/orders", requireManager, async (req, res) => {
     try {
       const parsed = orderSchema.parse(req.body);
