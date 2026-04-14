@@ -85,7 +85,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 ### Database
 - **PostgreSQL**: Primary data store.
 - **pg Pool**: For connection pooling.
-- **MySQL (External)**: Azure-hosted MySQL database for order form data. Connected via `mysql2` package with connection pooling. Table `orders` auto-created on startup.
+- **MySQL (External)**: Azure-hosted MySQL database for order form data. Connected via `mysql2` package with connection pooling. Table `orders` auto-created on startup. Connection routes through Tailscale VPN tunnel via `replitproxy` node (socat TCP proxy on localhost:13306 → tailscale nc → replitproxy:3306). Tailscale starts automatically via `scripts/start-tailscale.sh` before the app. Requires secrets: TAILSCALE_AUTH_KEY, MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD.
 
 ### UI Framework Dependencies
 - **Radix UI**: Accessible component primitives.

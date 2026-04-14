@@ -1203,11 +1203,9 @@ export async function registerRoutes(
 
   registerOrderRoutes(app);
 
-  try {
-    await initOrdersTable();
-  } catch (err) {
+  initOrdersTable().catch((err) => {
     console.error("[MySQL] Failed to initialize orders table:", err);
-  }
+  });
 
   // === SEED DATA ===
   await seedDatabase();

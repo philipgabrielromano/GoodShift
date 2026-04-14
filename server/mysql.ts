@@ -1,18 +1,25 @@
 import mysql from "mysql2/promise";
 
+const LOCAL_PROXY_PORT = 13306;
+
+const useTailscale = !!process.env.TAILSCALE_AUTH_KEY;
+const mysqlHost = useTailscale ? "127.0.0.1" : process.env.MYSQL_HOST;
+const mysqlPort = useTailscale ? LOCAL_PROXY_PORT : (Number(process.env.MYSQL_PORT) || 3306);
+
 const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST,
-  port: Number(process.env.MYSQL_PORT) || 3306,
+  host: mysqlHost,
+  port: mysqlPort,
   database: process.env.MYSQL_DATABASE,
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  ssl: {
-    rejectUnauthorized: true,
-  },
+  ssl: useTailscale ? undefined : { rejectUnauthorized: true },
+  connectTimeout: 10000,
 });
+
+console.log(`[MySQL] Connecting via ${useTailscale ? "Tailscale proxy (localhost:" + LOCAL_PROXY_PORT + ")" : "direct"} to ${mysqlHost}:${mysqlPort}`);
 
 export async function initOrdersTable(): Promise<void> {
   const conn = await pool.getConnection();
