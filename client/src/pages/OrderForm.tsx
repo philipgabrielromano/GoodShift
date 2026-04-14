@@ -20,6 +20,8 @@ const ORDER_TYPES = [
   "Supplemental production",
 ] as const;
 
+type OrderType = typeof ORDER_TYPES[number];
+
 const LOCATIONS = [
   "Alliance", "Carrollton", "Chardon", "Foxboro", "Massillon",
   "Mayfield", "Middleburg", "New Philly", "North Canton", "North Olmsted",
@@ -194,7 +196,7 @@ export default function OrderForm() {
                 <Label>Type of Order *</Label>
                 <Select
                   value={orderType || ""}
-                  onValueChange={(val) => form.setValue("orderType", val as any, { shouldValidate: true })}
+                  onValueChange={(val: string) => form.setValue("orderType", val as OrderType, { shouldValidate: true })}
                 >
                   <SelectTrigger data-testid="select-order-type">
                     <SelectValue placeholder="Select Order Type" />

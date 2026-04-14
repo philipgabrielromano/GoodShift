@@ -1,13 +1,17 @@
 import type { Express } from "express";
+import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { requireManager } from "../middleware";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
 
 const nonNegInt = z.number().int().min(0).nullable().optional();
 
+const ORDER_TYPES = ["Transfer and Receive", "End of Day/Equipment Count", "Donors", "Supplemental production"] as const;
+type OrderType = typeof ORDER_TYPES[number];
+
 const orderSchema = z.object({
   orderDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
-  orderType: z.enum(["Transfer and Receive", "End of Day/Equipment Count", "Donors", "Supplemental production"]),
+  orderType: z.enum(ORDER_TYPES),
   location: z.string().min(1),
   totesRequested: nonNegInt,
   totesReturned: nonNegInt,
@@ -74,90 +78,135 @@ const orderSchema = z.object({
   notes: z.string().max(2000).nullable().optional(),
 });
 
-function toSnake(obj: Record<string, any>): Record<string, any> {
-  const map: Record<string, string> = {
-    orderDate: "order_date",
-    orderType: "order_type",
-    totesRequested: "totes_requested",
-    totesReturned: "totes_returned",
-    durosRequested: "duros_requested",
-    durosReturned: "duros_returned",
-    blueBinsRequested: "blue_bins_requested",
-    blueBinsReturned: "blue_bins_returned",
-    gaylordsRequested: "gaylords_requested",
-    gaylordsReturned: "gaylords_returned",
-    palletsRequested: "pallets_requested",
-    palletsReturned: "pallets_returned",
-    containersRequested: "containers_requested",
-    containersReturned: "containers_returned",
-    apparelGaylordsRequested: "apparel_gaylords_requested",
-    apparelGaylordsReturned: "apparel_gaylords_returned",
-    waresGaylordsRequested: "wares_gaylords_requested",
-    waresGaylordsReturned: "wares_gaylords_returned",
-    electricalGaylordsRequested: "electrical_gaylords_requested",
-    electricalGaylordsReturned: "electrical_gaylords_returned",
-    accessoriesGaylordsRequested: "accessories_gaylords_requested",
-    accessoriesGaylordsReturned: "accessories_gaylords_returned",
-    booksGaylordsRequested: "books_gaylords_requested",
-    booksGaylordsReturned: "books_gaylords_returned",
-    shoesGaylordsRequested: "shoes_gaylords_requested",
-    shoesGaylordsReturned: "shoes_gaylords_returned",
-    savedWinterRequested: "saved_winter_requested",
-    savedWinterReturned: "saved_winter_returned",
-    savedSummerRequested: "saved_summer_requested",
-    savedSummerReturned: "saved_summer_returned",
-    savedHalloweenRequested: "saved_halloween_requested",
-    savedHalloweenReturned: "saved_halloween_returned",
-    savedChristmasRequested: "saved_christmas_requested",
-    savedChristmasReturned: "saved_christmas_returned",
-    fullTotes: "full_totes",
-    emptyTotes: "empty_totes",
-    fullGaylords: "full_gaylords",
-    emptyGaylords: "empty_gaylords",
-    fullDuros: "full_duros",
-    emptyDuros: "empty_duros",
-    fullContainers: "full_containers",
-    emptyContainers: "empty_containers",
-    fullBlueBins: "full_blue_bins",
-    emptyBlueBins: "empty_blue_bins",
-    emptyPallets: "empty_pallets",
-    outletApparel: "outlet_apparel",
-    outletShoes: "outlet_shoes",
-    outletMetal: "outlet_metal",
-    outletWares: "outlet_wares",
-    outletAccessories: "outlet_accessories",
-    outletElectrical: "outlet_electrical",
-    ecomContainersSent: "ecom_containers_sent",
-    rotatedApparel: "rotated_apparel",
-    rotatedShoes: "rotated_shoes",
-    rotatedBooks: "rotated_books",
-    rotatedWares: "rotated_wares",
-    apparelGaylordsUsed: "apparel_gaylords_used",
-    waresGaylordsUsed: "wares_gaylords_used",
-    bookGaylordsUsed: "book_gaylords_used",
-    shoeGaylordsUsed: "shoe_gaylords_used",
-    donors: "donors",
-    isCentralProcessing: "is_central_processing",
-    apparelProduction: "apparel_production",
-    waresProduction: "wares_production",
-    notes: "notes",
-    location: "location",
-  };
-  const result: Record<string, any> = {};
-  for (const [key, val] of Object.entries(obj)) {
-    const snakeKey = map[key];
-    if (snakeKey && val !== undefined) {
-      result[snakeKey] = val;
-    }
-  }
-  return result;
+type OrderInput = z.infer<typeof orderSchema>;
+
+interface OrderRow extends RowDataPacket {
+  id: number;
+  order_date: string;
+  order_type: string;
+  location: string;
+  submitted_by: string | null;
+  submitted_at: string | null;
+  notes: string | null;
+  totes_requested: number | null;
+  totes_returned: number | null;
+  duros_requested: number | null;
+  duros_returned: number | null;
+  blue_bins_requested: number | null;
+  blue_bins_returned: number | null;
+  gaylords_requested: number | null;
+  gaylords_returned: number | null;
+  pallets_requested: number | null;
+  pallets_returned: number | null;
+  containers_requested: number | null;
+  containers_returned: number | null;
+  donors: number | null;
+  is_central_processing: number | null;
+  apparel_production: number | null;
+  wares_production: number | null;
 }
 
-function toCamel(row: Record<string, any>): Record<string, any> {
-  const result: Record<string, any> = {};
+interface CountRow extends RowDataPacket {
+  total: number;
+}
+
+const CAMEL_TO_SNAKE: Record<keyof OrderInput, string> = {
+  orderDate: "order_date",
+  orderType: "order_type",
+  location: "location",
+  totesRequested: "totes_requested",
+  totesReturned: "totes_returned",
+  durosRequested: "duros_requested",
+  durosReturned: "duros_returned",
+  blueBinsRequested: "blue_bins_requested",
+  blueBinsReturned: "blue_bins_returned",
+  gaylordsRequested: "gaylords_requested",
+  gaylordsReturned: "gaylords_returned",
+  palletsRequested: "pallets_requested",
+  palletsReturned: "pallets_returned",
+  containersRequested: "containers_requested",
+  containersReturned: "containers_returned",
+  apparelGaylordsRequested: "apparel_gaylords_requested",
+  apparelGaylordsReturned: "apparel_gaylords_returned",
+  waresGaylordsRequested: "wares_gaylords_requested",
+  waresGaylordsReturned: "wares_gaylords_returned",
+  electricalGaylordsRequested: "electrical_gaylords_requested",
+  electricalGaylordsReturned: "electrical_gaylords_returned",
+  accessoriesGaylordsRequested: "accessories_gaylords_requested",
+  accessoriesGaylordsReturned: "accessories_gaylords_returned",
+  booksGaylordsRequested: "books_gaylords_requested",
+  booksGaylordsReturned: "books_gaylords_returned",
+  shoesGaylordsRequested: "shoes_gaylords_requested",
+  shoesGaylordsReturned: "shoes_gaylords_returned",
+  savedWinterRequested: "saved_winter_requested",
+  savedWinterReturned: "saved_winter_returned",
+  savedSummerRequested: "saved_summer_requested",
+  savedSummerReturned: "saved_summer_returned",
+  savedHalloweenRequested: "saved_halloween_requested",
+  savedHalloweenReturned: "saved_halloween_returned",
+  savedChristmasRequested: "saved_christmas_requested",
+  savedChristmasReturned: "saved_christmas_returned",
+  fullTotes: "full_totes",
+  emptyTotes: "empty_totes",
+  fullGaylords: "full_gaylords",
+  emptyGaylords: "empty_gaylords",
+  fullDuros: "full_duros",
+  emptyDuros: "empty_duros",
+  fullContainers: "full_containers",
+  emptyContainers: "empty_containers",
+  fullBlueBins: "full_blue_bins",
+  emptyBlueBins: "empty_blue_bins",
+  emptyPallets: "empty_pallets",
+  outletApparel: "outlet_apparel",
+  outletShoes: "outlet_shoes",
+  outletMetal: "outlet_metal",
+  outletWares: "outlet_wares",
+  outletAccessories: "outlet_accessories",
+  outletElectrical: "outlet_electrical",
+  ecomContainersSent: "ecom_containers_sent",
+  rotatedApparel: "rotated_apparel",
+  rotatedShoes: "rotated_shoes",
+  rotatedBooks: "rotated_books",
+  rotatedWares: "rotated_wares",
+  apparelGaylordsUsed: "apparel_gaylords_used",
+  waresGaylordsUsed: "wares_gaylords_used",
+  bookGaylordsUsed: "book_gaylords_used",
+  shoeGaylordsUsed: "shoe_gaylords_used",
+  donors: "donors",
+  isCentralProcessing: "is_central_processing",
+  apparelProduction: "apparel_production",
+  waresProduction: "wares_production",
+  notes: "notes",
+};
+
+function toSnakeColumns(parsed: OrderInput): { columns: string[]; values: (string | number | null)[] } {
+  const columns: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  for (const [camelKey, snakeKey] of Object.entries(CAMEL_TO_SNAKE)) {
+    const val = parsed[camelKey as keyof OrderInput];
+    if (val === undefined) continue;
+
+    columns.push(snakeKey);
+    if (camelKey === "isCentralProcessing") {
+      values.push(val === true ? 1 : val === false ? 0 : null);
+    } else {
+      values.push(val as string | number | null);
+    }
+  }
+
+  return { columns, values };
+}
+
+function toCamel(row: RowDataPacket): Record<string, string | number | boolean | null> {
+  const result: Record<string, string | number | boolean | null> = {};
   for (const [key, val] of Object.entries(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-    result[camelKey] = val;
+    const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    if (camelKey === "isCentralProcessing") {
+      result[camelKey] = val === 1 ? true : val === 0 ? false : null;
+    } else {
+      result[camelKey] = val as string | number | null;
+    }
   }
   return result;
 }
@@ -166,25 +215,20 @@ export function registerOrderRoutes(app: Express) {
   app.post("/api/orders", requireManager, async (req, res) => {
     try {
       const parsed = orderSchema.parse(req.body);
-      const user = (req.session as any)?.user;
-      const snaked = toSnake(parsed);
-      snaked.submitted_by = user?.name || user?.email || "Unknown";
+      const user = (req.session as Express.SessionData & { user?: { name?: string; email?: string } }).user;
+      const { columns, values } = toSnakeColumns(parsed);
 
-      if (snaked.is_central_processing !== undefined && snaked.is_central_processing !== null) {
-        snaked.is_central_processing = snaked.is_central_processing ? 1 : 0;
-      }
+      columns.push("submitted_by");
+      values.push(user?.name || user?.email || "Unknown");
 
-      const columns = Object.keys(snaked);
       const placeholders = columns.map(() => "?").join(", ");
-      const values = columns.map((c) => snaked[c] ?? null);
 
-      const [result] = await mysqlPool.execute(
+      const [result] = await mysqlPool.execute<ResultSetHeader>(
         `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders})`,
         values
       );
-      const insertId = (result as any).insertId;
 
-      res.status(201).json({ id: insertId, message: "Order submitted successfully" });
+      res.status(201).json({ id: result.insertId, message: "Order submitted successfully" });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
@@ -199,21 +243,21 @@ export function registerOrderRoutes(app: Express) {
       const { startDate, endDate, location, orderType, limit, offset } = req.query;
 
       let query = "SELECT * FROM orders WHERE 1=1";
-      const params: any[] = [];
+      const params: (string | number)[] = [];
 
-      if (startDate) {
+      if (startDate && typeof startDate === "string") {
         query += " AND order_date >= ?";
         params.push(startDate);
       }
-      if (endDate) {
+      if (endDate && typeof endDate === "string") {
         query += " AND order_date <= ?";
         params.push(endDate);
       }
-      if (location) {
+      if (location && typeof location === "string") {
         query += " AND location = ?";
         params.push(location);
       }
-      if (orderType) {
+      if (orderType && typeof orderType === "string") {
         query += " AND order_type = ?";
         params.push(orderType);
       }
@@ -225,18 +269,18 @@ export function registerOrderRoutes(app: Express) {
       query += " LIMIT ? OFFSET ?";
       params.push(pageLimit, pageOffset);
 
-      const [rows] = await mysqlPool.execute(query, params);
+      const [rows] = await mysqlPool.execute<OrderRow[]>(query, params);
 
       let countQuery = "SELECT COUNT(*) as total FROM orders WHERE 1=1";
-      const countParams: any[] = [];
-      if (startDate) { countQuery += " AND order_date >= ?"; countParams.push(startDate); }
-      if (endDate) { countQuery += " AND order_date <= ?"; countParams.push(endDate); }
-      if (location) { countQuery += " AND location = ?"; countParams.push(location); }
-      if (orderType) { countQuery += " AND order_type = ?"; countParams.push(orderType); }
-      const [countRows] = await mysqlPool.execute(countQuery, countParams);
-      const total = (countRows as any[])[0]?.total || 0;
+      const countParams: string[] = [];
+      if (startDate && typeof startDate === "string") { countQuery += " AND order_date >= ?"; countParams.push(startDate); }
+      if (endDate && typeof endDate === "string") { countQuery += " AND order_date <= ?"; countParams.push(endDate); }
+      if (location && typeof location === "string") { countQuery += " AND location = ?"; countParams.push(location); }
+      if (orderType && typeof orderType === "string") { countQuery += " AND order_type = ?"; countParams.push(orderType); }
+      const [countRows] = await mysqlPool.execute<CountRow[]>(countQuery, countParams);
+      const total = countRows[0]?.total || 0;
 
-      const camelRows = (rows as any[]).map(toCamel);
+      const camelRows = rows.map(toCamel);
       res.json({ orders: camelRows, total, limit: pageLimit, offset: pageOffset });
     } catch (err) {
       console.error("[Orders] Error fetching orders:", err);
@@ -246,12 +290,11 @@ export function registerOrderRoutes(app: Express) {
 
   app.get("/api/orders/:id", requireManager, async (req, res) => {
     try {
-      const [rows] = await mysqlPool.execute("SELECT * FROM orders WHERE id = ?", [req.params.id]);
-      const results = rows as any[];
-      if (results.length === 0) {
+      const [rows] = await mysqlPool.execute<OrderRow[]>("SELECT * FROM orders WHERE id = ?", [req.params.id]);
+      if (rows.length === 0) {
         return res.status(404).json({ message: "Order not found" });
       }
-      res.json(toCamel(results[0]));
+      res.json(toCamel(rows[0]));
     } catch (err) {
       console.error("[Orders] Error fetching order:", err);
       res.status(500).json({ message: "Failed to fetch order" });
