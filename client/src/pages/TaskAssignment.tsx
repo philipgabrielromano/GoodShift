@@ -1072,7 +1072,7 @@ export default function TaskAssignment() {
     toast({ title: "PDF Exported", description: `Task assignments saved as ${filename}` });
   };
 
-  if (currentUser && userRole !== "manager" && userRole !== "admin") {
+  if (currentUser && userRole !== "manager" && userRole !== "admin" && userRole !== "optimizer") {
     navigate("/");
     return null;
   }
