@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { requireFeatureAccess } from "../middleware";
+import { requireFeatureAccess, requireAdmin } from "../middleware";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
 
@@ -298,6 +298,22 @@ export function registerOrderRoutes(app: Express) {
     } catch (err) {
       console.error("[Orders] Error fetching order:", err);
       res.status(500).json({ message: "Failed to fetch order" });
+    }
+  });
+
+  app.delete("/api/orders/:id", requireAdmin, async (req, res) => {
+    try {
+      const [result] = await mysqlPool.execute<ResultSetHeader>(
+        "DELETE FROM orders WHERE id = ?",
+        [req.params.id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      res.json({ message: "Order deleted" });
+    } catch (err) {
+      console.error("[Orders] Error deleting order:", err);
+      res.status(500).json({ message: "Failed to delete order" });
     }
   });
 }

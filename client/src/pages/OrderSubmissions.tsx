@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, FileText, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string } | null;
+}
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -138,6 +145,7 @@ function formatDateTime(dateStr: string): string {
 }
 
 export default function OrderSubmissions() {
+  const { toast } = useToast();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
@@ -145,6 +153,23 @@ export default function OrderSubmissions() {
   const [page, setPage] = useState(0);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const pageSize = 25;
+
+  const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
+  const isAdmin = authStatus?.user?.role === "admin";
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/orders/${id}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Order deleted" });
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to delete order", description: err.message, variant: "destructive" });
+    },
+  });
 
   const queryParams = new URLSearchParams();
   if (startDate) queryParams.set("startDate", startDate);
@@ -352,6 +377,31 @@ export default function OrderSubmissions() {
                     <p className="text-sm text-muted-foreground mb-1">Notes</p>
                     <p className="text-sm">{selectedOrder.notes}</p>
                   </div>
+                </>
+              )}
+
+              {isAdmin && (
+                <>
+                  <hr />
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="w-full"
+                    disabled={deleteMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm("Are you sure you want to delete this order?")) {
+                        deleteMutation.mutate(selectedOrder.id);
+                      }
+                    }}
+                    data-testid={`button-delete-order-${selectedOrder.id}`}
+                  >
+                    {deleteMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 mr-2" />
+                    )}
+                    Delete Order
+                  </Button>
                 </>
               )}
             </div>
