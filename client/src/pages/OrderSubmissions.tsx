@@ -17,6 +17,22 @@ const ORDER_TYPES = [
   "Supplemental production",
 ];
 
+const LOCATIONS = [
+  "Alliance", "Carrollton", "Chardon", "Foxboro", "Massillon",
+  "Mayfield", "Middleburg", "New Philly", "North Canton", "North Olmsted",
+  "Outlet Canton", "Outlet Cleveland", "Painesville", "Perry", "Route 62",
+  "Snow Road", "Strongsville", "University", "Weirton", "Wintersville",
+  "Willowick", "Transportation",
+  "Home Pickups ADC", "Hillsdale ADC", "Corporate Campus ADC",
+  "Washington Square ADC", "Uniontown ADC", "Tanglewood ADC",
+  "Shuffel ADC", "Pepper Pike ADC", "North Royalton ADC",
+  "Lyndhurst ADC", "Lincoln Way ADC", "Westlake ADC",
+  "Jackson ADC", "Chesterland ADC",
+  "Washington Square", "Westlake", "Gordon Square",
+  "Donation Station", "City Mission",
+  "Wired Up", "eCommerce",
+];
+
 const ORDER_TYPE_COLORS: Record<string, string> = {
   "Transfer and Receive": "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   "End of Day/Equipment Count": "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
@@ -32,7 +48,7 @@ interface Order {
   submittedBy: string;
   submittedAt: string;
   notes: string | null;
-  [key: string]: any;
+  [key: string]: string | number | boolean | null;
 }
 
 interface OrdersResponse {
@@ -178,7 +194,17 @@ export default function OrderSubmissions() {
             </div>
             <div className="space-y-1">
               <Label className="text-sm">Location</Label>
-              <Input placeholder="Filter by location" value={locationFilter} onChange={(e) => { setLocationFilter(e.target.value); setPage(0); }} data-testid="input-filter-location" />
+              <Select value={locationFilter || "all"} onValueChange={(val) => { setLocationFilter(val === "all" ? "" : val); setPage(0); }}>
+                <SelectTrigger data-testid="select-filter-location">
+                  <SelectValue placeholder="All Locations" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Locations</SelectItem>
+                  {LOCATIONS.map((loc) => (
+                    <SelectItem key={loc} value={loc}>{loc}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-sm">Order Type</Label>

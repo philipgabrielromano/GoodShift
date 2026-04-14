@@ -215,7 +215,7 @@ export function registerOrderRoutes(app: Express) {
   app.post("/api/orders", requireManager, async (req, res) => {
     try {
       const parsed = orderSchema.parse(req.body);
-      const user = (req.session as Express.SessionData & { user?: { name?: string; email?: string } }).user;
+      const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
       const { columns, values } = toSnakeColumns(parsed);
 
       columns.push("submitted_by");
