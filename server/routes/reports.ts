@@ -86,7 +86,7 @@ export function registerReportRoutes(app: Express) {
       }
 
       // Hierarchy filtering - same-level peers cannot see each other
-      if (user.role === "manager") {
+      if (user.role === "manager" || user.role === "optimizer") {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );

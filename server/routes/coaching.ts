@@ -51,7 +51,7 @@ export function registerCoachingRoutes(app: Express) {
         })));
       }
 
-      if (user.role === "manager") {
+      if (user.role === "manager" || user.role === "optimizer") {
         const allowedNames = await getAllowedLocationNames(user);
         let filtered = filteredByStatus;
         if (allowedNames) {
@@ -98,7 +98,7 @@ export function registerCoachingRoutes(app: Express) {
         return res.json(allLogs);
       }
 
-      if (user.role === "manager") {
+      if (user.role === "manager" || user.role === "optimizer") {
         const allEmployees = await storage.getEmployees();
         const allowedNames = await getAllowedLocationNames(user);
 
@@ -141,7 +141,7 @@ export function registerCoachingRoutes(app: Express) {
   app.post("/api/coaching/logs", requireAuth, async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
-      if (!user || (user.role !== "admin" && user.role !== "manager")) {
+      if (!user || (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer")) {
         return res.status(403).json({ message: "Manager access required" });
       }
 
@@ -155,7 +155,7 @@ export function registerCoachingRoutes(app: Express) {
         return res.status(400).json({ error: "Invalid coaching log data", details: parsed.error.errors });
       }
 
-      if (user.role === "manager") {
+      if (user.role === "manager" || user.role === "optimizer") {
         const allEmployees = await storage.getEmployees();
         const targetEmployee = allEmployees.find(e => e.id === parsed.data.employeeId);
         if (!targetEmployee) {
@@ -239,6 +239,36 @@ export function registerCoachingRoutes(app: Express) {
 
       const logId = Number(req.params.id);
       const { attachmentUrl, attachmentName } = req.body;
+
+      const existingLogs = await storage.getCoachingLogs({});
+      const existingLog = existingLogs.find(l => l.id === logId);
+      if (!existingLog) {
+        return res.status(404).json({ error: "Coaching log not found" });
+      }
+
+      if (user.role === "manager" || user.role === "optimizer") {
+        const allEmployees = await storage.getEmployees();
+        const targetEmployee = allEmployees.find(e => e.id === existingLog.employeeId);
+        if (!targetEmployee) {
+          return res.status(404).json({ error: "Employee not found" });
+        }
+
+        const allowedNames = await getAllowedLocationNames(user);
+        if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
+          return res.status(403).json({ message: "Cannot modify coaching log for employee outside your location" });
+        }
+
+        const managerEmployee = allEmployees.find(e =>
+          e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+        );
+        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+        if (managerLevel < 3) {
+          const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+          if (empLevel >= managerLevel) {
+            return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
+          }
+        }
+      }
 
       const [updated] = await db.update(coachingLogs)
         .set({

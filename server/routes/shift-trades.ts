@@ -173,7 +173,7 @@ export function registerShiftTradeRoutes(app: Express) {
         if (requester?.location) {
           const allUsers = await storage.getUsers();
           const storeManagers = allUsers.filter(u => 
-            (u.role === "manager" || u.role === "admin") && u.isActive
+            (u.role === "manager" || u.role === "admin" || u.role === "optimizer") && u.isActive
           );
           for (const mgr of storeManagers) {
             await storage.createNotification({
@@ -353,7 +353,7 @@ export function registerShiftTradeRoutes(app: Express) {
       }
 
       const sessionUser = (req.session as any)?.user;
-      const isManagerOrAdmin = sessionUser?.role === "admin" || sessionUser?.role === "manager";
+      const isManagerOrAdmin = sessionUser?.role === "admin" || sessionUser?.role === "manager" || sessionUser?.role === "optimizer";
       if (!isManagerOrAdmin) {
         const allEmployees = await storage.getEmployees();
         const callerEmployee = allEmployees.find(e =>

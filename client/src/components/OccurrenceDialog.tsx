@@ -160,10 +160,11 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
         description: `${typeInfo.label} recorded for ${employeeName}${exemptionNote}.` 
       });
       onClose();
-    } catch (error) {
+    } catch (error: any) {
+      const message = error?.message || "Failed to record attendance";
       toast({ 
         title: "Error", 
-        description: "Failed to record attendance", 
+        description: message, 
         variant: "destructive" 
       });
     }

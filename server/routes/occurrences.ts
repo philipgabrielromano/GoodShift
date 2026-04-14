@@ -42,7 +42,7 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     return !!linkedEmployee && linkedEmployee.id === targetEmployeeId;
   }
 
-  if (user.role === "manager") {
+  if (user.role === "manager" || user.role === "optimizer") {
     const allowedNames = await getAllowedLocationNames(user);
     if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
       return false;
@@ -73,7 +73,7 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     return new Set(linkedEmployee ? [linkedEmployee.id] : []);
   }
 
-  if (user.role === "manager") {
+  if (user.role === "manager" || user.role === "optimizer") {
     const allowedNames = await getAllowedLocationNames(user);
     const managerEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
@@ -100,7 +100,7 @@ export function registerOccurrenceRoutes(app: Express) {
     try {
       const user = (req.session as any)?.user;
       if (!user) return res.status(401).json({ message: "Authentication required" });
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Manager access required" });
       }
 
@@ -175,7 +175,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.post("/api/occurrences", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can create occurrences" });
       }
       
@@ -226,7 +226,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.post("/api/occurrences/:id/retract", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can retract occurrences" });
       }
       
@@ -258,7 +258,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.post("/api/occurrence-adjustments/:id/retract", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can retract adjustments" });
       }
       
@@ -404,7 +404,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.get("/api/occurrence-alerts", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can view occurrence alerts" });
       }
 
@@ -561,7 +561,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.post("/api/occurrence-adjustments", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can create adjustments" });
       }
       
@@ -652,7 +652,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.post("/api/corrective-actions", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can create corrective actions" });
       }
       
@@ -718,7 +718,7 @@ export function registerOccurrenceRoutes(app: Express) {
   app.delete("/api/corrective-actions/:id", requireAuth, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
+      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
         return res.status(403).json({ message: "Only managers and admins can delete corrective actions" });
       }
       
