@@ -38,7 +38,6 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   
   let employees = await storage.getEmployees();
   const settings = await storage.getGlobalSettings();
-  const timeOff = await storage.getTimeOffRequests();
   const locations = await storage.getLocations();
   
   // Fetch PAL and UTO entries for the week
@@ -67,8 +66,6 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   // Filter out inactive employees and those hidden from schedule
   const activeEmployees = employees.filter(e => e.isActive && !e.isHiddenFromSchedule);
   
-  const approvedTimeOff = timeOff.filter(t => t.status === "approved");
-
   // Build PAL hours per employee (keyed by ukgEmployeeId) and PAL days
   // Hours stored in minutes in database, convert to hours
   const palHoursByEmployee = new Map<number, number>();
@@ -326,13 +323,6 @@ ${activeEmployees.map(e => {
   if (notes || palHours > 0 || prefilledHours > 0) notes += `, Available: ${availableHours}h`;
   return `- ID: ${e.id}, Name: ${e.name}, Job: ${e.jobTitle}, Max: ${maxHours}h${notes}, Pref Days: ${e.preferredDaysPerWeek || 5}`;
 }).join('\n')}
-
-## APPROVED TIME OFF (Do NOT schedule these employees on these days)
-
-${approvedTimeOff.length > 0 ? approvedTimeOff.map(t => {
-  const emp = employees.find(e => e.id === t.employeeId);
-  return `- ${emp?.name || 'Unknown'} (ID: ${t.employeeId}): ${t.startDate} to ${t.endDate}`;
-}).join('\n') : 'None'}
 
 ## PAL (Paid Annual Leave) - Do NOT schedule these employees on these days
 PAL hours count toward the employee's weekly hours, so reduce their scheduled work hours accordingly.

@@ -88,8 +88,6 @@ export function Navigation() {
           {can("shift_trades") && renderNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight }, "nav")}
           {can("attendance") && renderNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle }, "nav")}
           {can("task_assignment") && renderNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo }, "nav")}
-          {can("time_off") && renderNavItem({ href: "/requests", label: "Time Off", icon: Clock }, "nav")}
-
           <div className="pt-3 pb-1 px-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
           </div>
@@ -202,8 +200,6 @@ export function Navigation() {
               {can("shift_trades") && renderMobileNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight })}
               {can("attendance") && renderMobileNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle })}
               {can("task_assignment") && renderMobileNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo })}
-              {can("time_off") && renderMobileNavItem({ href: "/requests", label: "Time Off", icon: Clock })}
-
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
               </div>

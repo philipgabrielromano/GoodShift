@@ -3,7 +3,6 @@ import { db } from "./db";
 import {
   employees, type Employee, type InsertEmployee,
   shifts, type Shift, type InsertShift,
-  timeOffRequests, type TimeOffRequest, type InsertTimeOffRequest,
   roleRequirements, type RoleRequirement, type InsertRoleRequirement,
   globalSettings, type GlobalSettings, type InsertGlobalSettings,
   users, type User, type InsertUser,
@@ -43,11 +42,6 @@ export interface IStorage {
   updateShift(id: number, shift: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
   deleteShiftsByDateRange(start: Date, end: Date, location?: string): Promise<number>;
-
-  // Time Off
-  getTimeOffRequests(): Promise<TimeOffRequest[]>;
-  createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
-  updateTimeOffRequest(id: number, request: Partial<InsertTimeOffRequest>): Promise<TimeOffRequest>;
 
   // Role Requirements
   getRoleRequirements(): Promise<RoleRequirement[]>;
@@ -272,21 +266,6 @@ export class DatabaseStorage implements IStorage {
       .where(and(gte(shifts.startTime, start), lt(shifts.startTime, end)))
       .returning({ id: shifts.id });
     return result.length;
-  }
-
-  // Time Off
-  async getTimeOffRequests(): Promise<TimeOffRequest[]> {
-    return await db.select().from(timeOffRequests);
-  }
-
-  async createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest> {
-    const [newRequest] = await db.insert(timeOffRequests).values(request).returning();
-    return newRequest;
-  }
-
-  async updateTimeOffRequest(id: number, request: Partial<InsertTimeOffRequest>): Promise<TimeOffRequest> {
-    const [updated] = await db.update(timeOffRequests).set(request).where(eq(timeOffRequests.id, id)).returning();
-    return updated;
   }
 
   // Role Requirements

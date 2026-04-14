@@ -2,7 +2,6 @@
 import { z } from 'zod';
 import { 
   insertEmployeeSchema, 
-  insertTimeOffRequestSchema, 
   insertShiftSchema, 
   insertRoleRequirementSchema,
   insertGlobalSettingsSchema,
@@ -11,7 +10,6 @@ import {
   insertShiftPresetSchema,
   insertRosterTargetSchema,
   employees,
-  timeOffRequests,
   shifts,
   roleRequirements,
   globalSettings,
@@ -134,35 +132,6 @@ export const api = {
       path: '/api/shifts/:id',
       responses: {
         204: z.void(),
-        404: errorSchemas.notFound,
-      },
-    },
-  },
-
-  timeOffRequests: {
-    list: {
-      method: 'GET' as const,
-      path: '/api/time-off-requests',
-      responses: {
-        200: z.array(z.custom<typeof timeOffRequests.$inferSelect>()),
-      },
-    },
-    create: {
-      method: 'POST' as const,
-      path: '/api/time-off-requests',
-      input: insertTimeOffRequestSchema,
-      responses: {
-        201: z.custom<typeof timeOffRequests.$inferSelect>(),
-        400: errorSchemas.validation,
-      },
-    },
-    update: {
-      method: 'PUT' as const,
-      path: '/api/time-off-requests/:id',
-      input: insertTimeOffRequestSchema.partial(),
-      responses: {
-        200: z.custom<typeof timeOffRequests.$inferSelect>(),
-        400: errorSchemas.validation,
         404: errorSchemas.notFound,
       },
     },

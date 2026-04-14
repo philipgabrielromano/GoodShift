@@ -16,7 +16,6 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       console.log(`[Scheduler] Location filter: ${location || 'none'}, Employees: ${employees.length} of ${allEmployees.length}`);
       
       const settings = await storage.getGlobalSettings();
-      const timeOff = await storage.getTimeOffRequests();
       const locations = await storage.getLocations();
       
       const selectedLocation = location ? locations.find(l => l.name === location) : null;
@@ -191,15 +190,6 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         // Check if employee already has an existing shift on this day (preserve manual assignments)
         const existingKey = `${empId}-${dayIndex}`;
         if (existingShiftsByEmpDay.has(existingKey)) return true;
-        
-        // Check approved time-off requests
-        const hasApprovedTimeOff = timeOff.some(to => 
-          to.employeeId === empId && 
-          to.status === "approved" && 
-          new Date(to.startDate) <= day && 
-          new Date(to.endDate) >= day
-        );
-        if (hasApprovedTimeOff) return true;
         
         // Check PAL/UTO entries from UKG
         const dayStr = day.toISOString().split('T')[0];

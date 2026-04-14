@@ -8,7 +8,6 @@ import { Navigation } from "@/components/Navigation";
 import NotFound from "@/pages/not-found";
 import Schedule from "@/pages/Schedule";
 import Employees from "@/pages/Employees";
-import TimeOffRequests from "@/pages/TimeOffRequests";
 import Settings from "@/pages/Settings";
 import Users from "@/pages/Users";
 import Locations from "@/pages/Locations";
@@ -39,7 +38,6 @@ function Router() {
     <Switch>
       <Route path="/" component={Schedule} />
       <Route path="/employees" component={Employees} />
-      <Route path="/requests" component={TimeOffRequests} />
       <Route path="/attendance" component={Attendance} />
       <Route path="/users" component={Users} />
       <Route path="/locations" component={Locations} />

@@ -2,7 +2,6 @@ import { AlertCircle, CheckCircle2, Wand2, ChevronDown, ChevronRight, Clock, Use
 import { useEmployees } from "@/hooks/use-employees";
 import { useShifts } from "@/hooks/use-shifts";
 import { useRoleRequirements, useGlobalSettings } from "@/hooks/use-settings";
-import { useTimeOffRequests } from "@/hooks/use-time-off";
 import { useLocations } from "@/hooks/use-locations";
 import { isSameDay, startOfWeek, endOfWeek, parseISO, addDays, subDays, format, differenceInCalendarDays } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
@@ -126,11 +125,10 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
   const { data: prevWeekShifts } = useShifts(prevWeekStart, prevWeekEnd);
   const { data: roles } = useRoleRequirements();
   const { data: settings } = useGlobalSettings();
-  const { data: timeOff } = useTimeOffRequests();
   const { data: locations } = useLocations();
 
   const issues = useMemo(() => {
-    if (!employees || !shifts || !roles || !settings || !timeOff || !prevWeekShifts || !locations) return [];
+    if (!employees || !shifts || !roles || !settings || !prevWeekShifts || !locations) return [];
     
     const newIssues: Issue[] = [];
     let totalWeeklyHours = 0;
@@ -456,27 +454,6 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       }
     }
 
-    // Check 5: Time off conflicts
-    filteredShifts.forEach(shift => {
-      const emp = filteredEmployees.find(e => e.id === shift.employeeId);
-      if (!emp) return;
-
-      const conflicts = timeOff.filter(req => 
-        req.employeeId === shift.employeeId && 
-        req.status === "approved" &&
-        isSameDay(req.startDate, shift.startTime) // Simplified conflict check
-      );
-
-      if (conflicts.length > 0) {
-        newIssues.push({
-          type: "error",
-          category: "conflicts",
-          message: `${emp.name} has a shift during approved time off`
-        });
-      }
-    });
-
-
     // Check 6: Clopening detection (closing shift followed by opening shift next day)
     filteredEmployees.forEach(emp => {
       const empShifts = filteredShifts
@@ -680,7 +657,7 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
     });
 
     return newIssues;
-  }, [employees, shifts, prevWeekShifts, roles, settings, timeOff, locations, start, end, selectedLocation]);
+  }, [employees, shifts, prevWeekShifts, roles, settings, locations, start, end, selectedLocation]);
 
   // Track expanded state for each category
   const [expandedCategories, setExpandedCategories] = useState<Record<IssueCategory, boolean>>({

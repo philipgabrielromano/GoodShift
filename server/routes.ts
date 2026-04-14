@@ -572,38 +572,6 @@ export async function registerRoutes(
     res.status(204).send();
   });
 
-  // === Time Off Requests ===
-  app.get(api.timeOffRequests.list.path, requireAuth, async (req, res) => {
-    const requests = await storage.getTimeOffRequests();
-    res.json(requests);
-  });
-
-  app.post(api.timeOffRequests.create.path, requireManager, async (req, res) => {
-    try {
-      const input = api.timeOffRequests.create.input.parse(req.body);
-      const request = await storage.createTimeOffRequest(input);
-      res.status(201).json(request);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
-  });
-
-  app.put(api.timeOffRequests.update.path, requireManager, async (req, res) => {
-    try {
-      const input = api.timeOffRequests.update.input.parse(req.body);
-      const request = await storage.updateTimeOffRequest(Number(req.params.id), input);
-      res.json(request);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      return res.status(404).json({ message: "Request not found" });
-    }
-  });
-
   // === Role Requirements ===
   app.get(api.roleRequirements.list.path, requireAuth, async (req, res) => {
     const reqs = await storage.getRoleRequirements();
@@ -1354,18 +1322,6 @@ async function seedDatabase() {
       employeeId: waiter1.id,
       startTime: mondayStart,
       endTime: mondayEnd
-    });
-
-    // Create a time off request
-    const nextWeek = new Date(now);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    
-    await storage.createTimeOffRequest({
-      employeeId: waiter2.id,
-      startDate: nextWeek.toISOString().split('T')[0],
-      endDate: nextWeek.toISOString().split('T')[0],
-      reason: "Doctor's appointment",
-      status: "pending"
     });
 
     console.log("Database seeded successfully!");

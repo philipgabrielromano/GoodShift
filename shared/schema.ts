@@ -32,15 +32,6 @@ export const employees = pgTable("employees", {
   index("idx_employees_location").on(table.location),
 ]);
 
-export const timeOffRequests = pgTable("time_off_requests", {
-  id: serial("id").primaryKey(),
-  employeeId: integer("employee_id").notNull(),
-  startDate: date("start_date").notNull(),
-  endDate: date("end_date").notNull(),
-  reason: text("reason"),
-  status: text("status").notNull().default("pending"), // pending, approved, rejected
-});
-
 export const shifts = pgTable("shifts", {
   id: serial("id").primaryKey(),
   employeeId: integer("employee_id").notNull(),
@@ -199,19 +190,11 @@ export const timeClockPunches = pgTable("time_clock_punches", {
 
 export const employeesRelations = relations(employees, ({ many }) => ({
   shifts: many(shifts),
-  timeOffRequests: many(timeOffRequests),
 }));
 
 export const shiftsRelations = relations(shifts, ({ one }) => ({
   employee: one(employees, {
     fields: [shifts.employeeId],
-    references: [employees.id],
-  }),
-}));
-
-export const timeOffRequestsRelations = relations(timeOffRequests, ({ one }) => ({
-  employee: one(employees, {
-    fields: [timeOffRequests.employeeId],
     references: [employees.id],
   }),
 }));
@@ -236,7 +219,6 @@ export type RosterTarget = typeof rosterTargets.$inferSelect;
 export type InsertRosterTarget = z.infer<typeof insertRosterTargetSchema>;
 
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
-export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true });
 export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true });
 export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).omit({ id: true });
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
@@ -251,10 +233,6 @@ export const insertTimeClockPunchSchema = createInsertSchema(timeClockPunches).o
 // Employee Types
 export type Employee = typeof employees.$inferSelect;
 export type InsertEmployee = z.infer<typeof insertEmployeeSchema>;
-
-// Time Off Types
-export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
-export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
 
 // Shift Types
 export type Shift = typeof shifts.$inferSelect;
@@ -289,7 +267,7 @@ export type TimeClockPunch = typeof timeClockPunches.$inferSelect;
 export type InsertTimeClockPunch = z.infer<typeof insertTimeClockPunchSchema>;
 
 // Complex Types for UI
-export type EmployeeWithShifts = Employee & { shifts: Shift[], timeOffRequests: TimeOffRequest[] };
+export type EmployeeWithShifts = Employee & { shifts: Shift[] };
 
 // === SCHEDULE TEMPLATES ===
 
@@ -778,7 +756,6 @@ export const SYSTEM_FEATURES = [
   { feature: "orders", label: "Orders", description: "Submit and view equipment orders" },
   { feature: "users", label: "User Management", description: "Manage user accounts and roles" },
   { feature: "raw_shifts", label: "Raw Shifts", description: "View raw shift data" },
-  { feature: "time_off", label: "Time Off Requests", description: "View and manage time-off requests" },
 ] as const;
 
 export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
@@ -795,7 +772,6 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   orders: ["admin"],
   users: ["admin"],
   raw_shifts: ["admin"],
-  time_off: ["admin", "manager", "optimizer", "viewer"],
 };
 
 export const OPTIMIZATION_SURVEY_QUESTIONS = [
