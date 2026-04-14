@@ -77,9 +77,6 @@ export function setupAuth(app: Express) {
     if (method === "GET" || method === "HEAD" || method === "OPTIONS") {
       return next();
     }
-    if (req.path.startsWith("/api/internal/")) {
-      return next();
-    }
     return csrfProtection(req, res, next);
   });
 
