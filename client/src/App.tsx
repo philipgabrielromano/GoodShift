@@ -23,6 +23,8 @@ import Coaching from "@/pages/Coaching";
 import Roster from "@/pages/Roster";
 import TaskAssignment from "@/pages/TaskAssignment";
 import Optimization from "@/pages/Optimization";
+import OrderForm from "@/pages/OrderForm";
+import OrderSubmissions from "@/pages/OrderSubmissions";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -50,6 +52,8 @@ function Router() {
       <Route path="/roster" component={Roster} />
       <Route path="/tasks" component={TaskAssignment} />
       <Route path="/optimization" component={Optimization} />
+      <Route path="/orders/new" component={OrderForm} />
+      <Route path="/orders" component={OrderSubmissions} />
       <Route component={NotFound} />
     </Switch>
   );

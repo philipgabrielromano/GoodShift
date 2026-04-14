@@ -19,6 +19,8 @@ import { registerCoachingRoutes } from "./routes/coaching";
 import { registerRosterRoutes } from "./routes/roster";
 import { registerTaskAssignmentRoutes } from "./routes/task-assignments";
 import { registerOptimizationRoutes } from "./routes/optimization";
+import { registerOrderRoutes } from "./routes/orders";
+import { initOrdersTable } from "./mysql";
 
 function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTime: Date }[]) {
   const seen = new Set<string>();
@@ -1198,6 +1200,14 @@ export async function registerRoutes(
   registerTaskAssignmentRoutes(app);
 
   registerOptimizationRoutes(app);
+
+  registerOrderRoutes(app);
+
+  try {
+    await initOrdersTable();
+  } catch (err) {
+    console.error("[MySQL] Failed to initialize orders table:", err);
+  }
 
   // === SEED DATA ===
   await seedDatabase();

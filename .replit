@@ -52,7 +52,3 @@ timeoutMs = 20000
 [userenv]
 
 [userenv.shared]
-MYSQL_HOST = "gceco-sales-1.mysql.database.azure.com"
-MYSQL_PORT = "3306"
-MYSQL_DATABASE = "sales"
-MYSQL_USER = "promano"

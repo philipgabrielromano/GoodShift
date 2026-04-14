@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -51,6 +51,12 @@ const reportNavItems = [
 const adminNavItems = [
   { href: "/users", label: "Users", icon: Shield },
   { href: "/shifts", label: "Shifts", icon: Clock },
+];
+
+// Orders section - managers and admins
+const orderNavItems = [
+  { href: "/orders/new", label: "Order Form", icon: PackageOpen },
+  { href: "/orders", label: "Order Submissions", icon: FileText },
 ];
 
 // Bottom items
@@ -150,6 +156,15 @@ export function Navigation() {
           {isManagerOrAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-orders-heading">Orders</p>
+              </div>
+              {orderNavItems.map((item) => renderNavItem(item, "nav"))}
+            </>
+          )}
+
+          {isManagerOrAdmin && (
+            <>
+              <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-reports-heading">Reports</p>
               </div>
               {reportNavItems.map((item) => renderNavItem(item, "nav"))}
@@ -242,6 +257,15 @@ export function Navigation() {
                 </>
               )}
               {!isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
+
+              {isManagerOrAdmin && (
+                <>
+                  <div className="pt-3 pb-1 px-4">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Orders</p>
+                  </div>
+                  {orderNavItems.map((item) => renderMobileNavItem(item))}
+                </>
+              )}
 
               {isManagerOrAdmin && (
                 <>
