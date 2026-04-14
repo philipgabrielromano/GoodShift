@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "1.5.1";
+export const APP_VERSION = "2.0.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "2.0.0",
+    date: "2026-04-14",
+    title: "Security Hardening",
+    changes: [
+      { type: "security", description: "Removed logging of MySQL connection details to standard output to prevent sensitive data exposure." },
+    ],
+  },
   {
     version: "1.5.1",
     date: "2026-03-27",
