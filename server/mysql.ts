@@ -19,8 +19,6 @@ const pool = mysql.createPool({
   connectTimeout: 10000,
 });
 
-console.log(`[MySQL] Connecting via ${useTailscale ? "Tailscale proxy (localhost:" + LOCAL_PROXY_PORT + ")" : "direct"} to ${mysqlHost}:${mysqlPort}`);
-
 export async function initOrdersTable(): Promise<void> {
   const conn = await pool.getConnection();
   try {
