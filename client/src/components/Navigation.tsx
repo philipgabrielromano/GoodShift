@@ -53,7 +53,7 @@ const adminNavItems = [
   { href: "/shifts", label: "Shifts", icon: Clock },
 ];
 
-// Orders section - managers and admins
+// Orders section - admins only
 const orderNavItems = [
   { href: "/orders/new", label: "Order Form", icon: PackageOpen },
   { href: "/orders", label: "Order Submissions", icon: FileText },
@@ -153,7 +153,7 @@ export function Navigation() {
           )}
           {!isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
 
-          {isManagerOrAdmin && (
+          {isAdmin && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-orders-heading">Orders</p>
@@ -258,7 +258,7 @@ export function Navigation() {
               )}
               {!isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
 
-              {isManagerOrAdmin && (
+              {isAdmin && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Orders</p>

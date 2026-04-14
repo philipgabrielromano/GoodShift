@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { requireManager } from "../middleware";
+import { requireAdmin } from "../middleware";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
 
@@ -212,7 +212,7 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
 }
 
 export function registerOrderRoutes(app: Express) {
-  app.post("/api/orders", requireManager, async (req, res) => {
+  app.post("/api/orders", requireAdmin, async (req, res) => {
     try {
       const parsed = orderSchema.parse(req.body);
       const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
@@ -238,7 +238,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.get("/api/orders", requireManager, async (req, res) => {
+  app.get("/api/orders", requireAdmin, async (req, res) => {
     try {
       const { startDate, endDate, location, orderType, limit, offset } = req.query;
 
@@ -288,7 +288,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.get("/api/orders/:id", requireManager, async (req, res) => {
+  app.get("/api/orders/:id", requireAdmin, async (req, res) => {
     try {
       const [rows] = await mysqlPool.execute<OrderRow[]>("SELECT * FROM orders WHERE id = ?", [req.params.id]);
       if (rows.length === 0) {
