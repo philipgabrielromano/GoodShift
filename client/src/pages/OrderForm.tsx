@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useLocations } from "@/hooks/use-locations";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -124,9 +125,27 @@ function NumberField({ label, value, onChange, testId }: { label: string; value:
   );
 }
 
+interface AuthStatus {
+  isAuthenticated: boolean;
+  user: { id: number; name: string; email: string; role: string; locationIds: string[] | null } | null;
+}
+
 export default function OrderForm() {
   const { toast } = useToast();
   const today = new Date().toISOString().split("T")[0];
+  const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
+  const { data: dbLocations } = useLocations();
+
+  const defaultLocation = (() => {
+    const userLocIds = authStatus?.user?.locationIds;
+    if (!userLocIds || userLocIds.length === 0 || !dbLocations) return "";
+    const userLocNames = dbLocations
+      .filter((loc: any) => userLocIds.includes(String(loc.id)))
+      .map((loc: any) => loc.name)
+      .filter((name: string) => LOCATIONS.includes(name))
+      .sort((a: string, b: string) => a.localeCompare(b));
+    return userLocNames.length > 0 ? userLocNames[0] : "";
+  })();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -137,6 +156,12 @@ export default function OrderForm() {
       notes: "",
     },
   });
+
+  useEffect(() => {
+    if (defaultLocation && !form.getValues("location")) {
+      form.setValue("location", defaultLocation);
+    }
+  }, [defaultLocation]);
 
   const orderType = form.watch("orderType");
   const location = form.watch("location");
@@ -155,7 +180,7 @@ export default function OrderForm() {
     onSuccess: () => {
       toast({ title: "Order submitted successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      form.reset({ orderDate: today, orderType: undefined, location: "", notes: "" });
+      form.reset({ orderDate: today, orderType: undefined, location: defaultLocation, notes: "" });
     },
     onError: (err: Error) => {
       toast({ title: "Failed to submit order", description: err.message, variant: "destructive" });
