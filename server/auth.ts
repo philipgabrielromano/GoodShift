@@ -183,9 +183,9 @@ export function setupAuth(app: Express) {
             // Link Microsoft ID to existing user
             user = await storage.updateUser(user.id, { microsoftId });
           } else {
-            // Create new user - first user is admin, rest are viewers
+            // Create new user - first user is admin, rest get auto-assigned role
             const existingUsers = await storage.getUsers();
-            const role = existingUsers.length === 0 ? "admin" : "viewer";
+            let role = existingUsers.length === 0 ? "admin" : "viewer";
             
             // Try to auto-assign location based on matching employee record
             let locationIds: string[] = [];
@@ -194,6 +194,14 @@ export function setupAuth(app: Express) {
               const location = await storage.getLocationByName(matchingEmployee.location);
               if (location) {
                 locationIds = [String(location.id)];
+              }
+            }
+
+            // Auto-assign "ordering" role based on job title or store email
+            if (role !== "admin") {
+              const shouldBeOrdering = email.includes("store") || (matchingEmployee?.jobTitle && /team\s*lead|assistant\s*manager|alternative\s*lead|outlet\s*(manager|lead)/i.test(matchingEmployee.jobTitle));
+              if (shouldBeOrdering) {
+                role = "ordering";
               }
             }
             

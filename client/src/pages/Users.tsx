@@ -145,7 +145,7 @@ export default function Users() {
     return sortDir === "asc" ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />;
   };
 
-  const roleOrder: Record<string, number> = { admin: 0, manager: 1, optimizer: 2, viewer: 3 };
+  const roleOrder: Record<string, number> = { admin: 0, manager: 1, optimizer: 2, viewer: 3, ordering: 4 };
 
   const sortedUsers = useMemo(() => {
     if (!users) return [];
@@ -445,6 +445,7 @@ export default function Users() {
                   <SelectItem value="manager" data-testid="option-role-manager">Manager</SelectItem>
                   <SelectItem value="optimizer" data-testid="option-role-optimizer">Store Optimizer</SelectItem>
                   <SelectItem value="viewer" data-testid="option-role-viewer">Viewer</SelectItem>
+                  <SelectItem value="ordering" data-testid="option-role-ordering">Ordering</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

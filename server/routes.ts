@@ -1197,10 +1197,10 @@ export async function registerRoutes(
 
   app.put("/api/permissions", requireAdmin, async (req, res) => {
     try {
-      const validRoles = ["admin", "manager", "optimizer", "viewer"];
+      const validRoles = ["admin", "manager", "optimizer", "viewer", "ordering"];
       const schema = z.array(z.object({
         feature: z.string(),
-        allowedRoles: z.array(z.enum(["admin", "manager", "optimizer", "viewer"])),
+        allowedRoles: z.array(z.enum(["admin", "manager", "optimizer", "viewer", "ordering"])),
       }));
       const updates = schema.parse(req.body);
       const validFeatures = SYSTEM_FEATURES.map(f => f.feature);

@@ -122,7 +122,7 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
-  role: text("role").notNull().default("viewer"), // admin, manager, viewer
+  role: text("role").notNull().default("viewer"), // admin, manager, optimizer, viewer, ordering
   locationIds: text("location_ids").array(), // Array of location IDs this user can access
   isActive: boolean("is_active").notNull().default(true),
   microsoftId: text("microsoft_id"), // Microsoft 365 user ID
@@ -769,7 +769,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   locations: ["admin", "manager", "optimizer"],
   settings: ["admin", "manager", "optimizer", "viewer"],
   reports: ["admin", "manager", "optimizer"],
-  orders: ["admin"],
+  orders: ["admin", "ordering"],
   users: ["admin"],
   raw_shifts: ["admin"],
 };

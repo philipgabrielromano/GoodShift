@@ -15,13 +15,14 @@ interface FeaturePermission {
   allowedRoles: string[];
 }
 
-const ALL_ROLES = ["admin", "manager", "optimizer", "viewer"] as const;
+const ALL_ROLES = ["admin", "manager", "optimizer", "viewer", "ordering"] as const;
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
   manager: "Manager",
   optimizer: "Store Optimizer",
   viewer: "Viewer",
+  ordering: "Ordering",
 };
 
 export default function Permissions() {
