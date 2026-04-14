@@ -85,11 +85,25 @@ export function setupAuth(app: Express) {
     res.json({ csrfToken: req.csrfToken() });
   });
 
-  app.get("/api/auth/status", (req, res) => {
+  app.get("/api/auth/status", async (req, res) => {
+    const user = req.session?.user;
+    let accessibleFeatures: string[] = [];
+    if (user) {
+      const { getFeaturePermissions } = await import("./middleware");
+      const perms = await getFeaturePermissions();
+      if (user.role === "admin") {
+        accessibleFeatures = Object.keys(perms);
+      } else {
+        accessibleFeatures = Object.entries(perms)
+          .filter(([_, roles]) => roles.includes(user.role))
+          .map(([feature]) => feature);
+      }
+    }
     res.json({
       isAuthenticated: req.session?.isAuthenticated || false,
-      user: req.session?.user || null,
+      user: user || null,
       ssoConfigured: isMicrosoftSsoConfigured(),
+      accessibleFeatures,
     });
   });
 

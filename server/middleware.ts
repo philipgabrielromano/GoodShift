@@ -61,6 +61,63 @@ export function requireOptimizer(req: Request, res: Response, next: NextFunction
   next();
 }
 
+// Dynamic feature-based permission middleware
+// Checks the feature_permissions table to see if the user's role has access
+import { db } from "./db";
+import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS } from "@shared/schema";
+import { eq } from "drizzle-orm";
+
+let permissionsCache: Record<string, string[]> | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 30_000;
+
+export async function getFeaturePermissions(): Promise<Record<string, string[]>> {
+  const now = Date.now();
+  if (permissionsCache && now - cacheTimestamp < CACHE_TTL) {
+    return permissionsCache;
+  }
+  try {
+    const rows = await db.select().from(featurePermissions);
+    const perms: Record<string, string[]> = {};
+    for (const row of rows) {
+      perms[row.feature] = row.allowedRoles;
+    }
+    for (const [feature, roles] of Object.entries(DEFAULT_FEATURE_PERMISSIONS)) {
+      if (!perms[feature]) {
+        perms[feature] = roles;
+      }
+    }
+    permissionsCache = perms;
+    cacheTimestamp = now;
+    return perms;
+  } catch {
+    return { ...DEFAULT_FEATURE_PERMISSIONS };
+  }
+}
+
+export function invalidatePermissionsCache() {
+  permissionsCache = null;
+  cacheTimestamp = 0;
+}
+
+export function requireFeatureAccess(feature: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = (req.session as any)?.user;
+    if (!user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    if (user.role === "admin") {
+      return next();
+    }
+    const perms = await getFeaturePermissions();
+    const allowedRoles = perms[feature] || [];
+    if (!allowedRoles.includes(user.role)) {
+      return res.status(403).json({ message: "Access denied" });
+    }
+    next();
+  };
+}
+
 // Helper function to check if HR notification should be sent for occurrence thresholds
 // Sends emails to managers assigned to the employee's store location
 // addedOccurrenceValue: the value of the occurrence just added (used to detect crossing vs already over)

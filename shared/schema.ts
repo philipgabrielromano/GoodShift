@@ -754,6 +754,50 @@ export const OPTIMIZATION_CHECKLIST: Record<string, { key: string; label: string
   ],
 };
 
+export const featurePermissions = pgTable("feature_permissions", {
+  feature: text("feature").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description"),
+  allowedRoles: text("allowed_roles").array().notNull(),
+});
+
+export type FeaturePermission = typeof featurePermissions.$inferSelect;
+export type InsertFeaturePermission = typeof featurePermissions.$inferInsert;
+
+export const SYSTEM_FEATURES = [
+  { feature: "schedule", label: "Schedule", description: "View and manage the weekly schedule" },
+  { feature: "shift_trades", label: "Shift Trades", description: "View and manage shift trade requests" },
+  { feature: "attendance", label: "Attendance", description: "View and manage attendance records" },
+  { feature: "task_assignment", label: "Task Assignment", description: "Assign daily tasks to employees" },
+  { feature: "coaching", label: "Coaching", description: "View and manage coaching logs" },
+  { feature: "optimization", label: "Store Optimization", description: "Store optimization event tracking" },
+  { feature: "employees", label: "Employees", description: "View and manage employee records" },
+  { feature: "locations", label: "Locations", description: "View and manage store locations" },
+  { feature: "settings", label: "Settings", description: "View and manage application settings" },
+  { feature: "reports", label: "Reports", description: "Occurrence reports, variance reports, and roster targets" },
+  { feature: "orders", label: "Orders", description: "Submit and view equipment orders" },
+  { feature: "users", label: "User Management", description: "Manage user accounts and roles" },
+  { feature: "raw_shifts", label: "Raw Shifts", description: "View raw shift data" },
+  { feature: "time_off", label: "Time Off Requests", description: "View and manage time-off requests" },
+] as const;
+
+export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
+  schedule: ["admin", "manager", "optimizer", "viewer"],
+  shift_trades: ["admin", "manager", "optimizer", "viewer"],
+  attendance: ["admin", "manager", "optimizer"],
+  task_assignment: ["admin", "manager", "optimizer"],
+  coaching: ["admin", "manager", "optimizer", "viewer"],
+  optimization: ["admin", "optimizer"],
+  employees: ["admin", "manager", "optimizer"],
+  locations: ["admin", "manager", "optimizer"],
+  settings: ["admin", "manager", "optimizer", "viewer"],
+  reports: ["admin", "manager", "optimizer"],
+  orders: ["admin"],
+  users: ["admin"],
+  raw_shifts: ["admin"],
+  time_off: ["admin", "manager", "optimizer", "viewer"],
+};
+
 export const OPTIMIZATION_SURVEY_QUESTIONS = [
   "Was the event engaging?",
   "Do you feel the facilitator communicated effectively?",

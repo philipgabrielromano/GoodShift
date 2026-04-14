@@ -1,8 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import clsx from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import goodshiftLogo from "@assets/goodshift_1770590279218.png";
@@ -15,51 +15,9 @@ interface AuthStatus {
   isAuthenticated: boolean;
   user: { id: number; name: string; email: string; role: string } | null;
   ssoConfigured: boolean;
+  accessibleFeatures?: string[];
 }
 
-// Scheduling section - shown to all
-const schedulingItems = [
-  { href: "/", label: "Schedule", icon: LayoutDashboard },
-  { href: "/trades", label: "Shift Trades", icon: ArrowLeftRight },
-  { href: "/attendance", label: "Attendance", icon: AlertTriangle },
-];
-
-// Task assignment - managers/admins only
-const taskAssignmentItem = { href: "/tasks", label: "Task Assignment", icon: ListTodo };
-
-// Coaching - standalone link for all
-const coachingItem = { href: "/coaching", label: "Coaching", icon: MessageSquare };
-
-// Store Optimization - optimizers, managers, admins
-const optimizationItem = { href: "/optimization", label: "Store Optimization", icon: Target };
-
-// Configuration section - managers and admins
-const configItems = [
-  { href: "/employees", label: "Employees", icon: Users },
-  { href: "/locations", label: "Locations", icon: MapPin },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
-
-// Report items shown to managers and admins
-const reportNavItems = [
-  { href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList },
-  { href: "/reports/variance", label: "Variance Report", icon: FileBarChart },
-  { href: "/roster", label: "Roster Targets", icon: UsersRound },
-];
-
-// Items shown to admins only
-const adminNavItems = [
-  { href: "/users", label: "Users", icon: Shield },
-  { href: "/shifts", label: "Shifts", icon: Clock },
-];
-
-// Orders section - admins only
-const orderNavItems = [
-  { href: "/orders/new", label: "Order Form", icon: PackageOpen },
-  { href: "/orders", label: "Order Submissions", icon: FileText },
-];
-
-// Bottom items
 const changelogItem = { href: "/changelog", label: "Changelog", icon: ScrollText };
 
 export function Navigation() {
@@ -70,13 +28,13 @@ export function Navigation() {
     queryKey: ["/api/auth/status"],
   });
 
+  const features = authStatus?.accessibleFeatures || [];
+  const can = (feature: string) => features.includes(feature);
   const isAdmin = authStatus?.user?.role === "admin";
-  const isManager = authStatus?.user?.role === "manager";
-  const isOptimizer = authStatus?.user?.role === "optimizer";
-  const isManagerOrAdmin = isAdmin || isManager || isOptimizer;
-  const canAccessOptimization = isAdmin || isOptimizer;
 
-  const renderNavItem = (item: typeof schedulingItems[0], prefix: string = "nav") => (
+  type NavItem = { href: string; label: string; icon: any };
+
+  const renderNavItem = (item: NavItem, prefix: string = "nav") => (
     <Link key={item.href} href={item.href}>
       <div 
         data-testid={`link-${prefix}-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
@@ -93,7 +51,7 @@ export function Navigation() {
     </Link>
   );
 
-  const renderMobileNavItem = (item: typeof schedulingItems[0]) => (
+  const renderMobileNavItem = (item: NavItem) => (
     <Link key={item.href} href={item.href}>
       <div 
         onClick={() => setMobileOpen(false)}
@@ -126,57 +84,66 @@ export function Navigation() {
           <div className="pt-1 pb-1 px-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
           </div>
-          {schedulingItems.map((item) => renderNavItem(item, "nav"))}
-          {isManagerOrAdmin && renderNavItem(taskAssignmentItem, "nav")}
+          {can("schedule") && renderNavItem({ href: "/", label: "Schedule", icon: LayoutDashboard }, "nav")}
+          {can("shift_trades") && renderNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight }, "nav")}
+          {can("attendance") && renderNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle }, "nav")}
+          {can("task_assignment") && renderNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo }, "nav")}
+          {can("time_off") && renderNavItem({ href: "/requests", label: "Time Off", icon: Clock }, "nav")}
 
           <div className="pt-3 pb-1 px-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
           </div>
-          {renderNavItem(coachingItem, "nav")}
+          {can("coaching") && renderNavItem({ href: "/coaching", label: "Coaching", icon: MessageSquare }, "nav")}
 
-          {canAccessOptimization && (
+          {can("optimization") && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-optimization-heading">Optimization</p>
               </div>
-              {renderNavItem(optimizationItem, "nav")}
+              {renderNavItem({ href: "/optimization", label: "Store Optimization", icon: Target }, "nav")}
             </>
           )}
 
-          {isManagerOrAdmin && (
+          {(can("employees") || can("locations") || can("settings")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-configuration-heading">Configuration</p>
               </div>
-              {configItems.map((item) => renderNavItem(item, "nav"))}
+              {can("employees") && renderNavItem({ href: "/employees", label: "Employees", icon: Users }, "nav")}
+              {can("locations") && renderNavItem({ href: "/locations", label: "Locations", icon: MapPin }, "nav")}
+              {can("settings") && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
             </>
           )}
-          {!isManagerOrAdmin && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
 
-          {isAdmin && (
+          {can("orders") && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-orders-heading">Orders</p>
               </div>
-              {orderNavItems.map((item) => renderNavItem(item, "nav"))}
+              {renderNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen }, "nav")}
+              {renderNavItem({ href: "/orders", label: "Order Submissions", icon: FileText }, "nav")}
             </>
           )}
 
-          {isManagerOrAdmin && (
+          {can("reports") && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-reports-heading">Reports</p>
               </div>
-              {reportNavItems.map((item) => renderNavItem(item, "nav"))}
+              {renderNavItem({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList }, "nav")}
+              {renderNavItem({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart }, "nav")}
+              {renderNavItem({ href: "/roster", label: "Roster Targets", icon: UsersRound }, "nav")}
             </>
           )}
 
-          {isAdmin && (
+          {(can("users") || can("raw_shifts")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-admin-heading">Admin</p>
               </div>
-              {adminNavItems.map((item) => renderNavItem(item, "nav"))}
+              {can("users") && renderNavItem({ href: "/users", label: "Users", icon: Shield }, "nav")}
+              {can("raw_shifts") && renderNavItem({ href: "/shifts", label: "Shifts", icon: Clock }, "nav")}
+              {isAdmin && renderNavItem({ href: "/permissions", label: "Permissions", icon: ShieldCheck }, "nav")}
             </>
           )}
 
@@ -231,57 +198,66 @@ export function Navigation() {
               <div className="pt-1 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
               </div>
-              {schedulingItems.map((item) => renderMobileNavItem(item))}
-              {isManagerOrAdmin && renderMobileNavItem(taskAssignmentItem)}
+              {can("schedule") && renderMobileNavItem({ href: "/", label: "Schedule", icon: LayoutDashboard })}
+              {can("shift_trades") && renderMobileNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight })}
+              {can("attendance") && renderMobileNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle })}
+              {can("task_assignment") && renderMobileNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo })}
+              {can("time_off") && renderMobileNavItem({ href: "/requests", label: "Time Off", icon: Clock })}
 
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
               </div>
-              {renderMobileNavItem(coachingItem)}
+              {can("coaching") && renderMobileNavItem({ href: "/coaching", label: "Coaching", icon: MessageSquare })}
 
-              {canAccessOptimization && (
+              {can("optimization") && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Optimization</p>
                   </div>
-                  {renderMobileNavItem(optimizationItem)}
+                  {renderMobileNavItem({ href: "/optimization", label: "Store Optimization", icon: Target })}
                 </>
               )}
 
-              {isManagerOrAdmin && (
+              {(can("employees") || can("locations") || can("settings")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Configuration</p>
                   </div>
-                  {configItems.map((item) => renderMobileNavItem(item))}
+                  {can("employees") && renderMobileNavItem({ href: "/employees", label: "Employees", icon: Users })}
+                  {can("locations") && renderMobileNavItem({ href: "/locations", label: "Locations", icon: MapPin })}
+                  {can("settings") && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
                 </>
               )}
-              {!isManagerOrAdmin && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
 
-              {isAdmin && (
+              {can("orders") && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Orders</p>
                   </div>
-                  {orderNavItems.map((item) => renderMobileNavItem(item))}
+                  {renderMobileNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen })}
+                  {renderMobileNavItem({ href: "/orders", label: "Order Submissions", icon: FileText })}
                 </>
               )}
 
-              {isManagerOrAdmin && (
+              {can("reports") && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>
                   </div>
-                  {reportNavItems.map((item) => renderMobileNavItem(item))}
+                  {renderMobileNavItem({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList })}
+                  {renderMobileNavItem({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart })}
+                  {renderMobileNavItem({ href: "/roster", label: "Roster Targets", icon: UsersRound })}
                 </>
               )}
 
-              {isAdmin && (
+              {(can("users") || can("raw_shifts")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Admin</p>
                   </div>
-                  {adminNavItems.map((item) => renderMobileNavItem(item))}
+                  {can("users") && renderMobileNavItem({ href: "/users", label: "Users", icon: Shield })}
+                  {can("raw_shifts") && renderMobileNavItem({ href: "/shifts", label: "Shifts", icon: Clock })}
+                  {isAdmin && renderMobileNavItem({ href: "/permissions", label: "Permissions", icon: ShieldCheck })}
                 </>
               )}
 

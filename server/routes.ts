@@ -2,14 +2,16 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
 import { api } from "@shared/routes";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { ukgClient } from "./ukg";
-import { RETAIL_JOB_CODES } from "@shared/schema";
+import { RETAIL_JOB_CODES, featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS } from "@shared/schema";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, generateSchedulePublishEmailHtml, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
-import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification } from "./middleware";
+import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
 import { registerOccurrenceRoutes } from "./routes/occurrences";
@@ -1205,6 +1207,67 @@ export async function registerRoutes(
 
   initOrdersTable().catch((err) => {
     console.error("[MySQL] Failed to initialize orders table:", err);
+  });
+
+  // === PERMISSIONS MANAGEMENT ===
+
+  app.get("/api/permissions", requireAdmin, async (_req, res) => {
+    try {
+      const perms = await getFeaturePermissions();
+      const result = SYSTEM_FEATURES.map(f => ({
+        feature: f.feature,
+        label: f.label,
+        description: f.description,
+        allowedRoles: perms[f.feature] || DEFAULT_FEATURE_PERMISSIONS[f.feature] || [],
+      }));
+      res.json(result);
+    } catch (err) {
+      console.error("[Permissions] Error fetching:", err);
+      res.status(500).json({ message: "Failed to fetch permissions" });
+    }
+  });
+
+  app.put("/api/permissions", requireAdmin, async (req, res) => {
+    try {
+      const validRoles = ["admin", "manager", "optimizer", "viewer"];
+      const schema = z.array(z.object({
+        feature: z.string(),
+        allowedRoles: z.array(z.enum(["admin", "manager", "optimizer", "viewer"])),
+      }));
+      const updates = schema.parse(req.body);
+      const validFeatures = SYSTEM_FEATURES.map(f => f.feature);
+
+      for (const update of updates) {
+        if (!validFeatures.includes(update.feature)) continue;
+        const featureInfo = SYSTEM_FEATURES.find(f => f.feature === update.feature);
+        if (!featureInfo) continue;
+
+        const rolesWithAdmin = update.allowedRoles.includes("admin")
+          ? update.allowedRoles
+          : ["admin", ...update.allowedRoles];
+
+        await db.insert(featurePermissions)
+          .values({
+            feature: update.feature,
+            label: featureInfo.label,
+            description: featureInfo.description,
+            allowedRoles: rolesWithAdmin,
+          })
+          .onConflictDoUpdate({
+            target: featurePermissions.feature,
+            set: { allowedRoles: rolesWithAdmin },
+          });
+      }
+
+      invalidatePermissionsCache();
+      res.json({ message: "Permissions updated successfully" });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Permissions] Error updating:", err);
+      res.status(500).json({ message: "Failed to update permissions" });
+    }
   });
 
   // === SEED DATA ===
