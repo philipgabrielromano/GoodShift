@@ -78,11 +78,14 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **PDF Exports**: Occurrence records (per-employee with summary, occurrences, adjustments, corrective actions) and coaching logs (filtered list) can be exported as PDF documents.
 - **Changelog**: Version history page accessible to all authenticated users, displaying features, improvements, and fixes across all releases. Version number displayed in sidebar footer.
 
+- **Order Form**: Migrated from WP Forms, this feature allows managers to submit equipment orders to an external MySQL database (`/orders/new`). Supports 4 order types with conditional field visibility: Transfer and Receive (equipment requested/returned, category gaylords, seasonal items), End of Day/Equipment Count (full/empty counts, outlet items, rotated items for Outlet locations, seasonal returns, eCom containers), Donors (donor count), and Supplemental Production (apparel/wares production for Central Processing/Lee Harvard). Submission history is viewable at `/orders` with filtering by date range, location, and order type. Routes in `server/routes/orders.ts`, MySQL connection in `server/mysql.ts`. Requires secrets: MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD.
+
 ## External Dependencies
 
 ### Database
 - **PostgreSQL**: Primary data store.
 - **pg Pool**: For connection pooling.
+- **MySQL (External)**: Azure-hosted MySQL database for order form data. Connected via `mysql2` package with connection pooling. Table `orders` auto-created on startup.
 
 ### UI Framework Dependencies
 - **Radix UI**: Accessible component primitives.
