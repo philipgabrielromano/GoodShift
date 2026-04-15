@@ -47,7 +47,14 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
       return false;
     }
-    return true;
+
+    const managerEmployee = allEmployees.find(e =>
+      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+    );
+    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+    if (managerLevel >= 3) return true;
+    const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+    return empLevel < managerLevel;
   }
 
   return false;
@@ -71,11 +78,13 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     const managerEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
     );
+    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
     const visible = activeEmployees.filter(e => {
       if (managerEmployee && e.id === managerEmployee.id) return false;
       if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
-      return true;
+      if (managerLevel >= 3) return true;
+      return getHierarchyLevel(e.jobTitle) < managerLevel;
     });
 
     return new Set(visible.map(e => e.id));
@@ -118,11 +127,17 @@ export function registerOccurrenceRoutes(app: Express) {
       const managerEmployee = allEmployees.find(e =>
         e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
       );
+      const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+
+      console.log(`[Attendance] Employee list - User: ${user.email}, MatchedEmployee: ${managerEmployee?.name || 'NONE'}, JobTitle: ${managerEmployee?.jobTitle || 'N/A'}, HierarchyLevel: ${managerLevel}, LocationFilter: ${allowedNames ? Array.from(allowedNames).join(',') : 'ALL'}, PreFilterCount: ${filtered.length}`);
 
       const visible = filtered.filter(e => {
         if (managerEmployee && e.id === managerEmployee.id) return false;
-        return true;
+        if (managerLevel >= 3) return true;
+        return getHierarchyLevel(e.jobTitle) < managerLevel;
       });
+
+      console.log(`[Attendance] PostFilterCount: ${visible.length}`);
 
       const sorted = visible.sort((a, b) => a.name.localeCompare(b.name));
       return res.json(sorted.map(e => ({
