@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { requireAuth } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
 
+const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
 const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "EASSIS"];
 const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD"];
@@ -10,6 +11,7 @@ const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD"];
 function getHierarchyLevel(jobTitle: string | null): number {
   if (!jobTitle) return 0;
   const upper = jobTitle.toUpperCase();
+  if (DISTRICT_MANAGER_TITLES.includes(upper)) return 4;
   if (STORE_MANAGER_TITLES.includes(upper)) return 3;
   if (ASST_MANAGER_TITLES.includes(upper)) return 2;
   if (TEAM_LEAD_TITLES.includes(upper)) return 1;
