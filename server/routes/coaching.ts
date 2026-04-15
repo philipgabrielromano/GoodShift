@@ -61,13 +61,10 @@ export function registerCoachingRoutes(app: Express) {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
         const visible = filtered.filter(e => {
           if (managerEmployee && e.id === managerEmployee.id) return false;
-          if (managerLevel >= 3) return true;
-          const empLevel = getHierarchyLevel(e.jobTitle);
-          return empLevel < managerLevel;
+          return true;
         });
 
         const sorted = visible.sort((a, b) => a.name.localeCompare(b.name));
@@ -105,15 +102,13 @@ export function registerCoachingRoutes(app: Express) {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
         const visibleEmployeeIds = new Set(
           allEmployees.filter(e => {
             if (!includeInactive && !e.isActive) return false;
             if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
             if (managerEmployee && e.id === managerEmployee.id) return false;
-            if (managerLevel >= 3) return true;
-            return getHierarchyLevel(e.jobTitle) < managerLevel;
+            return true;
           }).map(e => e.id)
         );
 
@@ -167,16 +162,6 @@ export function registerCoachingRoutes(app: Express) {
           return res.status(403).json({ message: "Cannot create coaching log for employee outside your location" });
         }
 
-        const managerEmployee = allEmployees.find(e =>
-          e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-        );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-        if (managerLevel < 3) {
-          const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-          if (empLevel >= managerLevel) {
-            return res.status(403).json({ message: "Cannot create coaching log for employees at or above your level" });
-          }
-        }
       }
 
       const newLog = await storage.createCoachingLog(parsed.data);
@@ -256,17 +241,6 @@ export function registerCoachingRoutes(app: Express) {
         const allowedNames = await getAllowedLocationNames(user);
         if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
           return res.status(403).json({ message: "Cannot modify coaching log for employee outside your location" });
-        }
-
-        const managerEmployee = allEmployees.find(e =>
-          e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-        );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-        if (managerLevel < 3) {
-          const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-          if (empLevel >= managerLevel) {
-            return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
-          }
         }
       }
 

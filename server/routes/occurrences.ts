@@ -47,14 +47,7 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
       return false;
     }
-
-    const managerEmployee = allEmployees.find(e =>
-      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-    );
-    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-    if (managerLevel >= 3) return true;
-    const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-    return empLevel < managerLevel;
+    return true;
   }
 
   return false;
@@ -78,13 +71,11 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     const managerEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
     );
-    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
     const visible = activeEmployees.filter(e => {
       if (managerEmployee && e.id === managerEmployee.id) return false;
       if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
-      if (managerLevel >= 3) return true;
-      return getHierarchyLevel(e.jobTitle) < managerLevel;
+      return true;
     });
 
     return new Set(visible.map(e => e.id));
@@ -127,12 +118,10 @@ export function registerOccurrenceRoutes(app: Express) {
       const managerEmployee = allEmployees.find(e =>
         e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
       );
-      const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
       const visible = filtered.filter(e => {
         if (managerEmployee && e.id === managerEmployee.id) return false;
-        if (managerLevel >= 3) return true;
-        return getHierarchyLevel(e.jobTitle) < managerLevel;
+        return true;
       });
 
       const sorted = visible.sort((a, b) => a.name.localeCompare(b.name));
