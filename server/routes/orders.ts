@@ -241,6 +241,7 @@ export function registerOrderRoutes(app: Express) {
   app.get("/api/orders", requireFeatureAccess("orders"), async (req, res) => {
     try {
       const { startDate, endDate, location, orderType, limit, offset } = req.query;
+      console.log("[Orders] GET /api/orders query:", JSON.stringify(req.query));
 
       let query = "SELECT * FROM orders WHERE 1=1";
       const params: (string | number)[] = [];
@@ -281,6 +282,7 @@ export function registerOrderRoutes(app: Express) {
       const total = countRows[0]?.total || 0;
 
       const camelRows = rows.map(toCamel);
+      console.log(`[Orders] Returning ${camelRows.length} orders (total: ${total})`);
       res.json({ orders: camelRows, total, limit: pageLimit, offset: pageOffset });
     } catch (err) {
       console.error("[Orders] Error fetching orders:", err);

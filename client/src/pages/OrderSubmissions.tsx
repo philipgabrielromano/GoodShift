@@ -179,8 +179,18 @@ export default function OrderSubmissions() {
   queryParams.set("limit", String(pageSize));
   queryParams.set("offset", String(page * pageSize));
 
-  const { data, isLoading } = useQuery<OrdersResponse>({
-    queryKey: ["/api/orders", `?${queryParams.toString()}`],
+  const ordersQueryString = queryParams.toString();
+  const { data, isLoading, error } = useQuery<OrdersResponse>({
+    queryKey: ["/api/orders", ordersQueryString],
+    queryFn: async () => {
+      const url = `/api/orders?${ordersQueryString}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text}`);
+      }
+      return res.json();
+    },
   });
 
   const orders = data?.orders || [];
@@ -254,6 +264,10 @@ export default function OrderSubmissions() {
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-12 text-destructive" data-testid="text-orders-error">
+              Error loading orders: {error.message}
             </div>
           ) : orders.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground" data-testid="text-no-orders">
