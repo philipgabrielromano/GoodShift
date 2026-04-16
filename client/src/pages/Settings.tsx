@@ -68,6 +68,7 @@ export default function Settings() {
   
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [hrEmail, setHrEmail] = useState<string>("");
+  const [orderEmails, setOrderEmails] = useState<string>("");
   const [altEmail, setAltEmail] = useState("");
   const [altEmailSaving, setAltEmailSaving] = useState(false);
   const [altEmailInitialized, setAltEmailInitialized] = useState(false);
@@ -77,6 +78,12 @@ export default function Settings() {
       setHrEmail(settings.hrNotificationEmail);
     }
   }, [settings?.hrNotificationEmail]);
+
+  useEffect(() => {
+    if (settings?.orderNotificationEmails) {
+      setOrderEmails(settings.orderNotificationEmails);
+    }
+  }, [settings?.orderNotificationEmails]);
 
   const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string; role: string } | null; ssoConfigured: boolean }>({
     queryKey: ["/api/auth/status"],
@@ -264,6 +271,22 @@ export default function Settings() {
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "HR notification email updated" });
+          },
+          onError: () => {
+            toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
+          }
+        }
+      );
+    }
+  };
+
+  const saveOrderEmails = () => {
+    if (settings) {
+      updateSettings.mutate(
+        { ...settings, orderNotificationEmails: orderEmails || null },
+        {
+          onSuccess: () => {
+            toast({ title: "Settings Saved", description: "Order notification emails updated" });
           },
           onError: () => {
             toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
@@ -813,6 +836,53 @@ export default function Settings() {
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               <span className="text-muted-foreground">
                 Notifications configured for: <span className="font-medium text-foreground">{settings.hrNotificationEmail.split(',').map(e => e.trim()).filter(e => e).join(', ')}</span>
+              </span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="w-5 h-5" />
+            Order Submission Notifications
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Send an email notification whenever a new order is submitted. Configure who should receive these notifications below.
+          </p>
+          <div className="space-y-2">
+            <Label htmlFor="order-emails">Notification recipients</Label>
+            <div className="flex gap-2">
+              <Input
+                id="order-emails"
+                type="text"
+                placeholder="logistics@company.com, manager@company.com"
+                value={orderEmails}
+                onChange={(e) => setOrderEmails(e.target.value)}
+                className="flex-1"
+                data-testid="input-order-notification-emails"
+              />
+              <Button
+                onClick={saveOrderEmails}
+                disabled={updateSettings.isPending}
+                data-testid="button-save-order-emails"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Separate multiple email addresses with commas. These recipients will be notified each time an order is submitted.
+            </p>
+          </div>
+
+          {settings?.orderNotificationEmails && (
+            <div className="flex items-center gap-2 text-sm">
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              <span className="text-muted-foreground">
+                Order notifications configured for: <span className="font-medium text-foreground">{settings.orderNotificationEmails.split(',').map(e => e.trim()).filter(e => e).join(', ')}</span>
               </span>
             </div>
           )}

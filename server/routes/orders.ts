@@ -3,6 +3,8 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { requireFeatureAccess, requireAdmin } from "../middleware";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
+import { sendOrderNotificationEmail, type OrderNotificationEmailData } from "../outlook";
+import { storage } from "../storage";
 
 const nonNegInt = z.number().int().min(0).nullable().optional();
 
@@ -109,6 +111,43 @@ interface OrderRow extends RowDataPacket {
 interface CountRow extends RowDataPacket {
   total: number;
 }
+
+const FIELD_LABELS: Record<string, string> = {
+  totesRequested: "Totes Requested", totesReturned: "Totes Returned",
+  durosRequested: "Duros Requested", durosReturned: "Duros Returned",
+  blueBinsRequested: "Blue Bins Requested", blueBinsReturned: "Blue Bins Returned",
+  gaylordsRequested: "Gaylords Requested", gaylordsReturned: "Gaylords Returned",
+  palletsRequested: "Pallets Requested", palletsReturned: "Pallets Returned",
+  containersRequested: "Containers Requested", containersReturned: "Containers Returned",
+  apparelGaylordsRequested: "Apparel Gaylords Requested", apparelGaylordsReturned: "Apparel Gaylords Returned",
+  waresGaylordsRequested: "Wares Gaylords Requested", waresGaylordsReturned: "Wares Gaylords Returned",
+  electricalGaylordsRequested: "Electrical Gaylords Requested", electricalGaylordsReturned: "Electrical Gaylords Returned",
+  accessoriesGaylordsRequested: "Accessories Gaylords Requested", accessoriesGaylordsReturned: "Accessories Gaylords Returned",
+  booksGaylordsRequested: "Books Gaylords Requested", booksGaylordsReturned: "Books Gaylords Returned",
+  shoesGaylordsRequested: "Shoes Gaylords Requested", shoesGaylordsReturned: "Shoes Gaylords Returned",
+  savedWinterRequested: "Saved Winter Requested", savedWinterReturned: "Saved Winter Returned",
+  savedSummerRequested: "Saved Summer Requested", savedSummerReturned: "Saved Summer Returned",
+  savedHalloweenRequested: "Saved Halloween Requested", savedHalloweenReturned: "Saved Halloween Returned",
+  savedChristmasRequested: "Saved Christmas Requested", savedChristmasReturned: "Saved Christmas Returned",
+  fullTotes: "Full Totes", emptyTotes: "Empty Totes",
+  fullGaylords: "Full Gaylords", emptyGaylords: "Empty Gaylords",
+  fullDuros: "Full Duros", emptyDuros: "Empty Duros",
+  fullContainers: "Full Containers", emptyContainers: "Empty Containers",
+  fullBlueBins: "Full Blue Bins", emptyBlueBins: "Empty Blue Bins",
+  emptyPallets: "Empty Pallets",
+  outletApparel: "Outlet Apparel", outletShoes: "Outlet Shoes",
+  outletMetal: "Outlet Metal", outletWares: "Outlet Wares",
+  outletAccessories: "Outlet Accessories", outletElectrical: "Outlet Electrical",
+  ecomContainersSent: "eCom Containers Sent",
+  rotatedApparel: "Rotated Apparel", rotatedShoes: "Rotated Shoes",
+  rotatedBooks: "Rotated Books", rotatedWares: "Rotated Wares",
+  apparelGaylordsUsed: "Apparel Gaylords Used", waresGaylordsUsed: "Wares Gaylords Used",
+  bookGaylordsUsed: "Book Gaylords Used", shoeGaylordsUsed: "Shoe Gaylords Used",
+  donors: "Donors", isCentralProcessing: "Central Processing",
+  apparelProduction: "Apparel Production", waresProduction: "Wares Production",
+};
+
+const SKIP_KEYS = new Set(["orderDate", "orderType", "location", "notes"]);
 
 const CAMEL_TO_SNAKE: Record<keyof OrderInput, string> = {
   orderDate: "order_date",
@@ -229,6 +268,47 @@ export function registerOrderRoutes(app: Express) {
       );
 
       res.status(201).json({ id: result.insertId, message: "Order submitted successfully" });
+
+      const submittedBy = user?.name || user?.email || "Unknown";
+      void (async () => {
+        try {
+          const settings = await storage.getGlobalSettings();
+          const emailList = settings?.orderNotificationEmails;
+          if (!emailList) return;
+
+          const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e);
+          if (recipients.length === 0) return;
+
+          const nonZeroFields: { label: string; value: string | number }[] = [];
+          for (const [key, val] of Object.entries(parsed)) {
+            if (SKIP_KEYS.has(key) || val === null || val === undefined || val === 0) continue;
+            const label = FIELD_LABELS[key] || key;
+            if (key === "isCentralProcessing") {
+              nonZeroFields.push({ label, value: val ? "Yes" : "No" });
+            } else {
+              nonZeroFields.push({ label, value: val as string | number });
+            }
+          }
+
+          const appUrl = "https://goodshift.goodwillgoodskills.org";
+          const emailData: OrderNotificationEmailData = {
+            orderDate: parsed.orderDate,
+            orderType: parsed.orderType,
+            location: parsed.location,
+            submittedBy,
+            nonZeroFields,
+            notes: parsed.notes,
+            appUrl,
+          };
+
+          for (const email of recipients) {
+            await sendOrderNotificationEmail(email, emailData);
+          }
+          console.log(`[Orders] Sent order notification to ${recipients.length} recipient(s)`);
+        } catch (err) {
+          console.error("[Orders] Error sending order notification emails:", err);
+        }
+      })();
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
