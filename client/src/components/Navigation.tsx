@@ -40,12 +40,12 @@ export function Navigation() {
         data-testid={`link-${prefix}-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
         className={clsx(
           "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer group",
-          (location === item.href || (item.href !== "/" && location.startsWith(item.href)))
+          location === item.href
             ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
             : "text-muted-foreground hover-elevate"
         )}
       >
-        <item.icon className={clsx("w-5 h-5", (location === item.href || (item.href !== "/" && location.startsWith(item.href))) ? "text-primary-foreground" : "text-muted-foreground")} />
+        <item.icon className={clsx("w-5 h-5", location === item.href ? "text-primary-foreground" : "text-muted-foreground")} />
         {item.label}
       </div>
     </Link>
@@ -58,7 +58,7 @@ export function Navigation() {
         data-testid={`link-mobile-nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
         className={clsx(
           "flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer",
-          (location === item.href || (item.href !== "/" && location.startsWith(item.href)))
+          location === item.href
             ? "bg-primary text-primary-foreground shadow-md shadow-primary/25 font-medium" 
             : "text-muted-foreground hover-elevate"
         )}
