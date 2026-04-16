@@ -282,6 +282,99 @@ export async function sendOrderNotificationEmail(
   }
 }
 
+export async function sendOrderConfirmationEmail(
+  toEmail: string,
+  data: OrderNotificationEmailData
+): Promise<boolean> {
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for order confirmation');
+      return false;
+    }
+
+    const fieldsHtml = data.nonZeroFields.map(f =>
+      `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-weight: 500;">${f.value}</td></tr>`
+    ).join("");
+
+    const notesHtml = data.notes
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      : "";
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #22c55e; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">Order Confirmation</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>Your order has been submitted successfully. Here is a summary of what was submitted:</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderType}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.location}</td>
+        </tr>
+      </table>
+
+      ${fieldsHtml ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Order Details</h3><table style="width: 100%; border-collapse: collapse;">${fieldsHtml}</table>` : ""}
+
+      ${notesHtml}
+
+      <p style="margin-top: 20px;">
+        <a href="${data.appUrl}/orders" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          View All Orders
+        </a>
+      </p>
+
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated confirmation from GoodShift. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const message = {
+      subject: `Order Confirmation: ${data.orderType} - ${data.location} (${data.orderDate})`,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent order confirmation to ${toEmail}`);
+    await storage.createEmailLog({
+      type: "order_confirmation",
+      recipientEmail: toEmail,
+      subject: message.subject,
+      status: "sent",
+      employeeName: data.submittedBy,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return true;
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send order confirmation:', error);
+    void storage.createEmailLog({
+      type: "order_confirmation",
+      recipientEmail: toEmail,
+      subject: `Order Confirmation: ${data.orderType} - ${data.location} (${data.orderDate})`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.submittedBy,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return false;
+  }
+}
+
 // Shift trade notification email
 export interface TradeNotificationEmailData {
   recipientName: string;

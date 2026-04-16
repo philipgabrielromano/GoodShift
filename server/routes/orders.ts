@@ -3,7 +3,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { requireFeatureAccess, requireAdmin } from "../middleware";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
-import { sendOrderNotificationEmail, type OrderNotificationEmailData } from "../outlook";
+import { sendOrderNotificationEmail, sendOrderConfirmationEmail, type OrderNotificationEmailData } from "../outlook";
 import { storage } from "../storage";
 
 const nonNegInt = z.number().int().min(0).nullable().optional();
@@ -270,15 +270,9 @@ export function registerOrderRoutes(app: Express) {
       res.status(201).json({ id: result.insertId, message: "Order submitted successfully" });
 
       const submittedBy = user?.name || user?.email || "Unknown";
+      const submitterEmail = user?.email;
       void (async () => {
         try {
-          const settings = await storage.getGlobalSettings();
-          const emailList = settings?.orderNotificationEmails;
-          if (!emailList) return;
-
-          const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e);
-          if (recipients.length === 0) return;
-
           const nonZeroFields: { label: string; value: string | number }[] = [];
           for (const [key, val] of Object.entries(parsed)) {
             if (SKIP_KEYS.has(key) || val === null || val === undefined || val === 0) continue;
@@ -301,12 +295,24 @@ export function registerOrderRoutes(app: Express) {
             appUrl,
           };
 
-          for (const email of recipients) {
-            await sendOrderNotificationEmail(email, emailData);
+          if (submitterEmail) {
+            await sendOrderConfirmationEmail(submitterEmail, emailData);
+            console.log(`[Orders] Sent order confirmation to submitter: ${submitterEmail}`);
           }
-          console.log(`[Orders] Sent order notification to ${recipients.length} recipient(s)`);
+
+          const settings = await storage.getGlobalSettings();
+          const emailList = settings?.orderNotificationEmails;
+          if (emailList) {
+            const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e && e !== submitterEmail?.toLowerCase());
+            for (const email of recipients) {
+              await sendOrderNotificationEmail(email, emailData);
+            }
+            if (recipients.length > 0) {
+              console.log(`[Orders] Sent order notification to ${recipients.length} recipient(s)`);
+            }
+          }
         } catch (err) {
-          console.error("[Orders] Error sending order notification emails:", err);
+          console.error("[Orders] Error sending order emails:", err);
         }
       })();
     } catch (err) {
