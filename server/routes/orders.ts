@@ -267,8 +267,7 @@ export function registerOrderRoutes(app: Express) {
 
       const pageLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
       const pageOffset = Math.max(0, Number(offset) || 0);
-      query += " LIMIT ? OFFSET ?";
-      params.push(pageLimit, pageOffset);
+      query += ` LIMIT ${Math.floor(pageLimit)} OFFSET ${Math.floor(pageOffset)}`;
 
       const [rows] = await mysqlPool.execute<OrderRow[]>(query, params);
 
