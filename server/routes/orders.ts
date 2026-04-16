@@ -300,15 +300,18 @@ export function registerOrderRoutes(app: Express) {
             console.log(`[Orders] Sent order confirmation to submitter: ${submitterEmail}`);
           }
 
-          const settings = await storage.getGlobalSettings();
-          const emailList = settings?.orderNotificationEmails;
-          if (emailList) {
-            const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e && e !== submitterEmail?.toLowerCase());
-            for (const email of recipients) {
-              await sendOrderNotificationEmail(email, emailData);
-            }
-            if (recipients.length > 0) {
-              console.log(`[Orders] Sent order notification to ${recipients.length} recipient(s)`);
+          const NOTIFY_TYPES = new Set(["Transfer and Receive", "End of Day/Equipment Count"]);
+          if (NOTIFY_TYPES.has(parsed.orderType)) {
+            const settings = await storage.getGlobalSettings();
+            const emailList = settings?.orderNotificationEmails;
+            if (emailList) {
+              const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e && e !== submitterEmail?.toLowerCase());
+              for (const email of recipients) {
+                await sendOrderNotificationEmail(email, emailData);
+              }
+              if (recipients.length > 0) {
+                console.log(`[Orders] Sent order notification to ${recipients.length} recipient(s)`);
+              }
             }
           }
         } catch (err) {
