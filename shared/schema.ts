@@ -73,6 +73,8 @@ export const globalSettings = pgTable("global_settings", {
   orderNotificationEmails: text("order_notification_emails"),
   // Driver inspection repair-alert emails (comma-separated)
   driverInspectionEmails: text("driver_inspection_emails"),
+  // Login page tagline shown under the logo
+  loginTagline: text("login_tagline"),
   // UKG API credentials (overrides environment variables when set)
   ukgApiUrl: text("ukg_api_url"),
   ukgUsername: text("ukg_username"),

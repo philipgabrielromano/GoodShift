@@ -1258,6 +1258,18 @@ export async function registerRoutes(
   registerCreditCardInspectionRoutes(app);
   registerDriverInspectionRoutes(app);
 
+  // Public login info (no auth required) — tagline shown on login page
+  app.get("/api/public/login-info", async (_req, res) => {
+    try {
+      const settings = await storage.getGlobalSettings();
+      res.json({
+        tagline: settings?.loginTagline || "Changing lives through the power of work.",
+      });
+    } catch {
+      res.json({ tagline: "Changing lives through the power of work." });
+    }
+  });
+
   initOrdersTable().catch((err) => {
     console.error("[MySQL] Failed to initialize orders table:", err);
   });

@@ -70,6 +70,7 @@ export default function Settings() {
   const [hrEmail, setHrEmail] = useState<string>("");
   const [orderEmails, setOrderEmails] = useState<string>("");
   const [driverInspectionEmails, setDriverInspectionEmails] = useState<string>("");
+  const [loginTagline, setLoginTagline] = useState<string>("");
   const [altEmail, setAltEmail] = useState("");
   const [altEmailSaving, setAltEmailSaving] = useState(false);
   const [altEmailInitialized, setAltEmailInitialized] = useState(false);
@@ -91,6 +92,12 @@ export default function Settings() {
       setDriverInspectionEmails(settings.driverInspectionEmails);
     }
   }, [settings?.driverInspectionEmails]);
+
+  useEffect(() => {
+    if (settings?.loginTagline !== undefined && settings?.loginTagline !== null) {
+      setLoginTagline(settings.loginTagline);
+    }
+  }, [settings?.loginTagline]);
 
   const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string; role: string } | null; ssoConfigured: boolean }>({
     queryKey: ["/api/auth/status"],
@@ -301,6 +308,22 @@ export default function Settings() {
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Order notification emails updated" });
+          },
+          onError: () => {
+            toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
+          }
+        }
+      );
+    }
+  };
+
+  const saveLoginTagline = () => {
+    if (settings) {
+      updateSettings.mutate(
+        { ...settings, loginTagline: loginTagline.trim() || null },
+        {
+          onSuccess: () => {
+            toast({ title: "Settings Saved", description: "Login tagline updated" });
           },
           onError: () => {
             toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
@@ -951,6 +974,34 @@ export default function Settings() {
                 </span>
               </div>
             )}
+          </div>
+
+          <div className="pt-6 border-t space-y-2">
+            <Label htmlFor="login-tagline">Login Page Tagline</Label>
+            <p className="text-sm text-muted-foreground">
+              Message shown under the logo on the sign-in page.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="login-tagline"
+                type="text"
+                placeholder="Changing lives through the power of work."
+                value={loginTagline}
+                onChange={(e) => setLoginTagline(e.target.value)}
+                className="flex-1"
+                data-testid="input-login-tagline"
+              />
+              <Button
+                onClick={saveLoginTagline}
+                disabled={updateSettings.isPending}
+                data-testid="button-save-login-tagline"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leave blank to restore the default tagline.
+            </p>
           </div>
         </CardContent>
       </Card>}
