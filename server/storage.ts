@@ -22,7 +22,12 @@ import {
   emailLogs, type EmailLog, type InsertEmailLog,
   rosterTargets, type RosterTarget, type InsertRosterTarget,
   taskAssignments, type TaskAssignment, type InsertTaskAssignment,
-  customTasks, type CustomTask, type InsertCustomTask
+  customTasks, type CustomTask, type InsertCustomTask,
+  trailerManifests, type TrailerManifest, type InsertTrailerManifest,
+  trailerManifestItems, type TrailerManifestItem,
+  trailerManifestEvents, type TrailerManifestEvent,
+  trailerManifestPhotos, type TrailerManifestPhoto, type InsertTrailerManifestPhoto,
+  TRAILER_MANIFEST_CATEGORIES,
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -68,6 +73,35 @@ export interface IStorage {
   createRole(role: InsertRole): Promise<Role>;
   deleteRoleByName(name: string): Promise<void>;
   seedBuiltInRoles(): Promise<void>;
+
+  // Trailer Manifests
+  getTrailerManifests(filters?: { status?: string }): Promise<TrailerManifest[]>;
+  getTrailerManifest(id: number): Promise<TrailerManifest | undefined>;
+  createTrailerManifest(input: InsertTrailerManifest, user: { id: number; name: string }): Promise<TrailerManifest>;
+  updateTrailerManifest(id: number, input: Partial<InsertTrailerManifest>): Promise<TrailerManifest>;
+  setTrailerManifestStatus(id: number, status: string): Promise<TrailerManifest>;
+  deleteTrailerManifest(id: number): Promise<void>;
+  getTrailerManifestItems(manifestId: number): Promise<TrailerManifestItem[]>;
+  adjustTrailerManifestItem(input: {
+    manifestId: number;
+    groupName: string;
+    itemName: string;
+    delta: number;
+    note?: string;
+    user: { id: number; name: string };
+  }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }>;
+  setTrailerManifestItemQty(input: {
+    manifestId: number;
+    groupName: string;
+    itemName: string;
+    newQty: number;
+    note?: string;
+    user: { id: number; name: string };
+  }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }>;
+  getTrailerManifestEvents(manifestId: number): Promise<TrailerManifestEvent[]>;
+  getTrailerManifestPhotos(manifestId: number): Promise<TrailerManifestPhoto[]>;
+  addTrailerManifestPhoto(input: InsertTrailerManifestPhoto, user: { id: number; name: string }): Promise<TrailerManifestPhoto>;
+  deleteTrailerManifestPhoto(id: number): Promise<void>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -385,6 +419,179 @@ export class DatabaseStorage implements IStorage {
       await db.insert(roles).values(toInsert);
       console.log(`[Storage] Seeded ${toInsert.length} built-in role(s)`);
     }
+  }
+
+  // Trailer Manifests
+  async getTrailerManifests(filters?: { status?: string }): Promise<TrailerManifest[]> {
+    if (filters?.status) {
+      return await db.select().from(trailerManifests)
+        .where(eq(trailerManifests.status, filters.status))
+        .orderBy(desc(trailerManifests.createdAt));
+    }
+    return await db.select().from(trailerManifests).orderBy(desc(trailerManifests.createdAt));
+  }
+
+  async getTrailerManifest(id: number): Promise<TrailerManifest | undefined> {
+    const [m] = await db.select().from(trailerManifests).where(eq(trailerManifests.id, id));
+    return m;
+  }
+
+  async createTrailerManifest(input: InsertTrailerManifest, user: { id: number; name: string }): Promise<TrailerManifest> {
+    const [created] = await db.insert(trailerManifests).values({
+      ...input,
+      createdById: user.id,
+      createdByName: user.name,
+    }).returning();
+
+    // Seed all category items at qty 0
+    const itemRows = TRAILER_MANIFEST_CATEGORIES.flatMap(cat =>
+      cat.items.map(name => ({
+        manifestId: created.id,
+        groupName: cat.group,
+        itemName: name,
+        qty: 0,
+      })),
+    );
+    if (itemRows.length > 0) {
+      await db.insert(trailerManifestItems).values(itemRows);
+    }
+    return created;
+  }
+
+  async updateTrailerManifest(id: number, input: Partial<InsertTrailerManifest>): Promise<TrailerManifest> {
+    const [updated] = await db.update(trailerManifests)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(trailerManifests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async setTrailerManifestStatus(id: number, status: string): Promise<TrailerManifest> {
+    const update: any = { status, updatedAt: new Date() };
+    if (status === "in_transit") update.departedAt = new Date();
+    if (status === "delivered") update.arrivedAt = new Date();
+    if (status === "closed") update.closedAt = new Date();
+    const [updated] = await db.update(trailerManifests)
+      .set(update)
+      .where(eq(trailerManifests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTrailerManifest(id: number): Promise<void> {
+    await db.delete(trailerManifestPhotos).where(eq(trailerManifestPhotos.manifestId, id));
+    await db.delete(trailerManifestEvents).where(eq(trailerManifestEvents.manifestId, id));
+    await db.delete(trailerManifestItems).where(eq(trailerManifestItems.manifestId, id));
+    await db.delete(trailerManifests).where(eq(trailerManifests.id, id));
+  }
+
+  async getTrailerManifestItems(manifestId: number): Promise<TrailerManifestItem[]> {
+    return await db.select().from(trailerManifestItems)
+      .where(eq(trailerManifestItems.manifestId, manifestId))
+      .orderBy(trailerManifestItems.id);
+  }
+
+  async adjustTrailerManifestItem(input: {
+    manifestId: number;
+    groupName: string;
+    itemName: string;
+    delta: number;
+    note?: string;
+    user: { id: number; name: string };
+  }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }> {
+    return await db.transaction(async (tx) => {
+      const lockResult = await tx.execute(sql`
+        SELECT id, qty FROM trailer_manifest_items
+        WHERE manifest_id = ${input.manifestId} AND item_name = ${input.itemName}
+        FOR UPDATE
+      `);
+      const row: any = (lockResult as any).rows?.[0];
+      if (!row) throw new Error(`Item not found: ${input.itemName}`);
+      const prevQty = Number(row.qty);
+      const newQty = Math.max(0, prevQty + input.delta);
+      const realDelta = newQty - prevQty;
+      const [updated] = await tx.update(trailerManifestItems)
+        .set({ qty: newQty })
+        .where(eq(trailerManifestItems.id, Number(row.id)))
+        .returning();
+      const [event] = await tx.insert(trailerManifestEvents).values({
+        manifestId: input.manifestId,
+        groupName: input.groupName,
+        itemName: input.itemName,
+        delta: realDelta,
+        prevQty,
+        newQty,
+        userId: input.user.id,
+        userName: input.user.name,
+        note: input.note || null,
+      }).returning();
+      await tx.update(trailerManifests).set({ updatedAt: new Date() }).where(eq(trailerManifests.id, input.manifestId));
+      return { item: updated, event };
+    });
+  }
+
+  async setTrailerManifestItemQty(input: {
+    manifestId: number;
+    groupName: string;
+    itemName: string;
+    newQty: number;
+    note?: string;
+    user: { id: number; name: string };
+  }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }> {
+    return await db.transaction(async (tx) => {
+      const lockResult = await tx.execute(sql`
+        SELECT id, qty FROM trailer_manifest_items
+        WHERE manifest_id = ${input.manifestId} AND item_name = ${input.itemName}
+        FOR UPDATE
+      `);
+      const row: any = (lockResult as any).rows?.[0];
+      if (!row) throw new Error(`Item not found: ${input.itemName}`);
+      const prevQty = Number(row.qty);
+      const newQty = Math.max(0, input.newQty);
+      const delta = newQty - prevQty;
+      const [updated] = await tx.update(trailerManifestItems)
+        .set({ qty: newQty })
+        .where(eq(trailerManifestItems.id, Number(row.id)))
+        .returning();
+      const [event] = await tx.insert(trailerManifestEvents).values({
+        manifestId: input.manifestId,
+        groupName: input.groupName,
+        itemName: input.itemName,
+        delta,
+        prevQty,
+        newQty,
+        userId: input.user.id,
+        userName: input.user.name,
+        note: input.note || null,
+      }).returning();
+      await tx.update(trailerManifests).set({ updatedAt: new Date() }).where(eq(trailerManifests.id, input.manifestId));
+      return { item: updated, event };
+    });
+  }
+
+  async getTrailerManifestEvents(manifestId: number): Promise<TrailerManifestEvent[]> {
+    return await db.select().from(trailerManifestEvents)
+      .where(eq(trailerManifestEvents.manifestId, manifestId))
+      .orderBy(desc(trailerManifestEvents.createdAt));
+  }
+
+  async getTrailerManifestPhotos(manifestId: number): Promise<TrailerManifestPhoto[]> {
+    return await db.select().from(trailerManifestPhotos)
+      .where(eq(trailerManifestPhotos.manifestId, manifestId))
+      .orderBy(desc(trailerManifestPhotos.createdAt));
+  }
+
+  async addTrailerManifestPhoto(input: InsertTrailerManifestPhoto, user: { id: number; name: string }): Promise<TrailerManifestPhoto> {
+    const [created] = await db.insert(trailerManifestPhotos).values({
+      ...input,
+      uploadedById: user.id,
+      uploadedByName: user.name,
+    }).returning();
+    return created;
+  }
+
+  async deleteTrailerManifestPhoto(id: number): Promise<void> {
+    await db.delete(trailerManifestPhotos).where(eq(trailerManifestPhotos.id, id));
   }
 
   // Locations

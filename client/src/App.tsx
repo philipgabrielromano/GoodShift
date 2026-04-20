@@ -24,6 +24,8 @@ import TaskAssignment from "@/pages/TaskAssignment";
 import Optimization from "@/pages/Optimization";
 import OrderForm from "@/pages/OrderForm";
 import OrderSubmissions from "@/pages/OrderSubmissions";
+import TrailerManifests from "@/pages/TrailerManifests";
+import TrailerManifestDetail from "@/pages/TrailerManifestDetail";
 import Permissions from "@/pages/Permissions";
 import { Loader2 } from "lucide-react";
 
@@ -54,6 +56,8 @@ function Router() {
       <Route path="/orders/new" component={OrderForm} />
       <Route path="/orders/edit/:id" component={OrderForm} />
       <Route path="/orders" component={OrderSubmissions} />
+      <Route path="/trailer-manifests/:id" component={TrailerManifestDetail} />
+      <Route path="/trailer-manifests" component={TrailerManifests} />
       <Route path="/permissions" component={Permissions} />
       <Route component={NotFound} />
     </Switch>

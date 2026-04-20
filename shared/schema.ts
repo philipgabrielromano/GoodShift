@@ -752,6 +752,139 @@ export const BUILT_IN_ROLES: { name: string; label: string }[] = [
   { name: "ordering", label: "Ordering" },
 ];
 
+// === TRAILER MANIFESTS ===
+
+export const TRAILER_MANIFEST_CATEGORIES: { group: string; items: string[] }[] = [
+  {
+    group: "RAW",
+    items: ["Raw Wares", "Raw Apparel", "Raw Accessories", "Raw Electrical", "Raw Shoes"],
+  },
+  {
+    group: "OUTLET",
+    items: ["Outlet Wares", "Outlet Apparel", "Outlet Shoes"],
+  },
+  {
+    group: "SALVAGE",
+    items: [
+      "Salvage Apparel",
+      "Salvage Shoes",
+      "Salvage Wires",
+      "Salvage Metal",
+      "Salvage Books",
+      "Salvage Linens",
+      "Salvage Single Shoes",
+      "Salvage Purses/Accessories",
+      "Salvage Kitchenware",
+      "Salvage Stuffies",
+      "Salvage Hard Plastic Toys",
+      "Salvage Glassware",
+    ],
+  },
+  {
+    group: "EQUIPMENT",
+    items: [
+      "Empty Totes",
+      "Empty Pallets",
+      "Empty Gaylords",
+      "Empty Duros",
+      "Empty Containers",
+      "Empty Blue Bins",
+    ],
+  },
+  {
+    group: "TRASH",
+    items: ["Gaylords or Containers of Trash"],
+  },
+];
+
+export const TRAILER_MANIFEST_STATUSES = ["loading", "in_transit", "delivered", "closed"] as const;
+export type TrailerManifestStatus = (typeof TRAILER_MANIFEST_STATUSES)[number];
+
+export const trailerManifests = pgTable("trailer_manifests", {
+  id: serial("id").primaryKey(),
+  fromLocation: text("from_location").notNull(),
+  toLocation: text("to_location").notNull(),
+  routeNumber: text("route_number"),
+  trailerNumber: text("trailer_number"),
+  sealNumber: text("seal_number"),
+  driverName: text("driver_name"),
+  status: text("status").notNull().default("loading"),
+  notes: text("notes"),
+  createdById: integer("created_by_id"),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  departedAt: timestamp("departed_at"),
+  arrivedAt: timestamp("arrived_at"),
+  closedAt: timestamp("closed_at"),
+}, (table) => [
+  index("idx_trailer_manifests_status").on(table.status),
+  index("idx_trailer_manifests_created_at").on(table.createdAt),
+]);
+
+export const trailerManifestItems = pgTable("trailer_manifest_items", {
+  id: serial("id").primaryKey(),
+  manifestId: integer("manifest_id").notNull(),
+  groupName: text("group_name").notNull(),
+  itemName: text("item_name").notNull(),
+  qty: integer("qty").notNull().default(0),
+}, (table) => [
+  index("idx_trailer_manifest_items_manifest_id").on(table.manifestId),
+]);
+
+export const trailerManifestEvents = pgTable("trailer_manifest_events", {
+  id: serial("id").primaryKey(),
+  manifestId: integer("manifest_id").notNull(),
+  groupName: text("group_name").notNull(),
+  itemName: text("item_name").notNull(),
+  delta: integer("delta").notNull(),
+  prevQty: integer("prev_qty").notNull(),
+  newQty: integer("new_qty").notNull(),
+  userId: integer("user_id"),
+  userName: text("user_name"),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trailer_manifest_events_manifest_id").on(table.manifestId),
+  index("idx_trailer_manifest_events_created_at").on(table.createdAt),
+]);
+
+export const trailerManifestPhotos = pgTable("trailer_manifest_photos", {
+  id: serial("id").primaryKey(),
+  manifestId: integer("manifest_id").notNull(),
+  objectPath: text("object_path").notNull(),
+  caption: text("caption"),
+  uploadedById: integer("uploaded_by_id"),
+  uploadedByName: text("uploaded_by_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_trailer_manifest_photos_manifest_id").on(table.manifestId),
+]);
+
+export const insertTrailerManifestSchema = createInsertSchema(trailerManifests).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  departedAt: true,
+  arrivedAt: true,
+  closedAt: true,
+  createdById: true,
+  createdByName: true,
+});
+export const insertTrailerManifestPhotoSchema = createInsertSchema(trailerManifestPhotos).omit({
+  id: true,
+  createdAt: true,
+  uploadedById: true,
+  uploadedByName: true,
+});
+
+export type TrailerManifest = typeof trailerManifests.$inferSelect;
+export type InsertTrailerManifest = z.infer<typeof insertTrailerManifestSchema>;
+export type TrailerManifestItem = typeof trailerManifestItems.$inferSelect;
+export type TrailerManifestEvent = typeof trailerManifestEvents.$inferSelect;
+export type TrailerManifestPhoto = typeof trailerManifestPhotos.$inferSelect;
+export type InsertTrailerManifestPhoto = z.infer<typeof insertTrailerManifestPhotoSchema>;
+
 export const featurePermissions = pgTable("feature_permissions", {
   feature: text("feature").primaryKey(),
   label: text("label").notNull(),
@@ -775,6 +908,7 @@ export const SYSTEM_FEATURES = [
   { feature: "reports", label: "Reports", description: "Occurrence reports, variance reports, and roster targets" },
   { feature: "orders", label: "Orders", description: "Submit and view equipment orders" },
   { feature: "edit_orders", label: "Edit Orders", description: "Edit existing equipment orders" },
+  { feature: "trailer_manifest", label: "Trailer Manifest", description: "Track and edit live trailer load manifests" },
   { feature: "users", label: "User Management", description: "Manage user accounts and roles" },
   { feature: "raw_shifts", label: "Raw Shifts", description: "View raw shift data" },
 ] as const;
@@ -792,6 +926,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   reports: ["admin", "manager", "optimizer"],
   orders: ["admin", "ordering"],
   edit_orders: ["admin"],
+  trailer_manifest: ["admin", "manager", "ordering"],
   users: ["admin"],
   raw_shifts: ["admin"],
 };
