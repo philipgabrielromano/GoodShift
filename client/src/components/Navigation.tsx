@@ -84,16 +84,16 @@ export function Navigation() {
           <div className="pt-1 pb-1 px-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-scheduling-heading">Scheduling</p>
           </div>
-          {can("schedule") && renderNavItem({ href: "/", label: "Schedule", icon: LayoutDashboard }, "nav")}
-          {can("shift_trades") && renderNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight }, "nav")}
-          {can("attendance") && renderNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle }, "nav")}
-          {can("task_assignment") && renderNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo }, "nav")}
+          {can("schedule.view") && renderNavItem({ href: "/", label: "Schedule", icon: LayoutDashboard }, "nav")}
+          {can("shift_trades.view") && renderNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight }, "nav")}
+          {can("attendance.view") && renderNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle }, "nav")}
+          {can("task_assignment.view") && renderNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo }, "nav")}
           <div className="pt-3 pb-1 px-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-development-heading">Development</p>
           </div>
-          {can("coaching") && renderNavItem({ href: "/coaching", label: "Coaching", icon: MessageSquare }, "nav")}
+          {can("coaching.view") && renderNavItem({ href: "/coaching", label: "Coaching", icon: MessageSquare }, "nav")}
 
-          {can("optimization") && (
+          {can("optimization.view") && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-optimization-heading">Optimization</p>
@@ -102,48 +102,48 @@ export function Navigation() {
             </>
           )}
 
-          {(can("employees") || can("locations") || can("settings")) && (
+          {(can("employees.view") || can("locations.view") || can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-configuration-heading">Configuration</p>
               </div>
-              {can("employees") && renderNavItem({ href: "/employees", label: "Employees", icon: Users }, "nav")}
-              {can("locations") && renderNavItem({ href: "/locations", label: "Locations", icon: MapPin }, "nav")}
-              {can("settings") && renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
+              {can("employees.view") && renderNavItem({ href: "/employees", label: "Employees", icon: Users }, "nav")}
+              {can("locations.view") && renderNavItem({ href: "/locations", label: "Locations", icon: MapPin }, "nav")}
+              {renderNavItem({ href: "/settings", label: "Settings", icon: Settings }, "nav")}
             </>
           )}
 
-          {(can("orders") || can("trailer_manifest") || can("warehouse_inventory")) && (
+          {(can("orders.submit") || can("orders.view_all") || can("trailer_manifest.view") || can("warehouse_inventory.view")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-orders-heading">Orders</p>
               </div>
-              {can("orders") && renderNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen }, "nav")}
-              {can("orders") && renderNavItem({ href: "/orders", label: "Order Submissions", icon: FileText }, "nav")}
-              {can("trailer_manifest") && renderNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck }, "nav")}
-              {can("warehouse_inventory") && renderNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse }, "nav")}
+              {can("orders.submit") && renderNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen }, "nav")}
+              {can("orders.view_all") && renderNavItem({ href: "/orders", label: "Order Submissions", icon: FileText }, "nav")}
+              {can("trailer_manifest.view") && renderNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck }, "nav")}
+              {can("warehouse_inventory.view") && renderNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse }, "nav")}
             </>
           )}
 
-          {can("reports") && (
+          {(can("reports.occurrences") || can("reports.variance") || can("reports.roster")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-reports-heading">Reports</p>
               </div>
-              {renderNavItem({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList }, "nav")}
-              {renderNavItem({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart }, "nav")}
-              {renderNavItem({ href: "/roster", label: "Roster Targets", icon: UsersRound }, "nav")}
+              {can("reports.occurrences") && renderNavItem({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList }, "nav")}
+              {can("reports.variance") && renderNavItem({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart }, "nav")}
+              {can("reports.roster") && renderNavItem({ href: "/roster", label: "Roster Targets", icon: UsersRound }, "nav")}
             </>
           )}
 
-          {(can("users") || can("raw_shifts")) && (
+          {(can("users.view") || can("raw_shifts.view") || can("settings.permissions")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-admin-heading">Admin</p>
               </div>
-              {can("users") && renderNavItem({ href: "/users", label: "Users", icon: Shield }, "nav")}
-              {can("raw_shifts") && renderNavItem({ href: "/shifts", label: "Shifts", icon: Clock }, "nav")}
-              {isAdmin && renderNavItem({ href: "/permissions", label: "Permissions", icon: ShieldCheck }, "nav")}
+              {can("users.view") && renderNavItem({ href: "/users", label: "Users", icon: Shield }, "nav")}
+              {can("raw_shifts.view") && renderNavItem({ href: "/shifts", label: "Shifts", icon: Clock }, "nav")}
+              {can("settings.permissions") && renderNavItem({ href: "/permissions", label: "Permissions", icon: ShieldCheck }, "nav")}
             </>
           )}
 
@@ -198,16 +198,16 @@ export function Navigation() {
               <div className="pt-1 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Scheduling</p>
               </div>
-              {can("schedule") && renderMobileNavItem({ href: "/", label: "Schedule", icon: LayoutDashboard })}
-              {can("shift_trades") && renderMobileNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight })}
-              {can("attendance") && renderMobileNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle })}
-              {can("task_assignment") && renderMobileNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo })}
+              {can("schedule.view") && renderMobileNavItem({ href: "/", label: "Schedule", icon: LayoutDashboard })}
+              {can("shift_trades.view") && renderMobileNavItem({ href: "/trades", label: "Shift Trades", icon: ArrowLeftRight })}
+              {can("attendance.view") && renderMobileNavItem({ href: "/attendance", label: "Attendance", icon: AlertTriangle })}
+              {can("task_assignment.view") && renderMobileNavItem({ href: "/tasks", label: "Task Assignment", icon: ListTodo })}
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Development</p>
               </div>
-              {can("coaching") && renderMobileNavItem({ href: "/coaching", label: "Coaching", icon: MessageSquare })}
+              {can("coaching.view") && renderMobileNavItem({ href: "/coaching", label: "Coaching", icon: MessageSquare })}
 
-              {can("optimization") && (
+              {can("optimization.view") && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Optimization</p>
@@ -216,48 +216,48 @@ export function Navigation() {
                 </>
               )}
 
-              {(can("employees") || can("locations") || can("settings")) && (
+              {(can("employees.view") || can("locations.view") || can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Configuration</p>
                   </div>
-                  {can("employees") && renderMobileNavItem({ href: "/employees", label: "Employees", icon: Users })}
-                  {can("locations") && renderMobileNavItem({ href: "/locations", label: "Locations", icon: MapPin })}
-                  {can("settings") && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
+                  {can("employees.view") && renderMobileNavItem({ href: "/employees", label: "Employees", icon: Users })}
+                  {can("locations.view") && renderMobileNavItem({ href: "/locations", label: "Locations", icon: MapPin })}
+                  {(can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit")) && renderMobileNavItem({ href: "/settings", label: "Settings", icon: Settings })}
                 </>
               )}
 
-              {(can("orders") || can("trailer_manifest") || can("warehouse_inventory")) && (
+              {(can("orders.submit") || can("orders.view_all") || can("trailer_manifest.view") || can("warehouse_inventory.view")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Orders</p>
                   </div>
-                  {can("orders") && renderMobileNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen })}
-                  {can("orders") && renderMobileNavItem({ href: "/orders", label: "Order Submissions", icon: FileText })}
-                  {can("trailer_manifest") && renderMobileNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck })}
-                  {can("warehouse_inventory") && renderMobileNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse })}
+                  {can("orders.submit") && renderMobileNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen })}
+                  {can("orders.view_all") && renderMobileNavItem({ href: "/orders", label: "Order Submissions", icon: FileText })}
+                  {can("trailer_manifest.view") && renderMobileNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck })}
+                  {can("warehouse_inventory.view") && renderMobileNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse })}
                 </>
               )}
 
-              {can("reports") && (
+              {(can("reports.occurrences") || can("reports.variance") || can("reports.roster")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Reports</p>
                   </div>
-                  {renderMobileNavItem({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList })}
-                  {renderMobileNavItem({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart })}
-                  {renderMobileNavItem({ href: "/roster", label: "Roster Targets", icon: UsersRound })}
+                  {can("reports.occurrences") && renderMobileNavItem({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList })}
+                  {can("reports.variance") && renderMobileNavItem({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart })}
+                  {can("reports.roster") && renderMobileNavItem({ href: "/roster", label: "Roster Targets", icon: UsersRound })}
                 </>
               )}
 
-              {(can("users") || can("raw_shifts")) && (
+              {(can("users.view") || can("raw_shifts.view") || can("settings.permissions")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Admin</p>
                   </div>
-                  {can("users") && renderMobileNavItem({ href: "/users", label: "Users", icon: Shield })}
-                  {can("raw_shifts") && renderMobileNavItem({ href: "/shifts", label: "Shifts", icon: Clock })}
-                  {isAdmin && renderMobileNavItem({ href: "/permissions", label: "Permissions", icon: ShieldCheck })}
+                  {can("users.view") && renderMobileNavItem({ href: "/users", label: "Users", icon: Shield })}
+                  {can("raw_shifts.view") && renderMobileNavItem({ href: "/shifts", label: "Shifts", icon: Clock })}
+                  {can("settings.permissions") && renderMobileNavItem({ href: "/permissions", label: "Permissions", icon: ShieldCheck })}
                 </>
               )}
 

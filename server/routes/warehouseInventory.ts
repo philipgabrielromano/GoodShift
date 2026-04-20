@@ -47,7 +47,9 @@ function todayInTZ(): string {
 }
 
 export function registerWarehouseInventoryRoutes(app: Express) {
-  const requireAccess = requireFeatureAccess("warehouse_inventory");
+  const requireAccess = requireFeatureAccess("warehouse_inventory.view");
+  const requireEdit = requireFeatureAccess("warehouse_inventory.edit");
+  const requireFinalize = requireFeatureAccess("warehouse_inventory.finalize");
 
   // Expose category structure + warehouses (for form dropdowns)
   app.get("/api/warehouse-inventory/meta", requireAccess, async (_req, res) => {
@@ -230,7 +232,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   });
 
   // Create
-  app.post("/api/warehouse-inventory", requireAccess, async (req, res) => {
+  app.post("/api/warehouse-inventory", requireEdit, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -278,7 +280,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   });
 
   // Update header (notes, date)
-  app.put("/api/warehouse-inventory/:id", requireAccess, async (req, res) => {
+  app.put("/api/warehouse-inventory/:id", requireEdit, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const count = await storage.getWarehouseInventoryCount(id);
@@ -311,7 +313,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   });
 
   // Bulk update item quantities
-  app.put("/api/warehouse-inventory/:id/items", requireAccess, async (req, res) => {
+  app.put("/api/warehouse-inventory/:id/items", requireEdit, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const count = await storage.getWarehouseInventoryCount(id);
@@ -334,7 +336,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   });
 
   // Finalize
-  app.post("/api/warehouse-inventory/:id/finalize", requireAccess, async (req, res) => {
+  app.post("/api/warehouse-inventory/:id/finalize", requireFinalize, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -351,7 +353,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   });
 
   // Reopen — admin/manager only (same gate as feature access is fine; manager can correct)
-  app.post("/api/warehouse-inventory/:id/reopen", requireAccess, async (req, res) => {
+  app.post("/api/warehouse-inventory/:id/reopen", requireFinalize, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });

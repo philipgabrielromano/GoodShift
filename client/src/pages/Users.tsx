@@ -21,6 +21,8 @@ import type { User, InsertUser, Role } from "@shared/schema";
 import { isValidLocation } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 
+type AuthStatus = { authenticated?: boolean; user?: { id: number; role: string }; accessibleFeatures?: string[] };
+
 function formatLastLogin(date: string | Date | null | undefined): string {
   if (!date) return "Never";
   const d = new Date(date);
@@ -63,6 +65,15 @@ export default function Users() {
 
   const { data: locations } = useLocations();
 
+  const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
+  const features = authStatus?.accessibleFeatures || [];
+  const can = (f: string) => features.includes(f);
+
+  const canViewUsers = can("users.view");
+  const canEditProfile = can("users.edit_profile");
+  const canAssignRoles = can("users.assign_roles");
+  const canAssignLocations = can("users.assign_locations");
+  const canDeleteUsers = can("users.delete");
   const isAdmin = currentUser?.user?.role === "admin";
 
   const openDialog = (user?: User) => {
@@ -182,21 +193,23 @@ export default function Users() {
     });
   }, [users, sortColumn, sortDir]);
 
-  if (!isAdmin) {
+  if (!canViewUsers) {
     return (
       <div className="p-6 lg:p-10 max-w-[1200px] mx-auto">
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ShieldAlert className="w-12 h-12 text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold mb-2" data-testid="text-admin-required">Admin Access Required</h2>
+            <h2 className="text-xl font-semibold mb-2" data-testid="text-admin-required">Access Required</h2>
             <p className="text-muted-foreground text-center" data-testid="text-admin-required-description">
-              You need administrator privileges to manage users.
+              You don't have permission to view users.
             </p>
           </CardContent>
         </Card>
       </div>
     );
   }
+
+  const canEditAny = canEditProfile || canAssignRoles || canAssignLocations;
 
   return (
     <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto">
@@ -208,9 +221,11 @@ export default function Users() {
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">Manage user access and roles.</p>
         </div>
-        <Button onClick={() => openDialog()} data-testid="button-add-user">
-          <Plus className="w-4 h-4 mr-2" /> Add User
-        </Button>
+        {canEditProfile && (
+          <Button onClick={() => openDialog()} data-testid="button-add-user">
+            <Plus className="w-4 h-4 mr-2" /> Add User
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -259,17 +274,21 @@ export default function Users() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openDialog(user)} data-testid={`button-edit-user-${user.id}`}>
-                            <Pencil className="w-4 h-4 mr-2" /> Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(user)}
-                            className="text-destructive focus:text-destructive"
-                            disabled={user.id === currentUser?.user?.id}
-                            data-testid={`button-delete-user-${user.id}`}
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" /> Delete
-                          </DropdownMenuItem>
+                          {canEditAny && (
+                            <DropdownMenuItem onClick={() => openDialog(user)} data-testid={`button-edit-user-${user.id}`}>
+                              <Pencil className="w-4 h-4 mr-2" /> Edit
+                            </DropdownMenuItem>
+                          )}
+                          {canDeleteUsers && (
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(user)}
+                              className="text-destructive focus:text-destructive"
+                              disabled={user.id === currentUser?.user?.id}
+                              data-testid={`button-delete-user-${user.id}`}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -384,17 +403,21 @@ export default function Users() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openDialog(user)} data-testid={`button-edit-user-${user.id}`}>
-                                <Pencil className="w-4 h-4 mr-2" /> Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleDelete(user)}
-                                className="text-destructive focus:text-destructive"
-                                disabled={user.id === currentUser?.user?.id}
-                                data-testid={`button-delete-user-${user.id}`}
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" /> Delete
-                              </DropdownMenuItem>
+                              {canEditAny && (
+                                <DropdownMenuItem onClick={() => openDialog(user)} data-testid={`button-edit-user-${user.id}`}>
+                                  <Pencil className="w-4 h-4 mr-2" /> Edit
+                                </DropdownMenuItem>
+                              )}
+                              {canDeleteUsers && (
+                                <DropdownMenuItem
+                                  onClick={() => handleDelete(user)}
+                                  className="text-destructive focus:text-destructive"
+                                  disabled={user.id === currentUser?.user?.id}
+                                  data-testid={`button-delete-user-${user.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -438,6 +461,7 @@ export default function Users() {
               <Select
                 value={formData.role || "viewer"}
                 onValueChange={v => setFormData({ ...formData, role: v })}
+                disabled={!canAssignRoles}
               >
                 <SelectTrigger data-testid="select-user-role">
                   <SelectValue />
@@ -451,7 +475,9 @@ export default function Users() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Admins have full access. Managers can only see employees from their locations. Viewers have read-only access.
+                {canAssignRoles
+                  ? "Admins have full access. Managers can only see employees from their locations. Viewers have read-only access."
+                  : "You don't have permission to change user roles."}
               </p>
             </div>
 
@@ -465,12 +491,13 @@ export default function Users() {
                   .map(loc => (
                     <label
                       key={loc.id}
-                      className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
+                      className={`flex items-center gap-2 p-2 rounded ${canAssignLocations ? "hover:bg-muted/50 cursor-pointer" : "opacity-60 cursor-not-allowed"}`}
                     >
                       <input
                         type="checkbox"
                         checked={(formData.locationIds || []).includes(String(loc.id))}
                         onChange={() => toggleLocationId(String(loc.id))}
+                        disabled={!canAssignLocations}
                         className="rounded"
                         data-testid={`checkbox-location-${loc.id}`}
                       />
@@ -496,6 +523,7 @@ export default function Users() {
                 id="isActive"
                 checked={formData.isActive !== false}
                 onChange={e => setFormData({ ...formData, isActive: e.target.checked })}
+                disabled={!canEditProfile}
                 className="rounded"
                 data-testid="checkbox-user-active"
               />

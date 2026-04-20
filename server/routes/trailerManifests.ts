@@ -48,7 +48,9 @@ const photoSchema = z.object({
 });
 
 export function registerTrailerManifestRoutes(app: Express) {
-  const requireAccess = requireFeatureAccess("trailer_manifest");
+  const requireAccess = requireFeatureAccess("trailer_manifest.view");
+  const requireEdit = requireFeatureAccess("trailer_manifest.edit");
+  const requireDelete = requireFeatureAccess("trailer_manifest.delete");
 
   // List
   app.get("/api/trailer-manifests", requireAccess, async (req: Request, res: Response) => {
@@ -81,7 +83,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Create
-  app.post("/api/trailer-manifests", requireAccess, async (req, res) => {
+  app.post("/api/trailer-manifests", requireEdit, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -96,7 +98,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Update header
-  app.put("/api/trailer-manifests/:id", requireAccess, async (req, res) => {
+  app.put("/api/trailer-manifests/:id", requireEdit, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const existing = await storage.getTrailerManifest(id);
@@ -115,7 +117,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Status change
-  app.post("/api/trailer-manifests/:id/status", requireAccess, async (req, res) => {
+  app.post("/api/trailer-manifests/:id/status", requireEdit, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const { status } = statusSchema.parse(req.body);
@@ -131,7 +133,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Delete
-  app.delete("/api/trailer-manifests/:id", requireAccess, async (req, res) => {
+  app.delete("/api/trailer-manifests/:id", requireDelete, async (req, res) => {
     try {
       const sessionUser = (req.session as any)?.user;
       if (!sessionUser || sessionUser.role !== "admin") {
@@ -147,7 +149,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Adjust item (+/-)
-  app.post("/api/trailer-manifests/:id/adjust", requireAccess, async (req, res) => {
+  app.post("/api/trailer-manifests/:id/adjust", requireEdit, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -176,7 +178,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Set absolute qty
-  app.post("/api/trailer-manifests/:id/set-qty", requireAccess, async (req, res) => {
+  app.post("/api/trailer-manifests/:id/set-qty", requireEdit, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -205,7 +207,7 @@ export function registerTrailerManifestRoutes(app: Express) {
   });
 
   // Photos
-  app.post("/api/trailer-manifests/:id/photos", requireAccess, async (req, res) => {
+  app.post("/api/trailer-manifests/:id/photos", requireEdit, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -228,7 +230,7 @@ export function registerTrailerManifestRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/trailer-manifests/:id/photos/:photoId", requireAccess, async (req, res) => {
+  app.delete("/api/trailer-manifests/:id/photos/:photoId", requireEdit, async (req, res) => {
     try {
       const manifestId = Number(req.params.id);
       const photoId = Number(req.params.photoId);

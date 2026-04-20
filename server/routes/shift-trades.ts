@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireManager, getNotificationEmails } from "../middleware";
+import { requireAuth, requireManager, requireFeatureAccess, getNotificationEmails } from "../middleware";
 import { sendTradeNotificationEmail } from "../outlook";
 
 export function registerShiftTradeRoutes(app: Express) {
@@ -238,7 +238,7 @@ export function registerShiftTradeRoutes(app: Express) {
   });
 
   // PATCH /api/shift-trades/:id/manager-respond - Manager approves or declines
-  app.patch("/api/shift-trades/:id/manager-respond", requireManager, async (req: Request, res: Response) => {
+  app.patch("/api/shift-trades/:id/manager-respond", requireFeatureAccess("shift_trades.approve"), async (req: Request, res: Response) => {
     try {
       const trade = await storage.getShiftTrade(Number(req.params.id));
       if (!trade) return res.status(404).json({ message: "Trade not found" });

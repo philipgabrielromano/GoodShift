@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireManager, TIMEZONE } from "../middleware";
+import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
 
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG"];
 const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
@@ -32,7 +32,7 @@ export function registerReportRoutes(app: Express) {
 
   // ========== REPORT LOCATIONS ==========
   // Returns only locations that have active employees (for report filter dropdowns)
-  app.get("/api/reports/locations", requireAuth, requireManager, async (req: Request, res: Response) => {
+  app.get("/api/reports/locations", requireFeatureAccess("reports.occurrences"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
       const allEmployees = await storage.getEmployees();
@@ -59,7 +59,7 @@ export function registerReportRoutes(app: Express) {
 
   // ========== OCCURRENCE REPORT ==========
   // Returns employees with their total occurrence points for a location
-  app.get("/api/reports/occurrences", requireAuth, requireManager, async (req: Request, res: Response) => {
+  app.get("/api/reports/occurrences", requireFeatureAccess("reports.occurrences"), async (req: Request, res: Response) => {
     try {
       const locationFilter = req.query.location as string | undefined;
       const showInactive = req.query.showInactive === "true";
@@ -144,7 +144,7 @@ export function registerReportRoutes(app: Express) {
 
   // ========== VARIANCE REPORT ==========
   // Compares scheduled shifts against actual clock punches
-  app.get("/api/reports/variance", requireAuth, requireManager, async (req: Request, res: Response) => {
+  app.get("/api/reports/variance", requireFeatureAccess("reports.variance"), async (req: Request, res: Response) => {
     try {
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;

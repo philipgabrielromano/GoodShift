@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { ukgClient } from "../ukg";
-import { requireAuth, requireAdmin } from "../middleware";
+import { requireAuth, requireAdmin, requireFeatureAccess } from "../middleware";
 
 export function registerUKGRoutes(app: Express) {
   // === UKG INTEGRATION ===
@@ -22,7 +22,7 @@ export function registerUKGRoutes(app: Express) {
     res.json({ configured, connected });
   });
 
-  app.get("/api/ukg/diagnostics", requireAdmin, async (req, res) => {
+  app.get("/api/ukg/diagnostics", requireFeatureAccess("settings.ukg_sync"), async (req, res) => {
     const diagnostics = ukgClient.getDiagnostics();
     const employeeCount = await storage.getEmployeeCount();
     const timeClockCount = await storage.getTimeClockEntryCount();
@@ -35,7 +35,7 @@ export function registerUKGRoutes(app: Express) {
     });
   });
 
-  app.post("/api/ukg/test-connection", requireAdmin, async (req, res) => {
+  app.post("/api/ukg/test-connection", requireFeatureAccess("settings.ukg_config"), async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json({ success: false, message: "UKG is not configured" });
     }
@@ -61,7 +61,7 @@ export function registerUKGRoutes(app: Express) {
     }
   });
 
-  app.get("/api/ukg/credentials", requireAdmin, async (req, res) => {
+  app.get("/api/ukg/credentials", requireFeatureAccess("settings.ukg_config"), async (req, res) => {
     const settings = await storage.getGlobalSettings();
     res.json({
       ukgApiUrl: settings.ukgApiUrl || process.env.UKG_API_URL || "",
@@ -70,7 +70,7 @@ export function registerUKGRoutes(app: Express) {
     });
   });
 
-  app.post("/api/ukg/credentials", requireAdmin, async (req, res) => {
+  app.post("/api/ukg/credentials", requireFeatureAccess("settings.ukg_config"), async (req, res) => {
     try {
       const { ukgApiUrl, ukgUsername, ukgPassword } = req.body;
       if (!ukgApiUrl || !ukgUsername) {
@@ -113,7 +113,7 @@ export function registerUKGRoutes(app: Express) {
     res.json(employees);
   });
 
-  app.post(api.ukg.sync.path, requireAdmin, async (req, res) => {
+  app.post(api.ukg.sync.path, requireFeatureAccess("settings.ukg_sync"), async (req, res) => {
     try {
       if (!ukgClient.isConfigured()) {
         return res.status(400).json({ message: "UKG is not configured", apiError: null });
@@ -188,7 +188,7 @@ export function registerUKGRoutes(app: Express) {
   });
 
   // Discover available UKG OData entities/tables
-  app.get(api.ukg.discover.path, requireAdmin, async (req, res) => {
+  app.get(api.ukg.discover.path, requireFeatureAccess("settings.ukg_config"), async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json({ entities: [], error: "UKG is not configured" });
     }
@@ -248,7 +248,7 @@ export function registerUKGRoutes(app: Express) {
   });
 
   // Debug: Probe OrgLevel1 API for location data
-  app.get("/api/ukg/probe-location", requireAdmin, async (req, res) => {
+  app.get("/api/ukg/probe-location", requireFeatureAccess("settings.ukg_config"), async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json({ success: false, error: "UKG is not configured" });
     }

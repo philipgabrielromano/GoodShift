@@ -15,12 +15,13 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Save, ShieldCheck, RotateCcw, Plus, Trash2, Lock } from "lucide-react";
-import { DEFAULT_FEATURE_PERMISSIONS, type Role } from "@shared/schema";
+import { DEFAULT_FEATURE_PERMISSIONS, FEATURE_CATEGORIES, type Role } from "@shared/schema";
 
 interface FeaturePermission {
   feature: string;
   label: string;
   description: string;
+  category?: string;
   allowedRoles: string[];
 }
 
@@ -282,50 +283,61 @@ export default function Permissions() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Feature Access Matrix</CardTitle>
-          <CardDescription>
-            Check or uncheck to grant or revoke access for each role. Changes take effect after saving.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4 font-semibold text-sm w-[30%]">Feature</th>
-                  {roles.map(role => (
-                    <th key={role.name} className="text-center py-3 px-4 font-semibold text-sm">
-                      {role.label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {localPerms.map(perm => (
-                  <tr key={perm.feature} className="border-b last:border-0 hover:bg-muted/50" data-testid={`row-permission-${perm.feature}`}>
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-sm" data-testid={`text-feature-label-${perm.feature}`}>{perm.label}</div>
-                      <div className="text-xs text-muted-foreground">{perm.description}</div>
-                    </td>
-                    {roles.map(role => (
-                      <td key={role.name} className="text-center py-3 px-4">
-                        <Checkbox
-                          checked={perm.allowedRoles.includes(role.name)}
-                          disabled={role.name === "admin"}
-                          onCheckedChange={() => toggleRole(perm.feature, role.name)}
-                          data-testid={`checkbox-${perm.feature}-${role.name}`}
-                        />
-                      </td>
+      {(() => {
+        const grouped: Record<string, FeaturePermission[]> = {};
+        for (const p of localPerms) {
+          const cat = p.category || "Other";
+          (grouped[cat] ||= []).push(p);
+        }
+        const orderedCats = [...FEATURE_CATEGORIES, "Other"].filter(c => grouped[c]?.length);
+        return orderedCats.map(cat => (
+          <Card key={cat} data-testid={`card-category-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
+            <CardHeader>
+              <CardTitle className="text-base">{cat}</CardTitle>
+              <CardDescription>
+                Check or uncheck to grant or revoke access for each role. Changes take effect after saving.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4 font-semibold text-sm w-[35%]">Permission</th>
+                      {roles.map(role => (
+                        <th key={role.name} className="text-center py-3 px-4 font-semibold text-sm">
+                          {role.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grouped[cat].map(perm => (
+                      <tr key={perm.feature} className="border-b last:border-0 hover:bg-muted/50" data-testid={`row-permission-${perm.feature}`}>
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-sm" data-testid={`text-feature-label-${perm.feature}`}>{perm.label}</div>
+                          <div className="text-xs text-muted-foreground">{perm.description}</div>
+                          <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">{perm.feature}</div>
+                        </td>
+                        {roles.map(role => (
+                          <td key={role.name} className="text-center py-3 px-4">
+                            <Checkbox
+                              checked={perm.allowedRoles.includes(role.name)}
+                              disabled={role.name === "admin"}
+                              onCheckedChange={() => toggleRole(perm.feature, role.name)}
+                              data-testid={`checkbox-${perm.feature}-${role.name}`}
+                            />
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        ));
+      })()}
 
       <AlertDialog open={!!roleToDelete} onOpenChange={open => !open && setRoleToDelete(null)}>
         <AlertDialogContent data-testid="dialog-confirm-delete-role">

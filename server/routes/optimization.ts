@@ -1,12 +1,12 @@
 import type { Express, Request, Response } from "express";
-import { requireAuth, requireOptimizer } from "../middleware";
+import { requireAuth, requireFeatureAccess } from "../middleware";
 import { storage } from "../storage";
 import { optimizationEvents, optimizationChecklistItems, optimizationSurveyResponses, OPTIMIZATION_CHECKLIST } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 
 export function registerOptimizationRoutes(app: Express) {
-  app.get("/api/optimization/events", requireOptimizer, async (req: Request, res: Response) => {
+  app.get("/api/optimization/events", requireFeatureAccess("optimization.view"), async (req: Request, res: Response) => {
     try {
       const events = await db.select().from(optimizationEvents).orderBy(optimizationEvents.createdAt);
       res.json(events);
@@ -16,7 +16,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.get("/api/optimization/events/:id", requireOptimizer, async (req: Request, res: Response) => {
+  app.get("/api/optimization/events/:id", requireFeatureAccess("optimization.view"), async (req: Request, res: Response) => {
     try {
       const [event] = await db.select().from(optimizationEvents).where(eq(optimizationEvents.id, Number(req.params.id)));
       if (!event) return res.status(404).json({ message: "Event not found" });
@@ -31,7 +31,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.post("/api/optimization/events", requireOptimizer, async (req: Request, res: Response) => {
+  app.post("/api/optimization/events", requireFeatureAccess("optimization.edit"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
       const { locationId, locationName, startDate, endDate, notes } = req.body;
@@ -70,7 +70,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/optimization/events/:id", requireOptimizer, async (req: Request, res: Response) => {
+  app.patch("/api/optimization/events/:id", requireFeatureAccess("optimization.edit"), async (req: Request, res: Response) => {
     try {
       const { status, notes } = req.body;
       const updateData: any = { updatedAt: new Date() };
@@ -90,7 +90,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/optimization/events/:id", requireOptimizer, async (req: Request, res: Response) => {
+  app.delete("/api/optimization/events/:id", requireFeatureAccess("optimization.edit"), async (req: Request, res: Response) => {
     try {
       const eventId = Number(req.params.id);
       await db.delete(optimizationSurveyResponses).where(eq(optimizationSurveyResponses.eventId, eventId));
@@ -103,7 +103,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/optimization/checklist/:id", requireOptimizer, async (req: Request, res: Response) => {
+  app.patch("/api/optimization/checklist/:id", requireFeatureAccess("optimization.edit"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
       const { completed, notes } = req.body;
@@ -139,7 +139,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.post("/api/optimization/events/:id/survey", requireOptimizer, async (req: Request, res: Response) => {
+  app.post("/api/optimization/events/:id/survey", requireFeatureAccess("optimization.edit"), async (req: Request, res: Response) => {
     try {
       const { respondentName, responses } = req.body;
 
@@ -156,7 +156,7 @@ export function registerOptimizationRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/optimization/survey/:id", requireOptimizer, async (req: Request, res: Response) => {
+  app.delete("/api/optimization/survey/:id", requireFeatureAccess("optimization.edit"), async (req: Request, res: Response) => {
     try {
       await db.delete(optimizationSurveyResponses).where(eq(optimizationSurveyResponses.id, Number(req.params.id)));
       res.json({ success: true });

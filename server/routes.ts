@@ -11,7 +11,7 @@ import { RETAIL_JOB_CODES, featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, generateSchedulePublishEmailHtml, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
-import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache } from "./middleware";
+import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
 import { registerOccurrenceRoutes } from "./routes/occurrences";
@@ -133,7 +133,7 @@ export async function registerRoutes(
     res.json(employee);
   });
 
-  app.post(api.employees.create.path, requireManager, async (req, res) => {
+  app.post(api.employees.create.path, requireFeatureAccess("employees.edit"), async (req, res) => {
     try {
       const input = api.employees.create.input.parse(req.body);
       const employee = await storage.createEmployee(input);
@@ -146,7 +146,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.employees.update.path, requireManager, async (req, res) => {
+  app.put(api.employees.update.path, requireFeatureAccess("employees.edit"), async (req, res) => {
     try {
       const input = api.employees.update.input.parse(req.body);
       const employee = await storage.updateEmployee(Number(req.params.id), input);
@@ -159,13 +159,13 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.employees.delete.path, requireAdmin, async (req, res) => {
+  app.delete(api.employees.delete.path, requireFeatureAccess("employees.delete"), async (req, res) => {
     await storage.deleteEmployee(Number(req.params.id));
     res.status(204).send();
   });
 
   // Toggle employee schedule visibility (for managers to hide terminated employees pending UKG update)
-  app.post(api.employees.toggleScheduleVisibility.path, requireManager, async (req, res) => {
+  app.post(api.employees.toggleScheduleVisibility.path, requireFeatureAccess("employees.edit"), async (req, res) => {
     try {
       const input = api.employees.toggleScheduleVisibility.input.parse(req.body);
       const employee = await storage.updateEmployee(Number(req.params.id), {
@@ -221,7 +221,7 @@ export async function registerRoutes(
     res.json(shifts);
   });
 
-  app.post(api.shifts.create.path, requireManager, async (req, res) => {
+  app.post(api.shifts.create.path, requireFeatureAccess("schedule.edit"), async (req, res) => {
     try {
       // Coerce dates from strings if necessary (though Zod usually handles this if schema is set up right)
       // The schema expects dates/timestamps.
@@ -248,7 +248,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.shifts.update.path, requireManager, async (req, res) => {
+  app.put(api.shifts.update.path, requireFeatureAccess("schedule.edit"), async (req, res) => {
     try {
        const body = { ...req.body };
        if (body.startTime) body.startTime = new Date(body.startTime);
@@ -268,7 +268,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.shifts.delete.path, requireManager, async (req, res) => {
+  app.delete(api.shifts.delete.path, requireFeatureAccess("schedule.edit"), async (req, res) => {
     await storage.deleteShift(Number(req.params.id));
     res.status(204).send();
   });
@@ -580,7 +580,7 @@ export async function registerRoutes(
     res.json(reqs);
   });
 
-  app.post(api.roleRequirements.create.path, requireAdmin, async (req, res) => {
+  app.post(api.roleRequirements.create.path, requireFeatureAccess("schedule.roster_targets"), async (req, res) => {
     try {
       const input = api.roleRequirements.create.input.parse(req.body);
       const reqs = await storage.createRoleRequirement(input);
@@ -593,7 +593,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.roleRequirements.update.path, requireAdmin, async (req, res) => {
+  app.put(api.roleRequirements.update.path, requireFeatureAccess("schedule.roster_targets"), async (req, res) => {
     try {
       const input = api.roleRequirements.update.input.parse(req.body);
       const reqs = await storage.updateRoleRequirement(Number(req.params.id), input);
@@ -606,7 +606,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.roleRequirements.delete.path, requireAdmin, async (req, res) => {
+  app.delete(api.roleRequirements.delete.path, requireFeatureAccess("schedule.roster_targets"), async (req, res) => {
     await storage.deleteRoleRequirement(Number(req.params.id));
     res.status(204).send();
   });
@@ -617,7 +617,7 @@ export async function registerRoutes(
     res.json(settings);
   });
 
-  app.post(api.globalSettings.update.path, requireAdmin, async (req, res) => {
+  app.post(api.globalSettings.update.path, requireFeatureAccess("settings.global_config"), async (req, res) => {
     try {
       const input = api.globalSettings.update.input.parse(req.body);
       const settings = await storage.updateGlobalSettings(input);
@@ -717,13 +717,13 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/email-logs", requireAuth, requireAdmin, async (req, res) => {
+  app.get("/api/email-logs", requireAuth, requireFeatureAccess("settings.email_audit"), async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 100;
     const logs = await storage.getEmailLogs(Math.min(limit, 500));
     res.json(logs);
   });
 
-  app.post(api.schedule.generate.path, requireManager, async (req, res) => {
+  app.post(api.schedule.generate.path, requireFeatureAccess("schedule.generate"), async (req, res) => {
     try {
       const { weekStart, location } = api.schedule.generate.input.parse(req.body);
       const insertedShifts = await generateSchedule(weekStart, location);
@@ -737,7 +737,7 @@ export async function registerRoutes(
   });
 
   // AI-Powered Schedule Generation
-  app.post("/api/schedule/generate-ai", requireManager, async (req, res) => {
+  app.post("/api/schedule/generate-ai", requireFeatureAccess("schedule.generate"), async (req, res) => {
     try {
       const { weekStart } = api.schedule.generate.input.parse(req.body);
       
@@ -770,7 +770,7 @@ export async function registerRoutes(
   });
 
   // Clear schedule for a week (optionally filtered by location)
-  app.post("/api/schedule/clear", requireManager, async (req, res) => {
+  app.post("/api/schedule/clear", requireFeatureAccess("schedule.edit"), async (req, res) => {
     try {
       const parsed = api.schedule.generate.input.parse(req.body);
       const location = parsed.location;
@@ -810,27 +810,36 @@ export async function registerRoutes(
   registerUKGRoutes(app);
 
   // === Users ===
-  app.get(api.users.list.path, requireAdmin, async (req, res) => {
+  app.get(api.users.list.path, requireFeatureAccess("users.view"), async (req, res) => {
     const users = await storage.getUsers();
     res.json(users);
   });
 
-  app.get(api.users.get.path, requireAdmin, async (req, res) => {
+  app.get(api.users.get.path, requireFeatureAccess("users.view"), async (req, res) => {
     const user = await storage.getUser(Number(req.params.id));
     if (!user) return res.status(404).json({ message: "User not found" });
     res.json(user);
   });
 
-  app.post(api.users.create.path, requireAdmin, async (req, res) => {
+  app.post(api.users.create.path, requireFeatureAccess("users.edit_profile"), async (req, res) => {
     try {
-      const input = api.users.create.input.parse(req.body);
+      const sessionUser = (req.session as any)?.user;
+      const input = api.users.create.input.parse(req.body) as Record<string, unknown>;
+      const settingRole = input.role !== undefined && input.role !== null;
+      const settingLocations = Array.isArray(input.locationIds) && (input.locationIds as unknown[]).length > 0;
+      if (settingRole && !(await userHasFeature(sessionUser, "users.assign_roles"))) {
+        return res.status(403).json({ message: "You don't have permission to assign user roles." });
+      }
+      if (settingLocations && !(await userHasFeature(sessionUser, "users.assign_locations"))) {
+        return res.status(403).json({ message: "You don't have permission to assign locations to users." });
+      }
       if (input.role) {
         const validRoles = await storage.getRoles();
         if (!validRoles.some(r => r.name === input.role)) {
           return res.status(400).json({ message: `Invalid role: ${input.role}` });
         }
       }
-      const user = await storage.createUser(input);
+      const user = await storage.createUser(input as any);
       res.status(201).json(user);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -840,16 +849,72 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.users.update.path, requireAdmin, async (req, res) => {
+  // Field-level granular enforcement: build a whitelisted update from only the
+  // fields the caller is actually allowed to change. Extra fields like
+  // microsoftId / lastLoginAt are never settable through this endpoint.
+  app.put(api.users.update.path, requireFeatureAccess("users.view"), async (req, res) => {
     try {
-      const input = api.users.update.input.parse(req.body);
-      if (input.role) {
+      const sessionUser = (req.session as any)?.user;
+      const input = api.users.update.input.parse(req.body) as Record<string, unknown>;
+
+      const existing = await storage.getUser(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "User not found" });
+
+      const canEditProfile = await userHasFeature(sessionUser, "users.edit_profile");
+      const canAssignRoles = await userHasFeature(sessionUser, "users.assign_roles");
+      const canAssignLocations = await userHasFeature(sessionUser, "users.assign_locations");
+
+      const arraysEqual = (a: unknown[] = [], b: unknown[] = []) =>
+        a.length === b.length && a.every((v, i) => v === b[i]);
+
+      // Detect which fields the caller actually wants to change (vs just
+      // echoing current values). Ignore no-op changes so UIs that resend the
+      // full object don't get spurious 403s.
+      const wantsProfile = ["name", "email", "isActive"].some(
+        k =>
+          Object.prototype.hasOwnProperty.call(input, k) &&
+          (input as any)[k] !== undefined &&
+          (input as any)[k] !== (existing as any)[k]
+      );
+      const wantsRole =
+        Object.prototype.hasOwnProperty.call(input, "role") &&
+        input.role !== undefined &&
+        input.role !== (existing as any).role;
+      const wantsLocations =
+        Object.prototype.hasOwnProperty.call(input, "locationIds") &&
+        Array.isArray(input.locationIds) &&
+        !arraysEqual(input.locationIds as unknown[], ((existing as any).locationIds as unknown[]) || []);
+
+      if (wantsProfile && !canEditProfile) {
+        return res.status(403).json({ message: "You don't have permission to edit user profiles." });
+      }
+      if (wantsRole && !canAssignRoles) {
+        return res.status(403).json({ message: "You don't have permission to change user roles." });
+      }
+      if (wantsLocations && !canAssignLocations) {
+        return res.status(403).json({ message: "You don't have permission to change store assignments." });
+      }
+      if (!wantsProfile && !wantsRole && !wantsLocations) {
+        return res.json(existing);
+      }
+
+      if (wantsRole) {
         const validRoles = await storage.getRoles();
         if (!validRoles.some(r => r.name === input.role)) {
           return res.status(400).json({ message: `Invalid role: ${input.role}` });
         }
       }
-      const user = await storage.updateUser(Number(req.params.id), input);
+
+      const patch: Record<string, unknown> = {};
+      if (wantsProfile) {
+        for (const k of ["name", "email", "isActive"]) {
+          if (Object.prototype.hasOwnProperty.call(input, k)) patch[k] = (input as any)[k];
+        }
+      }
+      if (wantsRole) patch.role = input.role;
+      if (wantsLocations) patch.locationIds = input.locationIds;
+
+      const user = await storage.updateUser(Number(req.params.id), patch as any);
       res.json(user);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -859,7 +924,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.users.delete.path, requireAdmin, async (req, res) => {
+  app.delete(api.users.delete.path, requireFeatureAccess("users.delete"), async (req, res) => {
     await storage.deleteUser(Number(req.params.id));
     res.status(204).send();
   });
@@ -877,13 +942,13 @@ export async function registerRoutes(
   });
 
   // Get single location requires admin
-  app.get(api.locations.get.path, requireAdmin, async (req, res) => {
+  app.get(api.locations.get.path, requireFeatureAccess("locations.view"), async (req, res) => {
     const location = await storage.getLocation(Number(req.params.id));
     if (!location) return res.status(404).json({ message: "Location not found" });
     res.json(location);
   });
 
-  app.post(api.locations.create.path, requireAdmin, async (req, res) => {
+  app.post(api.locations.create.path, requireFeatureAccess("locations.edit"), async (req, res) => {
     try {
       const input = api.locations.create.input.parse(req.body);
       const location = await storage.createLocation(input);
@@ -927,25 +992,25 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.locations.delete.path, requireAdmin, async (req, res) => {
+  app.delete(api.locations.delete.path, requireFeatureAccess("locations.edit"), async (req, res) => {
     await storage.deleteLocation(Number(req.params.id));
     res.status(204).send();
   });
 
   // === Shift Presets ===
   // Managers need read access to use quick shifts when adding shifts
-  app.get(api.shiftPresets.list.path, requireManager, async (req, res) => {
+  app.get(api.shiftPresets.list.path, requireFeatureAccess("schedule.templates"), async (req, res) => {
     const presets = await storage.getShiftPresets();
     res.json(presets);
   });
 
-  app.get(api.shiftPresets.get.path, requireManager, async (req, res) => {
+  app.get(api.shiftPresets.get.path, requireFeatureAccess("schedule.templates"), async (req, res) => {
     const preset = await storage.getShiftPreset(Number(req.params.id));
     if (!preset) return res.status(404).json({ message: "Shift preset not found" });
     res.json(preset);
   });
 
-  app.post(api.shiftPresets.create.path, requireAdmin, async (req, res) => {
+  app.post(api.shiftPresets.create.path, requireFeatureAccess("schedule.templates"), async (req, res) => {
     try {
       const input = api.shiftPresets.create.input.parse(req.body);
       const preset = await storage.createShiftPreset(input);
@@ -958,7 +1023,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.shiftPresets.update.path, requireAdmin, async (req, res) => {
+  app.put(api.shiftPresets.update.path, requireFeatureAccess("schedule.templates"), async (req, res) => {
     try {
       const input = api.shiftPresets.update.input.parse(req.body);
       const preset = await storage.updateShiftPreset(Number(req.params.id), input);
@@ -971,7 +1036,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.shiftPresets.delete.path, requireAdmin, async (req, res) => {
+  app.delete(api.shiftPresets.delete.path, requireFeatureAccess("schedule.templates"), async (req, res) => {
     await storage.deleteShiftPreset(Number(req.params.id));
     res.status(204).send();
   });
@@ -1195,13 +1260,14 @@ export async function registerRoutes(
 
   // === PERMISSIONS MANAGEMENT ===
 
-  app.get("/api/permissions", requireAdmin, async (_req, res) => {
+  app.get("/api/permissions", requireFeatureAccess("settings.permissions"), async (_req, res) => {
     try {
       const perms = await getFeaturePermissions();
       const result = SYSTEM_FEATURES.map(f => ({
         feature: f.feature,
         label: f.label,
         description: f.description,
+        category: (f as any).category,
         allowedRoles: perms[f.feature] || DEFAULT_FEATURE_PERMISSIONS[f.feature] || [],
       }));
       res.json(result);
@@ -1211,7 +1277,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/permissions", requireAdmin, async (req, res) => {
+  app.put("/api/permissions", requireFeatureAccess("settings.permissions"), async (req, res) => {
     try {
       const allRoles = await storage.getRoles();
       const validRoleNames = new Set(allRoles.map(r => r.name));

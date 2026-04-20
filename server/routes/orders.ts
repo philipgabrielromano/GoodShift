@@ -251,7 +251,7 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
 }
 
 export function registerOrderRoutes(app: Express) {
-  app.post("/api/orders", requireFeatureAccess("orders"), async (req, res) => {
+  app.post("/api/orders", requireFeatureAccess("orders.submit"), async (req, res) => {
     try {
       const parsed = orderSchema.parse(req.body);
       const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
@@ -327,7 +327,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.get("/api/orders", requireFeatureAccess("orders"), async (req, res) => {
+  app.get("/api/orders", requireFeatureAccess("orders.view_all"), async (req, res) => {
     try {
       const { startDate, endDate, location, orderType, limit, offset } = req.query;
       console.log("[Orders] GET /api/orders query:", JSON.stringify(req.query));
@@ -378,7 +378,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.get("/api/orders/:id", requireFeatureAccess("orders"), async (req, res) => {
+  app.get("/api/orders/:id", requireFeatureAccess("orders.view_all"), async (req, res) => {
     try {
       const [rows] = await mysqlPool.execute<OrderRow[]>("SELECT * FROM orders WHERE id = ?", [req.params.id]);
       if (rows.length === 0) {
@@ -391,7 +391,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.put("/api/orders/:id", requireFeatureAccess("edit_orders"), async (req, res) => {
+  app.put("/api/orders/:id", requireFeatureAccess("orders.edit"), async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {
@@ -428,7 +428,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/orders/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/orders/:id", requireFeatureAccess("orders.delete"), async (req, res) => {
     try {
       const [result] = await mysqlPool.execute<ResultSetHeader>(
         "DELETE FROM orders WHERE id = ?",

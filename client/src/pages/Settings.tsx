@@ -95,7 +95,14 @@ export default function Settings() {
 
   const currentEmployee = myEmployeeData?.employee || null;
   const userRole = authStatus?.user?.role ?? "viewer";
+  const features = authStatus?.accessibleFeatures || [];
+  const can = (f: string) => features.includes(f);
+  const canGlobalConfig = can("settings.global_config");
+  const canUkgConfig = can("settings.ukg_config");
+  const canUkgSync = can("settings.ukg_sync");
+  const canEmailAudit = can("settings.email_audit");
   const isAdmin = userRole === "admin";
+  const showAdminArea = canGlobalConfig || canUkgConfig || canUkgSync || canEmailAudit;
 
   useEffect(() => {
     if (currentEmployee && !altEmailInitialized) {
@@ -147,7 +154,7 @@ export default function Settings() {
 
   const { data: ukgCredentials } = useQuery<{ ukgApiUrl: string; ukgUsername: string; hasPassword: boolean }>({
     queryKey: ["/api/ukg/credentials"],
-    enabled: isAdmin,
+    enabled: canUkgConfig,
   });
 
   useEffect(() => {
@@ -176,13 +183,13 @@ export default function Settings() {
 
   const { data: ukgDiagnostics, refetch: refetchDiagnostics } = useQuery<UKGDiagnostics>({
     queryKey: ["/api/ukg/diagnostics"],
-    enabled: isAdmin && showDiagnostics,
+    enabled: canUkgSync && showDiagnostics,
     refetchInterval: showDiagnostics ? 30000 : false,
   });
 
   const { data: emailLogs, refetch: refetchEmailLogs } = useQuery<EmailLogEntry[]>({
     queryKey: ["/api/email-logs"],
-    enabled: isAdmin && showEmailLogs,
+    enabled: canEmailAudit && showEmailLogs,
   });
 
   const testConnection = useMutation({
@@ -356,7 +363,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {isAdmin && <>
+      {showAdminArea && <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -416,7 +423,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      <Card>
+      {(canUkgConfig || canUkgSync) && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Building2 className="w-5 h-5" />
@@ -551,9 +558,9 @@ export default function Settings() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      <Card>
+      {canUkgSync && <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <CardTitle className="flex items-center gap-2">
@@ -772,9 +779,9 @@ export default function Settings() {
             )}
           </CardContent>
         )}
-      </Card>
+      </Card>}
 
-      <Card>
+      {canGlobalConfig && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="w-5 h-5" />
@@ -840,9 +847,9 @@ export default function Settings() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      <Card>
+      {canGlobalConfig && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="w-5 h-5" />
@@ -887,11 +894,11 @@ export default function Settings() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
 
-      <ScheduleEmailPreview hrEmail={hrEmail} />
+      {canGlobalConfig && <ScheduleEmailPreview hrEmail={hrEmail} />}
 
-      <Card>
+      {canEmailAudit && <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <CardTitle className="flex items-center gap-2">

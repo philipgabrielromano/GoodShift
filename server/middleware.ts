@@ -64,7 +64,7 @@ export function requireOptimizer(req: Request, res: Response, next: NextFunction
 // Dynamic feature-based permission middleware
 // Checks the feature_permissions table to see if the user's role has access
 import { db } from "./db";
-import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS } from "@shared/schema";
+import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, LEGACY_FEATURE_EXPANSIONS } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 let permissionsCache: Record<string, string[]> | null = null;
@@ -87,12 +87,34 @@ export async function getFeaturePermissions(): Promise<Record<string, string[]>>
         perms[feature] = roles;
       }
     }
+    // Legacy expansion: if a DB row exists for an old lumped feature key,
+    // union those roles into each granular child key so existing admin
+    // customizations continue to apply until they're re-saved with new keys.
+    for (const [legacy, children] of Object.entries(LEGACY_FEATURE_EXPANSIONS)) {
+      const legacyRoles = perms[legacy];
+      if (!legacyRoles) continue;
+      for (const child of children) {
+        const merged = new Set(perms[child] ?? []);
+        for (const r of legacyRoles) merged.add(r);
+        perms[child] = Array.from(merged);
+      }
+    }
     permissionsCache = perms;
     cacheTimestamp = now;
     return perms;
   } catch {
     return { ...DEFAULT_FEATURE_PERMISSIONS };
   }
+}
+
+// Programmatic access check (no Express middleware). Use in route handlers
+// that need to gate part of a request (e.g. only validate a specific field).
+export async function userHasFeature(user: { role?: string } | undefined | null, feature: string): Promise<boolean> {
+  if (!user || !user.role) return false;
+  if (user.role === "admin") return true;
+  const perms = await getFeaturePermissions();
+  const allowed = perms[feature] || [];
+  return allowed.includes(user.role);
 }
 
 export function invalidatePermissionsCache() {

@@ -158,7 +158,7 @@ export default function OrderSubmissions() {
 
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const isAdmin = authStatus?.user?.role === "admin";
-  const canEdit = !!authStatus?.accessibleFeatures?.includes("edit_orders");
+  const canEdit = !!authStatus?.accessibleFeatures?.includes("orders.edit");
   const [, navigate] = useWouterLocation();
 
   const deleteMutation = useMutation({

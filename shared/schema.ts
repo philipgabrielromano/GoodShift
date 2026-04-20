@@ -1002,42 +1002,165 @@ export const featurePermissions = pgTable("feature_permissions", {
 export type FeaturePermission = typeof featurePermissions.$inferSelect;
 export type InsertFeaturePermission = typeof featurePermissions.$inferInsert;
 
+export const FEATURE_CATEGORIES = [
+  "Scheduling",
+  "Workforce",
+  "Compliance & HR",
+  "Collaboration",
+  "Store Operations",
+  "Orders",
+  "Logistics",
+  "Inventory",
+  "Reports",
+  "Configuration",
+  "User Administration",
+] as const;
+
 export const SYSTEM_FEATURES = [
-  { feature: "schedule", label: "Schedule", description: "View and manage the weekly schedule" },
-  { feature: "shift_trades", label: "Shift Trades", description: "View and manage shift trade requests" },
-  { feature: "attendance", label: "Attendance", description: "View and manage attendance records" },
-  { feature: "task_assignment", label: "Task Assignment", description: "Assign daily tasks to employees" },
-  { feature: "coaching", label: "Coaching", description: "View and manage coaching logs" },
-  { feature: "optimization", label: "Store Optimization", description: "Store optimization event tracking" },
-  { feature: "employees", label: "Employees", description: "View and manage employee records" },
-  { feature: "locations", label: "Locations", description: "View and manage store locations" },
-  { feature: "settings", label: "Settings", description: "View and manage application settings" },
-  { feature: "reports", label: "Reports", description: "Occurrence reports, variance reports, and roster targets" },
-  { feature: "orders", label: "Orders", description: "Submit and view equipment orders" },
-  { feature: "edit_orders", label: "Edit Orders", description: "Edit existing equipment orders" },
-  { feature: "trailer_manifest", label: "Trailer Manifest", description: "Track and edit live trailer load manifests" },
-  { feature: "warehouse_inventory", label: "Warehouse Inventory", description: "Record and review daily warehouse inventory counts" },
-  { feature: "users", label: "User Management", description: "Manage user accounts and roles" },
-  { feature: "raw_shifts", label: "Raw Shifts", description: "View raw shift data" },
+  // Scheduling
+  { category: "Scheduling", feature: "schedule.view", label: "View Schedule", description: "See the weekly schedule" },
+  { category: "Scheduling", feature: "schedule.edit", label: "Edit Shifts", description: "Create, update, delete shifts; clear the schedule" },
+  { category: "Scheduling", feature: "schedule.publish", label: "Publish Schedule", description: "Publish schedules and send notifications" },
+  { category: "Scheduling", feature: "schedule.generate", label: "Auto-Generate Schedule", description: "Run the automatic schedule generator" },
+  { category: "Scheduling", feature: "schedule.templates", label: "Schedule Templates", description: "Manage shift presets and templates" },
+  { category: "Scheduling", feature: "schedule.roster_targets", label: "Roster Targets", description: "View and edit role staffing targets" },
+  // Workforce
+  { category: "Workforce", feature: "employees.view", label: "View Employees", description: "See the employee directory" },
+  { category: "Workforce", feature: "employees.edit", label: "Edit Employees", description: "Create and update employee records" },
+  { category: "Workforce", feature: "employees.delete", label: "Delete Employees", description: "Permanently remove employee records" },
+  { category: "Workforce", feature: "raw_shifts.view", label: "Raw Shift Data", description: "View raw UKG shift data" },
+  // Compliance & HR
+  { category: "Compliance & HR", feature: "attendance.view", label: "View Attendance", description: "See attendance and occurrence records" },
+  { category: "Compliance & HR", feature: "attendance.edit", label: "Edit Attendance", description: "Create, adjust, and resolve occurrences and corrective actions" },
+  { category: "Compliance & HR", feature: "coaching.view", label: "View Coaching Logs", description: "Read coaching logs and follow-ups" },
+  { category: "Compliance & HR", feature: "coaching.edit", label: "Manage Coaching Logs", description: "Create, edit, and delete coaching logs" },
+  // Collaboration
+  { category: "Collaboration", feature: "shift_trades.view", label: "View Shift Trades", description: "See shift trade requests" },
+  { category: "Collaboration", feature: "shift_trades.approve", label: "Approve Shift Trades", description: "Approve or deny trade requests" },
+  { category: "Collaboration", feature: "task_assignment.view", label: "View Task Assignments", description: "See daily task assignments" },
+  { category: "Collaboration", feature: "task_assignment.edit", label: "Manage Task Assignments", description: "Create, edit, and copy task assignments" },
+  // Store Operations
+  { category: "Store Operations", feature: "optimization.view", label: "View Store Optimization", description: "See optimization events and survey results" },
+  { category: "Store Operations", feature: "optimization.edit", label: "Manage Store Optimization", description: "Create and edit optimization events" },
+  // Orders
+  { category: "Orders", feature: "orders.submit", label: "Submit Orders", description: "Submit new equipment orders" },
+  { category: "Orders", feature: "orders.view_all", label: "View All Orders", description: "View the full order history" },
+  { category: "Orders", feature: "orders.edit", label: "Edit Orders", description: "Modify existing equipment orders" },
+  { category: "Orders", feature: "orders.delete", label: "Delete Orders", description: "Permanently remove submitted orders" },
+  // Logistics
+  { category: "Logistics", feature: "trailer_manifest.view", label: "View Trailer Manifests", description: "See live and completed trailer loads" },
+  { category: "Logistics", feature: "trailer_manifest.edit", label: "Edit Trailer Manifests", description: "Update item counts and manifest status" },
+  { category: "Logistics", feature: "trailer_manifest.delete", label: "Delete Trailer Manifests", description: "Remove manifests from the system" },
+  // Inventory
+  { category: "Inventory", feature: "warehouse_inventory.view", label: "View Warehouse Inventory", description: "See inventory dashboards and counts" },
+  { category: "Inventory", feature: "warehouse_inventory.edit", label: "Edit Warehouse Counts", description: "Create and update daily inventory counts" },
+  { category: "Inventory", feature: "warehouse_inventory.finalize", label: "Finalize / Reopen Counts", description: "Finalize inventory counts and reopen them" },
+  // Reports
+  { category: "Reports", feature: "reports.occurrences", label: "Occurrence Reports", description: "Run HR / occurrence reports" },
+  { category: "Reports", feature: "reports.variance", label: "Variance Reports", description: "View schedule vs. actual variance reports" },
+  { category: "Reports", feature: "reports.roster", label: "Roster Reports", description: "View roster target reports" },
+  // Configuration
+  { category: "Configuration", feature: "locations.view", label: "View Locations", description: "See store location details" },
+  { category: "Configuration", feature: "locations.edit", label: "Manage Locations", description: "Create, edit, and delete store locations and budgets" },
+  { category: "Configuration", feature: "settings.global_config", label: "Global Settings", description: "Configure HR alert and order notification recipients" },
+  { category: "Configuration", feature: "settings.ukg_config", label: "UKG Credentials", description: "View and update UKG API credentials" },
+  { category: "Configuration", feature: "settings.ukg_sync", label: "Run UKG Sync", description: "Trigger UKG syncs and view sync diagnostics" },
+  { category: "Configuration", feature: "settings.email_audit", label: "Email Audit Log", description: "View the log of automated emails sent by the system" },
+  { category: "Configuration", feature: "settings.permissions", label: "Manage Permissions", description: "Edit roles and feature permissions" },
+  // User Administration
+  { category: "User Administration", feature: "users.view", label: "View Users", description: "See the user directory" },
+  { category: "User Administration", feature: "users.edit_profile", label: "Edit User Profile", description: "Change a user's name, email, and active status" },
+  { category: "User Administration", feature: "users.assign_roles", label: "Assign Roles", description: "Change a user's role / permission tier" },
+  { category: "User Administration", feature: "users.assign_locations", label: "Assign Store Locations", description: "Change which stores a user can access" },
+  { category: "User Administration", feature: "users.delete", label: "Delete Users", description: "Remove user accounts" },
 ] as const;
 
 export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
-  schedule: ["admin", "manager", "optimizer", "viewer"],
-  shift_trades: ["admin", "manager", "optimizer", "viewer"],
-  attendance: ["admin", "manager", "optimizer"],
-  task_assignment: ["admin", "manager", "optimizer"],
-  coaching: ["admin", "manager", "optimizer", "viewer"],
-  optimization: ["admin", "optimizer"],
-  employees: ["admin", "manager", "optimizer"],
-  locations: ["admin", "manager", "optimizer"],
-  settings: ["admin", "manager", "optimizer", "viewer"],
-  reports: ["admin", "manager", "optimizer"],
-  orders: ["admin", "ordering"],
-  edit_orders: ["admin"],
-  trailer_manifest: ["admin", "manager", "ordering"],
-  warehouse_inventory: ["admin", "manager", "ordering"],
-  users: ["admin"],
-  raw_shifts: ["admin"],
+  // Scheduling
+  "schedule.view": ["admin", "manager", "optimizer", "viewer"],
+  "schedule.edit": ["admin", "manager"],
+  "schedule.publish": ["admin", "manager"],
+  "schedule.generate": ["admin", "manager"],
+  "schedule.templates": ["admin", "manager"],
+  "schedule.roster_targets": ["admin", "manager", "optimizer"],
+  // Workforce
+  "employees.view": ["admin", "manager", "optimizer"],
+  "employees.edit": ["admin", "manager"],
+  "employees.delete": ["admin"],
+  "raw_shifts.view": ["admin"],
+  // Compliance & HR
+  "attendance.view": ["admin", "manager", "optimizer"],
+  "attendance.edit": ["admin", "manager"],
+  "coaching.view": ["admin", "manager", "optimizer", "viewer"],
+  "coaching.edit": ["admin", "manager", "optimizer"],
+  // Collaboration
+  "shift_trades.view": ["admin", "manager", "optimizer", "viewer"],
+  "shift_trades.approve": ["admin", "manager"],
+  "task_assignment.view": ["admin", "manager", "optimizer"],
+  "task_assignment.edit": ["admin", "manager"],
+  // Store Operations
+  "optimization.view": ["admin", "optimizer"],
+  "optimization.edit": ["admin", "optimizer"],
+  // Orders
+  "orders.submit": ["admin", "manager", "ordering"],
+  "orders.view_all": ["admin", "ordering"],
+  "orders.edit": ["admin"],
+  "orders.delete": ["admin"],
+  // Logistics
+  "trailer_manifest.view": ["admin", "manager", "ordering"],
+  "trailer_manifest.edit": ["admin", "manager", "ordering"],
+  "trailer_manifest.delete": ["admin"],
+  // Inventory
+  "warehouse_inventory.view": ["admin", "manager", "ordering"],
+  "warehouse_inventory.edit": ["admin", "manager", "ordering"],
+  "warehouse_inventory.finalize": ["admin", "manager"],
+  // Reports
+  "reports.occurrences": ["admin", "manager"],
+  "reports.variance": ["admin", "manager"],
+  "reports.roster": ["admin", "manager", "optimizer"],
+  // Configuration
+  "locations.view": ["admin", "manager", "optimizer"],
+  "locations.edit": ["admin"],
+  "settings.global_config": ["admin"],
+  "settings.ukg_config": ["admin"],
+  "settings.ukg_sync": ["admin"],
+  "settings.email_audit": ["admin"],
+  "settings.permissions": ["admin"],
+  // User Administration
+  "users.view": ["admin"],
+  "users.edit_profile": ["admin"],
+  "users.assign_roles": ["admin"],
+  "users.assign_locations": ["admin"],
+  "users.delete": ["admin"],
+};
+
+// Backward-compatibility: old single-key features were split into multiple
+// granular keys. If a DB row still uses a legacy key, its allowedRoles are
+// unioned into each of its granular children at runtime so existing
+// customizations continue to work until an admin re-saves with new keys.
+export const LEGACY_FEATURE_EXPANSIONS: Record<string, string[]> = {
+  schedule: ["schedule.view", "schedule.edit", "schedule.publish", "schedule.generate", "schedule.templates", "schedule.roster_targets"],
+  employees: ["employees.view", "employees.edit"],
+  attendance: ["attendance.view", "attendance.edit"],
+  coaching: ["coaching.view", "coaching.edit"],
+  shift_trades: ["shift_trades.view", "shift_trades.approve"],
+  task_assignment: ["task_assignment.view", "task_assignment.edit"],
+  optimization: ["optimization.view", "optimization.edit"],
+  orders: ["orders.submit", "orders.view_all"],
+  edit_orders: ["orders.edit", "orders.view_all"],
+  trailer_manifest: ["trailer_manifest.view", "trailer_manifest.edit"],
+  warehouse_inventory: ["warehouse_inventory.view", "warehouse_inventory.edit", "warehouse_inventory.finalize"],
+  reports: ["reports.occurrences", "reports.variance", "reports.roster"],
+  locations: ["locations.view", "locations.edit"],
+  // NOTE: intentionally excludes settings.permissions — that is a privileged
+  // capability that must be granted explicitly, never inherited from a legacy
+  // "settings" row.
+  settings: ["settings.global_config", "settings.ukg_config", "settings.ukg_sync", "settings.email_audit"],
+  // NOTE: intentionally excludes users.assign_roles/assign_locations/delete —
+  // those are privileged and must be granted explicitly rather than inherited
+  // from a legacy "users" row.
+  users: ["users.view", "users.edit_profile"],
+  raw_shifts: ["raw_shifts.view"],
 };
 
 export const OPTIMIZATION_SURVEY_QUESTIONS = [

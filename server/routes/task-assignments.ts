@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireManager } from "../middleware";
+import { requireAuth, requireFeatureAccess } from "../middleware";
 import { insertTaskAssignmentSchema, TASK_LIST } from "@shared/schema";
 import { z } from "zod";
 
@@ -14,7 +14,7 @@ const taskAssignmentValidation = z.object({
 });
 
 export function registerTaskAssignmentRoutes(app: Express) {
-  app.get("/api/task-assignments", requireManager, async (req, res) => {
+  app.get("/api/task-assignments", requireFeatureAccess("task_assignment.view"), async (req, res) => {
     const date = req.query.date as string;
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
@@ -33,7 +33,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
     res.json(assignments);
   });
 
-  app.post("/api/task-assignments", requireManager, async (req, res) => {
+  app.post("/api/task-assignments", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const parsed = taskAssignmentValidation.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.errors[0].message });
@@ -46,7 +46,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
     res.status(201).json(assignment);
   });
 
-  app.post("/api/task-assignments/batch", requireManager, async (req, res) => {
+  app.post("/api/task-assignments/batch", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const { assignments } = req.body;
     if (!Array.isArray(assignments) || assignments.length === 0) {
       return res.status(400).json({ message: "assignments array is required" });
@@ -63,7 +63,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
     res.status(201).json(results);
   });
 
-  app.put("/api/task-assignments/:id", requireManager, async (req, res) => {
+  app.put("/api/task-assignments/:id", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     try {
       const id = Number(req.params.id);
       const updateSchema = taskAssignmentValidation.partial();
@@ -81,7 +81,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
     }
   });
 
-  app.post("/api/task-assignments/copy-day", requireManager, async (req, res) => {
+  app.post("/api/task-assignments/copy-day", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const { sourceDate, targetDate, location } = req.body;
     if (!sourceDate || !targetDate) {
       return res.status(400).json({ message: "sourceDate and targetDate are required" });
@@ -131,12 +131,12 @@ export function registerTaskAssignmentRoutes(app: Express) {
     res.status(201).json({ message: `Copied ${results.length} task assignments`, count: results.length });
   });
 
-  app.delete("/api/task-assignments/:id", requireManager, async (req, res) => {
+  app.delete("/api/task-assignments/:id", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     await storage.deleteTaskAssignment(Number(req.params.id));
     res.status(204).send();
   });
 
-  app.delete("/api/task-assignments", requireManager, async (req, res) => {
+  app.delete("/api/task-assignments", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const date = req.query.date as string;
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
@@ -145,14 +145,14 @@ export function registerTaskAssignmentRoutes(app: Express) {
     res.json({ deleted: count });
   });
 
-  app.get("/api/custom-tasks", requireManager, async (req, res) => {
+  app.get("/api/custom-tasks", requireFeatureAccess("task_assignment.view"), async (req, res) => {
     const user = (req.session as any)?.user;
     if (!user?.id) return res.status(401).json({ message: "Not authenticated" });
     const tasks = await storage.getCustomTasks(user.id);
     res.json(tasks);
   });
 
-  app.post("/api/custom-tasks", requireManager, async (req, res) => {
+  app.post("/api/custom-tasks", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const user = (req.session as any)?.user;
     if (!user?.id) return res.status(401).json({ message: "Not authenticated" });
     const schema = z.object({
@@ -171,7 +171,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
     res.status(201).json(task);
   });
 
-  app.delete("/api/custom-tasks/:id", requireManager, async (req, res) => {
+  app.delete("/api/custom-tasks/:id", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const user = (req.session as any)?.user;
     if (!user?.id) return res.status(401).json({ message: "Not authenticated" });
     await storage.deleteCustomTask(Number(req.params.id), user.id);
