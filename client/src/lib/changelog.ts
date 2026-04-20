@@ -8,9 +8,23 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "2.0.0";
+export const APP_VERSION = "3.0.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.0.0",
+    date: "2026-04-20",
+    title: "Driver Inspection, Inventory Links & Login Customization",
+    changes: [
+      { type: "feature", description: "Driver Inspection module — pre-trip inspection form covering tires, brakes, lights, fluids, horn, mirrors, wipers, seatbelt, and more. Drivers can flag any item as needing repair, add notes, and submit for the record." },
+      { type: "feature", description: "Driver Inspection list and detail pages for reviewing past inspections, filtering by driver, date, and repair status." },
+      { type: "feature", description: "Automatic email alerts to a configurable distribution list whenever a driver flags an inspection item as needing repair." },
+      { type: "feature", description: "Inventory navigation section with quick links to the New Goods and Supplies Showroom and Stock Count tools in inFlow Inventory." },
+      { type: "feature", description: "Editable login page tagline — admins can change the message shown under the logo on the sign-in page from Settings, or leave it blank to restore the default." },
+      { type: "feature", description: "Login page now displays the current application version and release date so users can confirm which build they're on." },
+      { type: "improvement", description: "Settings page now groups Driver Inspection repair-alert emails and the login tagline alongside the existing HR and order notification configuration." },
+    ],
+  },
   {
     version: "2.0.0",
     date: "2026-04-14",
