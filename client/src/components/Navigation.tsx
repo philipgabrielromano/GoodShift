@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck, Warehouse, CreditCard } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck, Warehouse, CreditCard, Package, Boxes, ExternalLink } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState, useMemo } from "react";
@@ -129,6 +129,32 @@ export function Navigation() {
             </>
           )}
 
+          <div className="pt-3 pb-1 px-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-inventory-heading">Inventory</p>
+          </div>
+          <a
+            href="https://showroom.inflowinventory.com/9deec6d6-bb02-42a4-a37f-3f50f8ad71f5"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="link-nav-new-goods-and-supplies-showroom"
+            className="flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer text-muted-foreground hover-elevate"
+          >
+            <Package className="w-5 h-5 text-muted-foreground" />
+            <span className="flex-1">New Goods and Supplies Showroom</span>
+            <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+          </a>
+          <a
+            href="https://app.inflowinventory.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="link-nav-stock-count"
+            className="flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer text-muted-foreground hover-elevate"
+          >
+            <Boxes className="w-5 h-5 text-muted-foreground" />
+            <span className="flex-1">Stock Count</span>
+            <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+          </a>
+
           {(can("reports.occurrences") || can("reports.variance") || can("reports.roster")) && (
             <>
               <div className="pt-3 pb-1 px-4">
@@ -246,6 +272,34 @@ export function Navigation() {
                   {can("driver_inspection.view_all") && renderMobileNavItem({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck })}
                 </>
               )}
+
+              <div className="pt-3 pb-1 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-mobile-inventory-heading">Inventory</p>
+              </div>
+              <a
+                href="https://showroom.inflowinventory.com/9deec6d6-bb02-42a4-a37f-3f50f8ad71f5"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMobileOpen(false)}
+                data-testid="link-mobile-nav-new-goods-and-supplies-showroom"
+                className="flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer text-muted-foreground hover-elevate"
+              >
+                <Package className="w-5 h-5" />
+                <span className="flex-1">New Goods and Supplies Showroom</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+              </a>
+              <a
+                href="https://app.inflowinventory.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setMobileOpen(false)}
+                data-testid="link-mobile-nav-stock-count"
+                className="flex items-center gap-3 px-4 py-3 rounded transition-all duration-200 cursor-pointer text-muted-foreground hover-elevate"
+              >
+                <Boxes className="w-5 h-5" />
+                <span className="flex-1">Stock Count</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-60" />
+              </a>
 
               {(can("reports.occurrences") || can("reports.variance") || can("reports.roster")) && (
                 <>
