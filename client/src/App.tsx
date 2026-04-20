@@ -32,6 +32,9 @@ import WarehouseInventoryDetail from "@/pages/WarehouseInventoryDetail";
 import Permissions from "@/pages/Permissions";
 import CreditCardInspectionForm from "@/pages/CreditCardInspectionForm";
 import CreditCardInspections from "@/pages/CreditCardInspections";
+import DriverInspectionForm from "@/pages/DriverInspectionForm";
+import DriverInspections from "@/pages/DriverInspections";
+import DriverInspectionDetail from "@/pages/DriverInspectionDetail";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -69,6 +72,9 @@ function Router() {
       <Route path="/permissions" component={Permissions} />
       <Route path="/credit-card-inspection/new" component={CreditCardInspectionForm} />
       <Route path="/credit-card-inspections" component={CreditCardInspections} />
+      <Route path="/driver-inspection/new" component={DriverInspectionForm} />
+      <Route path="/driver-inspections" component={DriverInspections} />
+      <Route path="/driver-inspections/:id" component={DriverInspectionDetail} />
       <Route component={NotFound} />
     </Switch>
   );

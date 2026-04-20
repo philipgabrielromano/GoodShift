@@ -71,6 +71,8 @@ export const globalSettings = pgTable("global_settings", {
   hrNotificationEmail: text("hr_notification_email"),
   // Order notification emails (comma-separated)
   orderNotificationEmails: text("order_notification_emails"),
+  // Driver inspection repair-alert emails (comma-separated)
+  driverInspectionEmails: text("driver_inspection_emails"),
   // UKG API credentials (overrides environment variables when set)
   ukgApiUrl: text("ukg_api_url"),
   ukgUsername: text("ukg_username"),
@@ -950,6 +952,110 @@ export const insertCreditCardInspectionSchema = createInsertSchema(creditCardIns
 export type CreditCardInspection = typeof creditCardInspections.$inferSelect;
 export type InsertCreditCardInspection = z.infer<typeof insertCreditCardInspectionSchema>;
 
+// === DRIVER INSPECTIONS ===
+
+export const DRIVER_INSPECTION_TYPES = ["tractor", "trailer"] as const;
+export type DriverInspectionType = (typeof DRIVER_INSPECTION_TYPES)[number];
+
+// Canonical checklist. Keys are stable identifiers; labels are user-facing.
+export const DRIVER_INSPECTION_ITEMS = [
+  { key: "engine_oil", label: "Engine oil within acceptable level", section: "engine_off" },
+  { key: "tire_damage", label: "Tire tread and sidewalls show no damage", section: "engine_off" },
+  { key: "fan_belts", label: "Fan belts tight and show no obvious damage", section: "engine_off" },
+  { key: "windows_clean", label: "Windows clean inside and outside", section: "engine_off" },
+  { key: "coolant_level", label: "Coolant level acceptable", section: "engine_off" },
+  { key: "seat_belt", label: "Seat belt functions correctly", section: "engine_off" },
+  { key: "tire_inflation", label: "Tire inflation", section: "engine_off" },
+  { key: "fire_extinguisher", label: "Fire extinguisher available", section: "engine_off" },
+  { key: "windshield_wipers", label: "Windshield wipers clean and not stuck to windshield", section: "engine_off" },
+  { key: "emergency_kits", label: "Emergency / incident reporting kits available", section: "engine_off" },
+  { key: "headlights", label: "Headlights function both high and low beam", section: "engine_on" },
+  { key: "turn_signals", label: "Turn signals function", section: "engine_on" },
+  { key: "brake_lights", label: "Brake lights function including third brake light", section: "engine_on" },
+  { key: "reverse_alarm", label: "Reverse lights / back-up alarm functions", section: "engine_on" },
+  { key: "fluid_leaks", label: "Fluid leaks discovered", section: "engine_on" },
+  { key: "horn", label: "Horn sounds", section: "engine_on" },
+  { key: "mirrors", label: "Mirrors function", section: "engine_on" },
+  { key: "brakes", label: "Brakes function correctly", section: "engine_on" },
+  { key: "new_damage", label: "Any new damage noted prior to using the vehicle?", section: "engine_on" },
+] as const;
+
+export const DRIVER_INSPECTION_ITEM_KEYS = DRIVER_INSPECTION_ITEMS.map(i => i.key) as readonly string[];
+
+const objectStoragePathOptional = z
+  .string()
+  .regex(/^\/objects\/[A-Za-z0-9_\-\/.]+$/, "Invalid photo path")
+  .nullable()
+  .optional();
+
+export const driverInspectionItemSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  section: z.enum(["engine_off", "engine_on"]),
+  status: z.enum(["ok", "repair"]),
+  resolved: z.boolean().default(false),
+  resolvedAt: z.string().nullable().optional(),
+  resolvedById: z.number().int().nullable().optional(),
+  resolvedByName: z.string().nullable().optional(),
+  resolutionNotes: z.string().max(2000).nullable().optional(),
+});
+export type DriverInspectionItem = z.infer<typeof driverInspectionItemSchema>;
+
+export const driverInspections = pgTable("driver_inspections", {
+  id: serial("id").primaryKey(),
+  inspectionType: text("inspection_type").notNull(),
+  startingMileage: integer("starting_mileage"),
+  routeNumber: text("route_number"),
+  tractorNumber: text("tractor_number"),
+  trailerNumber: text("trailer_number"),
+  driverId: integer("driver_id"),
+  driverName: text("driver_name"),
+  items: jsonb("items").$type<DriverInspectionItem[]>().notNull(),
+  notes: text("notes"),
+  photoUrl: text("photo_url"),
+  photoName: text("photo_name"),
+  anyRepairsNeeded: boolean("any_repairs_needed").notNull().default(false),
+  openRepairCount: integer("open_repair_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_driver_inspections_created_at").on(table.createdAt),
+  index("idx_driver_inspections_tractor").on(table.tractorNumber),
+  index("idx_driver_inspections_trailer").on(table.trailerNumber),
+  index("idx_driver_inspections_open_repairs").on(table.openRepairCount),
+]);
+
+export const insertDriverInspectionSchema = createInsertSchema(driverInspections).omit({
+  id: true,
+  createdAt: true,
+  driverId: true,
+  driverName: true,
+  anyRepairsNeeded: true,
+  openRepairCount: true,
+}).extend({
+  inspectionType: z.enum(DRIVER_INSPECTION_TYPES),
+  startingMileage: z.number().int().min(0).max(9_999_999).nullable().optional(),
+  routeNumber: z.string().max(120).nullable().optional(),
+  tractorNumber: z.string().max(60).nullable().optional(),
+  trailerNumber: z.string().max(60).nullable().optional(),
+  notes: z.string().max(5000).nullable().optional(),
+  photoUrl: objectStoragePathOptional,
+  photoName: z.string().max(255).nullable().optional(),
+  items: z
+    .array(driverInspectionItemSchema)
+    .length(DRIVER_INSPECTION_ITEMS.length, `Exactly ${DRIVER_INSPECTION_ITEMS.length} checklist items are required`)
+    .refine(
+      arr => {
+        const expected = new Set(DRIVER_INSPECTION_ITEM_KEYS);
+        const got = new Set(arr.map(i => i.key));
+        return expected.size === got.size && [...expected].every(k => got.has(k));
+      },
+      { message: "All checklist items must be answered" }
+    ),
+});
+
+export type DriverInspection = typeof driverInspections.$inferSelect;
+export type InsertDriverInspection = z.infer<typeof insertDriverInspectionSchema>;
+
 // === WAREHOUSE INVENTORY ===
 
 export const WAREHOUSES = ["cleveland", "canton"] as const;
@@ -1074,6 +1180,8 @@ export const FEATURE_CATEGORIES = [
   "Collaboration",
   "Store Operations",
   "Orders",
+  "Credit Card Inspections",
+  "Driver Inspections",
   "Logistics",
   "Inventory",
   "Reports",
@@ -1116,6 +1224,11 @@ export const SYSTEM_FEATURES = [
   { category: "Credit Card Inspections", feature: "credit_card_inspection.submit", label: "Submit Credit Card Inspections", description: "Submit credit card terminal inspection forms" },
   { category: "Credit Card Inspections", feature: "credit_card_inspection.view_all", label: "View All Credit Card Inspections", description: "View the full history of credit card inspections" },
   { category: "Credit Card Inspections", feature: "credit_card_inspection.delete", label: "Delete Credit Card Inspections", description: "Permanently remove credit card inspection submissions" },
+  // Driver Inspections
+  { category: "Driver Inspections", feature: "driver_inspection.submit", label: "Submit Driver Inspections", description: "Submit pre-trip tractor/trailer inspection forms" },
+  { category: "Driver Inspections", feature: "driver_inspection.view_all", label: "View All Driver Inspections", description: "View the full driver inspection history and open repair items" },
+  { category: "Driver Inspections", feature: "driver_inspection.resolve_repairs", label: "Resolve Repair Items", description: "Mark inspection repair items as resolved" },
+  { category: "Driver Inspections", feature: "driver_inspection.delete", label: "Delete Driver Inspections", description: "Permanently remove driver inspection submissions" },
   // Logistics
   { category: "Logistics", feature: "trailer_manifest.view", label: "View Trailer Manifests", description: "See live and completed trailer loads" },
   { category: "Logistics", feature: "trailer_manifest.edit", label: "Edit Trailer Manifests", description: "Update item counts and manifest status" },
@@ -1178,6 +1291,11 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "credit_card_inspection.submit": ["admin", "manager"],
   "credit_card_inspection.view_all": ["admin", "manager"],
   "credit_card_inspection.delete": ["admin"],
+  // Driver Inspections
+  "driver_inspection.submit": ["admin", "manager"],
+  "driver_inspection.view_all": ["admin", "manager"],
+  "driver_inspection.resolve_repairs": ["admin", "manager"],
+  "driver_inspection.delete": ["admin"],
   // Logistics
   "trailer_manifest.view": ["admin", "manager", "ordering"],
   "trailer_manifest.edit": ["admin", "manager", "ordering"],
@@ -1220,6 +1338,8 @@ export const LEGACY_FEATURE_EXPANSIONS: Record<string, string[]> = {
   optimization: ["optimization.view", "optimization.edit"],
   orders: ["orders.submit", "orders.view_all"],
   edit_orders: ["orders.edit", "orders.view_all"],
+  credit_card_inspection: ["credit_card_inspection.submit", "credit_card_inspection.view_all"],
+  driver_inspection: ["driver_inspection.submit", "driver_inspection.view_all", "driver_inspection.resolve_repairs"],
   trailer_manifest: ["trailer_manifest.view", "trailer_manifest.edit"],
   warehouse_inventory: ["warehouse_inventory.view", "warehouse_inventory.edit", "warehouse_inventory.finalize"],
   reports: ["reports.occurrences", "reports.variance", "reports.roster"],

@@ -32,8 +32,9 @@ import {
   warehouseInventoryCountItems, type WarehouseInventoryCountItem,
   WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
   creditCardInspections, type CreditCardInspection, type InsertCreditCardInspection,
+  driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
 } from "@shared/schema";
-import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
+import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -241,6 +242,22 @@ export interface IStorage {
   getCreditCardInspection(id: number): Promise<CreditCardInspection | undefined>;
   createCreditCardInspection(inspection: InsertCreditCardInspection & { submittedById?: number | null; submittedByName?: string | null; anyIssuesFound?: boolean }): Promise<CreditCardInspection>;
   deleteCreditCardInspection(id: number): Promise<void>;
+
+  // Driver Inspections
+  getDriverInspections(filters?: {
+    inspectionType?: "tractor" | "trailer";
+    openRepairsOnly?: boolean;
+    tractorNumber?: string;
+    trailerNumber?: string;
+    routeNumber?: string;
+    driverId?: number;
+    fromDate?: Date;
+    toDate?: Date;
+  }): Promise<DriverInspection[]>;
+  getDriverInspection(id: number): Promise<DriverInspection | undefined>;
+  createDriverInspection(inspection: InsertDriverInspection & { driverId?: number | null; driverName?: string | null; anyRepairsNeeded?: boolean; openRepairCount?: number }): Promise<DriverInspection>;
+  updateDriverInspectionItems(id: number, items: DriverInspectionItem[], openRepairCount: number): Promise<DriverInspection | undefined>;
+  deleteDriverInspection(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1475,6 +1492,54 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCreditCardInspection(id: number): Promise<void> {
     await db.delete(creditCardInspections).where(eq(creditCardInspections.id, id));
+  }
+
+  // Driver Inspections
+  async getDriverInspections(filters?: {
+    inspectionType?: "tractor" | "trailer";
+    openRepairsOnly?: boolean;
+    tractorNumber?: string;
+    trailerNumber?: string;
+    routeNumber?: string;
+    driverId?: number;
+    fromDate?: Date;
+    toDate?: Date;
+  }): Promise<DriverInspection[]> {
+    const conditions: any[] = [];
+    if (filters?.inspectionType) conditions.push(eq(driverInspections.inspectionType, filters.inspectionType));
+    if (filters?.openRepairsOnly) conditions.push(gt(driverInspections.openRepairCount, 0));
+    if (filters?.tractorNumber) conditions.push(eq(driverInspections.tractorNumber, filters.tractorNumber));
+    if (filters?.trailerNumber) conditions.push(eq(driverInspections.trailerNumber, filters.trailerNumber));
+    if (filters?.routeNumber) conditions.push(eq(driverInspections.routeNumber, filters.routeNumber));
+    if (filters?.driverId) conditions.push(eq(driverInspections.driverId, filters.driverId));
+    if (filters?.fromDate) conditions.push(gte(driverInspections.createdAt, filters.fromDate));
+    if (filters?.toDate) conditions.push(lte(driverInspections.createdAt, filters.toDate));
+    if (conditions.length > 0) {
+      return await db.select().from(driverInspections).where(and(...conditions)).orderBy(desc(driverInspections.createdAt));
+    }
+    return await db.select().from(driverInspections).orderBy(desc(driverInspections.createdAt));
+  }
+
+  async getDriverInspection(id: number): Promise<DriverInspection | undefined> {
+    const [row] = await db.select().from(driverInspections).where(eq(driverInspections.id, id));
+    return row;
+  }
+
+  async createDriverInspection(inspection: InsertDriverInspection & { driverId?: number | null; driverName?: string | null; anyRepairsNeeded?: boolean; openRepairCount?: number }): Promise<DriverInspection> {
+    const [created] = await db.insert(driverInspections).values(inspection as any).returning();
+    return created;
+  }
+
+  async updateDriverInspectionItems(id: number, items: DriverInspectionItem[], openRepairCount: number): Promise<DriverInspection | undefined> {
+    const [updated] = await db.update(driverInspections)
+      .set({ items, openRepairCount })
+      .where(eq(driverInspections.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteDriverInspection(id: number): Promise<void> {
+    await db.delete(driverInspections).where(eq(driverInspections.id, id));
   }
 }
 

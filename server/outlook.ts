@@ -581,6 +581,126 @@ export async function sendSchedulePublishEmail(
   }
 }
 
+// Driver inspection repair alert
+export interface DriverInspectionAlertEmailData {
+  inspectionId: number;
+  inspectionType: "tractor" | "trailer";
+  driverName: string;
+  routeNumber: string | null;
+  tractorNumber: string | null;
+  trailerNumber: string | null;
+  startingMileage: number | null;
+  submittedAt: string;
+  repairItems: { label: string; section: "engine_off" | "engine_on" }[];
+  notes: string | null;
+  appUrl: string;
+}
+
+export async function sendDriverInspectionAlertEmail(
+  toEmails: string[],
+  data: DriverInspectionAlertEmailData
+): Promise<boolean> {
+  if (toEmails.length === 0) return false;
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for driver inspection alert');
+      return false;
+    }
+
+    const repairRows = data.repairItems.map(r =>
+      `<tr><td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb;">${r.section === "engine_off" ? "Engine Off" : "Engine On"}</td><td style="padding: 6px 10px; border-bottom: 1px solid #e5e7eb; font-weight: 500;">${r.label}</td></tr>`
+    ).join("");
+
+    const notesHtml = data.notes
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Driver's Notes:</strong><br>${data.notes.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</div>`
+      : "";
+
+    const typeLabel = data.inspectionType === "tractor" ? "Tractor / Box Truck" : "Trailer";
+    const vehicleLabel = data.inspectionType === "tractor"
+      ? (data.tractorNumber || "—")
+      : (data.trailerNumber || "—");
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 640px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #dc2626; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">Driver Inspection: Repair Needed</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>A driver has flagged repair items during a pre-trip inspection.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Submitted:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.submittedAt}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Driver:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.driverName}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Inspection Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${typeLabel}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.inspectionType === "tractor" ? "Tractor/Truck #" : "Trailer #"}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${vehicleLabel}</td></tr>
+        ${data.inspectionType === "tractor" && data.trailerNumber ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Trailer #:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.trailerNumber}</td></tr>` : ""}
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Route:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.routeNumber || "—"}</td></tr>
+        ${data.startingMileage != null ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Starting Mileage:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.startingMileage.toLocaleString()}</td></tr>` : ""}
+      </table>
+
+      <h3 style="margin: 20px 0 8px; font-size: 15px; color: #111;">Items Flagged for Repair</h3>
+      <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb;">
+        <thead><tr style="background-color: #f3f4f6;"><th style="text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">Section</th><th style="text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">Item</th></tr></thead>
+        <tbody>${repairRows}</tbody>
+      </table>
+
+      ${notesHtml}
+
+      <p style="margin-top: 24px;">
+        <a href="${data.appUrl}/driver-inspections/${data.inspectionId}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          View Inspection
+        </a>
+      </p>
+
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated notification from GoodShift. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const [primary, ...rest] = toEmails;
+    const message: any = {
+      subject: `Driver Inspection Alert: ${data.repairItems.length} repair item${data.repairItems.length === 1 ? "" : "s"} - ${vehicleLabel}`,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: primary } }],
+      ccRecipients: [
+        ...rest.map(e => ({ emailAddress: { address: e } })),
+        ...(toEmails.map(e => e.toLowerCase()).includes(ALWAYS_CC_EMAIL.toLowerCase()) ? [] : [{ emailAddress: { address: ALWAYS_CC_EMAIL } }]),
+      ],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent driver inspection alert to ${toEmails.join(", ")}`);
+    await storage.createEmailLog({
+      type: "driver_inspection_alert",
+      recipientEmail: toEmails.join(", "),
+      subject: message.subject,
+      status: "sent",
+      employeeName: data.driverName,
+      relatedId: data.inspectionId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return true;
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send driver inspection alert:', error);
+    void storage.createEmailLog({
+      type: "driver_inspection_alert",
+      recipientEmail: toEmails.join(", "),
+      subject: `Driver Inspection Alert - ${data.driverName}`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.driverName,
+      relatedId: data.inspectionId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return false;
+  }
+}
+
 export async function testOutlookConnection(): Promise<{ success: boolean; error?: string; senderEmail?: string }> {
   try {
     const client = getGraphClient();

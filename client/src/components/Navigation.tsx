@@ -124,6 +124,8 @@ export function Navigation() {
               {can("warehouse_inventory.view") && renderNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse }, "nav")}
               {can("credit_card_inspection.submit") && renderNavItem({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard }, "nav")}
               {can("credit_card_inspection.view_all") && renderNavItem({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard }, "nav")}
+              {can("driver_inspection.submit") && renderNavItem({ href: "/driver-inspection/new", label: "Driver Inspection", icon: ClipboardList }, "nav")}
+              {can("driver_inspection.view_all") && renderNavItem({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck }, "nav")}
             </>
           )}
 
@@ -240,6 +242,8 @@ export function Navigation() {
                   {can("warehouse_inventory.view") && renderMobileNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse })}
                   {can("credit_card_inspection.submit") && renderMobileNavItem({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard })}
                   {can("credit_card_inspection.view_all") && renderMobileNavItem({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard })}
+                  {can("driver_inspection.submit") && renderMobileNavItem({ href: "/driver-inspection/new", label: "Driver Inspection", icon: ClipboardList })}
+                  {can("driver_inspection.view_all") && renderMobileNavItem({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck })}
                 </>
               )}
 

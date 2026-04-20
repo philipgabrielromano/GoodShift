@@ -69,6 +69,7 @@ export default function Settings() {
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [hrEmail, setHrEmail] = useState<string>("");
   const [orderEmails, setOrderEmails] = useState<string>("");
+  const [driverInspectionEmails, setDriverInspectionEmails] = useState<string>("");
   const [altEmail, setAltEmail] = useState("");
   const [altEmailSaving, setAltEmailSaving] = useState(false);
   const [altEmailInitialized, setAltEmailInitialized] = useState(false);
@@ -84,6 +85,12 @@ export default function Settings() {
       setOrderEmails(settings.orderNotificationEmails);
     }
   }, [settings?.orderNotificationEmails]);
+
+  useEffect(() => {
+    if (settings?.driverInspectionEmails) {
+      setDriverInspectionEmails(settings.driverInspectionEmails);
+    }
+  }, [settings?.driverInspectionEmails]);
 
   const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string; role: string } | null; ssoConfigured: boolean }>({
     queryKey: ["/api/auth/status"],
@@ -294,6 +301,22 @@ export default function Settings() {
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Order notification emails updated" });
+          },
+          onError: () => {
+            toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
+          }
+        }
+      );
+    }
+  };
+
+  const saveDriverInspectionEmails = () => {
+    if (settings) {
+      updateSettings.mutate(
+        { ...settings, driverInspectionEmails: driverInspectionEmails || null },
+        {
+          onSuccess: () => {
+            toast({ title: "Settings Saved", description: "Driver inspection alert emails updated" });
           },
           onError: () => {
             toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
@@ -893,6 +916,42 @@ export default function Settings() {
               </span>
             </div>
           )}
+
+          <div className="pt-6 border-t space-y-2">
+            <Label htmlFor="driver-inspection-emails">Driver Inspection Repair Alerts</Label>
+            <p className="text-sm text-muted-foreground">
+              Send an email notification when a driver flags any pre-trip inspection item as needing repair.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="driver-inspection-emails"
+                type="text"
+                placeholder="logistics@company.com, shop@company.com"
+                value={driverInspectionEmails}
+                onChange={(e) => setDriverInspectionEmails(e.target.value)}
+                className="flex-1"
+                data-testid="input-driver-inspection-emails"
+              />
+              <Button
+                onClick={saveDriverInspectionEmails}
+                disabled={updateSettings.isPending}
+                data-testid="button-save-driver-inspection-emails"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Separate multiple email addresses with commas.
+            </p>
+            {settings?.driverInspectionEmails && (
+              <div className="flex items-center gap-2 text-sm pt-1">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span className="text-muted-foreground">
+                  Repair alerts configured for: <span className="font-medium text-foreground">{settings.driverInspectionEmails.split(',').map(e => e.trim()).filter(e => e).join(', ')}</span>
+                </span>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>}
 
@@ -996,7 +1055,7 @@ export default function Settings() {
             )}
           </CardContent>
         )}
-      </Card>
+      </Card>}
       </>}
     </div>
   );
