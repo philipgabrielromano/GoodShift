@@ -35,6 +35,7 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 ### UI/UX
 - **Design Style**: Squared corners, clean professional aesthetic.
 - **Color Scheme**: Core brand colors (Blue, Black, Gray, White) with various accent colors.
+- **Sidebar Navigation**: Collapsible section groups (Scheduling, Development, Configuration, Orders, Inventory, Reports, Admin) with persisted open/closed state in `localStorage` (key `goodshift.nav.sectionState.v1`). Section containing the active route auto-expands; collapsed sections with the active route show a small primary-color dot. Top-of-sidebar "Search…" button + global ⌘K / Ctrl+K shortcut opens a command palette (cmdk) listing every nav target grouped by section, including external Inventory links.
 
 ### Key Features
 - **Scheduling**: Auto-generate schedules, real-time validation (max hours, role coverage, budget, time-off, manager coverage, clopening, consecutive days), publishing controls, cross-trained role shifts, production worker strategy, leadership constraints, part-time flexibility, schedule templates, labor allocation. Sunday opener shifts start at 10 AM.
