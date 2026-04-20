@@ -391,6 +391,43 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
+  app.put("/api/orders/:id", requireFeatureAccess("edit_orders"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const parsed = orderSchema.parse(req.body);
+
+      const [existing] = await mysqlPool.execute<OrderRow[]>("SELECT id FROM orders WHERE id = ?", [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+
+      const fields: string[] = [];
+      const values: (string | number | boolean | null)[] = [];
+      const camelToSnake = (s: string) => s.replace(/[A-Z]/g, m => "_" + m.toLowerCase());
+      for (const [key, val] of Object.entries(parsed)) {
+        fields.push(`${camelToSnake(key)} = ?`);
+        values.push(val === undefined ? null : (val as string | number | boolean | null));
+      }
+      values.push(id);
+
+      await mysqlPool.execute<ResultSetHeader>(
+        `UPDATE orders SET ${fields.join(", ")} WHERE id = ?`,
+        values
+      );
+
+      res.json({ message: "Order updated successfully" });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Orders] Error updating order:", err);
+      res.status(500).json({ message: "Failed to update order" });
+    }
+  });
+
   app.delete("/api/orders/:id", requireAdmin, async (req, res) => {
     try {
       const [result] = await mysqlPool.execute<ResultSetHeader>(

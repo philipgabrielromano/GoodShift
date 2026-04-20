@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useRoute, useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocations } from "@/hooks/use-locations";
 import { useToast } from "@/hooks/use-toast";
@@ -12,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, ClipboardList } from "lucide-react";
+import { Loader2, ClipboardList, Pencil } from "lucide-react";
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -135,6 +136,15 @@ export default function OrderForm() {
   const today = new Date().toISOString().split("T")[0];
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: dbLocations } = useLocations();
+  const [, navigate] = useWouterLocation();
+  const [isEditMatch, editParams] = useRoute<{ id: string }>("/orders/edit/:id");
+  const editId = isEditMatch ? Number(editParams?.id) : null;
+  const isEditMode = editId !== null && Number.isFinite(editId);
+
+  const { data: existingOrder, isLoading: isLoadingExisting } = useQuery<Record<string, any>>({
+    queryKey: ["/api/orders", editId],
+    enabled: isEditMode,
+  });
 
   const defaultLocation = (() => {
     const userLocIds = authStatus?.user?.locationIds;
@@ -158,10 +168,24 @@ export default function OrderForm() {
   });
 
   useEffect(() => {
-    if (defaultLocation && !form.getValues("location")) {
+    if (!isEditMode && defaultLocation && !form.getValues("location")) {
       form.setValue("location", defaultLocation);
     }
-  }, [defaultLocation]);
+  }, [defaultLocation, isEditMode]);
+
+  useEffect(() => {
+    if (isEditMode && existingOrder) {
+      const cleaned: Record<string, any> = {};
+      for (const [k, v] of Object.entries(existingOrder)) {
+        if (["id", "submittedBy", "submittedAt"].includes(k)) continue;
+        cleaned[k] = v;
+      }
+      if (cleaned.orderDate && typeof cleaned.orderDate === "string") {
+        cleaned.orderDate = cleaned.orderDate.slice(0, 10);
+      }
+      form.reset(cleaned as FormValues);
+    }
+  }, [isEditMode, existingOrder]);
 
   const orderType = form.watch("orderType");
   const location = form.watch("location");
@@ -174,22 +198,40 @@ export default function OrderForm() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: FormValues) => {
-      const res = await apiRequest("POST", "/api/orders", data);
+      const method = isEditMode ? "PUT" : "POST";
+      const url = isEditMode ? `/api/orders/${editId}` : "/api/orders";
+      const res = await apiRequest(method, url, data);
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Order submitted successfully" });
+      toast({ title: isEditMode ? "Order updated successfully" : "Order submitted successfully" });
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      form.reset({ orderDate: today, orderType: undefined, location: defaultLocation, notes: "" });
+      if (isEditMode) {
+        navigate("/orders");
+      } else {
+        form.reset({ orderDate: today, orderType: undefined, location: defaultLocation, notes: "" });
+      }
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to submit order", description: err.message, variant: "destructive" });
+      toast({
+        title: isEditMode ? "Failed to update order" : "Failed to submit order",
+        description: err.message,
+        variant: "destructive",
+      });
     },
   });
 
   const onSubmit = (data: FormValues) => {
     submitMutation.mutate(data);
   };
+
+  if (isEditMode && isLoadingExisting) {
+    return (
+      <div className="p-6 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-4xl mx-auto">

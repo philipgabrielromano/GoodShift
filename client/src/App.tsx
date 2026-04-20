@@ -52,6 +52,7 @@ function Router() {
       <Route path="/tasks" component={TaskAssignment} />
       <Route path="/optimization" component={Optimization} />
       <Route path="/orders/new" component={OrderForm} />
+      <Route path="/orders/edit/:id" component={OrderForm} />
       <Route path="/orders" component={OrderSubmissions} />
       <Route path="/permissions" component={Permissions} />
       <Route component={NotFound} />

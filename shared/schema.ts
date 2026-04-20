@@ -756,6 +756,7 @@ export const SYSTEM_FEATURES = [
   { feature: "settings", label: "Settings", description: "View and manage application settings" },
   { feature: "reports", label: "Reports", description: "Occurrence reports, variance reports, and roster targets" },
   { feature: "orders", label: "Orders", description: "Submit and view equipment orders" },
+  { feature: "edit_orders", label: "Edit Orders", description: "Edit existing equipment orders" },
   { feature: "users", label: "User Management", description: "Manage user accounts and roles" },
   { feature: "raw_shifts", label: "Raw Shifts", description: "View raw shift data" },
 ] as const;
@@ -772,6 +773,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   settings: ["admin", "manager", "optimizer", "viewer"],
   reports: ["admin", "manager", "optimizer"],
   orders: ["admin", "ordering"],
+  edit_orders: ["admin"],
   users: ["admin"],
   raw_shifts: ["admin"],
 };

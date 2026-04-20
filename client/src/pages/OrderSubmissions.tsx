@@ -10,11 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2, Pencil } from "lucide-react";
+import { useLocation as useWouterLocation } from "wouter";
 
 interface AuthStatus {
   isAuthenticated: boolean;
   user: { id: number; name: string; email: string; role: string } | null;
+  accessibleFeatures?: string[];
 }
 
 const ORDER_TYPES = [
@@ -156,6 +158,8 @@ export default function OrderSubmissions() {
 
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const isAdmin = authStatus?.user?.role === "admin";
+  const canEdit = !!authStatus?.accessibleFeatures?.includes("edit_orders");
+  const [, navigate] = useWouterLocation();
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
@@ -394,28 +398,44 @@ export default function OrderSubmissions() {
                 </>
               )}
 
-              {isAdmin && (
+              {(canEdit || isAdmin) && (
                 <>
                   <hr />
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="w-full"
-                    disabled={deleteMutation.isPending}
-                    onClick={() => {
-                      if (window.confirm("Are you sure you want to delete this order?")) {
-                        deleteMutation.mutate(selectedOrder.id);
-                      }
-                    }}
-                    data-testid={`button-delete-order-${selectedOrder.id}`}
-                  >
-                    {deleteMutation.isPending ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Trash2 className="w-4 h-4 mr-2" />
+                  <div className="flex flex-col gap-2">
+                    {canEdit && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => navigate(`/orders/edit/${selectedOrder.id}`)}
+                        data-testid={`button-edit-order-${selectedOrder.id}`}
+                      >
+                        <Pencil className="w-4 h-4 mr-2" />
+                        Edit Order
+                      </Button>
                     )}
-                    Delete Order
-                  </Button>
+                    {isAdmin && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="w-full"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm("Are you sure you want to delete this order?")) {
+                            deleteMutation.mutate(selectedOrder.id);
+                          }
+                        }}
+                        data-testid={`button-delete-order-${selectedOrder.id}`}
+                      >
+                        {deleteMutation.isPending ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 mr-2" />
+                        )}
+                        Delete Order
+                      </Button>
+                    )}
+                  </div>
                 </>
               )}
             </div>
