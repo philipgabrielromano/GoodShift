@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real, jsonb } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -885,6 +885,71 @@ export type TrailerManifestEvent = typeof trailerManifestEvents.$inferSelect;
 export type TrailerManifestPhoto = typeof trailerManifestPhotos.$inferSelect;
 export type InsertTrailerManifestPhoto = z.infer<typeof insertTrailerManifestPhotoSchema>;
 
+// === CREDIT CARD INSPECTIONS ===
+
+// Photo URLs must be object-storage paths issued by our presigned upload flow.
+// We reject external/arbitrary URLs to prevent phishing/open-redirect via stored links.
+const objectStoragePathSchema = z
+  .string()
+  .regex(/^\/objects\/[A-Za-z0-9_\-\/.]+$/, "Invalid photo path")
+  .nullable()
+  .optional();
+
+export const creditCardInspectionTerminalSchema = z.object({
+  terminalNumber: z.number().int().min(1).max(5),
+  present: z.boolean(),
+  issueFound: z.boolean(),
+  issueDescription: z.string().max(2000).nullable().optional(),
+  photoUrl: objectStoragePathSchema,
+  photoName: z.string().max(255).nullable().optional(),
+});
+export type CreditCardInspectionTerminal = z.infer<typeof creditCardInspectionTerminalSchema>;
+
+export const creditCardInspections = pgTable("credit_card_inspections", {
+  id: serial("id").primaryKey(),
+  locationId: text("location_id"),
+  locationName: text("location_name"),
+  submittedById: integer("submitted_by_id"),
+  submittedByName: text("submitted_by_name"),
+  terminals: jsonb("terminals").$type<CreditCardInspectionTerminal[]>().notNull(),
+  notes: text("notes"),
+  anyIssuesFound: boolean("any_issues_found").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_credit_card_inspections_created_at").on(table.createdAt),
+  index("idx_credit_card_inspections_location").on(table.locationId),
+]);
+
+export const insertCreditCardInspectionSchema = createInsertSchema(creditCardInspections).omit({
+  id: true,
+  createdAt: true,
+  submittedById: true,
+  submittedByName: true,
+  anyIssuesFound: true,
+}).extend({
+  terminals: z
+    .array(creditCardInspectionTerminalSchema)
+    .length(5, "Exactly 5 terminal entries are required")
+    .refine(
+      arr => {
+        const nums = arr.map(t => t.terminalNumber).sort((a, b) => a - b);
+        return nums.length === 5 && nums.every((n, i) => n === i + 1);
+      },
+      { message: "Terminals must cover numbers 1 through 5 exactly once" }
+    )
+    .refine(
+      arr => arr.find(t => t.terminalNumber === 1)?.present === true &&
+             arr.find(t => t.terminalNumber === 2)?.present === true,
+      { message: "Terminals 1 and 2 must be present" }
+    ),
+  notes: z.string().max(5000).nullable().optional(),
+  locationId: z.string().nullable().optional(),
+  locationName: z.string().nullable().optional(),
+});
+
+export type CreditCardInspection = typeof creditCardInspections.$inferSelect;
+export type InsertCreditCardInspection = z.infer<typeof insertCreditCardInspectionSchema>;
+
 // === WAREHOUSE INVENTORY ===
 
 export const WAREHOUSES = ["cleveland", "canton"] as const;
@@ -1047,6 +1112,10 @@ export const SYSTEM_FEATURES = [
   { category: "Orders", feature: "orders.view_all", label: "View All Orders", description: "View the full order history" },
   { category: "Orders", feature: "orders.edit", label: "Edit Orders", description: "Modify existing equipment orders" },
   { category: "Orders", feature: "orders.delete", label: "Delete Orders", description: "Permanently remove submitted orders" },
+  // Credit Card Inspections
+  { category: "Credit Card Inspections", feature: "credit_card_inspection.submit", label: "Submit Credit Card Inspections", description: "Submit credit card terminal inspection forms" },
+  { category: "Credit Card Inspections", feature: "credit_card_inspection.view_all", label: "View All Credit Card Inspections", description: "View the full history of credit card inspections" },
+  { category: "Credit Card Inspections", feature: "credit_card_inspection.delete", label: "Delete Credit Card Inspections", description: "Permanently remove credit card inspection submissions" },
   // Logistics
   { category: "Logistics", feature: "trailer_manifest.view", label: "View Trailer Manifests", description: "See live and completed trailer loads" },
   { category: "Logistics", feature: "trailer_manifest.edit", label: "Edit Trailer Manifests", description: "Update item counts and manifest status" },
@@ -1106,6 +1175,9 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "orders.view_all": ["admin", "ordering"],
   "orders.edit": ["admin"],
   "orders.delete": ["admin"],
+  "credit_card_inspection.submit": ["admin", "manager"],
+  "credit_card_inspection.view_all": ["admin", "manager"],
+  "credit_card_inspection.delete": ["admin"],
   // Logistics
   "trailer_manifest.view": ["admin", "manager", "ordering"],
   "trailer_manifest.edit": ["admin", "manager", "ordering"],

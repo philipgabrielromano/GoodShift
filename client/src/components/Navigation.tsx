@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck, Warehouse } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck, Warehouse, CreditCard } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState, useMemo } from "react";
@@ -113,7 +113,7 @@ export function Navigation() {
             </>
           )}
 
-          {(can("orders.submit") || can("orders.view_all") || can("trailer_manifest.view") || can("warehouse_inventory.view")) && (
+          {(can("orders.submit") || can("orders.view_all") || can("trailer_manifest.view") || can("warehouse_inventory.view") || can("credit_card_inspection.submit") || can("credit_card_inspection.view_all")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-orders-heading">Orders</p>
@@ -122,6 +122,8 @@ export function Navigation() {
               {can("orders.view_all") && renderNavItem({ href: "/orders", label: "Order Submissions", icon: FileText }, "nav")}
               {can("trailer_manifest.view") && renderNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck }, "nav")}
               {can("warehouse_inventory.view") && renderNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse }, "nav")}
+              {can("credit_card_inspection.submit") && renderNavItem({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard }, "nav")}
+              {can("credit_card_inspection.view_all") && renderNavItem({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard }, "nav")}
             </>
           )}
 
@@ -227,7 +229,7 @@ export function Navigation() {
                 </>
               )}
 
-              {(can("orders.submit") || can("orders.view_all") || can("trailer_manifest.view") || can("warehouse_inventory.view")) && (
+              {(can("orders.submit") || can("orders.view_all") || can("trailer_manifest.view") || can("warehouse_inventory.view") || can("credit_card_inspection.submit") || can("credit_card_inspection.view_all")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Orders</p>
@@ -236,6 +238,8 @@ export function Navigation() {
                   {can("orders.view_all") && renderMobileNavItem({ href: "/orders", label: "Order Submissions", icon: FileText })}
                   {can("trailer_manifest.view") && renderMobileNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck })}
                   {can("warehouse_inventory.view") && renderMobileNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse })}
+                  {can("credit_card_inspection.submit") && renderMobileNavItem({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard })}
+                  {can("credit_card_inspection.view_all") && renderMobileNavItem({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard })}
                 </>
               )}
 

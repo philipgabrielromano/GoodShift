@@ -31,6 +31,7 @@ import {
   warehouseInventoryCounts, type WarehouseInventoryCount, type InsertWarehouseInventoryCount,
   warehouseInventoryCountItems, type WarehouseInventoryCountItem,
   WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
+  creditCardInspections, type CreditCardInspection, type InsertCreditCardInspection,
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -234,6 +235,12 @@ export interface IStorage {
   getCustomTasks(userId: number): Promise<CustomTask[]>;
   createCustomTask(task: InsertCustomTask): Promise<CustomTask>;
   deleteCustomTask(id: number, userId: number): Promise<void>;
+
+  // Credit Card Inspections
+  getCreditCardInspections(filters?: { locationId?: string; anyIssuesFound?: boolean }): Promise<CreditCardInspection[]>;
+  getCreditCardInspection(id: number): Promise<CreditCardInspection | undefined>;
+  createCreditCardInspection(inspection: InsertCreditCardInspection & { submittedById?: number | null; submittedByName?: string | null; anyIssuesFound?: boolean }): Promise<CreditCardInspection>;
+  deleteCreditCardInspection(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1443,6 +1450,31 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCustomTask(id: number, userId: number): Promise<void> {
     await db.delete(customTasks).where(and(eq(customTasks.id, id), eq(customTasks.userId, userId)));
+  }
+
+  // Credit Card Inspections
+  async getCreditCardInspections(filters?: { locationId?: string; anyIssuesFound?: boolean }): Promise<CreditCardInspection[]> {
+    const conditions = [];
+    if (filters?.locationId) conditions.push(eq(creditCardInspections.locationId, filters.locationId));
+    if (typeof filters?.anyIssuesFound === "boolean") conditions.push(eq(creditCardInspections.anyIssuesFound, filters.anyIssuesFound));
+    if (conditions.length > 0) {
+      return await db.select().from(creditCardInspections).where(and(...conditions)).orderBy(desc(creditCardInspections.createdAt));
+    }
+    return await db.select().from(creditCardInspections).orderBy(desc(creditCardInspections.createdAt));
+  }
+
+  async getCreditCardInspection(id: number): Promise<CreditCardInspection | undefined> {
+    const [row] = await db.select().from(creditCardInspections).where(eq(creditCardInspections.id, id));
+    return row;
+  }
+
+  async createCreditCardInspection(inspection: InsertCreditCardInspection & { submittedById?: number | null; submittedByName?: string | null; anyIssuesFound?: boolean }): Promise<CreditCardInspection> {
+    const [created] = await db.insert(creditCardInspections).values(inspection as any).returning();
+    return created;
+  }
+
+  async deleteCreditCardInspection(id: number): Promise<void> {
+    await db.delete(creditCardInspections).where(eq(creditCardInspections.id, id));
   }
 }
 

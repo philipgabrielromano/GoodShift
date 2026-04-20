@@ -30,6 +30,8 @@ import WarehouseInventory from "@/pages/WarehouseInventory";
 import WarehouseInventoryList from "@/pages/WarehouseInventoryList";
 import WarehouseInventoryDetail from "@/pages/WarehouseInventoryDetail";
 import Permissions from "@/pages/Permissions";
+import CreditCardInspectionForm from "@/pages/CreditCardInspectionForm";
+import CreditCardInspections from "@/pages/CreditCardInspections";
 import { Loader2 } from "lucide-react";
 
 interface AuthStatus {
@@ -65,6 +67,8 @@ function Router() {
       <Route path="/warehouse-inventory/:id" component={WarehouseInventoryDetail} />
       <Route path="/warehouse-inventory" component={WarehouseInventory} />
       <Route path="/permissions" component={Permissions} />
+      <Route path="/credit-card-inspection/new" component={CreditCardInspectionForm} />
+      <Route path="/credit-card-inspections" component={CreditCardInspections} />
       <Route component={NotFound} />
     </Switch>
   );
