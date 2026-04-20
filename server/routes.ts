@@ -822,6 +822,12 @@ export async function registerRoutes(
   app.post(api.users.create.path, requireAdmin, async (req, res) => {
     try {
       const input = api.users.create.input.parse(req.body);
+      if (input.role) {
+        const validRoles = await storage.getRoles();
+        if (!validRoles.some(r => r.name === input.role)) {
+          return res.status(400).json({ message: `Invalid role: ${input.role}` });
+        }
+      }
       const user = await storage.createUser(input);
       res.status(201).json(user);
     } catch (err) {
@@ -835,6 +841,12 @@ export async function registerRoutes(
   app.put(api.users.update.path, requireAdmin, async (req, res) => {
     try {
       const input = api.users.update.input.parse(req.body);
+      if (input.role) {
+        const validRoles = await storage.getRoles();
+        if (!validRoles.some(r => r.name === input.role)) {
+          return res.status(400).json({ message: `Invalid role: ${input.role}` });
+        }
+      }
       const user = await storage.updateUser(Number(req.params.id), input);
       res.json(user);
     } catch (err) {
@@ -1197,10 +1209,11 @@ export async function registerRoutes(
 
   app.put("/api/permissions", requireAdmin, async (req, res) => {
     try {
-      const validRoles = ["admin", "manager", "optimizer", "viewer", "ordering"];
+      const allRoles = await storage.getRoles();
+      const validRoleNames = new Set(allRoles.map(r => r.name));
       const schema = z.array(z.object({
         feature: z.string(),
-        allowedRoles: z.array(z.enum(["admin", "manager", "optimizer", "viewer", "ordering"])),
+        allowedRoles: z.array(z.string()),
       }));
       const updates = schema.parse(req.body);
       const validFeatures = SYSTEM_FEATURES.map(f => f.feature);
@@ -1210,9 +1223,10 @@ export async function registerRoutes(
         const featureInfo = SYSTEM_FEATURES.find(f => f.feature === update.feature);
         if (!featureInfo) continue;
 
-        const rolesWithAdmin = update.allowedRoles.includes("admin")
-          ? update.allowedRoles
-          : ["admin", ...update.allowedRoles];
+        const filteredRoles = update.allowedRoles.filter(r => validRoleNames.has(r));
+        const rolesWithAdmin = filteredRoles.includes("admin")
+          ? filteredRoles
+          : ["admin", ...filteredRoles];
 
         await db.insert(featurePermissions)
           .values({
@@ -1238,7 +1252,79 @@ export async function registerRoutes(
     }
   });
 
+  // === ROLES MANAGEMENT ===
+
+  app.get("/api/roles", requireAuth, async (_req, res) => {
+    try {
+      const allRoles = await storage.getRoles();
+      res.json(allRoles);
+    } catch (err) {
+      console.error("[Roles] Error fetching:", err);
+      res.status(500).json({ message: "Failed to fetch roles" });
+    }
+  });
+
+  app.post("/api/roles", requireAdmin, async (req, res) => {
+    try {
+      const schema = z.object({
+        name: z.string().regex(/^[a-z0-9_]+$/, "Name must use lowercase letters, numbers, and underscores only").min(2).max(40),
+        label: z.string().min(1).max(80),
+      });
+      const input = schema.parse(req.body);
+      const existing = await storage.getRoles();
+      if (existing.some(r => r.name === input.name)) {
+        return res.status(409).json({ message: "A role with that name already exists" });
+      }
+      const created = await storage.createRole({ name: input.name, label: input.label, isBuiltIn: false });
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Roles] Error creating:", err);
+      res.status(500).json({ message: "Failed to create role" });
+    }
+  });
+
+  app.delete("/api/roles/:name", requireAdmin, async (req, res) => {
+    try {
+      const name = req.params.name;
+      const existing = await storage.getRoles();
+      const target = existing.find(r => r.name === name);
+      if (!target) return res.status(404).json({ message: "Role not found" });
+      if (target.isBuiltIn) return res.status(400).json({ message: "Built-in roles cannot be deleted" });
+
+      // Check if any users have this role
+      const allUsers = await storage.getUsers();
+      const usersWithRole = allUsers.filter(u => u.role === name);
+      if (usersWithRole.length > 0) {
+        return res.status(400).json({
+          message: `Cannot delete role: ${usersWithRole.length} user(s) currently have this role. Reassign them first.`,
+        });
+      }
+
+      await storage.deleteRoleByName(name);
+
+      // Also remove from feature_permissions
+      const allPerms = await db.select().from(featurePermissions);
+      for (const p of allPerms) {
+        if (p.allowedRoles.includes(name)) {
+          await db.update(featurePermissions)
+            .set({ allowedRoles: p.allowedRoles.filter(r => r !== name) })
+            .where(eq(featurePermissions.feature, p.feature));
+        }
+      }
+      invalidatePermissionsCache();
+
+      res.status(204).send();
+    } catch (err) {
+      console.error("[Roles] Error deleting:", err);
+      res.status(500).json({ message: "Failed to delete role" });
+    }
+  });
+
   // === SEED DATA ===
+  await storage.seedBuiltInRoles();
   await seedDatabase();
 
   return httpServer;

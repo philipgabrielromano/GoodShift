@@ -17,8 +17,9 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import type { User, InsertUser } from "@shared/schema";
+import type { User, InsertUser, Role } from "@shared/schema";
 import { isValidLocation } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
 
 function formatLastLogin(date: string | Date | null | undefined): string {
   if (!date) return "Never";
@@ -39,6 +40,7 @@ function formatLastLogin(date: string | Date | null | undefined): string {
 export default function Users() {
   const { data: currentUser } = useCurrentUser();
   const { data: users, isLoading } = useUsers();
+  const { data: roles = [] } = useQuery<Role[]>({ queryKey: ["/api/roles"] });
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
@@ -441,11 +443,11 @@ export default function Users() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin" data-testid="option-role-admin">Admin</SelectItem>
-                  <SelectItem value="manager" data-testid="option-role-manager">Manager</SelectItem>
-                  <SelectItem value="optimizer" data-testid="option-role-optimizer">Store Optimizer</SelectItem>
-                  <SelectItem value="viewer" data-testid="option-role-viewer">Viewer</SelectItem>
-                  <SelectItem value="ordering" data-testid="option-role-ordering">Ordering</SelectItem>
+                  {roles.map(role => (
+                    <SelectItem key={role.name} value={role.name} data-testid={`option-role-${role.name}`}>
+                      {role.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

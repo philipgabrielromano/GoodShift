@@ -734,6 +734,24 @@ export const OPTIMIZATION_CHECKLIST: Record<string, { key: string; label: string
   ],
 };
 
+export const roles = pgTable("roles", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  label: text("label").notNull(),
+  isBuiltIn: boolean("is_built_in").notNull().default(false),
+});
+
+export type Role = typeof roles.$inferSelect;
+export type InsertRole = typeof roles.$inferInsert;
+
+export const BUILT_IN_ROLES: { name: string; label: string }[] = [
+  { name: "admin", label: "Admin" },
+  { name: "manager", label: "Manager" },
+  { name: "optimizer", label: "Store Optimizer" },
+  { name: "viewer", label: "Viewer" },
+  { name: "ordering", label: "Ordering" },
+];
+
 export const featurePermissions = pgTable("feature_permissions", {
   feature: text("feature").primaryKey(),
   label: text("label").notNull(),

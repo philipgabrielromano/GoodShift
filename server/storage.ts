@@ -6,6 +6,7 @@ import {
   roleRequirements, type RoleRequirement, type InsertRoleRequirement,
   globalSettings, type GlobalSettings, type InsertGlobalSettings,
   users, type User, type InsertUser,
+  roles, type Role, type InsertRole, BUILT_IN_ROLES,
   locations, type Location, type InsertLocation,
   timeClockEntries, type TimeClockEntry, type InsertTimeClockEntry,
   timeClockPunches, type TimeClockPunch, type InsertTimeClockPunch,
@@ -61,6 +62,12 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, user: Partial<InsertUser>): Promise<User>;
   deleteUser(id: number): Promise<void>;
+
+  // Roles
+  getRoles(): Promise<Role[]>;
+  createRole(role: InsertRole): Promise<Role>;
+  deleteRoleByName(name: string): Promise<void>;
+  seedBuiltInRoles(): Promise<void>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -349,6 +356,35 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(id: number): Promise<void> {
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  // Roles
+  async getRoles(): Promise<Role[]> {
+    return await db.select().from(roles).orderBy(roles.id);
+  }
+
+  async createRole(role: InsertRole): Promise<Role> {
+    const [created] = await db.insert(roles).values(role).returning();
+    return created;
+  }
+
+  async deleteRoleByName(name: string): Promise<void> {
+    await db.delete(roles).where(eq(roles.name, name));
+  }
+
+  async seedBuiltInRoles(): Promise<void> {
+    const existing = await db.select().from(roles);
+    const existingNames = new Set(existing.map(r => r.name));
+    const toInsert: InsertRole[] = [];
+    for (const r of BUILT_IN_ROLES) {
+      if (!existingNames.has(r.name)) {
+        toInsert.push({ name: r.name, label: r.label, isBuiltIn: true });
+      }
+    }
+    if (toInsert.length > 0) {
+      await db.insert(roles).values(toInsert);
+      console.log(`[Storage] Seeded ${toInsert.length} built-in role(s)`);
+    }
   }
 
   // Locations
