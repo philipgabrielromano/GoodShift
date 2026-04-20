@@ -885,6 +885,113 @@ export type TrailerManifestEvent = typeof trailerManifestEvents.$inferSelect;
 export type TrailerManifestPhoto = typeof trailerManifestPhotos.$inferSelect;
 export type InsertTrailerManifestPhoto = z.infer<typeof insertTrailerManifestPhotoSchema>;
 
+// === WAREHOUSE INVENTORY ===
+
+export const WAREHOUSES = ["cleveland", "canton"] as const;
+export type Warehouse = (typeof WAREHOUSES)[number];
+export const WAREHOUSE_LABELS: Record<Warehouse, string> = {
+  cleveland: "Cleveland",
+  canton: "Canton",
+};
+
+export const WAREHOUSE_INVENTORY_CATEGORIES: { group: string; items: string[] }[] = [
+  {
+    group: "Raw",
+    items: [
+      "Wares Gaylords",
+      "Apparel Gaylords",
+      "Accessory Gaylords",
+      "Electrical Gaylords",
+      "Shoes Gaylords",
+    ],
+  },
+  {
+    group: "Outlet",
+    items: ["Outlet Wares", "Outlet Apparel", "Outlet Shoes"],
+  },
+  {
+    group: "Salvage",
+    items: [
+      "Salvage Apparel Bales",
+      "Salvage Shoes",
+      "Salvage Wires",
+      "Salvage Metal",
+      "Salvage Books",
+      "Salvage Linen Gaylords",
+      "Salvage Linen Bales",
+      "Salvage Purses/Accessories",
+      "Salvage Kitchenware",
+      "Salvage Stuffies",
+      "Salvage Single Shoes",
+      "Salvage Glassware",
+      "Salvage Apparel Gaylords",
+      "Salvage Hard Plastic Toys",
+    ],
+  },
+  {
+    group: "Equipment",
+    items: [
+      "Warehouse Totes",
+      "Warehouse Pallets",
+      "Warehouse Gaylords",
+      "Warehouse Duros",
+      "Warehouse Containers",
+      "Warehouse Blue Bins",
+    ],
+  },
+];
+
+export const WAREHOUSE_INVENTORY_STATUSES = ["draft", "final"] as const;
+export type WarehouseInventoryStatus = (typeof WAREHOUSE_INVENTORY_STATUSES)[number];
+
+export const warehouseInventoryCounts = pgTable("warehouse_inventory_counts", {
+  id: serial("id").primaryKey(),
+  warehouse: text("warehouse").notNull(),
+  countDate: text("count_date").notNull(), // YYYY-MM-DD
+  status: text("status").notNull().default("draft"),
+  notes: text("notes"),
+  createdById: integer("created_by_id"),
+  createdByName: text("created_by_name"),
+  finalizedAt: timestamp("finalized_at"),
+  finalizedById: integer("finalized_by_id"),
+  finalizedByName: text("finalized_by_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_wh_inventory_counts_date").on(table.countDate),
+  index("idx_wh_inventory_counts_warehouse").on(table.warehouse),
+  uniqueIndex("uniq_wh_inventory_warehouse_date").on(table.warehouse, table.countDate),
+]);
+
+export const warehouseInventoryCountItems = pgTable("warehouse_inventory_count_items", {
+  id: serial("id").primaryKey(),
+  countId: integer("count_id").notNull(),
+  groupName: text("group_name").notNull(),
+  itemName: text("item_name").notNull(),
+  qty: integer("qty").notNull().default(0),
+}, (table) => [
+  index("idx_wh_inventory_items_count_id").on(table.countId),
+  uniqueIndex("uniq_wh_inventory_count_item").on(table.countId, table.itemName),
+]);
+
+export const insertWarehouseInventoryCountSchema = createInsertSchema(warehouseInventoryCounts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  finalizedAt: true,
+  finalizedById: true,
+  finalizedByName: true,
+  createdById: true,
+  createdByName: true,
+}).extend({
+  warehouse: z.enum(WAREHOUSES),
+  countDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+});
+
+export type WarehouseInventoryCount = typeof warehouseInventoryCounts.$inferSelect;
+export type InsertWarehouseInventoryCount = z.infer<typeof insertWarehouseInventoryCountSchema>;
+export type WarehouseInventoryCountItem = typeof warehouseInventoryCountItems.$inferSelect;
+
 export const featurePermissions = pgTable("feature_permissions", {
   feature: text("feature").primaryKey(),
   label: text("label").notNull(),
@@ -909,6 +1016,7 @@ export const SYSTEM_FEATURES = [
   { feature: "orders", label: "Orders", description: "Submit and view equipment orders" },
   { feature: "edit_orders", label: "Edit Orders", description: "Edit existing equipment orders" },
   { feature: "trailer_manifest", label: "Trailer Manifest", description: "Track and edit live trailer load manifests" },
+  { feature: "warehouse_inventory", label: "Warehouse Inventory", description: "Record and review daily warehouse inventory counts" },
   { feature: "users", label: "User Management", description: "Manage user accounts and roles" },
   { feature: "raw_shifts", label: "Raw Shifts", description: "View raw shift data" },
 ] as const;
@@ -927,6 +1035,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   orders: ["admin", "ordering"],
   edit_orders: ["admin"],
   trailer_manifest: ["admin", "manager", "ordering"],
+  warehouse_inventory: ["admin", "manager", "ordering"],
   users: ["admin"],
   raw_shifts: ["admin"],
 };

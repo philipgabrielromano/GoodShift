@@ -28,6 +28,9 @@ import {
   trailerManifestEvents, type TrailerManifestEvent,
   trailerManifestPhotos, type TrailerManifestPhoto, type InsertTrailerManifestPhoto,
   TRAILER_MANIFEST_CATEGORIES,
+  warehouseInventoryCounts, type WarehouseInventoryCount, type InsertWarehouseInventoryCount,
+  warehouseInventoryCountItems, type WarehouseInventoryCountItem,
+  WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
 } from "@shared/schema";
 import { eq, and, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -102,6 +105,32 @@ export interface IStorage {
   getTrailerManifestPhotos(manifestId: number): Promise<TrailerManifestPhoto[]>;
   addTrailerManifestPhoto(input: InsertTrailerManifestPhoto, user: { id: number; name: string }): Promise<TrailerManifestPhoto>;
   deleteTrailerManifestPhoto(id: number): Promise<void>;
+
+  // Warehouse Inventory
+  getWarehouseInventoryCounts(filters?: {
+    warehouse?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }): Promise<WarehouseInventoryCount[]>;
+  getWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount | undefined>;
+  getWarehouseInventoryCountByWarehouseDate(warehouse: string, countDate: string): Promise<WarehouseInventoryCount | undefined>;
+  getLatestWarehouseInventoryCount(warehouse: string, before?: string): Promise<WarehouseInventoryCount | undefined>;
+  getWarehouseInventoryCountItems(countId: number): Promise<WarehouseInventoryCountItem[]>;
+  createWarehouseInventoryCount(
+    input: InsertWarehouseInventoryCount,
+    user: { id: number; name: string },
+    options?: { copyFromCountId?: number },
+  ): Promise<WarehouseInventoryCount>;
+  updateWarehouseInventoryCount(id: number, input: Partial<InsertWarehouseInventoryCount>): Promise<WarehouseInventoryCount>;
+  updateWarehouseInventoryItems(
+    countId: number,
+    items: { itemName: string; qty: number }[],
+  ): Promise<WarehouseInventoryCountItem[]>;
+  finalizeWarehouseInventoryCount(id: number, user: { id: number; name: string }): Promise<WarehouseInventoryCount>;
+  reopenWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount>;
+  deleteWarehouseInventoryCount(id: number): Promise<void>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -592,6 +621,189 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTrailerManifestPhoto(id: number): Promise<void> {
     await db.delete(trailerManifestPhotos).where(eq(trailerManifestPhotos.id, id));
+  }
+
+  // Warehouse Inventory
+  async getWarehouseInventoryCounts(filters?: {
+    warehouse?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }): Promise<WarehouseInventoryCount[]> {
+    const conds: any[] = [];
+    if (filters?.warehouse) conds.push(eq(warehouseInventoryCounts.warehouse, filters.warehouse));
+    if (filters?.status) conds.push(eq(warehouseInventoryCounts.status, filters.status));
+    if (filters?.from) conds.push(gte(warehouseInventoryCounts.countDate, filters.from));
+    if (filters?.to) conds.push(lte(warehouseInventoryCounts.countDate, filters.to));
+    let q = db.select().from(warehouseInventoryCounts) as any;
+    if (conds.length > 0) q = q.where(and(...conds));
+    q = q.orderBy(desc(warehouseInventoryCounts.countDate), desc(warehouseInventoryCounts.id));
+    if (filters?.limit && filters.limit > 0) q = q.limit(filters.limit);
+    return await q;
+  }
+
+  async getWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount | undefined> {
+    const [c] = await db.select().from(warehouseInventoryCounts).where(eq(warehouseInventoryCounts.id, id));
+    return c;
+  }
+
+  async getWarehouseInventoryCountByWarehouseDate(
+    warehouse: string,
+    countDate: string,
+  ): Promise<WarehouseInventoryCount | undefined> {
+    const [c] = await db.select().from(warehouseInventoryCounts)
+      .where(and(
+        eq(warehouseInventoryCounts.warehouse, warehouse),
+        eq(warehouseInventoryCounts.countDate, countDate),
+      ));
+    return c;
+  }
+
+  async getLatestWarehouseInventoryCount(
+    warehouse: string,
+    before?: string,
+  ): Promise<WarehouseInventoryCount | undefined> {
+    const conds: any[] = [eq(warehouseInventoryCounts.warehouse, warehouse)];
+    if (before) conds.push(lt(warehouseInventoryCounts.countDate, before));
+    const [c] = await db.select().from(warehouseInventoryCounts)
+      .where(and(...conds))
+      .orderBy(desc(warehouseInventoryCounts.countDate), desc(warehouseInventoryCounts.id))
+      .limit(1);
+    return c;
+  }
+
+  async getWarehouseInventoryCountItems(countId: number): Promise<WarehouseInventoryCountItem[]> {
+    return await db.select().from(warehouseInventoryCountItems)
+      .where(eq(warehouseInventoryCountItems.countId, countId))
+      .orderBy(warehouseInventoryCountItems.id);
+  }
+
+  async createWarehouseInventoryCount(
+    input: InsertWarehouseInventoryCount,
+    user: { id: number; name: string },
+    options?: { copyFromCountId?: number },
+  ): Promise<WarehouseInventoryCount> {
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(warehouseInventoryCounts).values({
+        ...input,
+        createdById: user.id,
+        createdByName: user.name,
+      }).returning();
+
+      // Build canonical list from categories
+      const canonicalItems = WAREHOUSE_INVENTORY_CATEGORIES.flatMap(cat =>
+        cat.items.map(name => ({ group: cat.group, name })),
+      );
+
+      // Optional: prefill from a prior count
+      let priorQty: Record<string, number> = {};
+      if (options?.copyFromCountId) {
+        const rows = await tx.select().from(warehouseInventoryCountItems)
+          .where(eq(warehouseInventoryCountItems.countId, options.copyFromCountId));
+        priorQty = Object.fromEntries(rows.map(r => [r.itemName, r.qty]));
+      }
+
+      const itemRows = canonicalItems.map(ci => ({
+        countId: created.id,
+        groupName: ci.group,
+        itemName: ci.name,
+        qty: priorQty[ci.name] ?? 0,
+      }));
+      if (itemRows.length > 0) {
+        await tx.insert(warehouseInventoryCountItems).values(itemRows);
+      }
+      return created;
+    });
+  }
+
+  async updateWarehouseInventoryCount(
+    id: number,
+    input: Partial<InsertWarehouseInventoryCount>,
+  ): Promise<WarehouseInventoryCount> {
+    // Only allow updates while draft. Status changes are via finalize/reopen.
+    const { status: _ignoreStatus, ...rest } = (input as any) || {};
+    const [updated] = await db.update(warehouseInventoryCounts)
+      .set({ ...rest, updatedAt: new Date() })
+      .where(and(
+        eq(warehouseInventoryCounts.id, id),
+        eq(warehouseInventoryCounts.status, "draft"),
+      ))
+      .returning();
+    return updated;
+  }
+
+  async updateWarehouseInventoryItems(
+    countId: number,
+    items: { itemName: string; qty: number }[],
+  ): Promise<WarehouseInventoryCountItem[] | null> {
+    if (items.length === 0) {
+      const current = await this.getWarehouseInventoryCount(countId);
+      if (!current || current.status !== "draft") return null;
+      return await this.getWarehouseInventoryCountItems(countId);
+    }
+    return await db.transaction(async (tx) => {
+      // Lock the count row and re-check status inside the tx to prevent races with finalize.
+      const locked = await tx.execute(
+        sql`SELECT status FROM warehouse_inventory_counts WHERE id = ${countId} FOR UPDATE`,
+      );
+      const row = (locked as any).rows?.[0] || (locked as any)[0];
+      if (!row || row.status !== "draft") return null;
+
+      for (const { itemName, qty } of items) {
+        const normalized = Math.max(0, Math.floor(Number(qty) || 0));
+        await tx.update(warehouseInventoryCountItems)
+          .set({ qty: normalized })
+          .where(and(
+            eq(warehouseInventoryCountItems.countId, countId),
+            eq(warehouseInventoryCountItems.itemName, itemName),
+          ));
+      }
+      await tx.update(warehouseInventoryCounts)
+        .set({ updatedAt: new Date() })
+        .where(eq(warehouseInventoryCounts.id, countId));
+      return await tx.select().from(warehouseInventoryCountItems)
+        .where(eq(warehouseInventoryCountItems.countId, countId))
+        .orderBy(warehouseInventoryCountItems.id);
+    });
+  }
+
+  async finalizeWarehouseInventoryCount(
+    id: number,
+    user: { id: number; name: string },
+  ): Promise<WarehouseInventoryCount> {
+    const [updated] = await db.update(warehouseInventoryCounts)
+      .set({
+        status: "final",
+        finalizedAt: new Date(),
+        finalizedById: user.id,
+        finalizedByName: user.name,
+        updatedAt: new Date(),
+      })
+      .where(eq(warehouseInventoryCounts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async reopenWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount> {
+    const [updated] = await db.update(warehouseInventoryCounts)
+      .set({
+        status: "draft",
+        finalizedAt: null,
+        finalizedById: null,
+        finalizedByName: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(warehouseInventoryCounts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteWarehouseInventoryCount(id: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(warehouseInventoryCountItems).where(eq(warehouseInventoryCountItems.countId, id));
+      await tx.delete(warehouseInventoryCounts).where(eq(warehouseInventoryCounts.id, id));
+    });
   }
 
   // Locations

@@ -23,6 +23,7 @@ import { registerTaskAssignmentRoutes } from "./routes/task-assignments";
 import { registerOptimizationRoutes } from "./routes/optimization";
 import { registerOrderRoutes } from "./routes/orders";
 import { registerTrailerManifestRoutes } from "./routes/trailerManifests";
+import { registerWarehouseInventoryRoutes } from "./routes/warehouseInventory";
 import { initOrdersTable } from "./mysql";
 
 function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTime: Date }[]) {
@@ -1186,6 +1187,7 @@ export async function registerRoutes(
 
   registerOrderRoutes(app);
   registerTrailerManifestRoutes(app);
+  registerWarehouseInventoryRoutes(app);
 
   initOrdersTable().catch((err) => {
     console.error("[MySQL] Failed to initialize orders table:", err);

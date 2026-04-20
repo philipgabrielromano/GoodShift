@@ -47,6 +47,8 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **Location & Settings**: Global settings, location management with budget tracking, timezone handling (Eastern Time).
 - **Retail Specifics**: Manages scheduling for various retail job codes (including WV and Outlet variants), paid holiday management (8 designated holidays), weather forecasts.
 - **Order Form**: Equipment order submission to external MySQL, with submission history, filtering, and email notifications.
+- **Trailer Manifest**: Live trailer load tracking with atomic +/- item counts, photos, status workflow, and manifest history.
+- **Warehouse Inventory**: Daily counts for Cleveland and Canton warehouses across Raw/Outlet/Salvage/Equipment categories. Leadership dashboard with per-warehouse totals, deltas vs prior, staleness, and trend charts. Draft→final workflow with row-level locking, reopen, CSV export, and prior-count pre-fill for ~30-second entry. Feature permission: `warehouse_inventory` (admin/manager/ordering).
 
 ## External Dependencies
 

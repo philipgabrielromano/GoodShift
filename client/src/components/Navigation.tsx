@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck } from "lucide-react";
+import { LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle, LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare, UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck, Warehouse } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useState, useMemo } from "react";
@@ -113,7 +113,7 @@ export function Navigation() {
             </>
           )}
 
-          {(can("orders") || can("trailer_manifest")) && (
+          {(can("orders") || can("trailer_manifest") || can("warehouse_inventory")) && (
             <>
               <div className="pt-3 pb-1 px-4">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider" data-testid="text-orders-heading">Orders</p>
@@ -121,6 +121,7 @@ export function Navigation() {
               {can("orders") && renderNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen }, "nav")}
               {can("orders") && renderNavItem({ href: "/orders", label: "Order Submissions", icon: FileText }, "nav")}
               {can("trailer_manifest") && renderNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck }, "nav")}
+              {can("warehouse_inventory") && renderNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse }, "nav")}
             </>
           )}
 
@@ -226,7 +227,7 @@ export function Navigation() {
                 </>
               )}
 
-              {(can("orders") || can("trailer_manifest")) && (
+              {(can("orders") || can("trailer_manifest") || can("warehouse_inventory")) && (
                 <>
                   <div className="pt-3 pb-1 px-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Orders</p>
@@ -234,6 +235,7 @@ export function Navigation() {
                   {can("orders") && renderMobileNavItem({ href: "/orders/new", label: "Order Form", icon: PackageOpen })}
                   {can("orders") && renderMobileNavItem({ href: "/orders", label: "Order Submissions", icon: FileText })}
                   {can("trailer_manifest") && renderMobileNavItem({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck })}
+                  {can("warehouse_inventory") && renderMobileNavItem({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse })}
                 </>
               )}
 
