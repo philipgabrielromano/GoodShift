@@ -603,7 +603,7 @@ export const TASK_LIST = [
   "Resize Assigned Clothing Racks",
   "Maintain Fitting Rooms",
   "Empty Trash",
-  "Complete SPOC Request",
+  "Complete Transportation Request",
   "Greet Donors",
   "Break",
   "Lunch",
