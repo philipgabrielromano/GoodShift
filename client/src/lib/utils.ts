@@ -11,10 +11,14 @@ const EXCLUDED_LOCATION_NAMES = [
   /child\s+adol\s+beh/i,     // Child Adol Beh Health
 ];
 
+export function isValidLocationName(name: string): boolean {
+  return !EXCLUDED_LOCATION_NAMES.some(pattern => pattern.test(name));
+}
+
 export function isValidLocation(loc: { name: string; isActive?: boolean; formOnly?: boolean }): boolean {
   if (loc.isActive === false) return false;
   if (loc.formOnly === true) return false;
-  return !EXCLUDED_LOCATION_NAMES.some(pattern => pattern.test(loc.name));
+  return isValidLocationName(loc.name);
 }
 
 // Holiday calculations

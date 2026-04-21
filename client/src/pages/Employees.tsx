@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { getJobTitle, getCanonicalJobCode } from "@/lib/utils";
+import { getJobTitle, getCanonicalJobCode, isValidLocationName } from "@/lib/utils";
 import type { Employee, InsertEmployee } from "@shared/schema";
 
 const JOB_PRIORITY: Record<string, number> = {
@@ -67,7 +67,9 @@ export default function Employees() {
   const [filterLocation, setFilterLocation] = useState<string>("all");
 
   const locations = useMemo(() => 
-    Array.from(new Set(employees?.map(e => e.location).filter(Boolean) as string[])).sort(),
+    Array.from(new Set(employees?.map(e => e.location).filter(Boolean) as string[]))
+      .filter(isValidLocationName)
+      .sort(),
     [employees]
   );
 

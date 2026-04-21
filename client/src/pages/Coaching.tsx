@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { MessageSquare, Plus, Filter, Download, Paperclip, FileText, X, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { isValidLocationName } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { jsPDF } from "jspdf";
@@ -244,7 +245,9 @@ export default function Coaching() {
   const employeeMap = new Map<number, CoachingEmployee>();
   employees?.forEach(e => employeeMap.set(e.id, e));
 
-  const locations = Array.from(new Set(employees?.map(e => e.location).filter(Boolean) as string[])).sort();
+  const locations = Array.from(new Set(employees?.map(e => e.location).filter(Boolean) as string[]))
+    .filter(isValidLocationName)
+    .sort();
 
   const enrichedLogs = (logs || []).map(log => ({
     ...log,
