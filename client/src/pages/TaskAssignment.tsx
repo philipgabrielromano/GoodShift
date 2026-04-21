@@ -1154,7 +1154,7 @@ export default function TaskAssignment() {
           <SelectContent>
             <SelectItem value="all">All Locations</SelectItem>
             {activeLocations.map(loc => (
-              <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+              <SelectItem key={loc.id} value={loc.name}>{loc.schedulingName ?? loc.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>

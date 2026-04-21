@@ -691,7 +691,7 @@ export default function Optimization() {
                   </SelectTrigger>
                   <SelectContent>
                     {locations?.filter(isSchedulableLocation).sort((a, b) => a.name.localeCompare(b.name)).map(loc => (
-                      <SelectItem key={loc.id} value={String(loc.id)}>{loc.name}</SelectItem>
+                      <SelectItem key={loc.id} value={String(loc.id)}>{loc.schedulingName ?? loc.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

@@ -230,7 +230,7 @@ export default function Roster() {
             <SelectContent>
               {visibleLocations.map(loc => (
                 <SelectItem key={loc.id} value={String(loc.id)} data-testid={`option-location-${loc.id}`}>
-                  {loc.name}
+                  {loc.schedulingName ?? loc.name}
                 </SelectItem>
               ))}
             </SelectContent>

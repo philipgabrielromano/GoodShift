@@ -34,12 +34,14 @@ export default function Locations() {
   const [editingHours, setEditingHours] = useState<string>("");
   const [editingEmail, setEditingEmail] = useState<string>("");
   const [editingOrderFormName, setEditingOrderFormName] = useState<string>("");
+  const [editingSchedulingName, setEditingSchedulingName] = useState<string>("");
 
   const handleEdit = (location: Location) => {
     setEditingId(location.id);
     setEditingHours(location.weeklyHoursLimit.toString());
     setEditingEmail(location.notificationEmail ?? "");
     setEditingOrderFormName(location.orderFormName ?? "");
+    setEditingSchedulingName(location.schedulingName ?? "");
   };
 
   const handleSave = async (id: number) => {
@@ -57,6 +59,7 @@ export default function Locations() {
     }
 
     const trimmedOrderFormName = editingOrderFormName.trim();
+    const trimmedSchedulingName = editingSchedulingName.trim();
 
     try {
       await updateLocation.mutateAsync({
@@ -64,6 +67,7 @@ export default function Locations() {
         weeklyHoursLimit: hours,
         notificationEmail: trimmedEmail || null,
         orderFormName: trimmedOrderFormName || null,
+        schedulingName: trimmedSchedulingName || null,
       });
       toast({ title: "Settings updated", description: "Store settings have been saved." });
       setEditingId(null);
@@ -77,6 +81,7 @@ export default function Locations() {
     setEditingHours("");
     setEditingEmail("");
     setEditingOrderFormName("");
+    setEditingSchedulingName("");
   };
 
   const handleToggleScheduling = async (location: Location) => {
@@ -309,6 +314,7 @@ export default function Locations() {
                       <TableHead>Weekly Hours</TableHead>
                       <TableHead>Notification Email</TableHead>
                       <TableHead>Order Form Name</TableHead>
+                      <TableHead>Scheduling Name</TableHead>
                       {isAdmin && <TableHead>In Order Form</TableHead>}
                       {isAdmin && <TableHead>In Scheduling</TableHead>}
                       {isAdmin && <TableHead>Status</TableHead>}
@@ -373,6 +379,22 @@ export default function Locations() {
                           ) : (
                             <span className="text-sm" data-testid={`text-order-form-name-${location.id}`}>
                               {location.orderFormName || <span className="text-muted-foreground italic">{location.name}</span>}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingId === location.id ? (
+                            <Input
+                              type="text"
+                              value={editingSchedulingName}
+                              onChange={(e) => setEditingSchedulingName(e.target.value)}
+                              placeholder={location.name}
+                              className="w-48"
+                              data-testid={`input-scheduling-name-${location.id}`}
+                            />
+                          ) : (
+                            <span className="text-sm" data-testid={`text-scheduling-name-${location.id}`}>
+                              {location.schedulingName || <span className="text-muted-foreground italic">{location.name}</span>}
                             </span>
                           )}
                         </TableCell>

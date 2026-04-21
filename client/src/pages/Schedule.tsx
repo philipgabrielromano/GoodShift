@@ -1262,7 +1262,7 @@ export default function Schedule() {
                   .filter(isSchedulableLocation)
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
-                    <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+                    <SelectItem key={loc.id} value={loc.name}>{loc.schedulingName ?? loc.name}</SelectItem>
                   ))}
               </SelectContent>
             </Select>
@@ -1276,7 +1276,7 @@ export default function Schedule() {
                 {userLocations
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
-                    <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+                    <SelectItem key={loc.id} value={loc.name}>{loc.schedulingName ?? loc.name}</SelectItem>
                   ))}
               </SelectContent>
             </Select>
@@ -1468,7 +1468,7 @@ export default function Schedule() {
                     return (
                       <div key={location.id} className="space-y-1" data-testid={`location-hours-${location.id}`}>
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium truncate">{location.name}</span>
+                          <span className="text-xs font-medium truncate">{location.schedulingName ?? location.name}</span>
                           <div className="flex items-center gap-1">
                             <span className={cn(
                               "text-xs font-mono",
