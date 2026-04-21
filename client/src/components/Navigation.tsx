@@ -84,7 +84,7 @@ export function Navigation() {
     if (can("credit_card_inspection.view_all")) orders.push({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard });
     if (can("driver_inspection.submit")) orders.push({ href: "/driver-inspection/new", label: "Driver Inspection", icon: ClipboardList });
     if (can("driver_inspection.view_all")) orders.push({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck });
-    if (orders.length) built.push({ id: "orders", label: "Orders", items: orders });
+    if (orders.length) built.push({ id: "orders", label: "Ordering and Logging", items: orders });
 
     // Inventory (always visible — external links)
     built.push({
