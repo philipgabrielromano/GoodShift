@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, ChevronRight, ChevronDown, Trash2, Copy, Loader2, FileDown, Plus, X, Volume2, VolumeX } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { cn, getJobTitle, getCanonicalJobCode, isValidLocation } from "@/lib/utils";
+import { cn, getJobTitle, getCanonicalJobCode, isSchedulableLocation } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
 import type { TaskAssignment as TaskAssignmentType, CustomTask } from "@shared/schema";
 import { Input } from "@/components/ui/input";
@@ -828,7 +828,7 @@ export default function TaskAssignment() {
   }, [dateObj]);
 
   const activeLocations = useMemo(() => {
-    return locations.filter(isValidLocation).sort((a, b) => a.name.localeCompare(b.name));
+    return locations.filter(isSchedulableLocation).sort((a, b) => a.name.localeCompare(b.name));
   }, [locations]);
 
   const handleExportPDF = async () => {

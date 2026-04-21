@@ -79,6 +79,21 @@ export default function Locations() {
     setEditingOrderFormName("");
   };
 
+  const handleToggleScheduling = async (location: Location) => {
+    try {
+      await updateLocation.mutateAsync({
+        id: location.id,
+        availableForScheduling: !location.availableForScheduling,
+      });
+      toast({
+        title: location.availableForScheduling ? "Removed from Scheduling" : "Added to Scheduling",
+        description: `${location.name} is now ${location.availableForScheduling ? "hidden from" : "shown in"} scheduling, roster, and task assignment.`,
+      });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update scheduling availability." });
+    }
+  };
+
   const handleToggleOrderForm = async (location: Location) => {
     try {
       await updateLocation.mutateAsync({
@@ -295,6 +310,7 @@ export default function Locations() {
                       <TableHead>Notification Email</TableHead>
                       <TableHead>Order Form Name</TableHead>
                       {isAdmin && <TableHead>In Order Form</TableHead>}
+                      {isAdmin && <TableHead>In Scheduling</TableHead>}
                       {isAdmin && <TableHead>Status</TableHead>}
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -367,6 +383,16 @@ export default function Locations() {
                               onCheckedChange={() => handleToggleOrderForm(location)}
                               disabled={updateLocation.isPending}
                               data-testid={`switch-order-form-${location.id}`}
+                            />
+                          </TableCell>
+                        )}
+                        {isAdmin && (
+                          <TableCell>
+                            <Switch
+                              checked={location.availableForScheduling}
+                              onCheckedChange={() => handleToggleScheduling(location)}
+                              disabled={updateLocation.isPending}
+                              data-testid={`switch-scheduling-${location.id}`}
                             />
                           </TableCell>
                         )}

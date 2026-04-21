@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { isValidLocation } from "@/lib/utils";
+import { isSchedulableLocation } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -690,7 +690,7 @@ export default function Optimization() {
                     <SelectValue placeholder="Select store..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {locations?.filter(isValidLocation).sort((a, b) => a.name.localeCompare(b.name)).map(loc => (
+                    {locations?.filter(isSchedulableLocation).sort((a, b) => a.name.localeCompare(b.name)).map(loc => (
                       <SelectItem key={loc.id} value={String(loc.id)}>{loc.name}</SelectItem>
                     ))}
                   </SelectContent>

@@ -4,7 +4,7 @@ import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { cn, getJobTitle, isHoliday, getCanonicalJobCode, isValidLocation } from "@/lib/utils";
+import { cn, getJobTitle, isHoliday, getCanonicalJobCode, isValidLocation, isSchedulableLocation } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -401,11 +401,11 @@ export default function Schedule() {
   const userLocations = useMemo(() => {
     if (!locations) return [];
     if (isAdmin) {
-      return locations.filter(isValidLocation);
+      return locations.filter(isSchedulableLocation);
     }
     // Non-admins only see their assigned locations
     return locations.filter(l => 
-      isValidLocation(l) && userLocationIds.includes(String(l.id))
+      isSchedulableLocation(l) && userLocationIds.includes(String(l.id))
     );
   }, [locations, isAdmin, userLocationIds]);
   
@@ -1259,7 +1259,7 @@ export default function Schedule() {
               <SelectContent>
                 <SelectItem value="all">All Locations</SelectItem>
                 {(locations || [])
-                  .filter(isValidLocation)
+                  .filter(isSchedulableLocation)
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>

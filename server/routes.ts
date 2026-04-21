@@ -984,6 +984,10 @@ export async function registerRoutes(
         if (input.availableForOrderForm !== undefined || input.formOnly !== undefined || input.orderFormName !== undefined) {
           return res.status(403).json({ message: "Only admins can change Order Form settings for a location" });
         }
+        // Managers cannot toggle a location off for scheduling
+        if (input.availableForScheduling !== undefined) {
+          return res.status(403).json({ message: "Only admins can change scheduling availability for a location" });
+        }
       } else if (user.role !== "admin") {
         // Viewers cannot update locations at all
         return res.status(403).json({ message: "Unauthorized" });

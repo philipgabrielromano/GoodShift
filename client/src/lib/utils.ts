@@ -21,6 +21,14 @@ export function isValidLocation(loc: { name: string; isActive?: boolean; formOnl
   return isValidLocationName(loc.name);
 }
 
+// Stricter check for scheduling-related dropdowns (Schedule, Roster, Task Assignment, Optimization).
+// Excludes locations that are toggled off for scheduling but kept active for ordering.
+export function isSchedulableLocation(loc: { name: string; isActive?: boolean; formOnly?: boolean; availableForScheduling?: boolean }): boolean {
+  if (!isValidLocation(loc)) return false;
+  if (loc.availableForScheduling === false) return false;
+  return true;
+}
+
 // Holiday calculations
 export interface Holiday {
   date: Date;
