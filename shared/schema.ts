@@ -106,6 +106,8 @@ export const RETAIL_JOB_CODES = [
   "OUTSHS",    // Outlet Sales/Softlines
   // Bookstore job codes
   "ALTSTLD",   // Alternative Store Lead
+  // eBooks job codes
+  "EBCLK",     // eBooks Clerk
   // Sales floor
   "SLSFLR",    // Sales Floor Associate
   // eCommerce job codes
