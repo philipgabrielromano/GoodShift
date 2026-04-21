@@ -1492,6 +1492,53 @@ export async function registerRoutes(
     }
   });
 
+  // === PER-JOB-TITLE VISIBILITY ===
+
+  // List of distinct job titles currently in use (any authenticated user can read).
+  app.get("/api/job-titles", async (req, res) => {
+    try {
+      const user = (req.session as any)?.user;
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      const all = await storage.getEmployees();
+      const set = new Set<string>();
+      for (const e of all) {
+        if (e.jobTitle && e.jobTitle.trim()) set.add(e.jobTitle.trim());
+      }
+      res.json(Array.from(set).sort((a, b) => a.localeCompare(b)));
+    } catch (err) {
+      console.error("[JobTitles] Error fetching:", err);
+      res.status(500).json({ message: "Failed to fetch job titles" });
+    }
+  });
+
+  app.get("/api/job-title-visibility", requireAdmin, async (_req, res) => {
+    try {
+      const map = await storage.getJobTitleVisibilityMap();
+      res.json(map);
+    } catch (err) {
+      console.error("[JobTitleVisibility] Error fetching:", err);
+      res.status(500).json({ message: "Failed to fetch job title visibility" });
+    }
+  });
+
+  app.put("/api/job-title-visibility/:viewerJobTitle", requireAdmin, async (req, res) => {
+    try {
+      const viewerJobTitle = String(req.params.viewerJobTitle || "").trim();
+      if (!viewerJobTitle) return res.status(400).json({ message: "Viewer job title required" });
+
+      const schema = z.object({ visibleJobTitles: z.array(z.string().trim().min(1)) });
+      const { visibleJobTitles } = schema.parse(req.body);
+
+      await storage.setVisibleJobTitlesFor(viewerJobTitle, visibleJobTitles);
+      const saved = await storage.getVisibleJobTitlesFor(viewerJobTitle);
+      res.json({ message: "Visibility updated", viewerJobTitle, visibleJobTitles: saved });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      console.error("[JobTitleVisibility] Error updating:", err);
+      res.status(500).json({ message: "Failed to update job title visibility" });
+    }
+  });
+
   app.delete("/api/roles/:name", requireAdmin, async (req, res) => {
     try {
       const name = req.params.name;

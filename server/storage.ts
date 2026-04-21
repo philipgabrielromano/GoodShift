@@ -34,6 +34,7 @@ import {
   creditCardInspections, type CreditCardInspection, type InsertCreditCardInspection,
   driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
   managerDirectReports, type ManagerDirectReport,
+  jobTitleVisibility, type JobTitleVisibility,
 } from "@shared/schema";
 import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -85,6 +86,11 @@ export interface IStorage {
   getDirectReportsForManager(managerUserId: number): Promise<number[]>;
   setDirectReportsForManager(managerUserId: number, employeeIds: number[]): Promise<void>;
   getAllDirectReportAssignments(): Promise<ManagerDirectReport[]>;
+
+  // Per-job-title visibility map
+  getJobTitleVisibilityMap(): Promise<Record<string, string[]>>;
+  getVisibleJobTitlesFor(viewerJobTitle: string): Promise<string[]>;
+  setVisibleJobTitlesFor(viewerJobTitle: string, visibleJobTitles: string[]): Promise<void>;
 
   // Trailer Manifests
   getTrailerManifests(filters?: { status?: string }): Promise<TrailerManifest[]>;
@@ -489,6 +495,38 @@ export class DatabaseStorage implements IStorage {
 
   async getAllDirectReportAssignments(): Promise<ManagerDirectReport[]> {
     return await db.select().from(managerDirectReports);
+  }
+
+  async getJobTitleVisibilityMap(): Promise<Record<string, string[]>> {
+    const rows = await db.select().from(jobTitleVisibility);
+    const map: Record<string, Set<string>> = {};
+    for (const r of rows) {
+      if (!map[r.viewerJobTitle]) map[r.viewerJobTitle] = new Set();
+      map[r.viewerJobTitle].add(r.visibleJobTitle);
+    }
+    const out: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(map)) out[k] = Array.from(v).sort();
+    return out;
+  }
+
+  async getVisibleJobTitlesFor(viewerJobTitle: string): Promise<string[]> {
+    const rows = await db
+      .select()
+      .from(jobTitleVisibility)
+      .where(eq(jobTitleVisibility.viewerJobTitle, viewerJobTitle));
+    return rows.map(r => r.visibleJobTitle);
+  }
+
+  async setVisibleJobTitlesFor(viewerJobTitle: string, visibleJobTitles: string[]): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(jobTitleVisibility).where(eq(jobTitleVisibility.viewerJobTitle, viewerJobTitle));
+      const unique = Array.from(new Set(visibleJobTitles)).filter(t => t && t !== viewerJobTitle);
+      if (unique.length > 0) {
+        await tx.insert(jobTitleVisibility).values(
+          unique.map(visibleJobTitle => ({ viewerJobTitle, visibleJobTitle })),
+        );
+      }
+    });
   }
 
   async seedBuiltInRoles(): Promise<void> {

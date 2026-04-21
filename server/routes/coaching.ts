@@ -32,6 +32,17 @@ async function getExplicitReportsSet(user: any): Promise<Set<number> | null> {
   return new Set(explicit);
 }
 
+/**
+ * Returns the configured visible-job-title set for the viewer's job title,
+ * or null if nothing has been configured (falls back to numeric levels).
+ */
+async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined): Promise<Set<string> | null> {
+  if (!viewerJobTitle) return null;
+  const titles = await storage.getVisibleJobTitlesFor(viewerJobTitle);
+  if (!titles || titles.length === 0) return null;
+  return new Set(titles.map(t => t.toUpperCase()));
+}
+
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
   if (user.role === "admin") return null;
   if (!user.locationIds || user.locationIds.length === 0) return null;
@@ -85,6 +96,21 @@ export function registerCoachingRoutes(app: Express) {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
+
+        // Per-job-title visibility (configured by admin) overrides numeric levels.
+        const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+        if (visibleTitleSet) {
+          const sortedByTitle = filtered
+            .filter(e => {
+              if (managerEmployee && e.id === managerEmployee.id) return false;
+              return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
+            })
+            .sort((a, b) => a.name.localeCompare(b.name));
+          return res.json(sortedByTitle.map(e => ({
+            id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location, isActive: e.isActive
+          })));
+        }
+
         const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
         console.log(`[Coaching] Employee list - User: ${user.email}, MatchedEmployee: ${managerEmployee?.name || 'NONE'}, JobTitle: ${managerEmployee?.jobTitle || 'N/A'}, HierarchyLevel: ${managerLevel}, LocationFilter: ${allowedNames ? Array.from(allowedNames).join(',') : 'ALL'}, PreFilterCount: ${filtered.length}`);
@@ -148,6 +174,21 @@ export function registerCoachingRoutes(app: Express) {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
+
+        // Per-job-title visibility (configured by admin) overrides numeric levels.
+        const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+        if (visibleTitleSet) {
+          const visibleByTitle = new Set(
+            allEmployees.filter(e => {
+              if (!includeInactive && !e.isActive) return false;
+              if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
+              if (managerEmployee && e.id === managerEmployee.id) return false;
+              return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
+            }).map(e => e.id)
+          );
+          return res.json(allLogs.filter(log => visibleByTitle.has(log.employeeId)));
+        }
+
         const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
         const visibleEmployeeIds = new Set(
@@ -220,11 +261,19 @@ export function registerCoachingRoutes(app: Express) {
           const managerEmployee = allEmployees.find(e =>
             e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
           );
-          const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-          if (managerLevel < 3) {
-            const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-            if (empLevel >= managerLevel) {
-              return res.status(403).json({ message: "Cannot create coaching log for employees at or above your level" });
+
+          const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+          if (visibleTitleSet) {
+            if (!targetEmployee.jobTitle || !visibleTitleSet.has(targetEmployee.jobTitle.toUpperCase())) {
+              return res.status(403).json({ message: "Cannot create coaching log for an employee whose job title you cannot manage" });
+            }
+          } else {
+            const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+            if (managerLevel < 3) {
+              const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+              if (empLevel >= managerLevel) {
+                return res.status(403).json({ message: "Cannot create coaching log for employees at or above your level" });
+              }
             }
           }
         }
@@ -319,11 +368,19 @@ export function registerCoachingRoutes(app: Express) {
           const managerEmployee = allEmployees.find(e =>
             e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
           );
-          const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-          if (managerLevel < 3) {
-            const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-            if (empLevel >= managerLevel) {
-              return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
+
+          const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+          if (visibleTitleSet) {
+            if (!targetEmployee.jobTitle || !visibleTitleSet.has(targetEmployee.jobTitle.toUpperCase())) {
+              return res.status(403).json({ message: "Cannot modify coaching log for an employee whose job title you cannot manage" });
+            }
+          } else {
+            const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+            if (managerLevel < 3) {
+              const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+              if (empLevel >= managerLevel) {
+                return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
+              }
             }
           }
         }

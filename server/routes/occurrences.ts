@@ -18,6 +18,13 @@ function getHierarchyLevel(jobTitle: string | null): number {
   return 0;
 }
 
+async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined): Promise<Set<string> | null> {
+  if (!viewerJobTitle) return null;
+  const titles = await storage.getVisibleJobTitlesFor(viewerJobTitle);
+  if (!titles || titles.length === 0) return null;
+  return new Set(titles.map(t => t.toUpperCase()));
+}
+
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
   if (user.role === "admin") return null;
   if (!user.locationIds || user.locationIds.length === 0) return null;
@@ -61,6 +68,14 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     const managerEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
     );
+
+    // Per-job-title visibility (configured by admin) overrides numeric levels.
+    const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+    if (visibleTitleSet) {
+      if (managerEmployee && targetEmployee.id === managerEmployee.id) return false;
+      return !!targetEmployee.jobTitle && visibleTitleSet.has(targetEmployee.jobTitle.toUpperCase());
+    }
+
     const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
     if (managerLevel >= 3) return true;
     const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
@@ -96,6 +111,18 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     const managerEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
     );
+
+    // Per-job-title visibility (configured by admin) overrides numeric levels.
+    const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+    if (visibleTitleSet) {
+      const visibleByTitle = activeEmployees.filter(e => {
+        if (managerEmployee && e.id === managerEmployee.id) return false;
+        if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
+        return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
+      });
+      return new Set(visibleByTitle.map(e => e.id));
+    }
+
     const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
     const visible = activeEmployees.filter(e => {
@@ -160,6 +187,22 @@ export function registerOccurrenceRoutes(app: Express) {
       const managerEmployee = allEmployees.find(e =>
         e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
       );
+
+      // Per-job-title visibility (configured by admin) overrides numeric levels.
+      const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+      if (visibleTitleSet) {
+        const sortedByTitle = filtered
+          .filter(e => {
+            if (managerEmployee && e.id === managerEmployee.id) return false;
+            return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
+          })
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return res.json(sortedByTitle.map(e => ({
+          id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location,
+          isActive: e.isActive, employmentType: e.employmentType
+        })));
+      }
+
       const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
 
       console.log(`[Attendance] Employee list - User: ${user.email}, MatchedEmployee: ${managerEmployee?.name || 'NONE'}, JobTitle: ${managerEmployee?.jobTitle || 'N/A'}, HierarchyLevel: ${managerLevel}, LocationFilter: ${allowedNames ? Array.from(allowedNames).join(',') : 'ALL'}, PreFilterCount: ${filtered.length}`);

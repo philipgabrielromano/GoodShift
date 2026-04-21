@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.0.2";
+export const APP_VERSION = "3.0.3";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.0.3",
+    date: "2026-04-21",
+    title: "Configurable Job Title Hierarchy",
+    changes: [
+      { type: "feature", description: "New Admin → Job Title Hierarchy page lets admins pick, for each job title, exactly which other job titles a person with that title can see in coaching and attendance. Useful for non-standard titles that don't fit the built-in District / Store Mgr / Asst Mgr / Team Lead levels." },
+      { type: "improvement", description: "If a viewer's job title has a configured visibility list, that list is used instead of the built-in level rules (still scoped to the user's allowed store locations). Titles with nothing configured continue to use the built-in rules, so existing setups keep working." },
+      { type: "improvement", description: "Visibility precedence is now: explicit Direct Reports on a user → per-job-title visibility map → built-in level hierarchy." },
+    ],
+  },
   {
     version: "3.0.2",
     date: "2026-04-21",

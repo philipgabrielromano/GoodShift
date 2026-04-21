@@ -153,6 +153,20 @@ export const insertManagerDirectReportSchema = createInsertSchema(managerDirectR
 export type ManagerDirectReport = typeof managerDirectReports.$inferSelect;
 export type InsertManagerDirectReport = z.infer<typeof insertManagerDirectReportSchema>;
 
+// Per-job-title visibility map. If a viewer job title has any rows here,
+// those rows fully replace the automatic numeric-level hierarchy for that title.
+export const jobTitleVisibility = pgTable("job_title_visibility", {
+  id: serial("id").primaryKey(),
+  viewerJobTitle: text("viewer_job_title").notNull(),
+  visibleJobTitle: text("visible_job_title").notNull(),
+}, (table) => ({
+  pairIdx: uniqueIndex("job_title_visibility_pair_idx").on(table.viewerJobTitle, table.visibleJobTitle),
+}));
+
+export const insertJobTitleVisibilitySchema = createInsertSchema(jobTitleVisibility).omit({ id: true });
+export type JobTitleVisibility = typeof jobTitleVisibility.$inferSelect;
+export type InsertJobTitleVisibility = z.infer<typeof insertJobTitleVisibilitySchema>;
+
 // Locations table for store-specific settings
 export const locations = pgTable("locations", {
   id: serial("id").primaryKey(),
