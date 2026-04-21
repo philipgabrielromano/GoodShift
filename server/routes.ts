@@ -7,7 +7,8 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { ukgClient } from "./ukg";
-import { RETAIL_JOB_CODES, featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS } from "@shared/schema";
+import { RETAIL_JOB_CODES, featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS, LEGACY_FEATURE_EXPANSIONS } from "@shared/schema";
+import { inArray } from "drizzle-orm";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, generateSchedulePublishEmailHtml, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
@@ -1303,6 +1304,7 @@ export async function registerRoutes(
       }));
       const updates = schema.parse(req.body);
       const validFeatures = SYSTEM_FEATURES.map(f => f.feature);
+      const legacyKeysToRetire = new Set<string>();
 
       for (const update of updates) {
         if (!validFeatures.includes(update.feature)) continue;
@@ -1325,6 +1327,49 @@ export async function registerRoutes(
             target: featurePermissions.feature,
             set: { allowedRoles: rolesWithAdmin },
           });
+
+        // If this granular feature is a child of a legacy lumped key, mark
+        // that legacy row for retirement so it can no longer override the
+        // admin's explicit granular settings on the next read.
+        for (const [legacy, children] of Object.entries(LEGACY_FEATURE_EXPANSIONS)) {
+          if (children.includes(update.feature)) {
+            legacyKeysToRetire.add(legacy);
+          }
+        }
+      }
+
+      if (legacyKeysToRetire.size > 0) {
+        // Materialize each legacy row's allowedRoles onto every granular child
+        // that wasn't part of this update batch and doesn't already have its
+        // own row, so existing implicit grants are preserved.
+        const updatedFeatures = new Set(updates.map(u => u.feature));
+        const existingRows = await db.select().from(featurePermissions);
+        const existingByFeature = new Map(existingRows.map(r => [r.feature, r.allowedRoles]));
+
+        for (const legacy of legacyKeysToRetire) {
+          const legacyRoles = existingByFeature.get(legacy);
+          if (!legacyRoles) continue;
+          const children = LEGACY_FEATURE_EXPANSIONS[legacy] || [];
+          for (const child of children) {
+            if (updatedFeatures.has(child)) continue;
+            if (existingByFeature.has(child)) continue;
+            const childInfo = SYSTEM_FEATURES.find(f => f.feature === child);
+            if (!childInfo) continue;
+            const filtered = legacyRoles.filter(r => validRoleNames.has(r));
+            const withAdmin = filtered.includes("admin") ? filtered : ["admin", ...filtered];
+            await db.insert(featurePermissions)
+              .values({
+                feature: child,
+                label: childInfo.label,
+                description: childInfo.description,
+                allowedRoles: withAdmin,
+              })
+              .onConflictDoNothing({ target: featurePermissions.feature });
+          }
+        }
+
+        await db.delete(featurePermissions)
+          .where(inArray(featurePermissions.feature, Array.from(legacyKeysToRetire)));
       }
 
       invalidatePermissionsCache();
