@@ -52,6 +52,8 @@ export async function initOrdersTable(): Promise<void> {
         books_gaylords_returned INT DEFAULT NULL,
         shoes_gaylords_requested INT DEFAULT NULL,
         shoes_gaylords_returned INT DEFAULT NULL,
+        furniture_gaylords_requested INT DEFAULT NULL,
+        furniture_gaylords_returned INT DEFAULT NULL,
         saved_winter_requested INT DEFAULT NULL,
         saved_winter_returned INT DEFAULT NULL,
         saved_summer_requested INT DEFAULT NULL,
@@ -99,6 +101,19 @@ export async function initOrdersTable(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     console.log("[MySQL] Orders table ready");
+
+    const [cols] = await conn.query<any[]>(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders'`
+    );
+    const colSet = new Set((cols as Array<{ COLUMN_NAME: string }>).map(c => c.COLUMN_NAME.toLowerCase()));
+    const ensureCol = async (name: string, ddl: string) => {
+      if (!colSet.has(name.toLowerCase())) {
+        await conn.query(`ALTER TABLE orders ADD COLUMN ${name} ${ddl}`);
+        console.log(`[MySQL] Added orders.${name}`);
+      }
+    };
+    await ensureCol("furniture_gaylords_requested", "INT DEFAULT NULL");
+    await ensureCol("furniture_gaylords_returned", "INT DEFAULT NULL");
   } finally {
     conn.release();
   }

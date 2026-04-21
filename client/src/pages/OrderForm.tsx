@@ -68,6 +68,8 @@ const formSchema = z.object({
   booksGaylordsReturned: z.number().nullable().optional(),
   shoesGaylordsRequested: z.number().nullable().optional(),
   shoesGaylordsReturned: z.number().nullable().optional(),
+  furnitureGaylordsRequested: z.number().nullable().optional(),
+  furnitureGaylordsReturned: z.number().nullable().optional(),
   savedWinterRequested: z.number().nullable().optional(),
   savedWinterReturned: z.number().nullable().optional(),
   savedSummerRequested: z.number().nullable().optional(),
@@ -351,6 +353,7 @@ export default function OrderForm() {
                   <NumberField label="Accessories" value={form.watch("accessoriesGaylordsRequested")} onChange={(v) => form.setValue("accessoriesGaylordsRequested", v)} testId="input-accessories-gaylords-requested" />
                   <NumberField label="Books" value={form.watch("booksGaylordsRequested")} onChange={(v) => form.setValue("booksGaylordsRequested", v)} testId="input-books-gaylords-requested" />
                   <NumberField label="Shoes" value={form.watch("shoesGaylordsRequested")} onChange={(v) => form.setValue("shoesGaylordsRequested", v)} testId="input-shoes-gaylords-requested" />
+                  <NumberField label="Furniture" value={form.watch("furnitureGaylordsRequested")} onChange={(v) => form.setValue("furnitureGaylordsRequested", v)} testId="input-furniture-gaylords-requested" />
                 </div>
               </CardContent>
             </Card>
@@ -406,6 +409,7 @@ export default function OrderForm() {
                   <NumberField label="Accessories" value={form.watch("accessoriesGaylordsReturned")} onChange={(v) => form.setValue("accessoriesGaylordsReturned", v)} testId="input-accessories-gaylords-returned" />
                   <NumberField label="Books" value={form.watch("booksGaylordsReturned")} onChange={(v) => form.setValue("booksGaylordsReturned", v)} testId="input-books-gaylords-returned" />
                   <NumberField label="Shoes" value={form.watch("shoesGaylordsReturned")} onChange={(v) => form.setValue("shoesGaylordsReturned", v)} testId="input-shoes-gaylords-returned" />
+                  <NumberField label="Furniture" value={form.watch("furnitureGaylordsReturned")} onChange={(v) => form.setValue("furnitureGaylordsReturned", v)} testId="input-furniture-gaylords-returned" />
                 </div>
               </CardContent>
             </Card>
