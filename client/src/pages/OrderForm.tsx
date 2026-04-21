@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocations } from "@/hooks/use-locations";
+import { isValidLocationName } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,20 +135,49 @@ export default function OrderForm() {
   });
 
   const orderFormLocations = (dbLocations ?? [])
-    .filter((l: any) => l.isActive && l.availableForOrderForm)
+    .filter((l: any) => l.isActive && l.availableForOrderForm && isValidLocationName(l.name))
     .map((l: any) => ({ id: l.id, displayName: (l.orderFormName ?? l.name) as string }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   const orderFormNames = orderFormLocations.map(l => l.displayName);
 
+  // Strip common UKG suffixes so "Foxboro Store" matches form entry "Foxboro"
+  const stripLocationSuffix = (s: string) =>
+    s.replace(/\s+(Store|Bookstore)$/i, "").trim();
+
   const defaultLocation = (() => {
     const userLocIds = authStatus?.user?.locationIds;
     if (!userLocIds || userLocIds.length === 0 || !dbLocations) return "";
-    const userLocNames = dbLocations
-      .filter((loc: any) => userLocIds.includes(String(loc.id)) && loc.isActive && loc.availableForOrderForm)
-      .map((loc: any) => (loc.orderFormName ?? loc.name) as string)
-      .sort((a: string, b: string) => a.localeCompare(b));
-    return userLocNames.length > 0 ? userLocNames[0] : "";
+
+    // Names of every location the user is assigned to (active only)
+    const assigned = dbLocations.filter(
+      (loc: any) => userLocIds.includes(String(loc.id)) && loc.isActive,
+    );
+    if (assigned.length === 0) return "";
+
+    // Prefer assigned locations that are themselves order-form-eligible
+    const directMatch = assigned
+      .filter((loc: any) => loc.availableForOrderForm && isValidLocationName(loc.name))
+      .map((loc: any) => (loc.orderFormName ?? loc.name) as string);
+
+    // For assigned locations not in the order form, try fuzzy-matching by stripped suffix
+    const formNameSet = new Set(orderFormNames.map(n => n.toLowerCase()));
+    const fuzzyMatches: string[] = [];
+    for (const loc of assigned as any[]) {
+      const stripped = stripLocationSuffix(loc.name).toLowerCase();
+      const hit = orderFormNames.find(n => n.toLowerCase() === stripped);
+      if (hit && !formNameSet.has((loc.orderFormName ?? loc.name).toLowerCase())) {
+        fuzzyMatches.push(hit);
+      }
+    }
+
+    const candidates = [...directMatch, ...fuzzyMatches];
+
+    // If the user has exactly one assigned location and it maps cleanly, use it.
+    if (assigned.length === 1 && candidates.length > 0) return candidates[0];
+
+    // Otherwise, default to the first match alphabetically.
+    return candidates.sort((a, b) => a.localeCompare(b))[0] || "";
   })();
 
   const form = useForm<FormValues>({
