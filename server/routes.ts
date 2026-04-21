@@ -980,6 +980,10 @@ export async function registerRoutes(
         if (input.isActive !== undefined) {
           return res.status(403).json({ message: "Only admins can enable or disable locations" });
         }
+        // Managers cannot change Order Form catalog fields
+        if (input.availableForOrderForm !== undefined || input.formOnly !== undefined || input.orderFormName !== undefined) {
+          return res.status(403).json({ message: "Only admins can change Order Form settings for a location" });
+        }
       } else if (user.role !== "admin") {
         // Viewers cannot update locations at all
         return res.status(403).json({ message: "Unauthorized" });

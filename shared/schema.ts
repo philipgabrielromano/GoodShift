@@ -176,6 +176,9 @@ export const locations = pgTable("locations", {
   apparelProcessorStations: integer("apparel_processor_stations").notNull().default(0), // Max apparel processors per day (0 = unlimited)
   donationPricingStations: integer("donation_pricing_stations").notNull().default(0), // Max donation pricing associates per day (0 = unlimited)
   notificationEmail: text("notification_email"), // Destination email for trailer manifest in-transit notifications
+  formOnly: boolean("form_only").notNull().default(false), // True for entries that exist only for Order Form (ADCs, Wired Up, etc.) — hidden from scheduling, roster, users, etc.
+  availableForOrderForm: boolean("available_for_order_form").notNull().default(true), // Whether this location appears in the Order Form location dropdown
+  orderFormName: text("order_form_name"), // Optional alias used in the Order Form dropdown (when null, falls back to name)
 });
 
 // Shift presets - preconfigured shift times that can be quickly applied

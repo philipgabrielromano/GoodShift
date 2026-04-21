@@ -24,21 +24,6 @@ const ORDER_TYPES = [
 
 type OrderType = typeof ORDER_TYPES[number];
 
-const LOCATIONS = [
-  "Alliance", "Carrollton", "Chardon", "Foxboro", "Massillon",
-  "Mayfield", "Middleburg", "New Philly", "North Canton", "North Olmsted",
-  "Outlet Canton", "Outlet Cleveland", "Painesville", "Perry", "Route 62",
-  "Snow Road", "Strongsville", "University", "Weirton", "Wintersville",
-  "Willowick", "Transportation",
-  "Home Pickups ADC", "Hillsdale ADC", "Corporate Campus ADC",
-  "Washington Square ADC", "Uniontown ADC", "Tanglewood ADC",
-  "Shuffel ADC", "Pepper Pike ADC", "North Royalton ADC",
-  "Lyndhurst ADC", "Lincoln Way ADC", "Westlake ADC",
-  "Jackson ADC", "Chesterland ADC",
-  "Washington Square", "Westlake", "Gordon Square",
-  "Donation Station", "City Mission",
-  "Wired Up", "eCommerce",
-];
 
 const formSchema = z.object({
   orderDate: z.string().min(1, "Date is required"),
@@ -148,13 +133,19 @@ export default function OrderForm() {
     enabled: isEditMode,
   });
 
+  const orderFormLocations = (dbLocations ?? [])
+    .filter((l: any) => l.isActive && l.availableForOrderForm)
+    .map((l: any) => ({ id: l.id, displayName: (l.orderFormName ?? l.name) as string }))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+
+  const orderFormNames = orderFormLocations.map(l => l.displayName);
+
   const defaultLocation = (() => {
     const userLocIds = authStatus?.user?.locationIds;
     if (!userLocIds || userLocIds.length === 0 || !dbLocations) return "";
     const userLocNames = dbLocations
-      .filter((loc: any) => userLocIds.includes(String(loc.id)))
-      .map((loc: any) => loc.name)
-      .filter((name: string) => LOCATIONS.includes(name))
+      .filter((loc: any) => userLocIds.includes(String(loc.id)) && loc.isActive && loc.availableForOrderForm)
+      .map((loc: any) => (loc.orderFormName ?? loc.name) as string)
       .sort((a: string, b: string) => a.localeCompare(b));
     return userLocNames.length > 0 ? userLocNames[0] : "";
   })();
@@ -292,7 +283,7 @@ export default function OrderForm() {
                     <SelectValue placeholder="Select Location" />
                   </SelectTrigger>
                   <SelectContent>
-                    {LOCATIONS.map((l) => (
+                    {orderFormNames.map((l) => (
                       <SelectItem key={l} value={l} data-testid={`option-location-${l.toLowerCase().replace(/\s+/g, '-')}`}>
                         {l}
                       </SelectItem>

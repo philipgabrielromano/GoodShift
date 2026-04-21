@@ -33,11 +33,13 @@ export default function Locations() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");
   const [editingEmail, setEditingEmail] = useState<string>("");
+  const [editingOrderFormName, setEditingOrderFormName] = useState<string>("");
 
   const handleEdit = (location: Location) => {
     setEditingId(location.id);
     setEditingHours(location.weeklyHoursLimit.toString());
     setEditingEmail(location.notificationEmail ?? "");
+    setEditingOrderFormName(location.orderFormName ?? "");
   };
 
   const handleSave = async (id: number) => {
@@ -54,8 +56,15 @@ export default function Locations() {
       return;
     }
 
+    const trimmedOrderFormName = editingOrderFormName.trim();
+
     try {
-      await updateLocation.mutateAsync({ id, weeklyHoursLimit: hours, notificationEmail: trimmedEmail || null });
+      await updateLocation.mutateAsync({
+        id,
+        weeklyHoursLimit: hours,
+        notificationEmail: trimmedEmail || null,
+        orderFormName: trimmedOrderFormName || null,
+      });
       toast({ title: "Settings updated", description: "Store settings have been saved." });
       setEditingId(null);
     } catch (error) {
@@ -67,6 +76,22 @@ export default function Locations() {
     setEditingId(null);
     setEditingHours("");
     setEditingEmail("");
+    setEditingOrderFormName("");
+  };
+
+  const handleToggleOrderForm = async (location: Location) => {
+    try {
+      await updateLocation.mutateAsync({
+        id: location.id,
+        availableForOrderForm: !location.availableForOrderForm,
+      });
+      toast({
+        title: location.availableForOrderForm ? "Removed from Order Form" : "Added to Order Form",
+        description: `${location.orderFormName || location.name} is now ${location.availableForOrderForm ? "hidden from" : "shown in"} the Order Form.`,
+      });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update Order Form availability." });
+    }
   };
 
   const handleToggleActive = async (location: Location) => {
@@ -268,6 +293,8 @@ export default function Locations() {
                       <TableHead>Store Name</TableHead>
                       <TableHead>Weekly Hours</TableHead>
                       <TableHead>Notification Email</TableHead>
+                      <TableHead>Order Form Name</TableHead>
+                      {isAdmin && <TableHead>In Order Form</TableHead>}
                       {isAdmin && <TableHead>Status</TableHead>}
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -277,7 +304,16 @@ export default function Locations() {
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((location) => (
                       <TableRow key={location.id} data-testid={`row-location-desktop-${location.id}`}>
-                        <TableCell className="font-medium">{location.name}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <span>{location.name}</span>
+                            {location.formOnly && (
+                              <Badge variant="outline" className="text-[10px]" data-testid={`badge-form-only-${location.id}`}>
+                                Order Form Only
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {editingId === location.id ? (
                             <Input
@@ -308,6 +344,32 @@ export default function Locations() {
                             </span>
                           )}
                         </TableCell>
+                        <TableCell>
+                          {editingId === location.id ? (
+                            <Input
+                              type="text"
+                              value={editingOrderFormName}
+                              onChange={(e) => setEditingOrderFormName(e.target.value)}
+                              placeholder={location.name}
+                              className="w-48"
+                              data-testid={`input-order-form-name-${location.id}`}
+                            />
+                          ) : (
+                            <span className="text-sm" data-testid={`text-order-form-name-${location.id}`}>
+                              {location.orderFormName || <span className="text-muted-foreground italic">{location.name}</span>}
+                            </span>
+                          )}
+                        </TableCell>
+                        {isAdmin && (
+                          <TableCell>
+                            <Switch
+                              checked={location.availableForOrderForm}
+                              onCheckedChange={() => handleToggleOrderForm(location)}
+                              disabled={updateLocation.isPending}
+                              data-testid={`switch-order-form-${location.id}`}
+                            />
+                          </TableCell>
+                        )}
                         {isAdmin && (
                           <TableCell>
                             <div className="flex items-center gap-2">

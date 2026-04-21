@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocations } from "@/hooks/use-locations";
+import { isValidLocation } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +51,7 @@ export default function CreditCardInspectionForm() {
 
   const allowedLocationIds = authStatus?.user?.locationIds ?? null;
   const visibleLocations = locations
-    .filter(l => l.isActive)
+    .filter(isValidLocation)
     .filter(l => !allowedLocationIds || allowedLocationIds.length === 0 || allowedLocationIds.includes(String(l.id)))
     .sort((a, b) => a.name.localeCompare(b.name));
 

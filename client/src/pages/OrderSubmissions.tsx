@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2, Pencil } from "lucide-react";
 import { useLocation as useWouterLocation } from "wouter";
+import { useLocations } from "@/hooks/use-locations";
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -24,22 +25,6 @@ const ORDER_TYPES = [
   "End of Day/Equipment Count",
   "Donors",
   "Supplemental production",
-];
-
-const LOCATIONS = [
-  "Alliance", "Carrollton", "Chardon", "Foxboro", "Massillon",
-  "Mayfield", "Middleburg", "New Philly", "North Canton", "North Olmsted",
-  "Outlet Canton", "Outlet Cleveland", "Painesville", "Perry", "Route 62",
-  "Snow Road", "Strongsville", "University", "Weirton", "Wintersville",
-  "Willowick", "Transportation",
-  "Home Pickups ADC", "Hillsdale ADC", "Corporate Campus ADC",
-  "Washington Square ADC", "Uniontown ADC", "Tanglewood ADC",
-  "Shuffel ADC", "Pepper Pike ADC", "North Royalton ADC",
-  "Lyndhurst ADC", "Lincoln Way ADC", "Westlake ADC",
-  "Jackson ADC", "Chesterland ADC",
-  "Washington Square", "Westlake", "Gordon Square",
-  "Donation Station", "City Mission",
-  "Wired Up", "eCommerce",
 ];
 
 const ORDER_TYPE_COLORS: Record<string, string> = {
@@ -161,6 +146,12 @@ export default function OrderSubmissions() {
   const canEdit = !!authStatus?.accessibleFeatures?.includes("orders.edit");
   const [, navigate] = useWouterLocation();
 
+  const { data: dbLocations } = useLocations();
+  const orderFormLocationNames = (dbLocations ?? [])
+    .filter((l: any) => l.isActive && l.availableForOrderForm)
+    .map((l: any) => (l.orderFormName ?? l.name) as string)
+    .sort((a, b) => a.localeCompare(b));
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/orders/${id}`);
@@ -239,7 +230,7 @@ export default function OrderSubmissions() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Locations</SelectItem>
-                  {LOCATIONS.map((loc) => (
+                  {orderFormLocationNames.map((loc) => (
                     <SelectItem key={loc} value={loc}>{loc}</SelectItem>
                   ))}
                 </SelectContent>
