@@ -64,6 +64,19 @@ export default function TrailerManifests() {
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: TrailerManifestStatus }) => {
+      return await apiRequest("POST", `/api/trailer-manifests/${id}/status`, { status });
+    },
+    onSuccess: (_res, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
+      toast({ title: "Status updated", description: `Manifest #${vars.id} set to ${STATUS_LABELS[vars.status]}` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to update status", description: err?.message || "", variant: "destructive" });
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: async (input: typeof form) => {
       const payload = {
@@ -265,9 +278,30 @@ export default function TrailerManifests() {
                       {m.trailerNumber && <span className="mr-3">Trailer #{m.trailerNumber}</span>}
                       {m.driverName && <span>Driver: {m.driverName}</span>}
                     </div>
-                    <Badge variant={STATUS_BADGE[m.status as TrailerManifestStatus]} data-testid={`badge-status-${m.id}`}>
-                      {STATUS_LABELS[m.status as TrailerManifestStatus] || m.status}
-                    </Badge>
+                    <div
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      className="shrink-0"
+                    >
+                      <Select
+                        value={m.status}
+                        onValueChange={(v) => statusMutation.mutate({ id: m.id, status: v as TrailerManifestStatus })}
+                        disabled={statusMutation.isPending}
+                      >
+                        <SelectTrigger
+                          className="h-8 w-[140px]"
+                          data-testid={`select-status-${m.id}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TRAILER_MANIFEST_STATUSES.map(s => (
+                            <SelectItem key={s} value={s} data-testid={`select-status-option-${m.id}-${s}`}>
+                              {STATUS_LABELS[s]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <div className="text-xs text-muted-foreground w-[140px] text-right">
                       {new Date(m.updatedAt).toLocaleString()}
                     </div>
