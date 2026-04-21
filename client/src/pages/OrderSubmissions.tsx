@@ -303,14 +303,27 @@ export default function OrderSubmissions() {
                       <TableCell>{order.submittedBy}</TableCell>
                       <TableCell>{formatDateTime(order.submittedAt)}</TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSelectedOrder(order)}
-                          data-testid={`button-view-order-${order.id}`}
-                        >
-                          View
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedOrder(order)}
+                            data-testid={`button-view-order-${order.id}`}
+                          >
+                            View
+                          </Button>
+                          {canEdit && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => navigate(`/orders/edit/${order.id}`)}
+                              data-testid={`button-edit-order-${order.id}`}
+                            >
+                              <Pencil className="w-4 h-4 mr-1" />
+                              Edit
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
