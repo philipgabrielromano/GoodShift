@@ -1435,6 +1435,63 @@ export async function registerRoutes(
     }
   });
 
+  // === MANAGER → DIRECT-REPORT ASSIGNMENTS ===
+
+  app.get("/api/users/:id/direct-reports", requireAdmin, async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
+      if (!Number.isFinite(userId)) return res.status(400).json({ message: "Invalid user id" });
+      const employeeIds = await storage.getDirectReportsForManager(userId);
+      res.json({ employeeIds });
+    } catch (err) {
+      console.error("[DirectReports] Error fetching:", err);
+      res.status(500).json({ message: "Failed to fetch direct reports" });
+    }
+  });
+
+  app.put("/api/users/:id/direct-reports", requireAdmin, async (req, res) => {
+    try {
+      const userId = Number(req.params.id);
+      if (!Number.isFinite(userId)) return res.status(400).json({ message: "Invalid user id" });
+
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
+      if (targetUser.role !== "manager" && targetUser.role !== "optimizer") {
+        return res.status(400).json({ message: "Direct reports can only be assigned to manager or optimizer users" });
+      }
+
+      const schema = z.object({ employeeIds: z.array(z.number().int().positive()) });
+      const { employeeIds } = schema.parse(req.body);
+
+      const uniqueIds = Array.from(new Set(employeeIds));
+      if (uniqueIds.length > 0) {
+        const allEmployees = await storage.getEmployees();
+        const validIds = new Set(allEmployees.map(e => e.id));
+        const missing = uniqueIds.filter(id => !validIds.has(id));
+        if (missing.length > 0) {
+          return res.status(400).json({ message: `Unknown employee id(s): ${missing.join(", ")}` });
+        }
+      }
+
+      await storage.setDirectReportsForManager(userId, uniqueIds);
+      res.json({ message: "Direct reports updated", employeeIds: uniqueIds });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      console.error("[DirectReports] Error updating:", err);
+      res.status(500).json({ message: "Failed to update direct reports" });
+    }
+  });
+
+  app.get("/api/direct-reports", requireAdmin, async (_req, res) => {
+    try {
+      const all = await storage.getAllDirectReportAssignments();
+      res.json(all);
+    } catch (err) {
+      console.error("[DirectReports] Error fetching all:", err);
+      res.status(500).json({ message: "Failed to fetch direct-report assignments" });
+    }
+  });
+
   app.delete("/api/roles/:name", requireAdmin, async (req, res) => {
     try {
       const name = req.params.name;

@@ -33,6 +33,7 @@ import {
   WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
   creditCardInspections, type CreditCardInspection, type InsertCreditCardInspection,
   driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
+  managerDirectReports, type ManagerDirectReport,
 } from "@shared/schema";
 import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -79,6 +80,11 @@ export interface IStorage {
   updateRoleLabel(name: string, label: string): Promise<Role>;
   deleteRoleByName(name: string): Promise<void>;
   seedBuiltInRoles(): Promise<void>;
+
+  // Manager → direct-report assignments
+  getDirectReportsForManager(managerUserId: number): Promise<number[]>;
+  setDirectReportsForManager(managerUserId: number, employeeIds: number[]): Promise<void>;
+  getAllDirectReportAssignments(): Promise<ManagerDirectReport[]>;
 
   // Trailer Manifests
   getTrailerManifests(filters?: { status?: string }): Promise<TrailerManifest[]>;
@@ -463,6 +469,26 @@ export class DatabaseStorage implements IStorage {
 
   async deleteRoleByName(name: string): Promise<void> {
     await db.delete(roles).where(eq(roles.name, name));
+  }
+
+  // Manager → direct-report assignments
+  async getDirectReportsForManager(managerUserId: number): Promise<number[]> {
+    const rows = await db.select().from(managerDirectReports).where(eq(managerDirectReports.managerUserId, managerUserId));
+    return rows.map(r => r.employeeId);
+  }
+
+  async setDirectReportsForManager(managerUserId: number, employeeIds: number[]): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(managerDirectReports).where(eq(managerDirectReports.managerUserId, managerUserId));
+      const unique = Array.from(new Set(employeeIds));
+      if (unique.length > 0) {
+        await tx.insert(managerDirectReports).values(unique.map(employeeId => ({ managerUserId, employeeId })));
+      }
+    });
+  }
+
+  async getAllDirectReportAssignments(): Promise<ManagerDirectReport[]> {
+    return await db.select().from(managerDirectReports);
   }
 
   async seedBuiltInRoles(): Promise<void> {

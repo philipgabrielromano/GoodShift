@@ -21,6 +21,17 @@ function getHierarchyLevel(jobTitle: string | null): number {
   return 0;
 }
 
+/**
+ * Returns the explicit direct-report employee ID set for this user,
+ * or null if no explicit assignments exist (falls back to job-title hierarchy).
+ */
+async function getExplicitReportsSet(user: any): Promise<Set<number> | null> {
+  if (!user?.id) return null;
+  const explicit = await storage.getDirectReportsForManager(user.id);
+  if (!explicit || explicit.length === 0) return null;
+  return new Set(explicit);
+}
+
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
   if (user.role === "admin") return null;
   if (!user.locationIds || user.locationIds.length === 0) return null;
@@ -54,6 +65,17 @@ export function registerCoachingRoutes(app: Express) {
       }
 
       if (user.role === "manager" || user.role === "optimizer") {
+        // Explicit direct-report assignments fully replace the auto hierarchy.
+        const explicitSet = await getExplicitReportsSet(user);
+        if (explicitSet) {
+          const sortedExplicit = filteredByStatus
+            .filter(e => explicitSet.has(e.id))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          return res.json(sortedExplicit.map(e => ({
+            id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location, isActive: e.isActive
+          })));
+        }
+
         const allowedNames = await getAllowedLocationNames(user);
         let filtered = filteredByStatus;
         if (allowedNames) {
@@ -106,6 +128,21 @@ export function registerCoachingRoutes(app: Express) {
 
       if (user.role === "manager" || user.role === "optimizer") {
         const allEmployees = await storage.getEmployees();
+
+        // Explicit direct-report assignments override the auto job-title hierarchy
+        if (user.id) {
+          const explicit = await storage.getDirectReportsForManager(user.id);
+          if (explicit.length > 0) {
+            const explicitSet = new Set(explicit);
+            const visibleByExplicit = new Set(
+              allEmployees
+                .filter(e => (includeInactive || e.isActive) && explicitSet.has(e.id))
+                .map(e => e.id),
+            );
+            return res.json(allLogs.filter(log => visibleByExplicit.has(log.employeeId)));
+          }
+        }
+
         const allowedNames = await getAllowedLocationNames(user);
 
         const managerEmployee = allEmployees.find(e =>
@@ -168,19 +205,27 @@ export function registerCoachingRoutes(app: Express) {
           return res.status(404).json({ message: "Employee not found" });
         }
 
-        const allowedNames = await getAllowedLocationNames(user);
-        if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
-          return res.status(403).json({ message: "Cannot create coaching log for employee outside your location" });
-        }
+        // Explicit direct-report assignments fully replace the auto hierarchy.
+        const explicitSet = await getExplicitReportsSet(user);
+        if (explicitSet) {
+          if (!explicitSet.has(targetEmployee.id)) {
+            return res.status(403).json({ message: "Cannot create coaching log for an employee who is not assigned to you" });
+          }
+        } else {
+          const allowedNames = await getAllowedLocationNames(user);
+          if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
+            return res.status(403).json({ message: "Cannot create coaching log for employee outside your location" });
+          }
 
-        const managerEmployee = allEmployees.find(e =>
-          e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-        );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-        if (managerLevel < 3) {
-          const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-          if (empLevel >= managerLevel) {
-            return res.status(403).json({ message: "Cannot create coaching log for employees at or above your level" });
+          const managerEmployee = allEmployees.find(e =>
+            e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+          );
+          const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+          if (managerLevel < 3) {
+            const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+            if (empLevel >= managerLevel) {
+              return res.status(403).json({ message: "Cannot create coaching log for employees at or above your level" });
+            }
           }
         }
       }
@@ -259,19 +304,27 @@ export function registerCoachingRoutes(app: Express) {
           return res.status(404).json({ error: "Employee not found" });
         }
 
-        const allowedNames = await getAllowedLocationNames(user);
-        if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
-          return res.status(403).json({ message: "Cannot modify coaching log for employee outside your location" });
-        }
+        // Explicit direct-report assignments fully replace the auto hierarchy.
+        const explicitSet = await getExplicitReportsSet(user);
+        if (explicitSet) {
+          if (!explicitSet.has(targetEmployee.id)) {
+            return res.status(403).json({ message: "Cannot modify coaching log for an employee who is not assigned to you" });
+          }
+        } else {
+          const allowedNames = await getAllowedLocationNames(user);
+          if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
+            return res.status(403).json({ message: "Cannot modify coaching log for employee outside your location" });
+          }
 
-        const managerEmployee = allEmployees.find(e =>
-          e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-        );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-        if (managerLevel < 3) {
-          const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-          if (empLevel >= managerLevel) {
-            return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
+          const managerEmployee = allEmployees.find(e =>
+            e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+          );
+          const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+          if (managerLevel < 3) {
+            const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+            if (empLevel >= managerLevel) {
+              return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
+            }
           }
         }
       }

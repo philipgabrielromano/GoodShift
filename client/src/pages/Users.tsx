@@ -6,8 +6,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { useState, useMemo } from "react";
-import { Plus, MoreHorizontal, Pencil, Trash2, Users as UsersIcon, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Users as UsersIcon, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Network, Search, Loader2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,9 +17,13 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import type { User, InsertUser, Role } from "@shared/schema";
+import type { User, InsertUser, Role, Employee } from "@shared/schema";
 import { isValidLocation } from "@/lib/utils";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { DialogDescription } from "@/components/ui/dialog";
 
 type AuthStatus = { authenticated?: boolean; user?: { id: number; role: string }; accessibleFeatures?: string[] };
 
@@ -55,6 +59,10 @@ export default function Users() {
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [reportsUser, setReportsUser] = useState<User | null>(null);
+  const [reportsSelected, setReportsSelected] = useState<Set<number>>(new Set());
+  const [reportsSearch, setReportsSearch] = useState("");
+  const [reportsLocationFilter, setReportsLocationFilter] = useState<string>("all");
   const [formData, setFormData] = useState<Partial<InsertUser>>({
     name: "",
     email: "",
@@ -128,6 +136,13 @@ export default function Users() {
         toast({ variant: "destructive", title: "Error", description: "Failed to delete user" });
       }
     }
+  };
+
+  const openReports = (user: User) => {
+    setReportsUser(user);
+    setReportsSearch("");
+    setReportsLocationFilter("all");
+    setReportsSelected(new Set());
   };
 
   const toggleLocationId = (locationId: string) => {
@@ -286,6 +301,11 @@ export default function Users() {
                               <Pencil className="w-4 h-4 mr-2" /> Edit
                             </DropdownMenuItem>
                           )}
+                          {isAdmin && (user.role === "manager" || user.role === "optimizer") && (
+                            <DropdownMenuItem onClick={() => openReports(user)} data-testid={`button-reports-user-${user.id}`}>
+                              <Network className="w-4 h-4 mr-2" /> Manage Direct Reports
+                            </DropdownMenuItem>
+                          )}
                           {canDeleteUsers && (
                             <DropdownMenuItem
                               onClick={() => handleDelete(user)}
@@ -413,6 +433,11 @@ export default function Users() {
                               {canEditAny && (
                                 <DropdownMenuItem onClick={() => openDialog(user)} data-testid={`button-edit-user-${user.id}`}>
                                   <Pencil className="w-4 h-4 mr-2" /> Edit
+                                </DropdownMenuItem>
+                              )}
+                              {isAdmin && (user.role === "manager" || user.role === "optimizer") && (
+                                <DropdownMenuItem onClick={() => openReports(user)} data-testid={`button-reports-user-${user.id}`}>
+                                  <Network className="w-4 h-4 mr-2" /> Manage Direct Reports
                                 </DropdownMenuItem>
                               )}
                               {canDeleteUsers && (
@@ -548,6 +573,237 @@ export default function Users() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <DirectReportsDialog
+        user={reportsUser}
+        onClose={() => setReportsUser(null)}
+        selected={reportsSelected}
+        setSelected={setReportsSelected}
+        search={reportsSearch}
+        setSearch={setReportsSearch}
+        locationFilter={reportsLocationFilter}
+        setLocationFilter={setReportsLocationFilter}
+        getLocationName={getLocationName}
+      />
     </div>
+  );
+}
+
+function DirectReportsDialog({
+  user,
+  onClose,
+  selected,
+  setSelected,
+  search,
+  setSearch,
+  locationFilter,
+  setLocationFilter,
+  getLocationName,
+}: {
+  user: User | null;
+  onClose: () => void;
+  selected: Set<number>;
+  setSelected: (s: Set<number>) => void;
+  search: string;
+  setSearch: (s: string) => void;
+  locationFilter: string;
+  setLocationFilter: (s: string) => void;
+  getLocationName: (id: string) => string;
+}) {
+  const { toast } = useToast();
+  const open = !!user;
+
+  const { data: employees = [], isLoading: empLoading } = useQuery<Employee[]>({
+    queryKey: ["/api/employees"],
+    enabled: open,
+  });
+
+  const { data: currentReports, isLoading: reportsLoading } = useQuery<{ employeeIds: number[] }>({
+    queryKey: ["/api/users", user?.id, "direct-reports"],
+    enabled: open && !!user?.id,
+  });
+
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    if (open && currentReports && !initialized) {
+      setSelected(new Set(currentReports.employeeIds));
+      setInitialized(true);
+    }
+    if (!open && initialized) {
+      setInitialized(false);
+    }
+  }, [open, currentReports, initialized, setSelected]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (employeeIds: number[]) => {
+      return apiRequest("PUT", `/api/users/${user!.id}/direct-reports`, { employeeIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", user?.id, "direct-reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/direct-reports"] });
+      toast({ title: "Direct reports updated" });
+      onClose();
+    },
+    onError: () => {
+      toast({ variant: "destructive", title: "Error", description: "Failed to save direct reports" });
+    },
+  });
+
+  const userLocationIds = user?.locationIds || [];
+  const userLocationNames = useMemo(() => {
+    const names = new Set<string>();
+    userLocationIds.forEach(id => {
+      const name = getLocationName(String(id));
+      if (name) names.add(name);
+    });
+    return names;
+  }, [userLocationIds, getLocationName]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return employees
+      .filter(e => e.isActive !== false)
+      .filter(e => {
+        if (locationFilter === "all") {
+          if (userLocationNames.size === 0) return true;
+          return !!e.location && userLocationNames.has(String(e.location));
+        }
+        return String(e.location) === locationFilter;
+      })
+      .filter(e => {
+        if (!q) return true;
+        return (
+          e.name?.toLowerCase().includes(q) ||
+          String(e.id).includes(q) ||
+          (e.jobTitle || "").toLowerCase().includes(q)
+        );
+      })
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [employees, search, locationFilter, userLocationNames]);
+
+  const toggle = (id: number) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  };
+
+  const selectAllVisible = () => {
+    const next = new Set(selected);
+    filtered.forEach(e => next.add(e.id));
+    setSelected(next);
+  };
+  const clearAll = () => setSelected(new Set());
+
+  const locationOptions = useMemo(() => {
+    const set = new Set<string>();
+    employees.forEach(e => { if (e.location) set.add(String(e.location)); });
+    return Array.from(set).sort();
+  }, [employees]);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Manage Direct Reports</DialogTitle>
+          <DialogDescription>
+            {user?.name ? `Assign employees that report directly to ${user.name}.` : ""}
+            {" "}When any direct reports are assigned, they completely replace the automatic job-title hierarchy for this user.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, ID, or job title"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-8"
+                data-testid="input-reports-search"
+              />
+            </div>
+            <Select value={locationFilter} onValueChange={setLocationFilter}>
+              <SelectTrigger className="sm:w-56" data-testid="select-reports-location">
+                <SelectValue placeholder="All locations" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  {userLocationIds.length > 0 ? "User's stores" : "All locations"}
+                </SelectItem>
+                {locationOptions.map(loc => (
+                  <SelectItem key={loc} value={loc}>{getLocationName(loc)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span data-testid="text-reports-selected-count">{selected.size} selected</span>
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" size="sm" onClick={selectAllVisible} data-testid="button-reports-select-visible">
+                Select visible
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={clearAll} data-testid="button-reports-clear">
+                Clear all
+              </Button>
+            </div>
+          </div>
+
+          <ScrollArea className="h-72 border rounded-md">
+            {(empLoading || reportsLoading) ? (
+              <div className="flex items-center justify-center h-full p-6">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="p-6 text-center text-sm text-muted-foreground" data-testid="text-reports-empty">
+                No employees match.
+              </div>
+            ) : (
+              <div className="divide-y">
+                {filtered.map(emp => (
+                  <label
+                    key={emp.id}
+                    htmlFor={`report-emp-${emp.id}`}
+                    className="flex items-center gap-3 px-3 py-2 cursor-pointer hover-elevate"
+                    data-testid={`row-report-emp-${emp.id}`}
+                  >
+                    <Checkbox
+                      id={`report-emp-${emp.id}`}
+                      checked={selected.has(emp.id)}
+                      onCheckedChange={() => toggle(emp.id)}
+                      data-testid={`checkbox-report-emp-${emp.id}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{emp.name}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        #{emp.id}
+                        {emp.jobTitle ? ` • ${emp.jobTitle}` : ""}
+                        {emp.location ? ` • ${getLocationName(String(emp.location))}` : ""}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+          </ScrollArea>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose} data-testid="button-reports-cancel">
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={() => saveMutation.mutate(Array.from(selected))}
+            disabled={saveMutation.isPending || reportsLoading || !initialized}
+            data-testid="button-reports-save"
+          >
+            {saveMutation.isPending ? "Saving..." : "Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

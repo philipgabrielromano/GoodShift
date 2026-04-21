@@ -138,6 +138,21 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at"),
 });
 
+// Manager → direct-report assignments. When a user (typically with role
+// "manager" or "optimizer") has any rows here, those assignments override the
+// automatic job-title hierarchy when filtering coaching/attendance visibility.
+export const managerDirectReports = pgTable("manager_direct_reports", {
+  id: serial("id").primaryKey(),
+  managerUserId: integer("manager_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  employeeId: integer("employee_id").notNull().references(() => employees.id, { onDelete: "cascade" }),
+}, (table) => ({
+  pairIdx: uniqueIndex("manager_direct_reports_pair_idx").on(table.managerUserId, table.employeeId),
+}));
+
+export const insertManagerDirectReportSchema = createInsertSchema(managerDirectReports).omit({ id: true });
+export type ManagerDirectReport = typeof managerDirectReports.$inferSelect;
+export type InsertManagerDirectReport = z.infer<typeof insertManagerDirectReportSchema>;
+
 // Locations table for store-specific settings
 export const locations = pgTable("locations", {
   id: serial("id").primaryKey(),

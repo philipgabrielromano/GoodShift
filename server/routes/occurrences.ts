@@ -45,6 +45,14 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
   }
 
   if (user.role === "manager" || user.role === "optimizer") {
+    // Explicit direct-report assignments take priority over the auto hierarchy
+    if (user.id) {
+      const explicit = await storage.getDirectReportsForManager(user.id);
+      if (explicit.length > 0) {
+        return explicit.includes(targetEmployeeId);
+      }
+    }
+
     const allowedNames = await getAllowedLocationNames(user);
     if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
       return false;
@@ -76,6 +84,14 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
   }
 
   if (user.role === "manager" || user.role === "optimizer") {
+    if (user.id) {
+      const explicit = await storage.getDirectReportsForManager(user.id);
+      if (explicit.length > 0) {
+        const explicitSet = new Set(explicit);
+        return new Set(activeEmployees.filter(e => explicitSet.has(e.id)).map(e => e.id));
+      }
+    }
+
     const allowedNames = await getAllowedLocationNames(user);
     const managerEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
@@ -119,6 +135,21 @@ export function registerOccurrenceRoutes(app: Express) {
           id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location,
           isActive: e.isActive, employmentType: e.employmentType
         })));
+      }
+
+      // Explicit direct-report assignments fully replace the auto hierarchy.
+      if (user.id) {
+        const explicit = await storage.getDirectReportsForManager(user.id);
+        if (explicit && explicit.length > 0) {
+          const explicitSet = new Set(explicit);
+          const sorted = filtered
+            .filter(e => explicitSet.has(e.id))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          return res.json(sorted.map(e => ({
+            id: e.id, name: e.name, jobTitle: e.jobTitle, location: e.location,
+            isActive: e.isActive, employmentType: e.employmentType
+          })));
+        }
       }
 
       const allowedNames = await getAllowedLocationNames(user);

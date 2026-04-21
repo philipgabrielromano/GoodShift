@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.0.1";
+export const APP_VERSION = "3.0.2";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.0.2",
+    date: "2026-04-21",
+    title: "Manager Direct Reports",
+    changes: [
+      { type: "feature", description: "Admins can now assign explicit direct reports to any manager or optimizer user. Open the user menu on the Users page and choose Manage Direct Reports to pick the employees that report to them." },
+      { type: "improvement", description: "When a user has any explicit direct reports assigned, those assignments fully replace the automatic job-title hierarchy for coaching and attendance visibility — useful when a manager oversees a custom group across stores." },
+      { type: "improvement", description: "Users with no explicit assignments continue to use the existing job-title-based hierarchy, so nothing changes until you opt in." },
+    ],
+  },
   {
     version: "3.0.1",
     date: "2026-04-21",
