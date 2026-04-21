@@ -75,15 +75,6 @@ export function Navigation() {
     if (can("optimization.view")) development.push({ href: "/optimization", label: "Store Optimization", icon: Target });
     if (development.length) built.push({ id: "development", label: "Development", items: development });
 
-    const configuration: NavItem[] = [];
-    if (can("employees.view")) configuration.push({ href: "/employees", label: "Employees", icon: Users });
-    if (can("locations.view")) configuration.push({ href: "/locations", label: "Locations", icon: MapPin });
-    const settingsAccess = can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit");
-    if (settingsAccess || configuration.length) {
-      configuration.push({ href: "/settings", label: "Settings", icon: Settings });
-    }
-    if (configuration.length) built.push({ id: "configuration", label: "Configuration", items: configuration });
-
     const orders: NavItem[] = [];
     if (can("orders.submit")) orders.push({ href: "/orders/new", label: "Order Form", icon: PackageOpen });
     if (can("orders.view_all")) orders.push({ href: "/orders", label: "Order Submissions", icon: FileText });
@@ -110,6 +101,15 @@ export function Navigation() {
     if (can("reports.variance")) reports.push({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart });
     if (can("reports.roster")) reports.push({ href: "/roster", label: "Roster Targets", icon: UsersRound });
     if (reports.length) built.push({ id: "reports", label: "Reports", items: reports });
+
+    const configuration: NavItem[] = [];
+    if (can("employees.view")) configuration.push({ href: "/employees", label: "Employees", icon: Users });
+    if (can("locations.view")) configuration.push({ href: "/locations", label: "Locations", icon: MapPin });
+    const settingsAccess = can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit");
+    if (settingsAccess || configuration.length) {
+      configuration.push({ href: "/settings", label: "Settings", icon: Settings });
+    }
+    if (configuration.length) built.push({ id: "configuration", label: "Configuration", items: configuration });
 
     const admin: NavItem[] = [];
     if (can("users.view")) admin.push({ href: "/users", label: "Users", icon: Shield });
