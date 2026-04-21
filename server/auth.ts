@@ -118,6 +118,22 @@ export function setupAuth(app: Express) {
     });
   });
 
+  // Stop impersonating and restore the original admin session.
+  // NOTE: This must be registered BEFORE the /:userId route so Express doesn't
+  // treat "stop" as a userId param.
+  app.post("/api/auth/view-as/stop", async (req, res) => {
+    const sess = req.session;
+    if (!sess?.realUser) {
+      return res.status(400).json({ message: "Not currently viewing as another user" });
+    }
+    sess.user = sess.realUser;
+    delete sess.realUser;
+    await new Promise<void>((resolve, reject) => {
+      sess.save(err => (err ? reject(err) : resolve()));
+    });
+    res.json({ success: true });
+  });
+
   // Start impersonating another user. Only the underlying admin can do this.
   app.post("/api/auth/view-as/:userId", async (req, res) => {
     const sess = req.session;
@@ -155,20 +171,6 @@ export function setupAuth(app: Express) {
       sess.save(err => (err ? reject(err) : resolve()));
     });
     res.json({ success: true, viewingAs: { id: target.id, name: target.name, email: target.email, role: target.role } });
-  });
-
-  // Stop impersonating and restore the original admin session.
-  app.post("/api/auth/view-as/stop", async (req, res) => {
-    const sess = req.session;
-    if (!sess?.realUser) {
-      return res.status(400).json({ message: "Not currently viewing as another user" });
-    }
-    sess.user = sess.realUser;
-    delete sess.realUser;
-    await new Promise<void>((resolve, reject) => {
-      sess.save(err => (err ? reject(err) : resolve()));
-    });
-    res.json({ success: true });
   });
 
   app.get("/api/auth/login", async (req, res) => {

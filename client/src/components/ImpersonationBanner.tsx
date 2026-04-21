@@ -23,8 +23,12 @@ export function ImpersonationBanner() {
       toast({ title: "Stopped viewing as", description: "Restored your admin session." });
       setTimeout(() => window.location.assign("/"), 100);
     },
-    onError: () => {
-      toast({ variant: "destructive", title: "Could not stop", description: "Please refresh the page." });
+    onError: (err: any) => {
+      toast({
+        variant: "destructive",
+        title: "Could not stop",
+        description: err?.message || "Please refresh the page.",
+      });
     },
   });
 
