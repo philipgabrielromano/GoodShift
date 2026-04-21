@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.0.0";
+export const APP_VERSION = "3.0.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.0.1",
+    date: "2026-04-21",
+    title: "Sidebar Reorganization, Role Renaming & Navigation Polish",
+    changes: [
+      { type: "feature", description: "Sidebar navigation reorganized into collapsible section groups (Scheduling, Development, Orders, Inventory, Reports, Configuration, Admin) with each section's open/closed state remembered per browser." },
+      { type: "feature", description: "Configuration and Admin sections now sit at the bottom of the sidebar, keeping setup tools out of the way of day-to-day work." },
+      { type: "feature", description: "Command palette — press ⌘K (Mac) or Ctrl+K (Windows) anywhere in the app to search and jump to any page, including external inventory links." },
+      { type: "feature", description: "Renameable roles — admins can click the pencil icon on any role chip in Permissions to give built-in or custom roles a new display name. Internal identifiers stay intact so existing assignments keep working." },
+      { type: "fix", description: "Users page now shows each user's role display name (including renamed and custom roles) instead of the raw role code." },
+    ],
+  },
   {
     version: "3.0.0",
     date: "2026-04-20",
