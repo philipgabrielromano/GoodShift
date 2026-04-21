@@ -76,6 +76,7 @@ export interface IStorage {
   // Roles
   getRoles(): Promise<Role[]>;
   createRole(role: InsertRole): Promise<Role>;
+  updateRoleLabel(name: string, label: string): Promise<Role>;
   deleteRoleByName(name: string): Promise<void>;
   seedBuiltInRoles(): Promise<void>;
 
@@ -453,6 +454,11 @@ export class DatabaseStorage implements IStorage {
   async createRole(role: InsertRole): Promise<Role> {
     const [created] = await db.insert(roles).values(role).returning();
     return created;
+  }
+
+  async updateRoleLabel(name: string, label: string): Promise<Role> {
+    const [updated] = await db.update(roles).set({ label }).where(eq(roles.name, name)).returning();
+    return updated;
   }
 
   async deleteRoleByName(name: string): Promise<void> {

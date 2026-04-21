@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Save, ShieldCheck, RotateCcw, Plus, Trash2, Lock } from "lucide-react";
+import { Loader2, Save, ShieldCheck, RotateCcw, Plus, Trash2, Lock, Pencil } from "lucide-react";
 import { DEFAULT_FEATURE_PERMISSIONS, FEATURE_CATEGORIES, type Role } from "@shared/schema";
 
 interface FeaturePermission {
@@ -33,6 +33,8 @@ export default function Permissions() {
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleLabel, setNewRoleLabel] = useState("");
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
+  const [roleToRename, setRoleToRename] = useState<Role | null>(null);
+  const [renameLabel, setRenameLabel] = useState("");
 
   const { data: permissions, isLoading } = useQuery<FeaturePermission[]>({
     queryKey: ["/api/permissions"],
@@ -79,6 +81,26 @@ export default function Permissions() {
       toast({
         title: "Error creating role",
         description: err?.message || "Failed to create role.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const renameRoleMutation = useMutation({
+    mutationFn: async ({ name, label }: { name: string; label: string }) => {
+      return await apiRequest("PATCH", `/api/roles/${name}`, { label });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/status"] });
+      toast({ title: "Role renamed", description: "The display name has been updated." });
+      setRoleToRename(null);
+      setRenameLabel("");
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Error renaming role",
+        description: err?.message || "Failed to rename role.",
         variant: "destructive",
       });
     },
@@ -265,6 +287,18 @@ export default function Permissions() {
               >
                 <span className="font-medium">{role.label}</span>
                 <span className="text-xs text-muted-foreground">({role.name})</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoleToRename(role);
+                    setRenameLabel(role.label);
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                  title="Rename"
+                  data-testid={`button-rename-role-${role.name}`}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
                 {role.isBuiltIn ? (
                   <Lock className="w-3.5 h-3.5 text-muted-foreground" />
                 ) : (
@@ -338,6 +372,53 @@ export default function Permissions() {
           </Card>
         ));
       })()}
+
+      <Dialog open={!!roleToRename} onOpenChange={open => { if (!open) { setRoleToRename(null); setRenameLabel(""); } }}>
+        <DialogContent data-testid="dialog-rename-role">
+          <DialogHeader>
+            <DialogTitle>Rename role</DialogTitle>
+            <DialogDescription>
+              Change the display name for <span className="font-mono">{roleToRename?.name}</span>. The internal identifier stays the same so existing assignments continue to work.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="rename-role-label">Display name</Label>
+            <Input
+              id="rename-role-label"
+              value={renameLabel}
+              onChange={e => setRenameLabel(e.target.value)}
+              placeholder="e.g. Store Manager"
+              data-testid="input-rename-role-label"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setRoleToRename(null); setRenameLabel(""); }}
+              data-testid="button-cancel-rename-role"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!roleToRename) return;
+                const trimmed = renameLabel.trim();
+                if (!trimmed) {
+                  toast({ title: "Display name required", variant: "destructive" });
+                  return;
+                }
+                renameRoleMutation.mutate({ name: roleToRename.name, label: trimmed });
+              }}
+              disabled={renameRoleMutation.isPending}
+              data-testid="button-save-rename-role"
+            >
+              {renameRoleMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!roleToDelete} onOpenChange={open => !open && setRoleToDelete(null)}>
         <AlertDialogContent data-testid="dialog-confirm-delete-role">

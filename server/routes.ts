@@ -1372,6 +1372,24 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/roles/:name", requireAdmin, async (req, res) => {
+    try {
+      const schema = z.object({ label: z.string().min(1).max(80) });
+      const { label } = schema.parse(req.body);
+      const existing = await storage.getRoles();
+      const target = existing.find(r => r.name === req.params.name);
+      if (!target) return res.status(404).json({ message: "Role not found" });
+      const updated = await storage.updateRoleLabel(target.name, label.trim());
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Roles] Error updating:", err);
+      res.status(500).json({ message: "Failed to update role" });
+    }
+  });
+
   app.delete("/api/roles/:name", requireAdmin, async (req, res) => {
     try {
       const name = req.params.name;
