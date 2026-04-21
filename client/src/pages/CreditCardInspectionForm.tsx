@@ -48,6 +48,12 @@ export default function CreditCardInspectionForm() {
 
   const canViewList = (authStatus?.accessibleFeatures || []).includes("credit_card_inspection.view_all");
 
+  const allowedLocationIds = authStatus?.user?.locationIds ?? null;
+  const visibleLocations = locations
+    .filter(l => l.isActive)
+    .filter(l => !allowedLocationIds || allowedLocationIds.length === 0 || allowedLocationIds.includes(String(l.id)))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const [locationId, setLocationId] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [terminals, setTerminals] = useState<TerminalState[]>(makeInitialTerminals());
