@@ -160,6 +160,13 @@ export default function Users() {
 
   const roleOrder: Record<string, number> = { admin: 0, manager: 1, optimizer: 2, viewer: 3, ordering: 4 };
 
+  const roleLabelMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    roles.forEach(r => { m[r.name] = r.label; });
+    return m;
+  }, [roles]);
+  const roleLabel = (name: string) => roleLabelMap[name] || name;
+
   const sortedUsers = useMemo(() => {
     if (!users) return [];
     return [...users].sort((a, b) => {
@@ -255,7 +262,7 @@ export default function Users() {
                             className="text-[10px] capitalize"
                             data-testid={`badge-user-role-${user.id}`}
                           >
-                            {user.role === "optimizer" ? "Store Optimizer" : user.role}
+                            {roleLabel(user.role)}
                           </Badge>
                           {!user.isActive && (
                             <Badge variant="destructive" className="text-[10px]" data-testid={`badge-user-inactive-${user.id}`}>
@@ -363,7 +370,7 @@ export default function Users() {
                             className="text-xs capitalize"
                             data-testid={`badge-user-role-${user.id}`}
                           >
-                            {user.role === "optimizer" ? "Store Optimizer" : user.role}
+                            {roleLabel(user.role)}
                           </Badge>
                         </TableCell>
 
