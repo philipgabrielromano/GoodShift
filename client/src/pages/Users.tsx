@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { useState, useMemo, useEffect } from "react";
-import { Plus, MoreHorizontal, Pencil, Trash2, Users as UsersIcon, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Network, Search, Loader2 } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, Users as UsersIcon, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, Network, Search, Loader2, Eye } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -121,6 +121,32 @@ export default function Users() {
     } catch (err) {
       toast({ variant: "destructive", title: "Error", description: "Failed to save user" });
     }
+  };
+
+  const viewAsMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await apiRequest("POST", `/api/auth/view-as/${userId}`);
+    },
+    onSuccess: () => {
+      queryClient.clear();
+      toast({ title: "Switching view..." });
+      setTimeout(() => window.location.assign("/"), 100);
+    },
+    onError: (err: any) => {
+      toast({ variant: "destructive", title: "Could not view as", description: err?.message || "Unable to start view-as session" });
+    },
+  });
+
+  const handleViewAs = (user: User) => {
+    if (user.id === currentUser?.user?.id) {
+      toast({ variant: "destructive", title: "Already you", description: "Pick a different user." });
+      return;
+    }
+    if (!user.isActive) {
+      toast({ variant: "destructive", title: "User disabled", description: "Cannot view as a disabled user." });
+      return;
+    }
+    viewAsMutation.mutate(user.id);
   };
 
   const handleDelete = async (user: User) => {
@@ -306,6 +332,11 @@ export default function Users() {
                               <Network className="w-4 h-4 mr-2" /> Manage Direct Reports
                             </DropdownMenuItem>
                           )}
+                          {isAdmin && user.id !== currentUser?.user?.id && user.isActive && (
+                            <DropdownMenuItem onClick={() => handleViewAs(user)} data-testid={`button-view-as-user-${user.id}`}>
+                              <Eye className="w-4 h-4 mr-2" /> View As
+                            </DropdownMenuItem>
+                          )}
                           {canDeleteUsers && (
                             <DropdownMenuItem
                               onClick={() => handleDelete(user)}
@@ -438,6 +469,11 @@ export default function Users() {
                               {isAdmin && (user.role === "manager" || user.role === "optimizer") && (
                                 <DropdownMenuItem onClick={() => openReports(user)} data-testid={`button-reports-user-${user.id}`}>
                                   <Network className="w-4 h-4 mr-2" /> Manage Direct Reports
+                                </DropdownMenuItem>
+                              )}
+                              {isAdmin && user.id !== currentUser?.user?.id && user.isActive && (
+                                <DropdownMenuItem onClick={() => handleViewAs(user)} data-testid={`button-view-as-user-${user.id}`}>
+                                  <Eye className="w-4 h-4 mr-2" /> View As
                                 </DropdownMenuItem>
                               )}
                               {canDeleteUsers && (

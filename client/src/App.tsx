@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Navigation } from "@/components/Navigation";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import NotFound from "@/pages/not-found";
 import Schedule from "@/pages/Schedule";
 import Employees from "@/pages/Employees";
@@ -103,6 +104,7 @@ function AuthenticatedApp() {
     <div className="min-h-screen bg-background text-foreground flex">
       <Navigation />
       <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 min-h-screen bg-background">
+        <ImpersonationBanner />
         <Router />
       </main>
     </div>

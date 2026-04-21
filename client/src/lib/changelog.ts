@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.0.3";
+export const APP_VERSION = "3.0.4";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.0.4",
+    date: "2026-04-21",
+    title: "View As (User Impersonation)",
+    changes: [
+      { type: "feature", description: "Admins can now click View As on any active user in the Users page to experience the app exactly as that user does — same role, permissions, sidebar, location filters, and visibility rules. Useful for confirming what a manager or viewer can or can't see." },
+      { type: "feature", description: "While viewing as another user, an amber banner appears at the top of every page identifying the impersonated user. Click Stop viewing in the banner to return to your admin session at any time." },
+    ],
+  },
   {
     version: "3.0.3",
     date: "2026-04-21",

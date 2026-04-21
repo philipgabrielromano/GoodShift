@@ -15,6 +15,14 @@ declare module "express-session" {
       role: string;
       locationIds: string[] | null;
     };
+    realUser?: {
+      id: number;
+      microsoftId: string;
+      name: string;
+      email: string;
+      role: string;
+      locationIds: string[] | null;
+    };
     isAuthenticated?: boolean;
     oauthState?: string;
     oauthNonce?: string;
@@ -99,12 +107,68 @@ export function setupAuth(app: Express) {
           .map(([feature]) => feature);
       }
     }
+    const realUser = req.session?.realUser;
     res.json({
       isAuthenticated: req.session?.isAuthenticated || false,
       user: user || null,
       ssoConfigured: isMicrosoftSsoConfigured(),
       accessibleFeatures,
+      impersonating: !!realUser,
+      realUser: realUser ? { id: realUser.id, name: realUser.name, email: realUser.email, role: realUser.role } : null,
     });
+  });
+
+  // Start impersonating another user. Only the underlying admin can do this.
+  app.post("/api/auth/view-as/:userId", async (req, res) => {
+    const sess = req.session;
+    const adminUser = sess?.realUser ?? sess?.user;
+    if (!adminUser || adminUser.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    const targetId = parseInt(req.params.userId, 10);
+    if (!Number.isFinite(targetId)) {
+      return res.status(400).json({ message: "Invalid user id" });
+    }
+    if (targetId === adminUser.id) {
+      return res.status(400).json({ message: "Cannot view as yourself" });
+    }
+    const target = await storage.getUser(targetId);
+    if (!target) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    if (!target.isActive) {
+      return res.status(400).json({ message: "Cannot view as a disabled user" });
+    }
+    if (!sess.realUser) {
+      sess.realUser = sess.user;
+    }
+    sess.user = {
+      id: target.id,
+      microsoftId: target.microsoftId || "",
+      name: target.name,
+      email: target.email,
+      role: target.role,
+      locationIds: target.locationIds,
+    };
+    sess.isAuthenticated = true;
+    await new Promise<void>((resolve, reject) => {
+      sess.save(err => (err ? reject(err) : resolve()));
+    });
+    res.json({ success: true, viewingAs: { id: target.id, name: target.name, email: target.email, role: target.role } });
+  });
+
+  // Stop impersonating and restore the original admin session.
+  app.post("/api/auth/view-as/stop", async (req, res) => {
+    const sess = req.session;
+    if (!sess?.realUser) {
+      return res.status(400).json({ message: "Not currently viewing as another user" });
+    }
+    sess.user = sess.realUser;
+    delete sess.realUser;
+    await new Promise<void>((resolve, reject) => {
+      sess.save(err => (err ? reject(err) : resolve()));
+    });
+    res.json({ success: true });
   });
 
   app.get("/api/auth/login", async (req, res) => {
