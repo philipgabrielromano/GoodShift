@@ -32,10 +32,12 @@ export default function Locations() {
   
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");
+  const [editingEmail, setEditingEmail] = useState<string>("");
 
   const handleEdit = (location: Location) => {
     setEditingId(location.id);
     setEditingHours(location.weeklyHoursLimit.toString());
+    setEditingEmail(location.notificationEmail ?? "");
   };
 
   const handleSave = async (id: number) => {
@@ -45,9 +47,15 @@ export default function Locations() {
       toast({ variant: "destructive", title: "Invalid value", description: "Please enter a valid number of hours (0 or greater)." });
       return;
     }
-    
+
+    const trimmedEmail = editingEmail.trim();
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      toast({ variant: "destructive", title: "Invalid email", description: "Please enter a valid email address." });
+      return;
+    }
+
     try {
-      await updateLocation.mutateAsync({ id, weeklyHoursLimit: hours });
+      await updateLocation.mutateAsync({ id, weeklyHoursLimit: hours, notificationEmail: trimmedEmail || null });
       toast({ title: "Settings updated", description: "Store settings have been saved." });
       setEditingId(null);
     } catch (error) {
@@ -58,6 +66,7 @@ export default function Locations() {
   const handleCancel = () => {
     setEditingId(null);
     setEditingHours("");
+    setEditingEmail("");
   };
 
   const handleToggleActive = async (location: Location) => {
@@ -211,21 +220,40 @@ export default function Locations() {
                       </div>
                     </div>
                     {editingId === location.id ? (
-                      <div className="space-y-1">
-                        <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
-                        <Input
-                          type="number"
-                          value={editingHours}
-                          onChange={(e) => setEditingHours(e.target.value)}
-                          min="0"
-                          className="h-8 text-sm w-28"
-                          data-testid={`input-hours-${location.id}`}
-                        />
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
+                          <Input
+                            type="number"
+                            value={editingHours}
+                            onChange={(e) => setEditingHours(e.target.value)}
+                            min="0"
+                            className="h-8 text-sm w-28"
+                            data-testid={`input-hours-${location.id}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[10px] text-muted-foreground">Notification Email</p>
+                          <Input
+                            type="email"
+                            value={editingEmail}
+                            onChange={(e) => setEditingEmail(e.target.value)}
+                            placeholder="store@goodwill.org"
+                            className="h-8 text-sm"
+                            data-testid={`input-email-${location.id}`}
+                          />
+                        </div>
                       </div>
                     ) : (
-                      <div className="text-xs">
-                        <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
-                        <p className="font-mono font-medium">{location.weeklyHoursLimit}</p>
+                      <div className="text-xs space-y-1">
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Weekly Hrs</p>
+                          <p className="font-mono font-medium">{location.weeklyHoursLimit}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-muted-foreground">Notification Email</p>
+                          <p className="font-medium truncate" data-testid={`text-email-${location.id}`}>{location.notificationEmail || <span className="text-muted-foreground italic">none</span>}</p>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -239,6 +267,7 @@ export default function Locations() {
                     <TableRow>
                       <TableHead>Store Name</TableHead>
                       <TableHead>Weekly Hours</TableHead>
+                      <TableHead>Notification Email</TableHead>
                       {isAdmin && <TableHead>Status</TableHead>}
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -261,6 +290,22 @@ export default function Locations() {
                             />
                           ) : (
                             <span className="font-mono">{location.weeklyHoursLimit}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {editingId === location.id ? (
+                            <Input
+                              type="email"
+                              value={editingEmail}
+                              onChange={(e) => setEditingEmail(e.target.value)}
+                              placeholder="store@goodwill.org"
+                              className="w-64"
+                              data-testid={`input-email-${location.id}`}
+                            />
+                          ) : (
+                            <span className="text-sm" data-testid={`text-email-${location.id}`}>
+                              {location.notificationEmail || <span className="text-muted-foreground italic">none</span>}
+                            </span>
                           )}
                         </TableCell>
                         {isAdmin && (

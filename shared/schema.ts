@@ -175,6 +175,7 @@ export const locations = pgTable("locations", {
   isActive: boolean("is_active").notNull().default(true),
   apparelProcessorStations: integer("apparel_processor_stations").notNull().default(0), // Max apparel processors per day (0 = unlimited)
   donationPricingStations: integer("donation_pricing_stations").notNull().default(0), // Max donation pricing associates per day (0 = unlimited)
+  notificationEmail: text("notification_email"), // Destination email for trailer manifest in-transit notifications
 });
 
 // Shift presets - preconfigured shift times that can be quickly applied

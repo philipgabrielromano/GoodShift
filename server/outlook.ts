@@ -581,6 +581,115 @@ export async function sendSchedulePublishEmail(
   }
 }
 
+// Trailer manifest in-transit notification (sent to destination store)
+export interface TrailerInTransitEmailData {
+  manifestId: number;
+  fromLocation: string;
+  toLocation: string;
+  routeNumber: string | null;
+  trailerNumber: string | null;
+  sealNumber: string | null;
+  driverName: string | null;
+  itemSummary: { itemName: string; qty: number }[];
+  notes: string | null;
+  departedAt: string;
+  appUrl: string;
+}
+
+export async function sendTrailerInTransitEmail(
+  toEmail: string,
+  data: TrailerInTransitEmailData
+): Promise<boolean> {
+  const subject = `GoodShift: Trailer In Transit to ${data.toLocation}${data.routeNumber ? ` (Route ${data.routeNumber})` : ""}`;
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for trailer in-transit notification');
+      return false;
+    }
+
+    const itemsHtml = data.itemSummary.length
+      ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Manifest Contents</h3>
+         <table style="width: 100%; border-collapse: collapse;">
+           ${data.itemSummary.map(i =>
+             `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${i.itemName}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-weight: 500; text-align: right;">${i.qty}</td></tr>`
+           ).join("")}
+         </table>`
+      : `<p style="color:#6b7280;">No items recorded on this manifest.</p>`;
+
+    const notesHtml = data.notes
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      : "";
+
+    const detailRow = (label: string, value: string | null) =>
+      value ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${label}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${value}</td></tr>` : "";
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #B45309; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">Trailer In Transit to ${data.toLocation}</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>A trailer manifest has been marked <strong>In Transit</strong> bound for your store.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        ${detailRow("From", data.fromLocation)}
+        ${detailRow("To", data.toLocation)}
+        ${detailRow("Departed", data.departedAt)}
+        ${detailRow("Route #", data.routeNumber)}
+        ${detailRow("Trailer #", data.trailerNumber)}
+        ${detailRow("Seal #", data.sealNumber)}
+        ${detailRow("Driver", data.driverName)}
+      </table>
+
+      ${itemsHtml}
+      ${notesHtml}
+
+      <p style="margin-top: 20px;">
+        <a href="${data.appUrl}/trailer-manifests/${data.manifestId}" style="display: inline-block; background-color: #B45309; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          View Manifest
+        </a>
+      </p>
+
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated notification from GoodShift. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const message = {
+      subject,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+      ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent trailer in-transit notification to ${toEmail} for manifest #${data.manifestId} (${data.fromLocation} -> ${data.toLocation})`);
+    await storage.createEmailLog({
+      type: "trailer_in_transit",
+      recipientEmail: toEmail,
+      subject,
+      status: "sent",
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return true;
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send trailer in-transit notification:', error);
+    void storage.createEmailLog({
+      type: "trailer_in_transit",
+      recipientEmail: toEmail,
+      subject,
+      status: "failed",
+      error: error?.message || String(error),
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return false;
+  }
+}
+
 // Driver inspection repair alert
 export interface DriverInspectionAlertEmailData {
   inspectionId: number;

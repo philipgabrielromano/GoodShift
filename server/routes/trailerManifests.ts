@@ -7,6 +7,7 @@ import {
   TRAILER_MANIFEST_STATUSES,
   TRAILER_MANIFEST_CATEGORIES,
 } from "@shared/schema";
+import { sendTrailerInTransitEmail } from "../outlook";
 
 function getSessionUser(req: Request): { id: number; name: string } | null {
   const u = (req.session as any)?.user;
@@ -125,6 +126,45 @@ export function registerTrailerManifestRoutes(app: Express) {
       if (!existing) return res.status(404).json({ message: "Manifest not found" });
       const updated = await storage.setTrailerManifestStatus(id, status);
       res.json(updated);
+
+      // Send notification email to destination store on transition to in_transit
+      if (status === "in_transit" && existing.status !== "in_transit") {
+        void (async () => {
+          try {
+            const allLocations = await storage.getLocations();
+            const dest = allLocations.find(
+              l => l.name.trim().toLowerCase() === updated.toLocation.trim().toLowerCase(),
+            );
+            const toEmail = dest?.notificationEmail?.trim();
+            if (!toEmail) {
+              console.log(`[TrailerManifests] No notification email configured for destination "${updated.toLocation}"; skipping email`);
+              return;
+            }
+            const items = await storage.getTrailerManifestItems(id);
+            const itemSummary = items
+              .filter(i => i.qty > 0)
+              .map(i => ({ itemName: i.itemName, qty: i.qty }));
+            const departedAt = updated.departedAt
+              ? new Date(updated.departedAt).toLocaleString("en-US", { timeZone: "America/New_York" })
+              : new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+            await sendTrailerInTransitEmail(toEmail, {
+              manifestId: updated.id,
+              fromLocation: updated.fromLocation,
+              toLocation: updated.toLocation,
+              routeNumber: updated.routeNumber,
+              trailerNumber: updated.trailerNumber,
+              sealNumber: updated.sealNumber,
+              driverName: updated.driverName,
+              itemSummary,
+              notes: updated.notes,
+              departedAt,
+              appUrl: "https://goodshift.goodwillgoodskills.org",
+            });
+          } catch (e) {
+            console.error("[TrailerManifests] Failed to send in-transit email:", e);
+          }
+        })();
+      }
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("[TrailerManifests] Status error:", err);
