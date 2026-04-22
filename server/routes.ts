@@ -988,6 +988,11 @@ export async function registerRoutes(
         if (input.availableForScheduling !== undefined) {
           return res.status(403).json({ message: "Only admins can change scheduling availability for a location" });
         }
+        // Warehouse routing affects on-hand calculations across all warehouses;
+        // restrict to admins only.
+        if ((input as any).warehouseAssignment !== undefined) {
+          return res.status(403).json({ message: "Only admins can change warehouse assignment for a location" });
+        }
       } else if (user.role !== "admin") {
         // Viewers cannot update locations at all
         return res.status(403).json({ message: "Unauthorized" });

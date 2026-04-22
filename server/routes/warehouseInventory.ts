@@ -51,11 +51,62 @@ function todayInTZ(): string {
   return fmt.format(new Date()); // YYYY-MM-DD
 }
 
+// One-time seed: when locations have NULL warehouseAssignment, infer it from
+// the location name. Cleveland-area names → cleveland; Canton-area names →
+// canton; the warehouse locations themselves resolve to themselves. Admins
+// can override any assignment from the Locations admin UI; this seed only
+// fills in NULLs and never overwrites an explicit choice.
+async function seedWarehouseAssignments(): Promise<void> {
+  try {
+    const locations = await storage.getLocations();
+    const CLEVELAND_HINTS = ["cleveland", "lakewood", "parma", "euclid", "lorain", "elyria", "mentor", "willoughby", "ashtabula", "painesville", "north olmsted", "westlake", "strongsville"];
+    const CANTON_HINTS = ["canton", "massillon", "akron", "barberton", "alliance", "north canton", "stark", "cuyahoga falls", "hartville"];
+    let updated = 0;
+    for (const loc of locations as any[]) {
+      if (loc.warehouseAssignment) continue; // never overwrite admin choice
+      const haystack = `${loc.name || ""} ${loc.orderFormName || ""}`.toLowerCase();
+      let assigned: string | null = null;
+      // Self-resolution: a warehouse named cleveland/canton routes to itself
+      if (/cleveland warehouse|warehouse.*cleveland/.test(haystack)) assigned = "cleveland";
+      else if (/canton warehouse|warehouse.*canton/.test(haystack)) assigned = "canton";
+      else if (CLEVELAND_HINTS.some(h => haystack.includes(h))) assigned = "cleveland";
+      else if (CANTON_HINTS.some(h => haystack.includes(h))) assigned = "canton";
+      if (assigned) {
+        await storage.updateLocation(loc.id, { warehouseAssignment: assigned } as any);
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      console.log(`[WarehouseInventory] Auto-assigned warehouse routing for ${updated} location(s) (admins can override in Locations).`);
+    }
+  } catch (err) {
+    console.error("[WarehouseInventory] Warehouse-assignment seed failed (non-fatal):", err);
+  }
+}
+
 export function registerWarehouseInventoryRoutes(app: Express) {
   const requireAccess = requireFeatureAccess("warehouse_inventory.view");
   const requireEdit = requireFeatureAccess("warehouse_inventory.edit");
   const requireFinalize = requireFeatureAccess("warehouse_inventory.finalize");
   const requireTransfer = requireFeatureAccess("warehouse_inventory.transfer");
+
+  // Seed default warehouse assignments on startup (idempotent, NULLs only).
+  void seedWarehouseAssignments();
+
+  // Admin endpoint to re-run the auto-assignment heuristic for any locations
+  // that still have NULL routing (e.g. after new stores are added).
+  app.post("/api/warehouse-inventory/auto-assign-locations", requireFeatureAccess("locations.edit"), async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      const before = (await storage.getLocations()).filter((l: any) => !l.warehouseAssignment).length;
+      await seedWarehouseAssignments();
+      const after = (await storage.getLocations()).filter((l: any) => !l.warehouseAssignment).length;
+      res.json({ assigned: before - after, remaining: after });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Auto-assignment failed" });
+    }
+  });
 
   // === On-hand engine: live computed from baseline + orders + transfers ===
   app.get("/api/warehouse-inventory/on-hand", requireAccess, async (req, res) => {
