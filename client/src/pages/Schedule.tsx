@@ -349,7 +349,15 @@ export default function Schedule() {
 
   const isSchedulePublished = publishStatus?.isPublished ?? false;
   const userRole = authStatus?.user?.role ?? "viewer";
-  const canViewSchedule = userRole === "admin" || userRole === "manager" || userRole === "optimizer" || isSchedulePublished;
+  const accessibleFeatures = authStatus?.accessibleFeatures || [];
+  const can = (feature: string) => accessibleFeatures.includes(feature);
+  const canEditSchedule = can("schedule.edit");
+  const canPublishSchedule = can("schedule.publish");
+  const canGenerateSchedule = can("schedule.generate");
+  const canManageTemplates = can("schedule.templates");
+  const canEditAttendance = can("attendance.edit");
+  const canActOnSchedule = canEditSchedule || canPublishSchedule || canGenerateSchedule || canManageTemplates;
+  const canViewSchedule = can("schedule.view") || canActOnSchedule || isSchedulePublished;
 
   // Create a lookup map for time clock entries by employee UKG ID and date
   const timeClockByEmpDate = useMemo(() => {
@@ -1110,8 +1118,8 @@ export default function Schedule() {
   };
 
   const handleEditShift = (shift: Shift, shiftEmployee?: any) => {
-    // Viewers: if clicking someone else's shift, open trade dialog
-    if (userRole === "viewer" && currentEmployee && shift.employeeId !== currentEmployee.id && shiftEmployee) {
+    // Users without edit permission: if clicking someone else's shift, open trade dialog
+    if (!canEditSchedule && currentEmployee && shift.employeeId !== currentEmployee.id && shiftEmployee) {
       // Check job title match
       if (currentEmployee.jobTitle === shiftEmployee.jobTitle) {
         setTradeTargetShift(shift);
@@ -1120,8 +1128,8 @@ export default function Schedule() {
         return;
       }
     }
-    // Viewers cannot edit shifts
-    if (userRole === "viewer") return;
+    // Users without edit permission cannot edit shifts
+    if (!canEditSchedule) return;
     setSelectedShift(shift);
     setDialogOpen(true);
   };
@@ -1303,11 +1311,11 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Actions Bar - managers and admins only, hidden on mobile */}
-      {!isMobile && (userRole === "admin" || userRole === "manager" || userRole === "optimizer") && (
+      {/* Actions Bar - permission driven, hidden on mobile */}
+      {!isMobile && canActOnSchedule && (
         <div className="flex items-center justify-center gap-2 flex-wrap" data-testid="actions-bar">
           {/* Publish/Unpublish Button */}
-          {isSchedulePublished ? (
+          {canPublishSchedule && (isSchedulePublished ? (
             <Button
               variant="outline"
               onClick={handleUnpublishSchedule}
@@ -1326,8 +1334,9 @@ export default function Schedule() {
               <Send className="w-4 h-4 mr-2" />
               {isPublishing ? "Publishing..." : "Publish"}
             </Button>
-          )}
+          ))}
           
+          {canGenerateSchedule && (
           <Button 
             variant="outline" 
             onClick={handleManualGenerate} 
@@ -1341,7 +1350,9 @@ export default function Schedule() {
             <span className="mr-2">✨</span>
             {isManualGenerating ? "Generating..." : "Generate"}
           </Button>
+          )}
           
+          {canEditSchedule && (
           <Button 
             variant="outline" 
             onClick={handleCopyToNextWeek} 
@@ -1351,7 +1362,9 @@ export default function Schedule() {
             <Copy className={cn("w-4 h-4 mr-2", isCopying && "animate-pulse")} />
             {isCopying ? "Copying..." : "Copy to Next"}
           </Button>
+          )}
           
+          {canManageTemplates && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" data-testid="button-templates">
@@ -1404,6 +1417,7 @@ export default function Schedule() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          )}
           
           <Button 
             variant="outline" 
@@ -1414,6 +1428,7 @@ export default function Schedule() {
             Export PDF
           </Button>
           
+          {canEditSchedule && (
           <Button 
             variant="outline" 
             onClick={handleClearSchedule} 
@@ -1424,6 +1439,7 @@ export default function Schedule() {
             <Trash2 className={cn("w-4 h-4 mr-2", isClearing && "animate-pulse")} />
             {isClearing ? "Clearing..." : "Clear Week"}
           </Button>
+          )}
         </div>
       )}
 
@@ -1499,7 +1515,7 @@ export default function Schedule() {
           })()}
           
           {/* Schedule Validator */}
-          {userRole !== "viewer" && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />}
+          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />}
           
         </div>
         
@@ -1670,7 +1686,7 @@ export default function Schedule() {
                                   )}
                                 </div>
                               </div>
-                              {userRole !== "viewer" && (
+                              {canEditSchedule && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -1949,7 +1965,7 @@ export default function Schedule() {
                               onDragLeave={handleDragLeave}
                               onDrop={(e) => handleDrop(e, emp.id, day)}
                             >
-                              {userRole !== "viewer" && (
+                              {canEditSchedule && (
                               <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
                                 <Button 
                                   variant="ghost" 
@@ -1972,18 +1988,18 @@ export default function Schedule() {
                                     <ContextMenu key={shift.id}>
                                       <ContextMenuTrigger>
                                         <div 
-                                          draggable={userRole !== "viewer"}
-                                          onDragStart={(e) => userRole !== "viewer" && handleDragStart(e, shift)}
-                                          onDragEnd={userRole !== "viewer" ? handleDragEnd : undefined}
+                                          draggable={canEditSchedule}
+                                          onDragStart={(e) => canEditSchedule && handleDragStart(e, shift)}
+                                          onDragEnd={canEditSchedule ? handleDragEnd : undefined}
                                           onClick={(e) => { e.stopPropagation(); handleEditShift(shift, emp); }}
                                           className={`p-1.5 rounded text-[10px] font-medium border hover:shadow-md transition-all flex items-center gap-1 ${
                                             shift.crossTrainedRole
                                               ? "bg-white text-gray-900 border-gray-300 animate-cross-train-glow"
                                               : "text-white border-transparent hover:border-black/10"
                                           } ${
-                                            userRole === "viewer" && currentEmployee && shift.employeeId !== currentEmployee.id && currentEmployee.jobTitle === emp.jobTitle
+                                            !canEditSchedule && currentEmployee && shift.employeeId !== currentEmployee.id && currentEmployee.jobTitle === emp.jobTitle
                                               ? "cursor-pointer ring-1 ring-white/30 hover:ring-white/60"
-                                              : userRole === "viewer" ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+                                              : !canEditSchedule ? "cursor-default" : "cursor-grab active:cursor-grabbing"
                                           }`}
                                           style={shift.crossTrainedRole ? {} : { backgroundColor: getJobColor(emp.jobTitle) }}
                                           data-testid={`shift-${shift.id}`}
@@ -2017,7 +2033,7 @@ export default function Schedule() {
                                         </div>
                                       </ContextMenuTrigger>
                                       <ContextMenuContent>
-                                        {(userRole === 'admin' || userRole === 'manager' || userRole === 'optimizer') && (
+                                        {canEditSchedule && (
                                           <ContextMenuItem 
                                             onClick={() => handleEditShift(shift, emp)}
                                             data-testid={`context-edit-shift-${shift.id}`}
@@ -2025,7 +2041,7 @@ export default function Schedule() {
                                             Edit Shift
                                           </ContextMenuItem>
                                         )}
-                                        {(userRole === 'admin' || userRole === 'manager' || userRole === 'optimizer') && (
+                                        {canEditAttendance && (
                                           <ContextMenuItem 
                                             onClick={() => handleAddOccurrence(emp.id, emp.name, day)}
                                             className="text-orange-600"
