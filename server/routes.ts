@@ -1591,6 +1591,7 @@ export async function registerRoutes(
 
   // === SEED DATA ===
   await storage.seedBuiltInRoles();
+  await storage.seedFeaturePermissions();
   await seedDatabase();
 
   return httpServer;

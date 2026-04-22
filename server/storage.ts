@@ -37,6 +37,7 @@ import {
   driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
   managerDirectReports, type ManagerDirectReport,
   jobTitleVisibility, type JobTitleVisibility,
+  featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS,
 } from "@shared/schema";
 import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
 
@@ -83,6 +84,7 @@ export interface IStorage {
   updateRoleLabel(name: string, label: string): Promise<Role>;
   deleteRoleByName(name: string): Promise<void>;
   seedBuiltInRoles(): Promise<void>;
+  seedFeaturePermissions(): Promise<void>;
 
   // Manager → direct-report assignments
   getDirectReportsForManager(managerUserId: number): Promise<number[]>;
@@ -549,6 +551,68 @@ export class DatabaseStorage implements IStorage {
     if (toInsert.length > 0) {
       await db.insert(roles).values(toInsert);
       console.log(`[Storage] Seeded ${toInsert.length} built-in role(s)`);
+    }
+  }
+
+  // Ensures newly-introduced feature permission keys are reflected in the
+  // feature_permissions table. Specifically: if an admin has previously saved
+  // explicit granular permissions for a feature group (which retires the
+  // legacy lumped row), any feature key added later won't have a row and
+  // therefore won't appear in the permission catalog with persisted role
+  // assignments. We backfill rows for missing keys using the static defaults
+  // from DEFAULT_FEATURE_PERMISSIONS, but only when at least one sibling
+  // granular row already exists — otherwise the runtime fallback in
+  // getFeaturePermissions() already covers things and we avoid polluting
+  // fresh installs with redundant rows.
+  async seedFeaturePermissions(): Promise<void> {
+    try {
+      const existingRows = await db.select().from(featurePermissions);
+      const existingByFeature = new Set(existingRows.map(r => r.feature));
+
+      // Group SYSTEM_FEATURES by their dotted prefix (e.g. "warehouse_inventory")
+      const groupsWithExplicitRows = new Set<string>();
+      for (const feature of existingByFeature) {
+        const dot = feature.indexOf(".");
+        if (dot > 0) groupsWithExplicitRows.add(feature.slice(0, dot));
+      }
+
+      const toInsert: { feature: string; label: string; description: string; allowedRoles: string[] }[] = [];
+      for (const f of SYSTEM_FEATURES) {
+        if (existingByFeature.has(f.feature)) continue;
+        const dot = f.feature.indexOf(".");
+        if (dot <= 0) continue;
+        const group = f.feature.slice(0, dot);
+        if (!groupsWithExplicitRows.has(group)) continue;
+        const defaults = DEFAULT_FEATURE_PERMISSIONS[f.feature] || ["admin"];
+        const withAdmin = defaults.includes("admin") ? defaults : ["admin", ...defaults];
+        toInsert.push({
+          feature: f.feature,
+          label: f.label,
+          description: f.description,
+          allowedRoles: withAdmin,
+        });
+      }
+
+      if (toInsert.length > 0) {
+        await db.insert(featurePermissions).values(toInsert).onConflictDoNothing({
+          target: featurePermissions.feature,
+        });
+        console.log(`[Storage] Backfilled ${toInsert.length} feature permission row(s): ${toInsert.map(r => r.feature).join(", ")}`);
+      }
+
+      // Always make sure admin is listed for every existing row — admins
+      // should never be locked out of a feature, even if a prior save
+      // accidentally removed them.
+      for (const row of existingRows) {
+        if (!row.allowedRoles.includes("admin")) {
+          await db.update(featurePermissions)
+            .set({ allowedRoles: ["admin", ...row.allowedRoles] })
+            .where(eq(featurePermissions.feature, row.feature));
+          console.log(`[Storage] Restored admin grant on feature '${row.feature}'`);
+        }
+      }
+    } catch (err) {
+      console.error("[Storage] seedFeaturePermissions failed:", err);
     }
   }
 
