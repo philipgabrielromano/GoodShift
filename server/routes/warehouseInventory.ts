@@ -371,7 +371,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       if (count.status !== "final") {
         const live = await computeWarehouseOnHand(count.warehouse, count.countDate);
         expectedMap = {};
-        for (const it of live.items) expectedMap[it.itemName] = it.qty;
+        for (const it of live.items) expectedMap[it.itemName] = it.onHand;
       }
       res.json({
         count,

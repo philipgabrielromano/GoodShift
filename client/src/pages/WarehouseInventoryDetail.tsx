@@ -26,6 +26,9 @@ interface Detail {
   prior: CountRow | null;
   priorItems: Item[];
   categories: { group: string; items: string[] }[];
+  // Live system-expected on-hand per item (only present for non-final counts).
+  // For finalized counts, use Item.expectedQty (snapshotted at finalize time).
+  expectedMap?: Record<string, number>;
 }
 interface AuthStatus { user: { id: number; name: string; role: string } | null; }
 
