@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "@shared/schema";
@@ -82,6 +83,21 @@ export default function Locations() {
     setEditingEmail("");
     setEditingOrderFormName("");
     setEditingSchedulingName("");
+  };
+
+  const handleSetWarehouse = async (location: Location, value: string) => {
+    const next = value === "none" ? null : value;
+    try {
+      await updateLocation.mutateAsync({ id: location.id, warehouseAssignment: next });
+      toast({
+        title: "Warehouse assignment updated",
+        description: next
+          ? `${location.name} now feeds the ${next.charAt(0).toUpperCase() + next.slice(1)} warehouse.`
+          : `${location.name} is no longer assigned to a warehouse.`,
+      });
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update warehouse assignment." });
+    }
   };
 
   const handleToggleScheduling = async (location: Location) => {
@@ -317,6 +333,7 @@ export default function Locations() {
                       <TableHead>Scheduling Name</TableHead>
                       {isAdmin && <TableHead>In Order Form</TableHead>}
                       {isAdmin && <TableHead>In Scheduling</TableHead>}
+                      {isAdmin && <TableHead>Warehouse</TableHead>}
                       {isAdmin && <TableHead>Status</TableHead>}
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -416,6 +433,24 @@ export default function Locations() {
                               disabled={updateLocation.isPending}
                               data-testid={`switch-scheduling-${location.id}`}
                             />
+                          </TableCell>
+                        )}
+                        {isAdmin && (
+                          <TableCell>
+                            <Select
+                              value={location.warehouseAssignment || "none"}
+                              onValueChange={(v) => handleSetWarehouse(location, v)}
+                              disabled={updateLocation.isPending}
+                            >
+                              <SelectTrigger className="w-32" data-testid={`select-warehouse-${location.id}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">— None —</SelectItem>
+                                <SelectItem value="cleveland">Cleveland</SelectItem>
+                                <SelectItem value="canton">Canton</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </TableCell>
                         )}
                         {isAdmin && (

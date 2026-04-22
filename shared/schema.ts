@@ -181,6 +181,7 @@ export const locations = pgTable("locations", {
   orderFormName: text("order_form_name"), // Optional alias used in the Order Form dropdown (when null, falls back to name)
   availableForScheduling: boolean("available_for_scheduling").notNull().default(true), // Whether this location appears in scheduling, roster, task assignment, and optimization pickers
   schedulingName: text("scheduling_name"), // Optional alias used in scheduling/roster/task-assignment dropdowns (when null, falls back to name)
+  warehouseAssignment: text("warehouse_assignment"), // 'cleveland' | 'canton' | null — which warehouse this store's orders draw from / return to
 });
 
 // Shift presets - preconfigured shift times that can be quickly applied
@@ -1179,10 +1180,99 @@ export const warehouseInventoryCountItems = pgTable("warehouse_inventory_count_i
   groupName: text("group_name").notNull(),
   itemName: text("item_name").notNull(),
   qty: integer("qty").notNull().default(0),
+  expectedQty: integer("expected_qty"), // What the running on-hand engine predicted at the count's date. Snapshot on finalize so variance (qty - expectedQty) is preserved historically.
 }, (table) => [
   index("idx_wh_inventory_items_count_id").on(table.countId),
   uniqueIndex("uniq_wh_inventory_count_item").on(table.countId, table.itemName),
 ]);
+
+// === WAREHOUSE TRANSFERS ===
+// Represents inter-warehouse or external adjustments (in/out) that aren't
+// captured by store orders. Examples: salvage truck pickup, transfer between
+// Cleveland and Canton, manual write-off, donation receipt.
+export const warehouseTransfers = pgTable("warehouse_transfers", {
+  id: serial("id").primaryKey(),
+  warehouse: text("warehouse").notNull(), // affected warehouse
+  transferDate: text("transfer_date").notNull(), // YYYY-MM-DD
+  itemName: text("item_name").notNull(),
+  groupName: text("group_name").notNull(),
+  qty: integer("qty").notNull(), // signed: positive = in, negative = out
+  reason: text("reason").notNull(), // 'transfer_in' | 'transfer_out' | 'salvage_pickup' | 'adjustment' | 'other'
+  counterpartyWarehouse: text("counterparty_warehouse"), // optional: other warehouse for inter-warehouse transfers
+  notes: text("notes"),
+  createdById: integer("created_by_id"),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_wh_transfers_warehouse_date").on(table.warehouse, table.transferDate),
+  index("idx_wh_transfers_item").on(table.itemName),
+]);
+
+export const TRANSFER_REASONS = [
+  "transfer_in",
+  "transfer_out",
+  "salvage_pickup",
+  "adjustment",
+  "other",
+] as const;
+export type TransferReason = (typeof TRANSFER_REASONS)[number];
+export const TRANSFER_REASON_LABELS: Record<TransferReason, string> = {
+  transfer_in: "Transfer In",
+  transfer_out: "Transfer Out",
+  salvage_pickup: "Salvage Pickup",
+  adjustment: "Adjustment",
+  other: "Other",
+};
+
+export const insertWarehouseTransferSchema = createInsertSchema(warehouseTransfers).omit({
+  id: true,
+  createdAt: true,
+  createdById: true,
+  createdByName: true,
+}).extend({
+  warehouse: z.enum(WAREHOUSES),
+  transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+  reason: z.enum(TRANSFER_REASONS),
+  qty: z.number().int().refine(n => n !== 0, "Quantity cannot be zero"),
+});
+export type WarehouseTransfer = typeof warehouseTransfers.$inferSelect;
+export type InsertWarehouseTransfer = z.infer<typeof insertWarehouseTransferSchema>;
+
+// === ORDER FIELD → WAREHOUSE ITEM MAPPING ===
+// Each entry maps a snake_case orders column to (group, item) and a sign:
+//   -1 = order field deducts from warehouse (store requested equipment FROM warehouse)
+//   +1 = order field adds to warehouse (store returned equipment TO warehouse, or sent outlet goods to warehouse)
+// Fields not listed have NO warehouse impact (seasonal, donors, production, furniture, books, end-of-day equipment counts).
+export const ORDER_FIELD_TO_WAREHOUSE_ITEM: Record<string, { group: string; item: string; sign: 1 | -1 }> = {
+  // Equipment shipped from / returned to warehouse
+  totes_requested: { group: "Equipment", item: "Warehouse Totes", sign: -1 },
+  totes_returned: { group: "Equipment", item: "Warehouse Totes", sign: +1 },
+  gaylords_requested: { group: "Equipment", item: "Warehouse Gaylords", sign: -1 },
+  gaylords_returned: { group: "Equipment", item: "Warehouse Gaylords", sign: +1 },
+  duros_requested: { group: "Equipment", item: "Warehouse Duros", sign: -1 },
+  duros_returned: { group: "Equipment", item: "Warehouse Duros", sign: +1 },
+  containers_requested: { group: "Equipment", item: "Warehouse Containers", sign: -1 },
+  containers_returned: { group: "Equipment", item: "Warehouse Containers", sign: +1 },
+  blue_bins_requested: { group: "Equipment", item: "Warehouse Blue Bins", sign: -1 },
+  blue_bins_returned: { group: "Equipment", item: "Warehouse Blue Bins", sign: +1 },
+  pallets_requested: { group: "Equipment", item: "Warehouse Pallets", sign: -1 },
+  pallets_returned: { group: "Equipment", item: "Warehouse Pallets", sign: +1 },
+  // Raw gaylords (empty out, full back)
+  apparel_gaylords_requested: { group: "Raw", item: "Apparel Gaylords", sign: -1 },
+  apparel_gaylords_returned: { group: "Raw", item: "Apparel Gaylords", sign: +1 },
+  wares_gaylords_requested: { group: "Raw", item: "Wares Gaylords", sign: -1 },
+  wares_gaylords_returned: { group: "Raw", item: "Wares Gaylords", sign: +1 },
+  electrical_gaylords_requested: { group: "Raw", item: "Electrical Gaylords", sign: -1 },
+  electrical_gaylords_returned: { group: "Raw", item: "Electrical Gaylords", sign: +1 },
+  accessories_gaylords_requested: { group: "Raw", item: "Accessory Gaylords", sign: -1 },
+  accessories_gaylords_returned: { group: "Raw", item: "Accessory Gaylords", sign: +1 },
+  shoes_gaylords_requested: { group: "Raw", item: "Shoes Gaylords", sign: -1 },
+  shoes_gaylords_returned: { group: "Raw", item: "Shoes Gaylords", sign: +1 },
+  // Outlet bulk sent from store to warehouse outlet area
+  outlet_apparel: { group: "Outlet", item: "Outlet Apparel", sign: +1 },
+  outlet_shoes: { group: "Outlet", item: "Outlet Shoes", sign: +1 },
+  outlet_wares: { group: "Outlet", item: "Outlet Wares", sign: +1 },
+};
 
 export const insertWarehouseInventoryCountSchema = createInsertSchema(warehouseInventoryCounts).omit({
   id: true,
@@ -1276,6 +1366,7 @@ export const SYSTEM_FEATURES = [
   { category: "Inventory", feature: "warehouse_inventory.view", label: "View Warehouse Inventory", description: "See inventory dashboards and counts" },
   { category: "Inventory", feature: "warehouse_inventory.edit", label: "Edit Warehouse Counts", description: "Create and update daily inventory counts" },
   { category: "Inventory", feature: "warehouse_inventory.finalize", label: "Finalize / Reopen Counts", description: "Finalize inventory counts and reopen them" },
+  { category: "Inventory", feature: "warehouse_inventory.transfer", label: "Record Warehouse Transfers", description: "Log inter-warehouse transfers, salvage pickups, and manual adjustments" },
   // Reports
   { category: "Reports", feature: "reports.occurrences", label: "Occurrence Reports", description: "Run HR / occurrence reports" },
   { category: "Reports", feature: "reports.variance", label: "Variance Reports", description: "View schedule vs. actual variance reports" },
@@ -1343,6 +1434,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "warehouse_inventory.view": ["admin", "manager", "ordering"],
   "warehouse_inventory.edit": ["admin", "manager", "ordering"],
   "warehouse_inventory.finalize": ["admin", "manager"],
+  "warehouse_inventory.transfer": ["admin", "manager", "ordering"],
   // Reports
   "reports.occurrences": ["admin", "manager"],
   "reports.variance": ["admin", "manager"],
@@ -1380,7 +1472,7 @@ export const LEGACY_FEATURE_EXPANSIONS: Record<string, string[]> = {
   credit_card_inspection: ["credit_card_inspection.submit", "credit_card_inspection.view_all"],
   driver_inspection: ["driver_inspection.submit", "driver_inspection.view_all", "driver_inspection.resolve_repairs"],
   trailer_manifest: ["trailer_manifest.view", "trailer_manifest.edit"],
-  warehouse_inventory: ["warehouse_inventory.view", "warehouse_inventory.edit", "warehouse_inventory.finalize"],
+  warehouse_inventory: ["warehouse_inventory.view", "warehouse_inventory.edit", "warehouse_inventory.finalize", "warehouse_inventory.transfer"],
   reports: ["reports.occurrences", "reports.variance", "reports.roster"],
   locations: ["locations.view", "locations.edit"],
   // NOTE: intentionally excludes settings.permissions — that is a privileged

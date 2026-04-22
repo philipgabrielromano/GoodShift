@@ -4,9 +4,13 @@ import { storage } from "../storage";
 import { requireFeatureAccess } from "../middleware";
 import {
   insertWarehouseInventoryCountSchema,
+  insertWarehouseTransferSchema,
   WAREHOUSE_INVENTORY_CATEGORIES,
   WAREHOUSES,
+  TRANSFER_REASONS,
+  type Warehouse,
 } from "@shared/schema";
+import { computeWarehouseOnHand } from "../services/warehouseOnHand";
 
 function getSessionUser(req: Request): { id: number; name: string; role?: string } | null {
   const u = (req.session as any)?.user;
@@ -33,6 +37,7 @@ const createSchema = insertWarehouseInventoryCountSchema.omit({
 } as any).extend({
   copyFromCountId: z.number().int().positive().optional(),
   copyFromLatest: z.boolean().optional(),
+  prefillFromEngine: z.boolean().optional(), // Default true: pre-fill qty AND expectedQty from on-hand engine
 });
 
 const updateSchema = z.object({
@@ -50,6 +55,78 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   const requireAccess = requireFeatureAccess("warehouse_inventory.view");
   const requireEdit = requireFeatureAccess("warehouse_inventory.edit");
   const requireFinalize = requireFeatureAccess("warehouse_inventory.finalize");
+  const requireTransfer = requireFeatureAccess("warehouse_inventory.transfer");
+
+  // === On-hand engine: live computed from baseline + orders + transfers ===
+  app.get("/api/warehouse-inventory/on-hand", requireAccess, async (req, res) => {
+    try {
+      const warehouse = String(req.query.warehouse || "");
+      if (!WAREHOUSES.includes(warehouse as any)) {
+        return res.status(400).json({ message: "Invalid warehouse" });
+      }
+      const asOf = typeof req.query.asOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.asOf)
+        ? req.query.asOf
+        : todayInTZ();
+      const result = await computeWarehouseOnHand(warehouse as Warehouse, asOf);
+      res.json(result);
+    } catch (err) {
+      console.error("[WarehouseInventory] On-hand error:", err);
+      res.status(500).json({ message: "Failed to compute on-hand" });
+    }
+  });
+
+  // === Warehouse transfers ===
+  app.get("/api/warehouse-transfers", requireAccess, async (req, res) => {
+    try {
+      const warehouse = typeof req.query.warehouse === "string" ? req.query.warehouse : undefined;
+      const from = typeof req.query.from === "string" ? req.query.from : undefined;
+      const to = typeof req.query.to === "string" ? req.query.to : undefined;
+      const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100));
+      const rows = await storage.getWarehouseTransfers({ warehouse, from, to, limit });
+      res.json(rows);
+    } catch (err) {
+      console.error("[WarehouseTransfers] List error:", err);
+      res.status(500).json({ message: "Failed to load transfers" });
+    }
+  });
+
+  app.post("/api/warehouse-transfers", requireTransfer, async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      const input = insertWarehouseTransferSchema.parse(req.body);
+      if (!VALID_ITEM_NAMES.has(input.itemName)) {
+        return res.status(400).json({ message: "Invalid item" });
+      }
+      // Resolve groupName from category structure to keep it consistent
+      const cat = WAREHOUSE_INVENTORY_CATEGORIES.find(c => c.items.includes(input.itemName));
+      const created = await storage.createWarehouseTransfer({
+        ...input,
+        groupName: cat?.group || input.groupName,
+      }, user);
+      res.status(201).json(created);
+    } catch (err: any) {
+      if (err?.name === "ZodError") return res.status(400).json({ message: err.errors?.[0]?.message || "Invalid input" });
+      console.error("[WarehouseTransfers] Create error:", err);
+      res.status(500).json({ message: "Failed to create transfer" });
+    }
+  });
+
+  app.delete("/api/warehouse-transfers/:id", requireTransfer, async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      // Only admin can delete after the fact (audit trail)
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can delete recorded transfers" });
+      }
+      await storage.deleteWarehouseTransfer(Number(req.params.id));
+      res.status(204).send();
+    } catch (err) {
+      console.error("[WarehouseTransfers] Delete error:", err);
+      res.status(500).json({ message: "Failed to delete transfer" });
+    }
+  });
 
   // Expose category structure + warehouses (for form dropdowns)
   app.get("/api/warehouse-inventory/meta", requireAccess, async (_req, res) => {
@@ -60,11 +137,12 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     });
   });
 
-  // Leadership dashboard: latest count per warehouse + deltas
+  // Leadership dashboard: latest count per warehouse + deltas + live on-hand
   app.get("/api/warehouse-inventory/dashboard", requireAccess, async (_req, res) => {
     try {
       const today = todayInTZ();
       const results = await Promise.all(WAREHOUSES.map(async (w) => {
+        const onHand = await computeWarehouseOnHand(w as Warehouse, today);
         const latest = await storage.getLatestWarehouseInventoryCount(w);
         if (!latest) {
           return {
@@ -113,7 +191,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
           Math.round((todayDate.getTime() - latestDate.getTime()) / 86400000),
         );
 
-        return { warehouse: w, latest, prior, items, priorItems, totals, priorTotals, delta, staleDays };
+        return { warehouse: w, latest, prior, items, priorItems, totals, priorTotals, delta, staleDays, onHand };
       }));
       res.json({ warehouses: results, today });
     } catch (err) {
@@ -256,16 +334,29 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         if (!src || src.warehouse !== input.warehouse) {
           return res.status(400).json({ message: "copyFromCountId must belong to the same warehouse" });
         }
-      } else if (input.copyFromLatest !== false) {
+      } else if (input.copyFromLatest !== false && input.prefillFromEngine === false) {
         const prior = await storage.getLatestWarehouseInventoryCount(input.warehouse);
         if (prior) copyFromCountId = prior.id;
       }
 
-      const { copyFromCountId: _a, copyFromLatest: _b, ...baseInput } = input;
+      // Default behavior: use engine pre-fill (running on-hand) unless explicitly disabled
+      let prefillFromEngine: { qty: Record<string, number>; expected: Record<string, number> } | undefined;
+      if (input.prefillFromEngine !== false && !copyFromCountId) {
+        const onHand = await computeWarehouseOnHand(input.warehouse as Warehouse, input.countDate);
+        const qty: Record<string, number> = {};
+        const expected: Record<string, number> = {};
+        for (const it of onHand.items) {
+          qty[it.itemName] = Math.max(0, it.onHand);
+          expected[it.itemName] = it.onHand;
+        }
+        prefillFromEngine = { qty, expected };
+      }
+
+      const { copyFromCountId: _a, copyFromLatest: _b, prefillFromEngine: _c, ...baseInput } = input;
       const created = await storage.createWarehouseInventoryCount(
         baseInput as any,
         user,
-        copyFromCountId ? { copyFromCountId } : undefined,
+        copyFromCountId ? { copyFromCountId } : prefillFromEngine ? { prefillFromEngine } : undefined,
       );
       res.status(201).json(created);
     } catch (err: any) {
@@ -344,6 +435,13 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const count = await storage.getWarehouseInventoryCount(id);
       if (!count) return res.status(404).json({ message: "Count not found" });
       if (count.status === "final") return res.json(count);
+      // Snapshot expected qty (for over/under variance) RIGHT BEFORE finalizing,
+      // using the engine state at the count's date — excluding this draft from
+      // the engine result by definition (baseline = most recent FINAL).
+      const onHand = await computeWarehouseOnHand(count.warehouse as Warehouse, count.countDate);
+      const expected: Record<string, number> = {};
+      for (const it of onHand.items) expected[it.itemName] = it.onHand;
+      await storage.snapshotExpectedQtys(id, expected);
       const updated = await storage.finalizeWarehouseInventoryCount(id, user);
       res.json(updated);
     } catch (err) {

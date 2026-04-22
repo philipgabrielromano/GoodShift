@@ -30,6 +30,7 @@ import {
   TRAILER_MANIFEST_CATEGORIES,
   warehouseInventoryCounts, type WarehouseInventoryCount, type InsertWarehouseInventoryCount,
   warehouseInventoryCountItems, type WarehouseInventoryCountItem,
+  warehouseTransfers, type WarehouseTransfer, type InsertWarehouseTransfer,
   WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
   creditCardInspections, type CreditCardInspection, type InsertCreditCardInspection,
   driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
@@ -146,6 +147,10 @@ export interface IStorage {
   finalizeWarehouseInventoryCount(id: number, user: { id: number; name: string }): Promise<WarehouseInventoryCount>;
   reopenWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount>;
   deleteWarehouseInventoryCount(id: number): Promise<void>;
+  // Warehouse transfers
+  getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]>;
+  createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
+  deleteWarehouseTransfer(id: number): Promise<void>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -776,7 +781,7 @@ export class DatabaseStorage implements IStorage {
   async createWarehouseInventoryCount(
     input: InsertWarehouseInventoryCount,
     user: { id: number; name: string },
-    options?: { copyFromCountId?: number },
+    options?: { copyFromCountId?: number; prefillFromEngine?: { qty: Record<string, number>; expected: Record<string, number> } },
   ): Promise<WarehouseInventoryCount> {
     return await db.transaction(async (tx) => {
       const [created] = await tx.insert(warehouseInventoryCounts).values({
@@ -790,9 +795,13 @@ export class DatabaseStorage implements IStorage {
         cat.items.map(name => ({ group: cat.group, name })),
       );
 
-      // Optional: prefill from a prior count
+      // Choose pre-fill source: engine takes priority, then a prior count.
       let priorQty: Record<string, number> = {};
-      if (options?.copyFromCountId) {
+      let expectedQty: Record<string, number> = {};
+      if (options?.prefillFromEngine) {
+        priorQty = options.prefillFromEngine.qty;
+        expectedQty = options.prefillFromEngine.expected;
+      } else if (options?.copyFromCountId) {
         const rows = await tx.select().from(warehouseInventoryCountItems)
           .where(eq(warehouseInventoryCountItems.countId, options.copyFromCountId));
         priorQty = Object.fromEntries(rows.map(r => [r.itemName, r.qty]));
@@ -803,12 +812,29 @@ export class DatabaseStorage implements IStorage {
         groupName: ci.group,
         itemName: ci.name,
         qty: priorQty[ci.name] ?? 0,
+        expectedQty: expectedQty[ci.name] ?? null,
       }));
       if (itemRows.length > 0) {
         await tx.insert(warehouseInventoryCountItems).values(itemRows);
       }
       return created;
     });
+  }
+
+  /**
+   * Snapshot the expected qty (from the on-hand engine) onto each line of a
+   * count. Called immediately before finalize so over/under is preserved
+   * historically even if later orders/transfers shift the engine result.
+   */
+  async snapshotExpectedQtys(countId: number, expected: Record<string, number>): Promise<void> {
+    for (const [itemName, qty] of Object.entries(expected)) {
+      await db.update(warehouseInventoryCountItems)
+        .set({ expectedQty: qty })
+        .where(and(
+          eq(warehouseInventoryCountItems.countId, countId),
+          eq(warehouseInventoryCountItems.itemName, itemName),
+        ));
+    }
   }
 
   async updateWarehouseInventoryCount(
@@ -898,6 +924,32 @@ export class DatabaseStorage implements IStorage {
       await tx.delete(warehouseInventoryCountItems).where(eq(warehouseInventoryCountItems.countId, id));
       await tx.delete(warehouseInventoryCounts).where(eq(warehouseInventoryCounts.id, id));
     });
+  }
+
+  // Warehouse transfers
+  async getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]> {
+    const conds: any[] = [];
+    if (filters?.warehouse) conds.push(eq(warehouseTransfers.warehouse, filters.warehouse));
+    if (filters?.from) conds.push(gte(warehouseTransfers.transferDate, filters.from));
+    if (filters?.to) conds.push(lte(warehouseTransfers.transferDate, filters.to));
+    let q = db.select().from(warehouseTransfers) as any;
+    if (conds.length) q = q.where(and(...conds));
+    q = q.orderBy(desc(warehouseTransfers.transferDate), desc(warehouseTransfers.id));
+    if (filters?.limit) q = q.limit(filters.limit);
+    return await q;
+  }
+
+  async createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer> {
+    const [created] = await db.insert(warehouseTransfers).values({
+      ...input,
+      createdById: user.id,
+      createdByName: user.name,
+    }).returning();
+    return created;
+  }
+
+  async deleteWarehouseTransfer(id: number): Promise<void> {
+    await db.delete(warehouseTransfers).where(eq(warehouseTransfers.id, id));
   }
 
   // Locations

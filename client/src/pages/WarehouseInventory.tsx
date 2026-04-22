@@ -38,6 +38,19 @@ interface DashboardWarehouse {
   priorTotals: { total: number; byGroup: Record<string, number> };
   delta: { total: number; byGroup: Record<string, number> };
   staleDays: number | null;
+  onHand: {
+    warehouse: string;
+    baselineDate: string | null;
+    asOfDate: string;
+    items: { itemName: string; groupName: string; baseline: number; ordersDelta: number; transfersDelta: number; onHand: number }[];
+    totals: {
+      onHand: number;
+      baseline: number;
+      ordersDelta: number;
+      transfersDelta: number;
+      byGroup: Record<string, { onHand: number; baseline: number; ordersDelta: number; transfersDelta: number }>;
+    };
+  };
 }
 
 interface Dashboard {
@@ -69,6 +82,7 @@ export default function WarehouseInventory() {
     countDate: "",
     notes: "",
     copyFromLatest: true,
+    prefillFromEngine: true,
   });
   const [trendWarehouse, setTrendWarehouse] = useState("cleveland");
   const [trendItem, setTrendItem] = useState<string>("");
@@ -104,6 +118,7 @@ export default function WarehouseInventory() {
         countDate: input.countDate,
         notes: input.notes || null,
         copyFromLatest: input.copyFromLatest,
+        prefillFromEngine: input.prefillFromEngine,
       };
       return await apiRequest("POST", "/api/warehouse-inventory", payload);
     },
@@ -218,12 +233,23 @@ export default function WarehouseInventory() {
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={form.copyFromLatest}
-                    onChange={e => setForm(f => ({ ...f, copyFromLatest: e.target.checked }))}
-                    data-testid="checkbox-copy-prior"
+                    checked={form.prefillFromEngine}
+                    onChange={e => setForm(f => ({ ...f, prefillFromEngine: e.target.checked }))}
+                    data-testid="checkbox-prefill-engine"
                   />
-                  Pre-fill quantities from the most recent prior count
+                  Pre-fill from running on-hand (recommended) — last count + orders + transfers
                 </label>
+                {!form.prefillFromEngine && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.copyFromLatest}
+                      onChange={e => setForm(f => ({ ...f, copyFromLatest: e.target.checked }))}
+                      data-testid="checkbox-copy-prior"
+                    />
+                    Otherwise, copy quantities verbatim from the most recent prior count
+                  </label>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCreateOpen(false)} data-testid="button-cancel">Cancel</Button>
@@ -294,6 +320,31 @@ export default function WarehouseInventory() {
                       </div>
                     ))}
                   </div>
+                  {w.onHand && (
+                    <div className="border-t pt-3 mt-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Live On-Hand (today)
+                        </div>
+                        <div className="text-xs text-muted-foreground" data-testid={`text-onhand-baseline-${w.warehouse}`}>
+                          baseline {w.onHand.baselineDate || "—"}
+                        </div>
+                      </div>
+                      <div className="flex items-baseline gap-3">
+                        <div className="text-2xl font-bold" data-testid={`text-onhand-total-${w.warehouse}`}>
+                          {w.onHand.totals.onHand.toLocaleString()}
+                        </div>
+                        <div className="flex gap-3 text-xs text-muted-foreground">
+                          <span>orders <span className={w.onHand.totals.ordersDelta > 0 ? "text-green-600" : w.onHand.totals.ordersDelta < 0 ? "text-red-600" : ""}>
+                            {w.onHand.totals.ordersDelta > 0 ? "+" : ""}{w.onHand.totals.ordersDelta}
+                          </span></span>
+                          <span>transfers <span className={w.onHand.totals.transfersDelta > 0 ? "text-green-600" : w.onHand.totals.transfersDelta < 0 ? "text-red-600" : ""}>
+                            {w.onHand.totals.transfersDelta > 0 ? "+" : ""}{w.onHand.totals.transfersDelta}
+                          </span></span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="flex justify-between items-center pt-2">
                     <div className="text-xs text-muted-foreground">
                       {w.prior ? <>vs {w.prior.countDate} ({w.priorTotals.total.toLocaleString()} items)</> : "No prior count to compare"}
