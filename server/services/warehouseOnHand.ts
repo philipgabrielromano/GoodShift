@@ -74,9 +74,12 @@ export async function computeWarehouseOnHand(
       .flatMap(l => [l.name, (l as any).orderFormName].filter(Boolean) as string[])
   ));
 
-  // 3. Sum order deltas in (baselineDate, asOf]
+  // 3. Sum order deltas in (baselineDate, asOf]. CRITICAL: when no finalized
+  // baseline exists yet (rollout state), we must NOT sum historical orders —
+  // doing so would backfill imaginary inventory that no leader has counted.
+  // Tracking only begins after the first finalized count.
   const orderDeltas = new Map<string, number>(); // itemName -> signed qty
-  if (feederStoreNames.length > 0) {
+  if (baselineDate && feederStoreNames.length > 0) {
     const fields = Object.keys(ORDER_FIELD_TO_WAREHOUSE_ITEM);
     const fieldList = fields.map(f => `COALESCE(SUM(${f}), 0) AS ${f}`).join(", ");
     const placeholders = feederStoreNames.map(() => "?").join(",");
@@ -103,16 +106,20 @@ export async function computeWarehouseOnHand(
     }
   }
 
-  // 4. Sum transfers in (baselineDate, asOf]
+  // 4. Sum transfers in (baselineDate, asOf]. Same rule as orders: with no
+  // finalized baseline, the engine reports zero — we don't accumulate
+  // historical transfers from before tracking started.
   const transferDeltas = new Map<string, number>();
-  const transfers = await storage.getWarehouseTransfers({
-    warehouse,
-    from: baselineDate ? addDays(baselineDate, 1) : undefined,
-    to: asOf,
-    limit: 5000,
-  });
-  for (const t of transfers) {
-    transferDeltas.set(t.itemName, (transferDeltas.get(t.itemName) || 0) + t.qty);
+  if (baselineDate) {
+    const transfers = await storage.getWarehouseTransfers({
+      warehouse,
+      from: addDays(baselineDate, 1),
+      to: asOf,
+      limit: 5000,
+    });
+    for (const t of transfers) {
+      transferDeltas.set(t.itemName, (transferDeltas.get(t.itemName) || 0) + t.qty);
+    }
   }
 
   // 5. Combine into per-item movements (every canonical item, even at 0)

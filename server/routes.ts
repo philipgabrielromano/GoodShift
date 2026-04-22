@@ -990,7 +990,7 @@ export async function registerRoutes(
         }
         // Warehouse routing affects on-hand calculations across all warehouses;
         // restrict to admins only.
-        if ((input as any).warehouseAssignment !== undefined) {
+        if (input.warehouseAssignment !== undefined) {
           return res.status(403).json({ message: "Only admins can change warehouse assignment for a location" });
         }
       } else if (user.role !== "admin") {

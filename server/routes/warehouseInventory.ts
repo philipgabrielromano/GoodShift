@@ -56,32 +56,30 @@ function todayInTZ(): string {
 // canton; the warehouse locations themselves resolve to themselves. Admins
 // can override any assignment from the Locations admin UI; this seed only
 // fills in NULLs and never overwrites an explicit choice.
-async function seedWarehouseAssignments(): Promise<void> {
-  try {
-    const locations = await storage.getLocations();
-    const CLEVELAND_HINTS = ["cleveland", "lakewood", "parma", "euclid", "lorain", "elyria", "mentor", "willoughby", "ashtabula", "painesville", "north olmsted", "westlake", "strongsville"];
-    const CANTON_HINTS = ["canton", "massillon", "akron", "barberton", "alliance", "north canton", "stark", "cuyahoga falls", "hartville"];
-    let updated = 0;
-    for (const loc of locations as any[]) {
-      if (loc.warehouseAssignment) continue; // never overwrite admin choice
-      const haystack = `${loc.name || ""} ${loc.orderFormName || ""}`.toLowerCase();
-      let assigned: string | null = null;
-      // Self-resolution: a warehouse named cleveland/canton routes to itself
-      if (/cleveland warehouse|warehouse.*cleveland/.test(haystack)) assigned = "cleveland";
-      else if (/canton warehouse|warehouse.*canton/.test(haystack)) assigned = "canton";
-      else if (CLEVELAND_HINTS.some(h => haystack.includes(h))) assigned = "cleveland";
-      else if (CANTON_HINTS.some(h => haystack.includes(h))) assigned = "canton";
-      if (assigned) {
-        await storage.updateLocation(loc.id, { warehouseAssignment: assigned } as any);
-        updated++;
-      }
+async function seedWarehouseAssignments(): Promise<{ assigned: number; remaining: number }> {
+  const locations = await storage.getLocations();
+  const CLEVELAND_HINTS = ["cleveland", "lakewood", "parma", "euclid", "lorain", "elyria", "mentor", "willoughby", "ashtabula", "painesville", "north olmsted", "westlake", "strongsville"];
+  const CANTON_HINTS = ["canton", "massillon", "akron", "barberton", "alliance", "north canton", "stark", "cuyahoga falls", "hartville"];
+  let updated = 0;
+  for (const loc of locations) {
+    if (loc.warehouseAssignment) continue; // never overwrite admin choice
+    const haystack = `${loc.name || ""} ${loc.orderFormName || ""}`.toLowerCase();
+    let assigned: string | null = null;
+    // Self-resolution: a warehouse named cleveland/canton routes to itself
+    if (/cleveland warehouse|warehouse.*cleveland/.test(haystack)) assigned = "cleveland";
+    else if (/canton warehouse|warehouse.*canton/.test(haystack)) assigned = "canton";
+    else if (CLEVELAND_HINTS.some(h => haystack.includes(h))) assigned = "cleveland";
+    else if (CANTON_HINTS.some(h => haystack.includes(h))) assigned = "canton";
+    if (assigned) {
+      await storage.updateLocation(loc.id, { warehouseAssignment: assigned });
+      updated++;
     }
-    if (updated > 0) {
-      console.log(`[WarehouseInventory] Auto-assigned warehouse routing for ${updated} location(s) (admins can override in Locations).`);
-    }
-  } catch (err) {
-    console.error("[WarehouseInventory] Warehouse-assignment seed failed (non-fatal):", err);
   }
+  if (updated > 0) {
+    console.log(`[WarehouseInventory] Auto-assigned warehouse routing for ${updated} location(s) (admins can override in Locations).`);
+  }
+  const remaining = (await storage.getLocations()).filter(l => !l.warehouseAssignment).length;
+  return { assigned: updated, remaining };
 }
 
 export function registerWarehouseInventoryRoutes(app: Express) {
@@ -91,20 +89,25 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   const requireTransfer = requireFeatureAccess("warehouse_inventory.transfer");
 
   // Seed default warehouse assignments on startup (idempotent, NULLs only).
-  void seedWarehouseAssignments();
+  void seedWarehouseAssignments().catch(err =>
+    console.error("[WarehouseInventory] Warehouse-assignment seed failed (non-fatal):", err));
 
-  // Admin endpoint to re-run the auto-assignment heuristic for any locations
-  // that still have NULL routing (e.g. after new stores are added).
-  app.post("/api/warehouse-inventory/auto-assign-locations", requireFeatureAccess("locations.edit"), async (req, res) => {
+  // Admin-only endpoint to re-run the auto-assignment heuristic for any
+  // locations that still have NULL routing (e.g. after new stores are added).
+  // Warehouse routing affects on-hand math everywhere, so this is gated by an
+  // explicit role check, not just by feature flag.
+  app.post("/api/warehouse-inventory/auto-assign-locations", async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
-      const before = (await storage.getLocations()).filter((l: any) => !l.warehouseAssignment).length;
-      await seedWarehouseAssignments();
-      const after = (await storage.getLocations()).filter((l: any) => !l.warehouseAssignment).length;
-      res.json({ assigned: before - after, remaining: after });
-    } catch (err: any) {
-      res.status(500).json({ message: err?.message || "Auto-assignment failed" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can auto-assign warehouse routing" });
+      }
+      const result = await seedWarehouseAssignments();
+      res.json(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Auto-assignment failed";
+      res.status(500).json({ message: msg });
     }
   });
 
