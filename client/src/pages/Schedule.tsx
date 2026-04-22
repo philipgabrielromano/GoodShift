@@ -349,7 +349,7 @@ export default function Schedule() {
 
   const isSchedulePublished = publishStatus?.isPublished ?? false;
   const userRole = authStatus?.user?.role ?? "viewer";
-  const canViewSchedule = userRole === "admin" || userRole === "manager" || isSchedulePublished;
+  const canViewSchedule = userRole === "admin" || userRole === "manager" || userRole === "optimizer" || isSchedulePublished;
 
   // Create a lookup map for time clock entries by employee UKG ID and date
   const timeClockByEmpDate = useMemo(() => {
@@ -1304,7 +1304,7 @@ export default function Schedule() {
       </div>
 
       {/* Actions Bar - managers and admins only, hidden on mobile */}
-      {!isMobile && (userRole === "admin" || userRole === "manager") && (
+      {!isMobile && (userRole === "admin" || userRole === "manager" || userRole === "optimizer") && (
         <div className="flex items-center justify-center gap-2 flex-wrap" data-testid="actions-bar">
           {/* Publish/Unpublish Button */}
           {isSchedulePublished ? (
@@ -2017,7 +2017,7 @@ export default function Schedule() {
                                         </div>
                                       </ContextMenuTrigger>
                                       <ContextMenuContent>
-                                        {(userRole === 'admin' || userRole === 'manager') && (
+                                        {(userRole === 'admin' || userRole === 'manager' || userRole === 'optimizer') && (
                                           <ContextMenuItem 
                                             onClick={() => handleEditShift(shift, emp)}
                                             data-testid={`context-edit-shift-${shift.id}`}
@@ -2025,7 +2025,7 @@ export default function Schedule() {
                                             Edit Shift
                                           </ContextMenuItem>
                                         )}
-                                        {(userRole === 'admin' || userRole === 'manager') && (
+                                        {(userRole === 'admin' || userRole === 'manager' || userRole === 'optimizer') && (
                                           <ContextMenuItem 
                                             onClick={() => handleAddOccurrence(emp.id, emp.name, day)}
                                             className="text-orange-600"
