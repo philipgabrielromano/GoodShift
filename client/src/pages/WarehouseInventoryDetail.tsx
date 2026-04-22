@@ -11,9 +11,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft, Loader2, Save, CheckCircle2, Lock, Unlock, Trash2,
   TrendingUp, TrendingDown, Minus, AlertTriangle, Warehouse as WarehouseIcon,
+  Info,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -73,6 +75,8 @@ export default function WarehouseInventoryDetail() {
     }
   }, [data, hydratedForId]);
 
+  const [varianceOnly, setVarianceOnly] = useState(false);
+
   const priorMap = useMemo(() => {
     const m: Record<string, number> = {};
     (data?.priorItems || []).forEach(it => { m[it.itemName] = it.qty; });
@@ -82,18 +86,61 @@ export default function WarehouseInventoryDetail() {
   const isFinal = data?.count.status === "final";
   const readOnly = isFinal;
 
+  // Map of system-expected per item (snapshotted on finalize, live otherwise).
+  const expectedMap = useMemo(() => {
+    const m: Record<string, number | null> = {};
+    (data?.items || []).forEach(it => {
+      m[it.itemName] = isFinal
+        ? (it.expectedQty ?? null)
+        : (data?.expectedMap?.[it.itemName] ?? null);
+    });
+    return m;
+  }, [data, isFinal]);
+
   const totals = useMemo(() => {
     const byGroup: Record<string, number> = {};
+    const expectedByGroup: Record<string, number> = {};
+    const varianceByGroup: Record<string, number> = {};
+    const hasExpectedByGroup: Record<string, boolean> = {};
     let total = 0;
+    let expectedTotal = 0;
+    let varianceTotal = 0;
+    let hasAnyExpected = false;
     (data?.categories || []).forEach(cat => {
       cat.items.forEach(item => {
         const n = Number(qty[item] ?? 0) || 0;
         byGroup[cat.group] = (byGroup[cat.group] || 0) + n;
         total += n;
+        const exp = expectedMap[item];
+        if (exp != null) {
+          expectedByGroup[cat.group] = (expectedByGroup[cat.group] || 0) + exp;
+          varianceByGroup[cat.group] = (varianceByGroup[cat.group] || 0) + (n - exp);
+          expectedTotal += exp;
+          varianceTotal += n - exp;
+          hasExpectedByGroup[cat.group] = true;
+          hasAnyExpected = true;
+        }
       });
     });
-    return { byGroup, total };
-  }, [qty, data]);
+    return {
+      byGroup, total,
+      expectedByGroup, expectedTotal,
+      varianceByGroup, varianceTotal,
+      hasExpectedByGroup, hasAnyExpected,
+    };
+  }, [qty, data, expectedMap]);
+
+  const itemsWithVarianceCount = useMemo(() => {
+    let n = 0;
+    (data?.categories || []).forEach(cat => {
+      cat.items.forEach(item => {
+        const exp = expectedMap[item];
+        const cur = Number(qty[item] ?? 0) || 0;
+        if (exp != null && cur - exp !== 0) n++;
+      });
+    });
+    return n;
+  }, [data, qty, expectedMap]);
 
   const priorTotal = (data?.priorItems || []).reduce((a, b) => a + b.qty, 0);
 
@@ -258,23 +305,123 @@ export default function WarehouseInventoryDetail() {
               </div>
             </div>
           )}
+          {totals.hasAnyExpected && (
+            <>
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">System expected</div>
+                <div className="text-lg font-semibold" data-testid="text-expected-total">
+                  {totals.expectedTotal.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">Variance</div>
+                <div
+                  className={`text-lg font-semibold ${
+                    totals.varianceTotal === 0
+                      ? "text-muted-foreground"
+                      : totals.varianceTotal > 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-red-600 dark:text-red-400"
+                  }`}
+                  data-testid="text-variance-total"
+                >
+                  {totals.varianceTotal > 0 ? "+" : ""}{totals.varianceTotal.toLocaleString()}
+                </div>
+              </div>
+            </>
+          )}
           {Object.entries(totals.byGroup).map(([g, qty]) => (
             <div key={g}>
               <div className="text-xs text-muted-foreground uppercase tracking-wider">{g}</div>
               <div className="text-lg font-semibold" data-testid={`text-group-total-${g}`}>{qty}</div>
+              {totals.hasExpectedByGroup[g] && (
+                <div className="text-xs text-muted-foreground">
+                  exp {totals.expectedByGroup[g]} ·{" "}
+                  <span
+                    className={
+                      totals.varianceByGroup[g] === 0
+                        ? "text-muted-foreground"
+                        : totals.varianceByGroup[g] > 0
+                          ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                          : "text-red-600 dark:text-red-400 font-medium"
+                    }
+                    data-testid={`text-group-variance-${g}`}
+                  >
+                    {totals.varianceByGroup[g] > 0 ? "+" : ""}{totals.varianceByGroup[g]}
+                  </span>
+                </div>
+              )}
             </div>
           ))}
         </CardContent>
       </Card>
 
+      {/* Variance filter / legacy notice */}
+      {totals.hasAnyExpected ? (
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div className="text-xs text-muted-foreground" data-testid="text-variance-summary">
+            {itemsWithVarianceCount === 0
+              ? "All counted items match system expected."
+              : `${itemsWithVarianceCount} item${itemsWithVarianceCount === 1 ? "" : "s"} differ from system expected.`}
+          </div>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+            <span>Variance only</span>
+            <Switch
+              checked={varianceOnly}
+              onCheckedChange={setVarianceOnly}
+              data-testid="switch-variance-only"
+            />
+          </label>
+        </div>
+      ) : (
+        <div
+          className="flex items-start gap-2 text-xs text-muted-foreground px-1"
+          data-testid="text-no-expected"
+        >
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>
+            No system-expected snapshot is available for this count
+            {isFinal ? " (it was finalized before snapshotting was enabled)" : ""}.
+            Variance comparison isn't available.
+          </span>
+        </div>
+      )}
+
       {/* Entry form by category */}
-      {data.categories.map(cat => (
+      {data.categories.map(cat => {
+        const visibleItems = varianceOnly
+          ? cat.items.filter(item => {
+              const exp = expectedMap[item];
+              const cur = Number(qty[item] ?? 0) || 0;
+              return exp != null && cur - exp !== 0;
+            })
+          : cat.items;
+        if (varianceOnly && visibleItems.length === 0) return null;
+        return (
         <Card key={cat.group}>
           <CardHeader>
             <CardTitle data-testid={`title-group-${cat.group}`}>{cat.group}</CardTitle>
             <CardDescription>
-              {cat.items.length} items · current group total:
+              {varianceOnly
+                ? `${visibleItems.length} of ${cat.items.length} items with variance`
+                : `${cat.items.length} items`} · current group total:
               {" "}<span className="font-semibold text-foreground">{totals.byGroup[cat.group] || 0}</span>
+              {totals.hasExpectedByGroup[cat.group] && (
+                <>
+                  {" · vs system: "}
+                  <span
+                    className={
+                      totals.varianceByGroup[cat.group] === 0
+                        ? "text-muted-foreground"
+                        : totals.varianceByGroup[cat.group] > 0
+                          ? "text-emerald-600 dark:text-emerald-400 font-medium"
+                          : "text-red-600 dark:text-red-400 font-medium"
+                    }
+                  >
+                    {totals.varianceByGroup[cat.group] > 0 ? "+" : ""}{totals.varianceByGroup[cat.group]}
+                  </span>
+                </>
+              )}
               {data.prior && (
                 <>
                   {" · vs prior: "}
@@ -285,19 +432,12 @@ export default function WarehouseInventoryDetail() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y">
-              {cat.items.map(item => {
+              {visibleItems.map(item => {
                 const value = qty[item] ?? "";
                 const prior = priorMap[item] ?? 0;
                 const currentNum = Number(value) || 0;
                 const delta = currentNum - prior;
-                // Variance: actual counted (qty) vs system-expected (expectedQty).
-                // For finalized counts we use the snapshotted expectedQty; for
-                // in-progress counts there is no snapshot yet, so we fall back
-                // to the live engine value carried on data.expectedMap.
-                const itemRow = data.items.find(i => i.itemName === item);
-                const expected = isFinal
-                  ? (itemRow?.expectedQty ?? null)
-                  : (data.expectedMap?.[item] ?? null);
+                const expected = expectedMap[item];
                 const variance = expected != null ? currentNum - expected : null;
                 return (
                   <div
@@ -343,7 +483,16 @@ export default function WarehouseInventoryDetail() {
             </div>
           </CardContent>
         </Card>
-      ))}
+        );
+      })}
+
+      {varianceOnly && itemsWithVarianceCount === 0 && (
+        <Card>
+          <CardContent className="p-6 text-center text-sm text-muted-foreground" data-testid="text-empty-variance">
+            No items differ from system expected.
+          </CardContent>
+        </Card>
+      )}
 
       {/* Notes */}
       <Card>
