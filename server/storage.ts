@@ -1,4 +1,5 @@
 
+import crypto from "node:crypto";
 import { db } from "./db";
 import {
   employees, type Employee, type InsertEmployee,
@@ -150,6 +151,7 @@ export interface IStorage {
   // Warehouse transfers
   getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]>;
   createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
+  createPairedWarehouseTransfer(input: { fromWarehouse: string; toWarehouse: string; transferDate: string; itemName: string; groupName: string; qty: number; notes?: string | null }, user: { id: number; name: string }): Promise<WarehouseTransfer[]>;
   deleteWarehouseTransfer(id: number): Promise<void>;
 
   // Locations
@@ -948,8 +950,74 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  /**
+   * Create both halves of an inter-warehouse transfer atomically. Posts a
+   * negative row on the source warehouse AND a positive row on the destination
+   * warehouse, sharing a transferGroupId so the pair is auditable as one
+   * movement. This guarantees that warehouse-to-warehouse moves can never be
+   * one-sided (causing phantom inventory).
+   */
+  async createPairedWarehouseTransfer(input: {
+    fromWarehouse: string;
+    toWarehouse: string;
+    transferDate: string;
+    itemName: string;
+    groupName: string;
+    qty: number; // positive units leaving source / arriving at dest
+    notes?: string | null;
+  }, user: { id: number; name: string }): Promise<WarehouseTransfer[]> {
+    if (input.fromWarehouse === input.toWarehouse) {
+      throw new Error("Source and destination warehouses must be different");
+    }
+    if (input.qty <= 0) {
+      throw new Error("Paired transfer quantity must be positive");
+    }
+    const groupId = crypto.randomUUID();
+    return await db.transaction(async (tx) => {
+      const rows = await tx.insert(warehouseTransfers).values([
+        {
+          warehouse: input.fromWarehouse,
+          transferDate: input.transferDate,
+          itemName: input.itemName,
+          groupName: input.groupName,
+          qty: -input.qty,
+          reason: "transfer_out",
+          counterpartyWarehouse: input.toWarehouse,
+          transferGroupId: groupId,
+          notes: input.notes ?? null,
+          createdById: user.id,
+          createdByName: user.name,
+        },
+        {
+          warehouse: input.toWarehouse,
+          transferDate: input.transferDate,
+          itemName: input.itemName,
+          groupName: input.groupName,
+          qty: input.qty,
+          reason: "transfer_in",
+          counterpartyWarehouse: input.fromWarehouse,
+          transferGroupId: groupId,
+          notes: input.notes ?? null,
+          createdById: user.id,
+          createdByName: user.name,
+        },
+      ]).returning();
+      return rows;
+    });
+  }
+
   async deleteWarehouseTransfer(id: number): Promise<void> {
-    await db.delete(warehouseTransfers).where(eq(warehouseTransfers.id, id));
+    // If the row is part of a paired inter-warehouse transfer, delete BOTH
+    // halves atomically — never leave a half-transfer dangling.
+    await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
+      if (!row) return;
+      if (row.transferGroupId) {
+        await tx.delete(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
+      } else {
+        await tx.delete(warehouseTransfers).where(eq(warehouseTransfers.id, id));
+      }
+    });
   }
 
   // Locations

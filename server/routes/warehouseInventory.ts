@@ -90,15 +90,56 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Two POST modes:
+  //   1) Paired inter-warehouse transfer: body = { mode: 'paired', fromWarehouse, toWarehouse, itemName, qty>0, transferDate, notes? }
+  //      → atomically posts a -qty row on source AND a +qty row on dest, sharing transferGroupId.
+  //   2) Adjustment / salvage / other single-sided: body = { warehouse, itemName, qty (signed, !=0), reason, transferDate, notes? }
+  //      → posts a single signed row on that warehouse. Reason CANNOT be transfer_in/out (those are reserved for paired).
+  const pairedSchema = z.object({
+    mode: z.literal("paired"),
+    fromWarehouse: z.enum(WAREHOUSES),
+    toWarehouse: z.enum(WAREHOUSES),
+    itemName: z.string().min(1),
+    qty: z.number().int().positive(),
+    transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
+    notes: z.string().max(2000).nullable().optional(),
+  });
+
   app.post("/api/warehouse-transfers", requireTransfer, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
+
+      // Mode 1: paired inter-warehouse transfer
+      if (req.body && req.body.mode === "paired") {
+        const input = pairedSchema.parse(req.body);
+        if (!VALID_ITEM_NAMES.has(input.itemName)) return res.status(400).json({ message: "Invalid item" });
+        if (input.fromWarehouse === input.toWarehouse) {
+          return res.status(400).json({ message: "Source and destination warehouses must be different" });
+        }
+        const cat = WAREHOUSE_INVENTORY_CATEGORIES.find(c => c.items.includes(input.itemName));
+        const rows = await storage.createPairedWarehouseTransfer({
+          fromWarehouse: input.fromWarehouse,
+          toWarehouse: input.toWarehouse,
+          itemName: input.itemName,
+          groupName: cat?.group || "Unknown",
+          qty: input.qty,
+          transferDate: input.transferDate,
+          notes: input.notes ?? null,
+        }, user);
+        return res.status(201).json({ rows });
+      }
+
+      // Mode 2: single-sided adjustment
       const input = insertWarehouseTransferSchema.parse(req.body);
       if (!VALID_ITEM_NAMES.has(input.itemName)) {
         return res.status(400).json({ message: "Invalid item" });
       }
-      // Resolve groupName from category structure to keep it consistent
+      if (input.reason === "transfer_in" || input.reason === "transfer_out") {
+        return res.status(400).json({
+          message: "Inter-warehouse transfers must use mode='paired' so both sides are posted atomically.",
+        });
+      }
       const cat = WAREHOUSE_INVENTORY_CATEGORIES.find(c => c.items.includes(input.itemName));
       const created = await storage.createWarehouseTransfer({
         ...input,
@@ -108,7 +149,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ message: err.errors?.[0]?.message || "Invalid input" });
       console.error("[WarehouseTransfers] Create error:", err);
-      res.status(500).json({ message: "Failed to create transfer" });
+      res.status(500).json({ message: err?.message || "Failed to create transfer" });
     }
   });
 

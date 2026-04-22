@@ -14,7 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  ArrowRight, Download, Loader2, Plus, TrendingDown, TrendingUp, Minus, History, AlertTriangle, Warehouse as WarehouseIcon,
+  ArrowRight, Download, Loader2, Plus, TrendingDown, TrendingUp, Minus, History, AlertTriangle, Warehouse as WarehouseIcon, ArrowLeftRight, Trash2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -87,6 +87,20 @@ export default function WarehouseInventory() {
   const [trendWarehouse, setTrendWarehouse] = useState("cleveland");
   const [trendItem, setTrendItem] = useState<string>("");
 
+  // Transfer recording UI state
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferMode, setTransferMode] = useState<"paired" | "adjustment">("paired");
+  const [transferForm, setTransferForm] = useState({
+    fromWarehouse: "cleveland",
+    toWarehouse: "canton",
+    warehouse: "cleveland",
+    itemName: "",
+    qty: "",
+    reason: "adjustment" as "salvage_pickup" | "adjustment" | "other",
+    transferDate: "",
+    notes: "",
+  });
+
   const { data: meta } = useQuery<Meta>({ queryKey: ["/api/warehouse-inventory/meta"] });
   const { data: dashboard, isLoading, isError, error, refetch } = useQuery<Dashboard>({
     queryKey: ["/api/warehouse-inventory/dashboard"],
@@ -96,6 +110,78 @@ export default function WarehouseInventory() {
   if (meta && !form.countDate) {
     setForm(f => ({ ...f, countDate: meta.today }));
   }
+  if (meta && !transferForm.transferDate) {
+    setTransferForm(f => ({ ...f, transferDate: meta.today, itemName: meta.categories[0]?.items[0] || "" }));
+  }
+
+  const transfersQuery = useQuery<Array<{ id: number; warehouse: string; transferDate: string; itemName: string; qty: number; reason: string; counterpartyWarehouse: string | null; transferGroupId: string | null; notes: string | null; createdByName: string | null }>>({
+    queryKey: ["/api/warehouse-transfers"],
+    queryFn: async () => {
+      const res = await fetch("/api/warehouse-transfers?limit=50", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load transfers");
+      return res.json();
+    },
+  });
+
+  const transferMutation = useMutation({
+    mutationFn: async () => {
+      const qtyNum = parseInt(transferForm.qty, 10);
+      if (!Number.isFinite(qtyNum) || qtyNum === 0) throw new Error("Quantity must be a non-zero number");
+      if (transferMode === "paired") {
+        if (transferForm.fromWarehouse === transferForm.toWarehouse) {
+          throw new Error("Source and destination warehouses must be different");
+        }
+        if (qtyNum <= 0) throw new Error("Quantity must be positive for inter-warehouse transfers");
+        const cat = meta?.categories.find(c => c.items.includes(transferForm.itemName));
+        return await apiRequest("POST", "/api/warehouse-transfers", {
+          mode: "paired",
+          fromWarehouse: transferForm.fromWarehouse,
+          toWarehouse: transferForm.toWarehouse,
+          itemName: transferForm.itemName,
+          groupName: cat?.group || "",
+          qty: qtyNum,
+          transferDate: transferForm.transferDate,
+          notes: transferForm.notes || null,
+        });
+      }
+      // Adjustment mode (single-sided, signed qty allowed)
+      const cat = meta?.categories.find(c => c.items.includes(transferForm.itemName));
+      return await apiRequest("POST", "/api/warehouse-transfers", {
+        warehouse: transferForm.warehouse,
+        itemName: transferForm.itemName,
+        groupName: cat?.group || "",
+        qty: qtyNum,
+        reason: transferForm.reason,
+        transferDate: transferForm.transferDate,
+        notes: transferForm.notes || null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
+      setTransferOpen(false);
+      setTransferForm(f => ({ ...f, qty: "", notes: "" }));
+      toast({ title: "Transfer recorded", description: "Live on-hand updated." });
+    },
+    onError: async (err: any) => {
+      let msg = err?.message || "Failed to record transfer";
+      try {
+        const text = err?.message?.split(": ").slice(1).join(": ");
+        if (text) { const j = JSON.parse(text); msg = j.message || msg; }
+      } catch {}
+      toast({ title: "Error", description: msg, variant: "destructive" });
+    },
+  });
+
+  const deleteTransferMutation = useMutation({
+    mutationFn: async (id: number) => apiRequest("DELETE", `/api/warehouse-transfers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
+      toast({ title: "Transfer deleted" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to delete", variant: "destructive" }),
+  });
   if (meta && !trendItem && meta.categories[0]?.items[0]) {
     setTrendItem(meta.categories[0].items[0]);
   }
@@ -361,6 +447,244 @@ export default function WarehouseInventory() {
           </Card>
         ))}
       </div>
+
+      {/* Transfers */}
+      <Card data-testid="card-transfers">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="w-5 h-5 text-primary" />
+              Warehouse Transfers
+            </CardTitle>
+            <CardDescription>
+              Move stock between Cleveland and Canton, or post adjustments and salvage pickups. Inter-warehouse moves post both sides at once.
+            </CardDescription>
+          </div>
+          <Dialog open={transferOpen} onOpenChange={setTransferOpen}>
+            <DialogTrigger asChild>
+              <Button data-testid="button-record-transfer">
+                <Plus className="w-4 h-4 mr-2" /> Record Transfer
+              </Button>
+            </DialogTrigger>
+            <DialogContent data-testid="dialog-transfer">
+              <DialogHeader>
+                <DialogTitle>Record a Warehouse Transfer</DialogTitle>
+                <DialogDescription>
+                  Choose inter-warehouse to move stock between Cleveland & Canton (both sides post atomically), or adjustment for salvage/write-offs.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={transferMode === "paired" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTransferMode("paired")}
+                    data-testid="button-mode-paired"
+                  >
+                    Inter-warehouse
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={transferMode === "adjustment" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setTransferMode("adjustment")}
+                    data-testid="button-mode-adjustment"
+                  >
+                    Adjustment / Salvage
+                  </Button>
+                </div>
+
+                {transferMode === "paired" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>From</Label>
+                      <Select
+                        value={transferForm.fromWarehouse}
+                        onValueChange={v => setTransferForm(f => ({ ...f, fromWarehouse: v }))}
+                      >
+                        <SelectTrigger data-testid="select-from-warehouse"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(meta?.warehouses || []).map(w => (
+                            <SelectItem key={w} value={w}>{titleCase(w)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>To</Label>
+                      <Select
+                        value={transferForm.toWarehouse}
+                        onValueChange={v => setTransferForm(f => ({ ...f, toWarehouse: v }))}
+                      >
+                        <SelectTrigger data-testid="select-to-warehouse"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(meta?.warehouses || []).map(w => (
+                            <SelectItem key={w} value={w}>{titleCase(w)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>Warehouse</Label>
+                      <Select
+                        value={transferForm.warehouse}
+                        onValueChange={v => setTransferForm(f => ({ ...f, warehouse: v }))}
+                      >
+                        <SelectTrigger data-testid="select-adjust-warehouse"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(meta?.warehouses || []).map(w => (
+                            <SelectItem key={w} value={w}>{titleCase(w)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Reason</Label>
+                      <Select
+                        value={transferForm.reason}
+                        onValueChange={v => setTransferForm(f => ({ ...f, reason: v as any }))}
+                      >
+                        <SelectTrigger data-testid="select-reason"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="adjustment">Adjustment</SelectItem>
+                          <SelectItem value="salvage_pickup">Salvage Pickup</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Item</Label>
+                    <Select
+                      value={transferForm.itemName}
+                      onValueChange={v => setTransferForm(f => ({ ...f, itemName: v }))}
+                    >
+                      <SelectTrigger data-testid="select-transfer-item"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {(meta?.categories || []).map(cat => (
+                          <div key={cat.group}>
+                            <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">{cat.group}</div>
+                            {cat.items.map(item => (
+                              <SelectItem key={item} value={item}>{item}</SelectItem>
+                            ))}
+                          </div>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{transferMode === "paired" ? "Quantity (positive)" : "Quantity (signed: +in / −out)"}</Label>
+                    <Input
+                      type="number"
+                      value={transferForm.qty}
+                      onChange={e => setTransferForm(f => ({ ...f, qty: e.target.value }))}
+                      placeholder={transferMode === "paired" ? "e.g. 50" : "e.g. -10"}
+                      data-testid="input-transfer-qty"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Date</Label>
+                  <Input
+                    type="date"
+                    value={transferForm.transferDate}
+                    onChange={e => setTransferForm(f => ({ ...f, transferDate: e.target.value }))}
+                    data-testid="input-transfer-date"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label>Notes (optional)</Label>
+                  <Textarea
+                    value={transferForm.notes}
+                    onChange={e => setTransferForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Why this transfer? Reference, driver, etc."
+                    data-testid="input-transfer-notes"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setTransferOpen(false)} data-testid="button-transfer-cancel">Cancel</Button>
+                <Button
+                  onClick={() => transferMutation.mutate()}
+                  disabled={transferMutation.isPending || !transferForm.itemName || !transferForm.qty || !transferForm.transferDate}
+                  data-testid="button-transfer-submit"
+                >
+                  {transferMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Record Transfer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </CardHeader>
+        <CardContent>
+          {transfersQuery.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading transfers…</div>
+          ) : !transfersQuery.data || transfersQuery.data.length === 0 ? (
+            <div className="text-sm text-muted-foreground" data-testid="text-no-transfers">No transfers recorded yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b">
+                    <th className="py-2 pr-3">Date</th>
+                    <th className="py-2 pr-3">Warehouse</th>
+                    <th className="py-2 pr-3">Item</th>
+                    <th className="py-2 pr-3 text-right">Qty</th>
+                    <th className="py-2 pr-3">Reason</th>
+                    <th className="py-2 pr-3">By</th>
+                    <th className="py-2 pr-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transfersQuery.data.map(t => (
+                    <tr key={t.id} className="border-b last:border-0 hover-elevate" data-testid={`row-transfer-${t.id}`}>
+                      <td className="py-2 pr-3">{t.transferDate}</td>
+                      <td className="py-2 pr-3">
+                        {titleCase(t.warehouse)}
+                        {t.counterpartyWarehouse && (
+                          <span className="text-muted-foreground"> ↔ {titleCase(t.counterpartyWarehouse)}</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3">{t.itemName}</td>
+                      <td className={`py-2 pr-3 text-right font-mono ${t.qty > 0 ? "text-green-600" : "text-red-600"}`}>
+                        {t.qty > 0 ? "+" : ""}{t.qty}
+                      </td>
+                      <td className="py-2 pr-3 text-muted-foreground">{t.reason.replace(/_/g, " ")}</td>
+                      <td className="py-2 pr-3 text-muted-foreground">{t.createdByName || "—"}</td>
+                      <td className="py-2 pr-3 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            if (confirm(t.transferGroupId
+                              ? "This is one half of a paired inter-warehouse transfer. Deleting it will also remove the matching row on the other warehouse. Continue?"
+                              : "Delete this transfer? Live on-hand will recalculate.")) {
+                              deleteTransferMutation.mutate(t.id);
+                            }
+                          }}
+                          disabled={deleteTransferMutation.isPending}
+                          data-testid={`button-delete-transfer-${t.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Trend chart */}
       <Card>

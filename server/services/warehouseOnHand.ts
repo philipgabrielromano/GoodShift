@@ -48,13 +48,12 @@ export async function computeWarehouseOnHand(
   warehouse: Warehouse,
   asOf: string,
 ): Promise<OnHandResult> {
-  // 1. Find baseline final count (<= asOf). Fall back to latest of any status.
+  // 1. Find baseline = most recent FINAL count whose date <= asOf.
+  // Drafts are NEVER used as a baseline — they would produce phantom on-hand
+  // numbers that don't reflect a real, leadership-approved snapshot. If no
+  // finalized count exists yet (rollout state), the engine starts from zero.
   const allCounts = await storage.getWarehouseInventoryCounts({ warehouse, limit: 200 });
-  const onOrBefore = allCounts.filter(c => c.countDate <= asOf);
-  const baseline =
-    onOrBefore.find(c => c.status === "final") ||
-    onOrBefore[0] ||
-    null;
+  const baseline = allCounts.find(c => c.status === "final" && c.countDate <= asOf) || null;
 
   const baselineDate = baseline?.countDate ?? null;
   const baselineId = baseline?.id ?? null;
