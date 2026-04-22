@@ -62,11 +62,17 @@ export async function computeWarehouseOnHand(
     : [];
   const baselineMap = new Map(baselineItems.map(i => [i.itemName, i.qty] as const));
 
-  // 2. Find which store locations feed this warehouse
+  // 2. Find which store locations feed this warehouse. Match against BOTH
+  // the canonical location.name AND its orderFormName, because the orders
+  // table stores whatever display name the Order Form sent (`orderFormName ??
+  // name`). Failing to include both would silently drop movements for any
+  // store that uses an Order Form alias.
   const allLocations = await storage.getLocations();
-  const feederStoreNames = allLocations
-    .filter(l => (l as any).warehouseAssignment === warehouse)
-    .map(l => l.name);
+  const feederStoreNames = Array.from(new Set(
+    allLocations
+      .filter(l => (l as any).warehouseAssignment === warehouse)
+      .flatMap(l => [l.name, (l as any).orderFormName].filter(Boolean) as string[])
+  ));
 
   // 3. Sum order deltas in (baselineDate, asOf]
   const orderDeltas = new Map<string, number>(); // itemName -> signed qty

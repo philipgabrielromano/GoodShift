@@ -153,6 +153,33 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Edit a transfer's notes (and date). Quantity/item/warehouse changes are
+  // intentionally not editable — delete + recreate keeps the audit trail clean
+  // and avoids ambiguity for paired rows. If the row belongs to a paired
+  // transfer (transferGroupId set), BOTH halves get the same notes/date.
+  const transferEditSchema = z.object({
+    notes: z.string().max(2000).nullable().optional(),
+    transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD").optional(),
+  });
+
+  app.patch("/api/warehouse-transfers/:id", requireTransfer, async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      const id = Number(req.params.id);
+      const input = transferEditSchema.parse(req.body);
+      if (input.notes === undefined && input.transferDate === undefined) {
+        return res.status(400).json({ message: "Nothing to update" });
+      }
+      const updated = await storage.updateWarehouseTransfer(id, input);
+      res.json(updated);
+    } catch (err: any) {
+      if (err?.name === "ZodError") return res.status(400).json({ message: err.errors?.[0]?.message || "Invalid input" });
+      console.error("[WarehouseTransfers] Update error:", err);
+      res.status(500).json({ message: err?.message || "Failed to update transfer" });
+    }
+  });
+
   app.delete("/api/warehouse-transfers/:id", requireTransfer, async (req, res) => {
     try {
       const user = getSessionUser(req);
@@ -337,12 +364,22 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const priorItems = prior
         ? await storage.getWarehouseInventoryCountItems(prior.id)
         : [];
+      // For draft (non-final) counts, include a live system-expected map so the
+      // UI can show real-time variance (counted vs system) per item. For final
+      // counts, the snapshotted expectedQty on each item row is authoritative.
+      let expectedMap: Record<string, number> | undefined;
+      if (count.status !== "final") {
+        const live = await computeWarehouseOnHand(count.warehouse, count.countDate);
+        expectedMap = {};
+        for (const it of live.items) expectedMap[it.itemName] = it.qty;
+      }
       res.json({
         count,
         items,
         prior,
         priorItems,
         categories: WAREHOUSE_INVENTORY_CATEGORIES,
+        expectedMap,
       });
     } catch (err) {
       console.error("[WarehouseInventory] Detail error:", err);

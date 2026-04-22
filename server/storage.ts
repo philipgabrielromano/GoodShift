@@ -152,6 +152,7 @@ export interface IStorage {
   getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]>;
   createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
   createPairedWarehouseTransfer(input: { fromWarehouse: string; toWarehouse: string; transferDate: string; itemName: string; groupName: string; qty: number; notes?: string | null }, user: { id: number; name: string }): Promise<WarehouseTransfer[]>;
+  updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }): Promise<WarehouseTransfer>;
   deleteWarehouseTransfer(id: number): Promise<void>;
 
   // Locations
@@ -1003,6 +1004,24 @@ export class DatabaseStorage implements IStorage {
         },
       ]).returning();
       return rows;
+    });
+  }
+
+  async updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }): Promise<WarehouseTransfer> {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
+      if (!row) throw new Error("Transfer not found");
+      const patch: any = {};
+      if (input.notes !== undefined) patch.notes = input.notes;
+      if (input.transferDate !== undefined) patch.transferDate = input.transferDate;
+      // Apply to BOTH halves of a paired transfer so they always agree
+      if (row.transferGroupId) {
+        await tx.update(warehouseTransfers).set(patch).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
+      } else {
+        await tx.update(warehouseTransfers).set(patch).where(eq(warehouseTransfers.id, id));
+      }
+      const [refreshed] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
+      return refreshed;
     });
   }
 

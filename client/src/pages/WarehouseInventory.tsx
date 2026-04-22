@@ -14,13 +14,16 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  ArrowRight, Download, Loader2, Plus, TrendingDown, TrendingUp, Minus, History, AlertTriangle, Warehouse as WarehouseIcon, ArrowLeftRight, Trash2,
+  ArrowRight, Download, Loader2, Plus, TrendingDown, TrendingUp, Minus, History, AlertTriangle, Warehouse as WarehouseIcon, ArrowLeftRight, Trash2, Pencil,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
+
+type AdjustmentReason = "salvage_pickup" | "adjustment" | "other";
+const ADJUSTMENT_REASONS: AdjustmentReason[] = ["salvage_pickup", "adjustment", "other"];
 
 interface Meta {
   warehouses: string[];
@@ -90,13 +93,14 @@ export default function WarehouseInventory() {
   // Transfer recording UI state
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferMode, setTransferMode] = useState<"paired" | "adjustment">("paired");
+  const [editingTransfer, setEditingTransfer] = useState<{ id: number; notes: string; transferDate: string; isPaired: boolean } | null>(null);
   const [transferForm, setTransferForm] = useState({
     fromWarehouse: "cleveland",
     toWarehouse: "canton",
     warehouse: "cleveland",
     itemName: "",
     qty: "",
-    reason: "adjustment" as "salvage_pickup" | "adjustment" | "other",
+    reason: "adjustment" as AdjustmentReason,
     transferDate: "",
     notes: "",
   });
@@ -171,6 +175,18 @@ export default function WarehouseInventory() {
       } catch {}
       toast({ title: "Error", description: msg, variant: "destructive" });
     },
+  });
+
+  const updateTransferMutation = useMutation({
+    mutationFn: async ({ id, notes, transferDate }: { id: number; notes: string | null; transferDate?: string }) =>
+      apiRequest("PATCH", `/api/warehouse-transfers/${id}`, { notes, transferDate }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
+      setEditingTransfer(null);
+      toast({ title: "Transfer updated" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to update", variant: "destructive" }),
   });
 
   const deleteTransferMutation = useMutation({
@@ -546,7 +562,10 @@ export default function WarehouseInventory() {
                       <Label>Reason</Label>
                       <Select
                         value={transferForm.reason}
-                        onValueChange={v => setTransferForm(f => ({ ...f, reason: v as any }))}
+                        onValueChange={v => {
+                          const r = ADJUSTMENT_REASONS.find(ar => ar === v);
+                          if (r) setTransferForm(f => ({ ...f, reason: r }));
+                        }}
                       >
                         <SelectTrigger data-testid="select-reason"><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -660,7 +679,20 @@ export default function WarehouseInventory() {
                       </td>
                       <td className="py-2 pr-3 text-muted-foreground">{t.reason.replace(/_/g, " ")}</td>
                       <td className="py-2 pr-3 text-muted-foreground">{t.createdByName || "—"}</td>
-                      <td className="py-2 pr-3 text-right">
+                      <td className="py-2 pr-3 text-right space-x-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditingTransfer({
+                            id: t.id,
+                            notes: t.notes ?? "",
+                            transferDate: t.transferDate,
+                            isPaired: !!t.transferGroupId,
+                          })}
+                          data-testid={`button-edit-transfer-${t.id}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -747,6 +779,57 @@ export default function WarehouseInventory() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit transfer dialog */}
+      <Dialog open={!!editingTransfer} onOpenChange={(o) => !o && setEditingTransfer(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Transfer</DialogTitle>
+            <DialogDescription>
+              {editingTransfer?.isPaired
+                ? "This is a paired inter-warehouse transfer. Notes and date will update on BOTH halves."
+                : "Update notes or date for this transfer. Quantity/item are immutable — delete and re-record to change them."}
+            </DialogDescription>
+          </DialogHeader>
+          {editingTransfer && (
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>Date</Label>
+                <Input
+                  type="date"
+                  value={editingTransfer.transferDate}
+                  onChange={e => setEditingTransfer(t => t ? { ...t, transferDate: e.target.value } : t)}
+                  data-testid="input-edit-transfer-date"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Notes</Label>
+                <Textarea
+                  rows={3}
+                  value={editingTransfer.notes}
+                  onChange={e => setEditingTransfer(t => t ? { ...t, notes: e.target.value } : t)}
+                  data-testid="input-edit-transfer-notes"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingTransfer(null)} data-testid="button-cancel-edit-transfer">Cancel</Button>
+            <Button
+              onClick={() => editingTransfer && updateTransferMutation.mutate({
+                id: editingTransfer.id,
+                notes: editingTransfer.notes.trim() || null,
+                transferDate: editingTransfer.transferDate,
+              })}
+              disabled={updateTransferMutation.isPending}
+              data-testid="button-save-edit-transfer"
+            >
+              {updateTransferMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

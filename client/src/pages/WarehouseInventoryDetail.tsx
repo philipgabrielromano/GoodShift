@@ -19,7 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface CountRow { id: number; warehouse: string; countDate: string; status: string; notes: string | null; createdByName: string | null; finalizedByName: string | null; finalizedAt: string | null; }
-interface Item { id: number; groupName: string; itemName: string; qty: number; }
+interface Item { id: number; groupName: string; itemName: string; qty: number; expectedQty: number | null; }
 interface Detail {
   count: CountRow;
   items: Item[];
@@ -287,6 +287,15 @@ export default function WarehouseInventoryDetail() {
                 const prior = priorMap[item] ?? 0;
                 const currentNum = Number(value) || 0;
                 const delta = currentNum - prior;
+                // Variance: actual counted (qty) vs system-expected (expectedQty).
+                // For finalized counts we use the snapshotted expectedQty; for
+                // in-progress counts there is no snapshot yet, so we fall back
+                // to the live engine value carried on data.expectedMap.
+                const itemRow = data.items.find(i => i.itemName === item);
+                const expected = isFinal
+                  ? (itemRow?.expectedQty ?? null)
+                  : (data.expectedMap?.[item] ?? null);
+                const variance = expected != null ? currentNum - expected : null;
                 return (
                   <div
                     key={item}
@@ -298,6 +307,19 @@ export default function WarehouseInventoryDetail() {
                       {data.prior && (
                         <div className="text-xs text-muted-foreground">
                           Prior ({data.prior.countDate}): {prior} <Delta value={delta} />
+                        </div>
+                      )}
+                      {expected != null && (
+                        <div className="text-xs text-muted-foreground" data-testid={`text-variance-${item}`}>
+                          {isFinal ? "System expected" : "System (live)"}: {expected}
+                          {variance != null && (
+                            <>
+                              {" · variance: "}
+                              <span className={variance === 0 ? "text-muted-foreground" : variance > 0 ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                {variance > 0 ? `+${variance}` : variance}
+                              </span>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
