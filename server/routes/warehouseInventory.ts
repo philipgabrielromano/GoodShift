@@ -225,7 +225,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       if (input.notes === undefined && input.transferDate === undefined) {
         return res.status(400).json({ message: "Nothing to update" });
       }
-      const updated = await storage.updateWarehouseTransfer(id, input);
+      const updated = await storage.updateWarehouseTransfer(id, input, user);
       res.json(updated);
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ message: err.errors?.[0]?.message || "Invalid input" });
@@ -242,7 +242,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       if (user.role !== "admin") {
         return res.status(403).json({ message: "Only admins can delete recorded transfers" });
       }
-      await storage.deleteWarehouseTransfer(Number(req.params.id));
+      await storage.deleteWarehouseTransfer(Number(req.params.id), user);
       res.status(204).send();
     } catch (err) {
       console.error("[WarehouseTransfers] Delete error:", err);

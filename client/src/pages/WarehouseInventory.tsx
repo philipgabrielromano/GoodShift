@@ -118,7 +118,7 @@ export default function WarehouseInventory() {
     setTransferForm(f => ({ ...f, transferDate: meta.today, itemName: meta.categories[0]?.items[0] || "" }));
   }
 
-  const transfersQuery = useQuery<Array<{ id: number; warehouse: string; transferDate: string; itemName: string; qty: number; reason: string; counterpartyWarehouse: string | null; transferGroupId: string | null; notes: string | null; createdByName: string | null }>>({
+  const transfersQuery = useQuery<Array<{ id: number; warehouse: string; transferDate: string; itemName: string; qty: number; reason: string; counterpartyWarehouse: string | null; transferGroupId: string | null; notes: string | null; createdByName: string | null; createdAt: string | null; updatedByName: string | null; updatedAt: string | null }>>({
     queryKey: ["/api/warehouse-transfers"],
     queryFn: async () => {
       const res = await fetch("/api/warehouse-transfers?limit=50", { credentials: "include" });
@@ -678,7 +678,18 @@ export default function WarehouseInventory() {
                         {t.qty > 0 ? "+" : ""}{t.qty}
                       </td>
                       <td className="py-2 pr-3 text-muted-foreground">{t.reason.replace(/_/g, " ")}</td>
-                      <td className="py-2 pr-3 text-muted-foreground">{t.createdByName || "—"}</td>
+                      <td className="py-2 pr-3 text-muted-foreground" data-testid={`text-transfer-by-${t.id}`}>
+                        <div>{t.createdByName || "—"}</div>
+                        {t.updatedByName && t.updatedAt && (
+                          <div
+                            className="text-xs italic"
+                            title={`Edited ${new Date(t.updatedAt).toLocaleString()}`}
+                            data-testid={`text-transfer-edited-by-${t.id}`}
+                          >
+                            edited by {t.updatedByName}
+                          </div>
+                        )}
+                      </td>
                       <td className="py-2 pr-3 text-right space-x-1">
                         <Button
                           size="sm"

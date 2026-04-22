@@ -154,8 +154,8 @@ export interface IStorage {
   getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]>;
   createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
   createPairedWarehouseTransfer(input: { fromWarehouse: string; toWarehouse: string; transferDate: string; itemName: string; groupName: string; qty: number; notes?: string | null }, user: { id: number; name: string }): Promise<WarehouseTransfer[]>;
-  updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }): Promise<WarehouseTransfer>;
-  deleteWarehouseTransfer(id: number): Promise<void>;
+  updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }, user: { id: number; name: string }): Promise<WarehouseTransfer>;
+  deleteWarehouseTransfer(id: number, user: { id: number; name: string }): Promise<void>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -1071,11 +1071,15 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }): Promise<WarehouseTransfer> {
+  async updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }, user: { id: number; name: string }): Promise<WarehouseTransfer> {
     return await db.transaction(async (tx) => {
       const [row] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
       if (!row) throw new Error("Transfer not found");
-      const patch: any = {};
+      const patch: any = {
+        updatedById: user.id,
+        updatedByName: user.name,
+        updatedAt: new Date(),
+      };
       if (input.notes !== undefined) patch.notes = input.notes;
       if (input.transferDate !== undefined) patch.transferDate = input.transferDate;
       // Apply to BOTH halves of a paired transfer so they always agree
@@ -1089,15 +1093,18 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async deleteWarehouseTransfer(id: number): Promise<void> {
+  async deleteWarehouseTransfer(id: number, user: { id: number; name: string }): Promise<void> {
     // If the row is part of a paired inter-warehouse transfer, delete BOTH
     // halves atomically — never leave a half-transfer dangling.
     await db.transaction(async (tx) => {
       const [row] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
       if (!row) return;
       if (row.transferGroupId) {
+        const pair = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
+        console.log(`[WarehouseTransfers] User ${user.name} (id=${user.id}) deleted paired transfer group ${row.transferGroupId} (rows: ${pair.map(r => r.id).join(", ")}) — item=${row.itemName}, qty=${row.qty}`);
         await tx.delete(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
       } else {
+        console.log(`[WarehouseTransfers] User ${user.name} (id=${user.id}) deleted transfer ${id} — warehouse=${row.warehouse}, item=${row.itemName}, qty=${row.qty}, reason=${row.reason}`);
         await tx.delete(warehouseTransfers).where(eq(warehouseTransfers.id, id));
       }
     });

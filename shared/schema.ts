@@ -1204,6 +1204,9 @@ export const warehouseTransfers = pgTable("warehouse_transfers", {
   createdById: integer("created_by_id"),
   createdByName: text("created_by_name"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedById: integer("updated_by_id"),
+  updatedByName: text("updated_by_name"),
+  updatedAt: timestamp("updated_at"),
 }, (table) => [
   index("idx_wh_transfers_warehouse_date").on(table.warehouse, table.transferDate),
   index("idx_wh_transfers_item").on(table.itemName),
@@ -1231,6 +1234,9 @@ export const insertWarehouseTransferSchema = createInsertSchema(warehouseTransfe
   createdAt: true,
   createdById: true,
   createdByName: true,
+  updatedAt: true,
+  updatedById: true,
+  updatedByName: true,
 }).extend({
   warehouse: z.enum(WAREHOUSES),
   transferDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be YYYY-MM-DD"),
