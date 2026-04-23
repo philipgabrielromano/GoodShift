@@ -29,6 +29,7 @@ import SeasonalInventory from "@/pages/SeasonalInventory";
 import TrailerManifests from "@/pages/TrailerManifests";
 import TrailerManifestDetail from "@/pages/TrailerManifestDetail";
 import TruckRoutes from "@/pages/TruckRoutes";
+import Trailers from "@/pages/Trailers";
 import WarehouseInventory from "@/pages/WarehouseInventory";
 import WarehouseInventoryList from "@/pages/WarehouseInventoryList";
 import WarehouseInventoryDetail from "@/pages/WarehouseInventoryDetail";
@@ -72,6 +73,7 @@ function Router() {
       <Route path="/trailer-manifests/:id" component={TrailerManifestDetail} />
       <Route path="/trailer-manifests" component={TrailerManifests} />
       <Route path="/truck-routes" component={TruckRoutes} />
+      <Route path="/trailers" component={Trailers} />
       <Route path="/warehouse-inventory/list" component={WarehouseInventoryList} />
       <Route path="/warehouse-inventory/:id" component={WarehouseInventoryDetail} />
       <Route path="/warehouse-inventory" component={WarehouseInventory} />

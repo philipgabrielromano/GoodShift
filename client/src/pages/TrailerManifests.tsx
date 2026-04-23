@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,10 +15,11 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, Truck, MapPin, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { TrailerManifest, TrailerManifestStatus, TruckRoute, TruckRouteWithStops } from "@shared/schema";
+import type { TrailerManifest, TrailerManifestStatus, TruckRoute, TruckRouteWithStops, Trailer } from "@shared/schema";
 import { TRAILER_MANIFEST_STATUSES } from "@shared/schema";
 import { useLocations } from "@/hooks/use-locations";
 import { isValidLocation } from "@/lib/utils";
+import { useCurrentUser } from "@/hooks/use-users";
 
 const STATUS_LABELS: Record<TrailerManifestStatus, string> = {
   loading: "Loading",
@@ -43,9 +44,7 @@ export default function TrailerManifests() {
     fromLocation: "",
     toLocation: "",
     routeId: "" as string, // empty = no configured route attached
-    routeNumber: "",
     trailerNumber: "",
-    sealNumber: "",
     driverName: "",
     notes: "",
   });
@@ -60,6 +59,20 @@ export default function TrailerManifests() {
     queryKey: ["/api/truck-routes", selectedRouteId],
     enabled: selectedRouteId !== null,
   });
+
+  const { data: trailers = [] } = useQuery<Trailer[]>({ queryKey: ["/api/trailers"] });
+  const activeTrailers = trailers.filter(t => t.isActive);
+
+  const { data: currentUser } = useCurrentUser();
+  const currentUserName = currentUser?.user?.name || "";
+
+  // Default driver to logged-in user when opening the create dialog (only if blank).
+  useEffect(() => {
+    if (createOpen && currentUserName && !form.driverName) {
+      setForm(f => ({ ...f, driverName: currentUserName }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createOpen, currentUserName]);
 
   const { data: manifests = [], isLoading, isError, error } = useQuery<TrailerManifest[]>({
     queryKey: ["/api/trailer-manifests", statusFilter],
@@ -92,9 +105,7 @@ export default function TrailerManifests() {
         fromLocation: input.fromLocation,
         toLocation: input.toLocation,
         routeId: input.routeId ? Number(input.routeId) : null,
-        routeNumber: input.routeNumber || null,
         trailerNumber: input.trailerNumber || null,
-        sealNumber: input.sealNumber || null,
         driverName: input.driverName || null,
         notes: input.notes || null,
       };
@@ -105,7 +116,7 @@ export default function TrailerManifests() {
       queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
       toast({ title: "Manifest created" });
       setCreateOpen(false);
-      setForm({ fromLocation: "", toLocation: "", routeId: "", routeNumber: "", trailerNumber: "", sealNumber: "", driverName: "", notes: "" });
+      setForm({ fromLocation: "", toLocation: "", routeId: "", trailerNumber: "", driverName: "", notes: "" });
       setLocation(`/trailer-manifests/${created.id}`);
     },
     onError: (err: any) => {
@@ -189,78 +200,70 @@ export default function TrailerManifests() {
                     </Select>
                   </div>
                 </div>
+                <div className="space-y-2">
+                  <Label>Route</Label>
+                  <Select
+                    value={form.routeId || "none"}
+                    onValueChange={(v) => {
+                      if (v === "none") {
+                        setForm({ ...form, routeId: "" });
+                      } else {
+                        setForm({ ...form, routeId: v });
+                      }
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-route">
+                      <SelectValue placeholder="No configured route" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No configured route</SelectItem>
+                      {activeRoutes.map(r => (
+                        <SelectItem key={r.id} value={String(r.id)} data-testid={`select-route-option-${r.id}`}>
+                          {r.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedRoute && selectedRoute.stops.length > 0 && (
+                    <p className="text-xs text-muted-foreground" data-testid="text-route-stops-preview">
+                      Notifies: {selectedRoute.stops.map(s => s.locationName).join(", ")}
+                    </p>
+                  )}
+                  {selectedRoute && selectedRoute.stops.length === 0 && (
+                    <p className="text-xs text-destructive">This route has no stops yet — no one will be notified.</p>
+                  )}
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>Route</Label>
+                    <Label>Trailer</Label>
                     <Select
-                      value={form.routeId || "none"}
-                      onValueChange={(v) => {
-                        if (v === "none") {
-                          setForm({ ...form, routeId: "" });
-                        } else {
-                          const r = activeRoutes.find(rr => String(rr.id) === v);
-                          setForm({ ...form, routeId: v, routeNumber: r?.name || form.routeNumber });
-                        }
-                      }}
+                      value={form.trailerNumber || "none"}
+                      onValueChange={(v) => setForm({ ...form, trailerNumber: v === "none" ? "" : v })}
                     >
-                      <SelectTrigger data-testid="select-route">
-                        <SelectValue placeholder="No configured route" />
+                      <SelectTrigger data-testid="select-trailer-number">
+                        <SelectValue placeholder={activeTrailers.length === 0 ? "No trailers configured" : "Select trailer"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No configured route</SelectItem>
-                        {activeRoutes.map(r => (
-                          <SelectItem key={r.id} value={String(r.id)} data-testid={`select-route-option-${r.id}`}>
-                            {r.name}
+                        <SelectItem value="none">— None —</SelectItem>
+                        {activeTrailers.map(t => (
+                          <SelectItem key={t.id} value={t.number} data-testid={`select-trailer-option-${t.id}`}>
+                            {t.number}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {selectedRoute && selectedRoute.stops.length > 0 && (
-                      <p className="text-xs text-muted-foreground" data-testid="text-route-stops-preview">
-                        Notifies: {selectedRoute.stops.map(s => s.locationName).join(", ")}
+                    {activeTrailers.length === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        Add trailers under Trailers (in Ordering &amp; Logging) to enable this dropdown.
                       </p>
                     )}
-                    {selectedRoute && selectedRoute.stops.length === 0 && (
-                      <p className="text-xs text-destructive">This route has no stops yet — no one will be notified.</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Route number / label</Label>
-                    <Input
-                      value={form.routeNumber}
-                      onChange={e => setForm({ ...form, routeNumber: e.target.value })}
-                      placeholder="e.g. 142"
-                      data-testid="input-route-number"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Trailer number</Label>
-                    <Input
-                      value={form.trailerNumber}
-                      onChange={e => setForm({ ...form, trailerNumber: e.target.value })}
-                      placeholder="e.g. T-7821"
-                      data-testid="input-trailer-number"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Seal number</Label>
-                    <Input
-                      value={form.sealNumber}
-                      onChange={e => setForm({ ...form, sealNumber: e.target.value })}
-                      placeholder="Optional"
-                      data-testid="input-seal-number"
-                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Driver</Label>
                     <Input
                       value={form.driverName}
                       onChange={e => setForm({ ...form, driverName: e.target.value })}
-                      placeholder="Optional"
+                      placeholder="Driver name"
                       data-testid="input-driver-name"
                     />
                   </div>
@@ -321,7 +324,6 @@ export default function TrailerManifests() {
                       <span className="font-medium" data-testid={`text-to-${m.id}`}>{m.toLocation}</span>
                     </div>
                     <div className="text-sm text-muted-foreground flex-1 min-w-[200px]">
-                      {m.routeNumber && <span className="mr-3">Route #{m.routeNumber}</span>}
                       {m.trailerNumber && <span className="mr-3">Trailer #{m.trailerNumber}</span>}
                       {m.driverName && <span>Driver: {m.driverName}</span>}
                     </div>

@@ -27,6 +27,7 @@ import {
   trailerManifests, type TrailerManifest, type InsertTrailerManifest,
   truckRoutes, type TruckRoute, type InsertTruckRoute, type TruckRouteWithStops,
   truckRouteLocations,
+  trailers, type Trailer, type InsertTrailer,
   trailerManifestItems, type TrailerManifestItem,
   trailerManifestEvents, type TrailerManifestEvent,
   trailerManifestPhotos, type TrailerManifestPhoto, type InsertTrailerManifestPhoto,
@@ -300,6 +301,13 @@ export interface IStorage {
   updateTruckRoute(id: number, input: Partial<InsertTruckRoute>): Promise<TruckRoute>;
   deleteTruckRoute(id: number): Promise<void>;
   setTruckRouteStops(routeId: number, locationIds: number[]): Promise<void>;
+
+  // Trailers (fleet)
+  getTrailers(): Promise<Trailer[]>;
+  getTrailer(id: number): Promise<Trailer | undefined>;
+  createTrailer(input: InsertTrailer): Promise<Trailer>;
+  updateTrailer(id: number, input: Partial<InsertTrailer>): Promise<Trailer>;
+  deleteTrailer(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -771,6 +779,34 @@ export class DatabaseStorage implements IStorage {
       await tx.delete(truckRouteLocations).where(eq(truckRouteLocations.routeId, id));
       await tx.delete(truckRoutes).where(eq(truckRoutes.id, id));
     });
+  }
+
+  // Trailers (fleet)
+  async getTrailers(): Promise<Trailer[]> {
+    return await db.select().from(trailers).orderBy(desc(trailers.isActive), trailers.number);
+  }
+
+  async getTrailer(id: number): Promise<Trailer | undefined> {
+    const [t] = await db.select().from(trailers).where(eq(trailers.id, id));
+    return t;
+  }
+
+  async createTrailer(input: InsertTrailer): Promise<Trailer> {
+    const [created] = await db.insert(trailers).values(input).returning();
+    return created;
+  }
+
+  async updateTrailer(id: number, input: Partial<InsertTrailer>): Promise<Trailer> {
+    const [updated] = await db
+      .update(trailers)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(trailers.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTrailer(id: number): Promise<void> {
+    await db.delete(trailers).where(eq(trailers.id, id));
   }
 
   async setTruckRouteStops(routeId: number, locationIds: number[]): Promise<void> {

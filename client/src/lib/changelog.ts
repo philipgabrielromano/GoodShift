@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.0";
+export const APP_VERSION = "3.6.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.1",
+    date: "2026-04-23",
+    title: "Trailer Manifest Overhaul: Configurable Trailer Fleet",
+    changes: [
+      { type: "feature", description: "New Trailers page (Ordering & Logging → Trailers). Transportation staff can add, edit, and deactivate trailers in the fleet, just like Truck Routes." },
+      { type: "improvement", description: "On the New Manifest dialog, Trailer Number is now a dropdown of active trailers from the fleet — no more typing the number from memory." },
+      { type: "improvement", description: "Driver field on a new manifest now defaults to the logged-in user — leave it as-is for your own runs, or change it for someone else." },
+      { type: "improvement", description: "Removed the Route Number / Label field from the manifest. The configured Route already carries the route's name." },
+      { type: "improvement", description: "Removed the Seal Number field everywhere — manifest dialog, edit screen, and the Trailer In Transit email." },
+    ],
+  },
   {
     version: "3.6.0",
     date: "2026-04-23",

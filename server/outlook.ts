@@ -585,9 +585,7 @@ export interface TrailerInTransitEmailData {
   manifestId: number;
   fromLocation: string;
   toLocation: string;
-  routeNumber: string | null;
   trailerNumber: string | null;
-  sealNumber: string | null;
   driverName: string | null;
   itemSummary: { itemName: string; qty: number }[];
   notes: string | null;
@@ -599,7 +597,7 @@ export async function sendTrailerInTransitEmail(
   toEmail: string,
   data: TrailerInTransitEmailData
 ): Promise<boolean> {
-  const subject = `GoodShift: Trailer In Transit to ${data.toLocation}${data.routeNumber ? ` (Route ${data.routeNumber})` : ""}`;
+  const subject = `GoodShift: Trailer In Transit to ${data.toLocation}`;
   try {
     const client = getGraphClient();
     const senderEmail = process.env.HR_SENDER_EMAIL;
@@ -631,9 +629,7 @@ export async function sendTrailerInTransitEmail(
         ${detailRow("From", data.fromLocation, true)}
         ${detailRow("To", data.toLocation, true)}
         ${detailRow("Departed", data.departedAt)}
-        ${detailRow("Route #", data.routeNumber, true)}
         ${detailRow("Trailer #", data.trailerNumber, true)}
-        ${detailRow("Seal #", data.sealNumber)}
         ${detailRow("Driver", data.driverName, true)}
       </table>
       ${itemsHtml}

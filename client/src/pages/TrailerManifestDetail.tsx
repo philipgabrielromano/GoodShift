@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import type { Trailer } from "@shared/schema";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -64,22 +65,21 @@ export default function TrailerManifestDetail() {
   const [headerForm, setHeaderForm] = useState({
     fromLocation: "",
     toLocation: "",
-    routeNumber: "",
     trailerNumber: "",
-    sealNumber: "",
     driverName: "",
     notes: "",
   });
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const { data: trailers = [] } = useQuery<Trailer[]>({ queryKey: ["/api/trailers"] });
+  const activeTrailers = trailers.filter(t => t.isActive);
 
   useEffect(() => {
     if (data?.manifest) {
       setHeaderForm({
         fromLocation: data.manifest.fromLocation || "",
         toLocation: data.manifest.toLocation || "",
-        routeNumber: data.manifest.routeNumber || "",
         trailerNumber: data.manifest.trailerNumber || "",
-        sealNumber: data.manifest.sealNumber || "",
         driverName: data.manifest.driverName || "",
         notes: data.manifest.notes || "",
       });
@@ -130,9 +130,7 @@ export default function TrailerManifestDetail() {
     mutationFn: async (input: typeof headerForm) => {
       return await apiRequest("PUT", `/api/trailer-manifests/${manifestId}`, {
         ...input,
-        routeNumber: input.routeNumber || null,
         trailerNumber: input.trailerNumber || null,
-        sealNumber: input.sealNumber || null,
         driverName: input.driverName || null,
         notes: input.notes || null,
       });
@@ -426,31 +424,31 @@ export default function TrailerManifestDetail() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Route number</Label>
-                <Input
-                  value={headerForm.routeNumber}
-                  onChange={e => setHeaderForm({ ...headerForm, routeNumber: e.target.value })}
+                <Label>Trailer</Label>
+                <Select
+                  value={headerForm.trailerNumber || "none"}
+                  onValueChange={(v) => setHeaderForm({ ...headerForm, trailerNumber: v === "none" ? "" : v })}
                   disabled={isReadOnly}
-                  data-testid="input-edit-route"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Trailer number</Label>
-                <Input
-                  value={headerForm.trailerNumber}
-                  onChange={e => setHeaderForm({ ...headerForm, trailerNumber: e.target.value })}
-                  disabled={isReadOnly}
-                  data-testid="input-edit-trailer"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Seal number</Label>
-                <Input
-                  value={headerForm.sealNumber}
-                  onChange={e => setHeaderForm({ ...headerForm, sealNumber: e.target.value })}
-                  disabled={isReadOnly}
-                  data-testid="input-edit-seal"
-                />
+                >
+                  <SelectTrigger data-testid="select-edit-trailer">
+                    <SelectValue placeholder="No trailer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— None —</SelectItem>
+                    {/* Always show the currently-saved value, even if it isn't (anymore) in the active fleet. */}
+                    {headerForm.trailerNumber &&
+                      !activeTrailers.some(t => t.number === headerForm.trailerNumber) && (
+                        <SelectItem value={headerForm.trailerNumber} data-testid="select-edit-trailer-legacy">
+                          {headerForm.trailerNumber} (not in fleet)
+                        </SelectItem>
+                      )}
+                    {activeTrailers.map(t => (
+                      <SelectItem key={t.id} value={t.number} data-testid={`select-edit-trailer-option-${t.id}`}>
+                        {t.number}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Driver</Label>
