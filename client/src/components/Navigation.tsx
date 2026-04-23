@@ -78,6 +78,7 @@ export function Navigation() {
     const orders: NavItem[] = [];
     if (can("orders.submit")) orders.push({ href: "/orders/new", label: "Order Form", icon: PackageOpen });
     if (can("orders.view_all")) orders.push({ href: "/orders", label: "Order Submissions", icon: FileText });
+    if (can("orders.view_all")) orders.push({ href: "/seasonal-inventory", label: "Seasonal Inventory", icon: PackageOpen });
     if (can("trailer_manifest.view")) orders.push({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck });
     if (can("warehouse_inventory.view")) orders.push({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse });
     if (can("credit_card_inspection.submit")) orders.push({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard });

@@ -99,7 +99,7 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
-function NumberField({ label, value, onChange, testId }: { label: string; value: number | null | undefined; onChange: (v: number | null) => void; testId: string }) {
+function NumberField({ label, value, onChange, testId, hint, hintTone }: { label: string; value: number | null | undefined; onChange: (v: number | null) => void; testId: string; hint?: string; hintTone?: "muted" | "destructive" }) {
   return (
     <div className="space-y-1">
       <Label className="text-sm">{label}</Label>
@@ -110,9 +110,35 @@ function NumberField({ label, value, onChange, testId }: { label: string; value:
         onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         className="h-9"
       />
+      {hint && (
+        <p
+          className={`text-xs ${hintTone === "destructive" ? "text-destructive" : "text-muted-foreground"}`}
+          data-testid={`${testId}-hint`}
+        >
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
+
+interface SeasonalBalanceSeason {
+  season: "winter" | "summer" | "halloween" | "christmas";
+  label: string;
+  onDeposit: number;
+  pendingRequested: number;
+  available: number;
+}
+interface SeasonalBalancesResponse {
+  balances: { location: string; seasons: SeasonalBalanceSeason[] }[];
+}
+
+const SEASONAL_REQUEST_FIELDS = [
+  { season: "winter" as const, field: "savedWinterRequested" as const, label: "Winter" },
+  { season: "summer" as const, field: "savedSummerRequested" as const, label: "Summer" },
+  { season: "halloween" as const, field: "savedHalloweenRequested" as const, label: "Halloween" },
+  { season: "christmas" as const, field: "savedChristmasRequested" as const, label: "Christmas" },
+];
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -212,6 +238,57 @@ export default function OrderForm() {
 
   const orderType = form.watch("orderType");
   const location = form.watch("location");
+
+  const { data: balanceData } = useQuery<SeasonalBalancesResponse>({
+    queryKey: ["/api/orders/seasonal-balances", location],
+    queryFn: async () => {
+      const url = `/api/orders/seasonal-balances?location=${encodeURIComponent(location)}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
+    enabled: !!location && orderType === "Transfer and Receive",
+  });
+
+  const seasonBalanceMap = new Map<string, SeasonalBalanceSeason>();
+  for (const s of balanceData?.balances?.[0]?.seasons ?? []) {
+    seasonBalanceMap.set(s.season, s);
+  }
+
+  const seasonalGuards = SEASONAL_REQUEST_FIELDS.map(({ season, field, label }) => {
+    const requested = Number(form.watch(field) || 0);
+    const balance = seasonBalanceMap.get(season);
+    if (!balance) {
+      return { season, field, label, requested, hint: undefined as string | undefined, hintTone: undefined as "muted" | "destructive" | undefined, exceeds: false };
+    }
+    // In edit mode, exclude this order's own previously-saved request from the
+    // baseline so changing the value doesn't double-count itself. This only
+    // applies when the location hasn't been changed — switching to a
+    // different store means the prior request still counts against the old
+    // store and contributes nothing to the new store's available pool.
+    const ownPrior = isEditMode
+      && existingOrder
+      && (existingOrder as { location?: string }).location === location
+      ? Number((existingOrder as Record<string, number | null>)[field] || 0)
+      : 0;
+    const adjustedAvailable = balance.available + ownPrior;
+    const remaining = adjustedAvailable - requested;
+    const exceeds = requested > adjustedAvailable;
+    const hint = exceeds
+      ? `Only ${adjustedAvailable} on deposit — request exceeds available by ${requested - adjustedAvailable}`
+      : `Available: ${adjustedAvailable} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}, after this request ${remaining})`;
+    return {
+      season,
+      field,
+      label,
+      requested,
+      hint,
+      hintTone: exceeds ? ("destructive" as const) : ("muted" as const),
+      exceeds,
+    };
+  });
+
+  const seasonalBlocked = seasonalGuards.some(g => g.exceeds);
 
   const isTransfer = orderType === "Transfer and Receive";
   const isEndOfDay = orderType === "End of Day/Equipment Count";
@@ -385,10 +462,20 @@ export default function OrderForm() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <NumberField label="Winter" value={form.watch("savedWinterRequested")} onChange={(v) => form.setValue("savedWinterRequested", v)} testId="input-saved-winter-requested" />
-                  <NumberField label="Summer" value={form.watch("savedSummerRequested")} onChange={(v) => form.setValue("savedSummerRequested", v)} testId="input-saved-summer-requested" />
-                  <NumberField label="Halloween" value={form.watch("savedHalloweenRequested")} onChange={(v) => form.setValue("savedHalloweenRequested", v)} testId="input-saved-halloween-requested" />
-                  <NumberField label="Christmas" value={form.watch("savedChristmasRequested")} onChange={(v) => form.setValue("savedChristmasRequested", v)} testId="input-saved-christmas-requested" />
+                  {SEASONAL_REQUEST_FIELDS.map(({ season, field, label }) => {
+                    const guard = seasonalGuards.find(g => g.season === season)!;
+                    return (
+                      <NumberField
+                        key={season}
+                        label={label}
+                        value={form.watch(field)}
+                        onChange={(v) => form.setValue(field, v)}
+                        testId={`input-saved-${season}-requested`}
+                        hint={guard.hint}
+                        hintTone={guard.hintTone}
+                      />
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -558,10 +645,16 @@ export default function OrderForm() {
           </CardContent>
         </Card>
 
+        {isTransfer && seasonalBlocked && (
+          <p className="text-sm text-destructive" data-testid="text-seasonal-blocked">
+            One or more seasonal requests exceed what this store has on deposit. Adjust the highlighted values before submitting.
+          </p>
+        )}
+
         <Button
           type="submit"
           className="w-full md:w-auto"
-          disabled={submitMutation.isPending}
+          disabled={submitMutation.isPending || (isTransfer && seasonalBlocked)}
           data-testid="button-submit-order"
         >
           {submitMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

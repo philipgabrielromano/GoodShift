@@ -318,6 +318,38 @@ const ROUTE_GATES: RouteGate[] = [
     sourcePattern:
       /app\.delete\(\s*"\/api\/orders\/:id"\s*,\s*requireFeatureAccess\(\s*"orders\.delete"\s*\)/,
   },
+  {
+    feature: "orders.submit",
+    method: "GET",
+    path: "/api/orders/seasonal-balances",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/orders\/seasonal-balances"\s*,\s*requireFeatureAccess\(\s*"orders\.submit"\s*\)/,
+  },
+  {
+    feature: "orders.edit",
+    method: "POST",
+    path: "/api/orders/999999/fulfill",
+    body: {},
+    okStatuses: BROADLY_OK,
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/orders\/:id\/fulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+  },
+  {
+    feature: "orders.edit",
+    method: "POST",
+    path: "/api/orders/999999/unfulfill",
+    body: {},
+    okStatuses: BROADLY_OK,
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/orders\/:id\/unfulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+  },
 
   // -------------------- Credit Card Inspections --------------------
   {

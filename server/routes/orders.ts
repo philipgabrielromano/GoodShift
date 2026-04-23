@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { requireFeatureAccess, requireAdmin } from "../middleware";
+import { requireFeatureAccess, requireAdmin, userHasFeature } from "../middleware";
+import type { PoolConnection } from "mysql2/promise";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
 import { sendOrderNotificationEmail, sendOrderConfirmationEmail, type OrderNotificationEmailData } from "../outlook";
@@ -91,6 +92,8 @@ interface OrderRow extends RowDataPacket {
   location: string;
   submitted_by: string | null;
   submitted_at: string | null;
+  fulfilled_at: string | null;
+  fulfilled_by: string | null;
   notes: string | null;
   totes_requested: number | null;
   totes_returned: number | null;
@@ -108,6 +111,19 @@ interface OrderRow extends RowDataPacket {
   is_central_processing: number | null;
   apparel_production: number | null;
   wares_production: number | null;
+}
+
+export const SEASONAL_CATEGORIES = [
+  { key: "winter", label: "Winter", requestedCol: "saved_winter_requested", returnedCol: "saved_winter_returned", requestedField: "savedWinterRequested" as const },
+  { key: "summer", label: "Summer", requestedCol: "saved_summer_requested", returnedCol: "saved_summer_returned", requestedField: "savedSummerRequested" as const },
+  { key: "halloween", label: "Halloween", requestedCol: "saved_halloween_requested", returnedCol: "saved_halloween_returned", requestedField: "savedHalloweenRequested" as const },
+  { key: "christmas", label: "Christmas", requestedCol: "saved_christmas_requested", returnedCol: "saved_christmas_returned", requestedField: "savedChristmasRequested" as const },
+] as const;
+
+interface SeasonalAggRow extends RowDataPacket {
+  location: string;
+  total_returned: string | number | null;
+  total_requested: string | number | null;
 }
 
 interface CountRow extends RowDataPacket {
@@ -242,6 +258,96 @@ function toSnakeColumns(parsed: OrderInput): { columns: string[]; values: (strin
   return { columns, values };
 }
 
+interface SeasonBalance {
+  season: string;
+  label: string;
+  onDeposit: number;
+  pendingRequested: number;
+  available: number;
+}
+
+interface LocationBalance {
+  location: string;
+  seasons: SeasonBalance[];
+}
+
+async function loadBalances(location?: string): Promise<LocationBalance[]> {
+  const where = location ? "WHERE location = ?" : "";
+  const params = location ? [location] : [];
+  const selectCols = SEASONAL_CATEGORIES
+    .map(c => `COALESCE(SUM(${c.returnedCol}), 0) AS ret_${c.key}, COALESCE(SUM(${c.requestedCol}), 0) AS req_${c.key}`)
+    .join(", ");
+  const [rows] = await mysqlPool.execute<RowDataPacket[]>(
+    `SELECT location, ${selectCols} FROM orders ${where} GROUP BY location ORDER BY location`,
+    params
+  );
+  return (rows as Array<Record<string, string | number | null>>).map(r => ({
+    location: String(r.location),
+    seasons: SEASONAL_CATEGORIES.map(c => {
+      const onDeposit = Number(r[`ret_${c.key}`] || 0);
+      const requested = Number(r[`req_${c.key}`] || 0);
+      const available = onDeposit - requested;
+      return {
+        season: c.key,
+        label: c.label,
+        onDeposit,
+        pendingRequested: requested,
+        available,
+      };
+    }),
+  }));
+}
+
+/**
+ * Validate that this order's seasonal requests don't push the store
+ * over the available balance. Returns null if OK, or a message if the
+ * request must be rejected.
+ *
+ * `excludeOrderId` is set on edits so the order being modified is not
+ * counted as part of the existing baseline (otherwise its old request
+ * would double-count against the new one).
+ */
+async function validateSeasonalRequests(
+  conn: PoolConnection,
+  parsed: OrderInput,
+  excludeOrderId: number | null
+): Promise<string | null> {
+  const hasAnyRequest = SEASONAL_CATEGORIES.some(c => {
+    const v = parsed[c.requestedField];
+    return typeof v === "number" && v > 0;
+  });
+  if (!hasAnyRequest) return null;
+
+  const selectCols = SEASONAL_CATEGORIES
+    .map(c => `COALESCE(SUM(${c.returnedCol}), 0) AS ret_${c.key}, COALESCE(SUM(${c.requestedCol}), 0) AS req_${c.key}`)
+    .join(", ");
+  // FOR UPDATE locks the rows being aggregated (within the active transaction)
+  // so a concurrent submitter for the same location must wait until this
+  // transaction commits, preventing two submits from each passing validation
+  // against stale aggregates and overdrawing the deposit.
+  const where = excludeOrderId !== null ? "WHERE location = ? AND id <> ?" : "WHERE location = ?";
+  const params: (string | number)[] = excludeOrderId !== null
+    ? [parsed.location, excludeOrderId]
+    : [parsed.location];
+  const [rows] = await conn.execute<RowDataPacket[]>(
+    `SELECT ${selectCols} FROM orders ${where} FOR UPDATE`,
+    params
+  );
+  const agg = (rows[0] || {}) as Record<string, string | number | null>;
+
+  for (const c of SEASONAL_CATEGORIES) {
+    const newRequest = Number(parsed[c.requestedField] || 0);
+    if (newRequest <= 0) continue;
+    const onDeposit = Number(agg[`ret_${c.key}`] || 0);
+    const otherRequests = Number(agg[`req_${c.key}`] || 0);
+    const available = onDeposit - otherRequests;
+    if (newRequest > available) {
+      return `${parsed.location} only has ${available} ${c.label} on deposit (requested: ${newRequest}). Stores can only request back what they previously sent in.`;
+    }
+  }
+  return null;
+}
+
 function toCamel(row: RowDataPacket): Record<string, string | number | boolean | null> {
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, val] of Object.entries(row)) {
@@ -257,6 +363,7 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
 
 export function registerOrderRoutes(app: Express) {
   app.post("/api/orders", requireFeatureAccess("orders.submit"), async (req, res) => {
+    let conn: PoolConnection | null = null;
     try {
       const parsed = orderSchema.parse(req.body);
       const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
@@ -267,10 +374,22 @@ export function registerOrderRoutes(app: Express) {
 
       const placeholders = columns.map(() => "?").join(", ");
 
-      const [result] = await mysqlPool.execute<ResultSetHeader>(
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const balanceError = await validateSeasonalRequests(conn, parsed, null);
+      if (balanceError) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(422).json({ message: balanceError });
+      }
+      const [result] = await conn.execute<ResultSetHeader>(
         `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders})`,
         values
       );
+      await conn.commit();
+      conn.release();
+      conn = null;
 
       res.status(201).json({ id: result.insertId, message: "Order submitted successfully" });
 
@@ -324,6 +443,10 @@ export function registerOrderRoutes(app: Express) {
         }
       })();
     } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        conn.release();
+      }
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
@@ -383,6 +506,70 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
+  app.get("/api/orders/seasonal-balances", requireFeatureAccess("orders.submit"), async (req, res) => {
+    try {
+      const { location } = req.query;
+      const filter = typeof location === "string" && location.trim() ? location.trim() : undefined;
+      // Single-location lookups are allowed for any submitter (they need it
+      // for inline form validation). Pulling balances across all stores is
+      // an aggregate view and requires `orders.view_all`.
+      if (!filter) {
+        const user = (req.session as Record<string, { role?: string }>)?.user;
+        const allowed = await userHasFeature(user, "orders.view_all");
+        if (!allowed) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+      const balances = await loadBalances(filter);
+      res.json({ balances });
+    } catch (err) {
+      console.error("[Orders] Error fetching seasonal balances:", err);
+      res.status(500).json({ message: "Failed to fetch seasonal balances" });
+    }
+  });
+
+  app.post("/api/orders/:id/fulfill", requireFeatureAccess("orders.edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
+      const fulfilledBy = user?.name || user?.email || "Unknown";
+      const [result] = await mysqlPool.execute<ResultSetHeader>(
+        "UPDATE orders SET fulfilled_at = NOW(), fulfilled_by = ? WHERE id = ?",
+        [fulfilledBy, id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      res.json({ message: "Order marked as fulfilled" });
+    } catch (err) {
+      console.error("[Orders] Error fulfilling order:", err);
+      res.status(500).json({ message: "Failed to fulfill order" });
+    }
+  });
+
+  app.post("/api/orders/:id/unfulfill", requireFeatureAccess("orders.edit"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const [result] = await mysqlPool.execute<ResultSetHeader>(
+        "UPDATE orders SET fulfilled_at = NULL, fulfilled_by = NULL WHERE id = ?",
+        [id]
+      );
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      res.json({ message: "Order marked as not fulfilled" });
+    } catch (err) {
+      console.error("[Orders] Error unfulfilling order:", err);
+      res.status(500).json({ message: "Failed to unfulfill order" });
+    }
+  });
+
   app.get("/api/orders/:id", requireFeatureAccess("orders.view_all"), async (req, res) => {
     try {
       const [rows] = await mysqlPool.execute<OrderRow[]>("SELECT * FROM orders WHERE id = ?", [req.params.id]);
@@ -397,6 +584,7 @@ export function registerOrderRoutes(app: Express) {
   });
 
   app.put("/api/orders/:id", requireFeatureAccess("orders.edit"), async (req, res) => {
+    let conn: PoolConnection | null = null;
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {
@@ -404,9 +592,26 @@ export function registerOrderRoutes(app: Express) {
       }
       const parsed = orderSchema.parse(req.body);
 
-      const [existing] = await mysqlPool.execute<OrderRow[]>("SELECT id FROM orders WHERE id = ?", [id]);
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+
+      const [existing] = await conn.execute<OrderRow[]>(
+        "SELECT id FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
       if (existing.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
         return res.status(404).json({ message: "Order not found" });
+      }
+
+      const balanceError = await validateSeasonalRequests(conn, parsed, id);
+      if (balanceError) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(422).json({ message: balanceError });
       }
 
       const fields: string[] = [];
@@ -418,13 +623,20 @@ export function registerOrderRoutes(app: Express) {
       }
       values.push(id);
 
-      await mysqlPool.execute<ResultSetHeader>(
+      await conn.execute<ResultSetHeader>(
         `UPDATE orders SET ${fields.join(", ")} WHERE id = ?`,
         values
       );
+      await conn.commit();
+      conn.release();
+      conn = null;
 
       res.json({ message: "Order updated successfully" });
     } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        conn.release();
+      }
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }

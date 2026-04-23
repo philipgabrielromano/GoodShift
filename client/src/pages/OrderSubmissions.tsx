@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2, Pencil } from "lucide-react";
+import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2, Pencil, PackageCheck, PackageX } from "lucide-react";
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -36,8 +36,21 @@ interface Order {
   location: string;
   submittedBy: string;
   submittedAt: string;
+  fulfilledAt: string | null;
+  fulfilledBy: string | null;
   notes: string | null;
   [key: string]: string | number | boolean | null;
+}
+
+const SEASONAL_REQUEST_KEYS = [
+  "savedWinterRequested",
+  "savedSummerRequested",
+  "savedHalloweenRequested",
+  "savedChristmasRequested",
+] as const;
+
+function hasSeasonalRequest(order: Order): boolean {
+  return SEASONAL_REQUEST_KEYS.some(k => Number(order[k] || 0) > 0);
 }
 
 interface OrdersResponse {
@@ -112,7 +125,7 @@ const FIELD_LABELS: Record<string, string> = {
   waresProduction: "Wares Production",
 };
 
-const SKIP_KEYS = new Set(["id", "orderDate", "orderType", "location", "submittedBy", "submittedAt", "notes"]);
+const SKIP_KEYS = new Set(["id", "orderDate", "orderType", "location", "submittedBy", "submittedAt", "fulfilledAt", "fulfilledBy", "notes"]);
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return "";
@@ -158,6 +171,22 @@ export default function OrderSubmissions() {
     },
     onError: (err: Error) => {
       toast({ title: "Failed to delete order", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const fulfillMutation = useMutation({
+    mutationFn: async ({ id, fulfilled }: { id: number; fulfilled: boolean }) => {
+      const path = fulfilled ? "fulfill" : "unfulfill";
+      await apiRequest("POST", `/api/orders/${id}/${path}`);
+    },
+    onSuccess: (_data, vars) => {
+      toast({ title: vars.fulfilled ? "Order marked as fulfilled" : "Order marked as not fulfilled" });
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/orders/seasonal-balances"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to update fulfillment", description: err.message, variant: "destructive" });
     },
   });
 
@@ -273,6 +302,7 @@ export default function OrderSubmissions() {
                     <TableHead>Location</TableHead>
                     <TableHead>Submitted By</TableHead>
                     <TableHead>Submitted At</TableHead>
+                    <TableHead>Fulfillment</TableHead>
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -288,6 +318,21 @@ export default function OrderSubmissions() {
                       <TableCell>{order.location}</TableCell>
                       <TableCell>{order.submittedBy}</TableCell>
                       <TableCell>{formatDateTime(order.submittedAt)}</TableCell>
+                      <TableCell data-testid={`cell-fulfillment-${order.id}`}>
+                        {hasSeasonalRequest(order) ? (
+                          order.fulfilledAt ? (
+                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                              Fulfilled {formatDate(order.fulfilledAt)}
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                              Pending
+                            </Badge>
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Button
@@ -371,6 +416,21 @@ export default function OrderSubmissions() {
                 <div>{selectedOrder.submittedBy}</div>
                 <div className="text-muted-foreground">Submitted At</div>
                 <div>{formatDateTime(selectedOrder.submittedAt)}</div>
+                {hasSeasonalRequest(selectedOrder) && (
+                  <>
+                    <div className="text-muted-foreground">Fulfillment</div>
+                    <div data-testid={`text-fulfillment-detail-${selectedOrder.id}`}>
+                      {selectedOrder.fulfilledAt ? (
+                        <span>
+                          Fulfilled {formatDateTime(selectedOrder.fulfilledAt)}
+                          {selectedOrder.fulfilledBy ? ` by ${selectedOrder.fulfilledBy}` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-amber-700 dark:text-amber-400">Pending fulfillment</span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {nonNullFields(selectedOrder).length > 0 && (
@@ -401,6 +461,33 @@ export default function OrderSubmissions() {
                 <>
                   <hr />
                   <div className="flex flex-col gap-2">
+                    {canEdit && hasSeasonalRequest(selectedOrder) && (
+                      selectedOrder.fulfilledAt ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          disabled={fulfillMutation.isPending}
+                          onClick={() => fulfillMutation.mutate({ id: selectedOrder.id, fulfilled: false })}
+                          data-testid={`button-unfulfill-order-${selectedOrder.id}`}
+                        >
+                          {fulfillMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageX className="w-4 h-4 mr-2" />}
+                          Mark as Not Fulfilled
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="w-full"
+                          disabled={fulfillMutation.isPending}
+                          onClick={() => fulfillMutation.mutate({ id: selectedOrder.id, fulfilled: true })}
+                          data-testid={`button-fulfill-order-${selectedOrder.id}`}
+                        >
+                          {fulfillMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
+                          Mark as Fulfilled
+                        </Button>
+                      )
+                    )}
                     {canEdit && (
                       <Button
                         variant="default"

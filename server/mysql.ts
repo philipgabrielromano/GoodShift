@@ -114,6 +114,8 @@ export async function initOrdersTable(): Promise<void> {
     };
     await ensureCol("furniture_gaylords_requested", "INT DEFAULT NULL");
     await ensureCol("furniture_gaylords_returned", "INT DEFAULT NULL");
+    await ensureCol("fulfilled_at", "DATETIME DEFAULT NULL");
+    await ensureCol("fulfilled_by", "VARCHAR(255) DEFAULT NULL");
   } finally {
     conn.release();
   }
