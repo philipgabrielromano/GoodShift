@@ -255,6 +255,81 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Admin-only: export the entire transfer audit trail to CSV. Optional
+  // filters: warehouse, from/to (YYYY-MM-DD on changedAt). Includes both
+  // surviving and orphaned (post-delete) audit rows. The `changes` JSON is
+  // serialized so reviewers can see field-level before/after.
+  app.get("/api/warehouse-transfer-audits/export.csv", async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can export the transfer audit log" });
+      }
+      const rawWarehouse = typeof req.query.warehouse === "string" ? req.query.warehouse : undefined;
+      const warehouse: Warehouse | undefined = rawWarehouse && (WAREHOUSES as readonly string[]).includes(rawWarehouse)
+        ? (rawWarehouse as Warehouse)
+        : undefined;
+      const from = typeof req.query.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from) ? req.query.from : undefined;
+      const to = typeof req.query.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to) ? req.query.to : undefined;
+      const rows = await storage.exportWarehouseTransferAudits({ warehouse, from, to });
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="warehouse-transfer-audits-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      // Stream the CSV row-by-row so that future audit-log growth does not
+      // force the whole file into memory before the first byte goes out.
+      res.write(["ChangedAt", "Action", "TransferId", "TransferGroupId", "Warehouse", "ChangedById", "ChangedByName", "Changes"].join(",") + "\n");
+      for (const r of rows) {
+        res.write([
+          csvSafe(new Date(r.changedAt).toISOString()),
+          csvSafe(r.action),
+          String(r.transferId),
+          csvSafe(r.transferGroupId ?? ""),
+          csvSafe(r.warehouse ?? ""),
+          r.changedById == null ? "" : String(r.changedById),
+          csvSafe(r.changedByName ?? ""),
+          csvSafe(JSON.stringify(r.changes ?? {})),
+        ].join(",") + "\n");
+      }
+      res.end();
+    } catch (err) {
+      console.error("[WarehouseTransferAudits] Export error:", err);
+      res.status(500).json({ message: "Failed to export transfer audits" });
+    }
+  });
+
+  // Admin-only: archive/purge audit rows older than N days. Pass dryRun=true
+  // to preview the deletion count without removing anything. Minimum
+  // retention is 30 days to prevent accidental wipe of recent activity.
+  const purgeSchema = z.object({
+    olderThanDays: z.number().int().min(30).max(3650),
+    dryRun: z.boolean().optional(),
+  });
+  app.post("/api/warehouse-transfer-audits/purge", async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can purge the transfer audit log" });
+      }
+      const input = purgeSchema.parse(req.body);
+      const result = await storage.purgeWarehouseTransferAudits(input);
+      if (!result.dryRun) {
+        console.log(`[WarehouseTransferAudits] Admin ${user.name} (id=${user.id}) purged ${result.deleted} audit row(s) older than ${input.olderThanDays} days (cutoff=${result.cutoff})`);
+      }
+      res.json({ ...result, olderThanDays: input.olderThanDays });
+    } catch (err: unknown) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0]?.message || "Invalid input" });
+      }
+      console.error("[WarehouseTransferAudits] Purge error:", err);
+      const message = err instanceof Error ? err.message : "Failed to purge transfer audits";
+      res.status(500).json({ message });
+    }
+  });
+
   app.delete("/api/warehouse-transfers/:id", requireTransfer, async (req, res) => {
     try {
       const user = getSessionUser(req);
@@ -845,6 +920,19 @@ export function registerWarehouseInventoryRoutes(app: Express) {
 function csv(v: string): string {
   if (v == null) return "";
   const s = String(v);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+// CSV cell that also defuses spreadsheet formula injection. Cells starting
+// with =, +, -, @, tab, or carriage return are prefixed with a single quote
+// so Excel/Sheets/Numbers treats them as text instead of formulas.
+function csvSafe(v: unknown): string {
+  if (v == null) return "";
+  let s = String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   if (s.includes(",") || s.includes('"') || s.includes("\n")) {
     return `"${s.replace(/"/g, '""')}"`;
   }

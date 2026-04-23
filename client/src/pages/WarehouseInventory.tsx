@@ -11,6 +11,9 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
@@ -107,6 +110,11 @@ export default function WarehouseInventory() {
     transferDate: "",
     notes: "",
   });
+
+  const { data: auth } = useQuery<{ user: { id: number; name: string; role: string } | null }>({
+    queryKey: ["/api/auth/status"],
+  });
+  const isAdmin = auth?.user?.role === "admin";
 
   const { data: meta } = useQuery<Meta>({ queryKey: ["/api/warehouse-inventory/meta"] });
   const { data: dashboard, isLoading, isError, error, refetch } = useQuery<Dashboard>({
@@ -227,6 +235,41 @@ export default function WarehouseInventory() {
     },
     onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to update", variant: "destructive" }),
   });
+
+  // Admin: audit-log export filters + retention purge
+  const [auditExport, setAuditExport] = useState({ warehouse: "all", from: "", to: "" });
+  const [purgeRetention, setPurgeRetention] = useState<string>("365");
+  const [purgePreview, setPurgePreview] = useState<{ deleted: number; cutoff: string; olderThanDays: number } | null>(null);
+
+  const purgePreviewMutation = useMutation({
+    mutationFn: async (olderThanDays: number) => {
+      const res = await apiRequest("POST", "/api/warehouse-transfer-audits/purge", { olderThanDays, dryRun: true });
+      return res.json() as Promise<{ deleted: number; cutoff: string; olderThanDays: number }>;
+    },
+    onSuccess: (data) => setPurgePreview(data),
+    onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to preview purge", variant: "destructive" }),
+  });
+
+  const purgeMutation = useMutation({
+    mutationFn: async (olderThanDays: number) => {
+      const res = await apiRequest("POST", "/api/warehouse-transfer-audits/purge", { olderThanDays });
+      return res.json() as Promise<{ deleted: number; cutoff: string; olderThanDays: number }>;
+    },
+    onSuccess: (data) => {
+      setPurgePreview(null);
+      toast({ title: "Audit log purged", description: `Removed ${data.deleted} row(s) older than ${data.olderThanDays} days.` });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err?.message || "Failed to purge", variant: "destructive" }),
+  });
+
+  const handleAuditExport = () => {
+    const params = new URLSearchParams();
+    if (auditExport.warehouse !== "all") params.set("warehouse", auditExport.warehouse);
+    if (auditExport.from) params.set("from", auditExport.from);
+    if (auditExport.to) params.set("to", auditExport.to);
+    const qs = params.toString();
+    window.location.href = `/api/warehouse-transfer-audits/export.csv${qs ? `?${qs}` : ""}`;
+  };
 
   const deleteTransferMutation = useMutation({
     mutationFn: async (id: number) => apiRequest("DELETE", `/api/warehouse-transfers/${id}`),
@@ -898,6 +941,123 @@ export default function WarehouseInventory() {
           )}
         </CardContent>
       </Card>
+
+      {/* Admin: Transfer Audit Log management */}
+      {isAdmin && (
+        <Card data-testid="card-audit-log-admin">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <History className="w-5 h-5 text-primary" />
+              Transfer Audit Log
+            </CardTitle>
+            <CardDescription>
+              Export the full edit/delete history of warehouse transfers, or trim rows older than a chosen retention window. Admin only.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Export to CSV</Label>
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Warehouse</Label>
+                  <Select value={auditExport.warehouse} onValueChange={v => setAuditExport(s => ({ ...s, warehouse: v }))}>
+                    <SelectTrigger className="w-40" data-testid="select-audit-export-warehouse"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All warehouses</SelectItem>
+                      {(meta?.warehouses || []).map(w => (
+                        <SelectItem key={w} value={w}>{titleCase(w)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">From</Label>
+                  <Input type="date" className="w-40" value={auditExport.from} onChange={e => setAuditExport(s => ({ ...s, from: e.target.value }))} data-testid="input-audit-export-from" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">To</Label>
+                  <Input type="date" className="w-40" value={auditExport.to} onChange={e => setAuditExport(s => ({ ...s, to: e.target.value }))} data-testid="input-audit-export-to" />
+                </div>
+                <Button variant="outline" onClick={handleAuditExport} data-testid="button-audit-export">
+                  <Download className="w-4 h-4 mr-2" /> Download CSV
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2 border-t pt-4">
+              <Label>Purge old entries</Label>
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Retention (days)</Label>
+                  <Input
+                    type="number"
+                    min={30}
+                    max={3650}
+                    className="w-32"
+                    value={purgeRetention}
+                    onChange={e => { setPurgeRetention(e.target.value); setPurgePreview(null); }}
+                    data-testid="input-purge-days"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const n = parseInt(purgeRetention, 10);
+                    if (!Number.isFinite(n) || n < 30) {
+                      toast({ title: "Retention too short", description: "Use at least 30 days.", variant: "destructive" });
+                      return;
+                    }
+                    purgePreviewMutation.mutate(n);
+                  }}
+                  disabled={purgePreviewMutation.isPending}
+                  data-testid="button-purge-preview"
+                >
+                  {purgePreviewMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  Preview
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      disabled={!purgePreview || purgePreview.deleted === 0 || purgeMutation.isPending}
+                      data-testid="button-purge-confirm-open"
+                    >
+                      {purgeMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                      Purge {purgePreview?.deleted ?? 0} row(s)
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Purge audit log?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete {purgePreview?.deleted ?? 0} audit row(s) older than {purgePreview?.olderThanDays ?? 0} days
+                        (cutoff {purgePreview ? new Date(purgePreview.cutoff).toLocaleString() : ""}). This cannot be undone — export to CSV first if you need a copy.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => {
+                          if (purgePreview) purgeMutation.mutate(purgePreview.olderThanDays);
+                        }}
+                        data-testid="button-purge-confirm"
+                      >
+                        Purge
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+              {purgePreview && (
+                <p className="text-sm text-muted-foreground" data-testid="text-purge-preview">
+                  {purgePreview.deleted === 0
+                    ? `No audit rows older than ${purgePreview.olderThanDays} days.`
+                    : `${purgePreview.deleted} row(s) older than ${purgePreview.olderThanDays} days will be removed (cutoff ${new Date(purgePreview.cutoff).toLocaleString()}).`}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Trend chart */}
       <Card>

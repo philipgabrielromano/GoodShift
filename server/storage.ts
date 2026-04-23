@@ -41,7 +41,7 @@ import {
   jobTitleVisibility, type JobTitleVisibility,
   featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS,
 } from "@shared/schema";
-import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql } from "drizzle-orm";
+import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -161,6 +161,8 @@ export interface IStorage {
   updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }, user: { id: number; name: string }): Promise<WarehouseTransfer>;
   deleteWarehouseTransfer(id: number, user: { id: number; name: string }): Promise<void>;
   getWarehouseTransferAudits(id: number): Promise<WarehouseTransferAudit[]>;
+  exportWarehouseTransferAudits(filters?: { warehouse?: string; from?: string; to?: string }): Promise<Array<WarehouseTransferAudit & { warehouse: string | null }>>;
+  purgeWarehouseTransferAudits(opts: { olderThanDays: number; dryRun?: boolean }): Promise<{ cutoff: string; deleted: number; dryRun: boolean }>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -1250,6 +1252,103 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(warehouseTransferAudits.changedAt), desc(warehouseTransferAudits.id));
     }
     return direct;
+  }
+
+  async exportWarehouseTransferAudits(filters?: { warehouse?: string; from?: string; to?: string }): Promise<Array<WarehouseTransferAudit & { warehouse: string | null }>> {
+    // Left-join transfers so we can include the warehouse for surviving rows.
+    // For deleted transfers, the warehouse lives in changes.warehouse.before
+    // (snapshotted by deleteWarehouseTransfer), so we recover it from JSON.
+    // Inclusive date range on changedAt, interpreted in UTC for consistency:
+    //   from = start of `from` day (UTC, inclusive)
+    //   to   = start of day AFTER `to` (UTC, exclusive)  → so `to` itself is included
+    const conds: SQL[] = [];
+    if (filters?.from) {
+      conds.push(gte(warehouseTransferAudits.changedAt, new Date(filters.from + "T00:00:00.000Z")));
+    }
+    if (filters?.to) {
+      const toStart = new Date(filters.to + "T00:00:00.000Z");
+      const toExclusive = new Date(toStart.getTime() + 86_400_000);
+      conds.push(lt(warehouseTransferAudits.changedAt, toExclusive));
+    }
+    const baseQuery = db.select({
+      audit: warehouseTransferAudits,
+      transferWarehouse: warehouseTransfers.warehouse,
+    })
+      .from(warehouseTransferAudits)
+      .leftJoin(warehouseTransfers, eq(warehouseTransferAudits.transferId, warehouseTransfers.id));
+    const filtered = conds.length > 0 ? baseQuery.where(and(...conds)) : baseQuery;
+    const rows = await filtered.orderBy(
+      desc(warehouseTransferAudits.changedAt),
+      desc(warehouseTransferAudits.id),
+    );
+    // Build a transferId → warehouse map from every available signal across
+    // the result set so that orphaned UPDATE audits (whose parent transfer
+    // was later deleted) still resolve to a warehouse:
+    //   1. live join with warehouse_transfers (still-existing rows)
+    //   2. any DELETE audit row in the result snapshots warehouse in
+    //      changes.warehouse.before
+    const transferIdToWarehouse = new Map<number, string>();
+    for (const r of rows) {
+      if (r.transferWarehouse && !transferIdToWarehouse.has(r.audit.transferId)) {
+        transferIdToWarehouse.set(r.audit.transferId, r.transferWarehouse);
+      }
+      const ch = (r.audit.changes ?? {}) as WarehouseTransferAuditChanges;
+      const before = ch?.warehouse?.before;
+      if (typeof before === "string" && !transferIdToWarehouse.has(r.audit.transferId)) {
+        transferIdToWarehouse.set(r.audit.transferId, before);
+      }
+    }
+    // For deleted transfers we may still be missing rows whose only sibling
+    // is in another query window. Look them up by transferId from the audit
+    // table (any DELETE row holds the warehouse in its changes JSON).
+    const missing = rows
+      .filter(r => !transferIdToWarehouse.has(r.audit.transferId) && !r.transferWarehouse)
+      .map(r => r.audit.transferId);
+    const missingIds = Array.from(new Set(missing));
+    if (missingIds.length > 0) {
+      const deleteRows = await db.select({
+        transferId: warehouseTransferAudits.transferId,
+        changes: warehouseTransferAudits.changes,
+      })
+        .from(warehouseTransferAudits)
+        .where(and(
+          inArray(warehouseTransferAudits.transferId, missingIds),
+          eq(warehouseTransferAudits.action, "delete"),
+        ));
+      for (const dr of deleteRows) {
+        const ch = (dr.changes ?? {}) as WarehouseTransferAuditChanges;
+        const before = ch?.warehouse?.before;
+        if (typeof before === "string" && !transferIdToWarehouse.has(dr.transferId)) {
+          transferIdToWarehouse.set(dr.transferId, before);
+        }
+      }
+    }
+    const merged = rows.map(r => {
+      const warehouse = r.transferWarehouse ?? transferIdToWarehouse.get(r.audit.transferId) ?? null;
+      return { ...r.audit, warehouse };
+    });
+    if (!filters?.warehouse) return merged;
+    return merged.filter(r => r.warehouse === filters.warehouse);
+  }
+
+  async purgeWarehouseTransferAudits(opts: { olderThanDays: number; dryRun?: boolean }): Promise<{ cutoff: string; deleted: number; dryRun: boolean }> {
+    const days = Math.floor(opts.olderThanDays);
+    if (!Number.isFinite(days) || days < 1) {
+      throw new Error("olderThanDays must be a positive integer");
+    }
+    const cutoff = new Date(Date.now() - days * 86_400_000);
+    const matching = await db.select({ id: warehouseTransferAudits.id })
+      .from(warehouseTransferAudits)
+      .where(lt(warehouseTransferAudits.changedAt, cutoff));
+    if (opts.dryRun) {
+      return { cutoff: cutoff.toISOString(), deleted: matching.length, dryRun: true };
+    }
+    if (matching.length === 0) {
+      return { cutoff: cutoff.toISOString(), deleted: 0, dryRun: false };
+    }
+    await db.delete(warehouseTransferAudits)
+      .where(lt(warehouseTransferAudits.changedAt, cutoff));
+    return { cutoff: cutoff.toISOString(), deleted: matching.length, dryRun: false };
   }
 
   // Locations
