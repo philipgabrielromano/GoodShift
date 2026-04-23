@@ -30,7 +30,7 @@ function calculateDuration(startTime: string, endTime: string): string {
   return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
 }
 
-export default function Shifts() {
+export default function Shifts({ embedded = false }: { embedded?: boolean } = {}) {
   const { toast } = useToast();
   const { data: presets, isLoading } = useShiftPresets();
   const createPreset = useCreateShiftPreset();
@@ -105,7 +105,7 @@ export default function Shifts() {
 
   if (isLoading) {
     return (
-      <div className="p-6 lg:p-10 space-y-6 max-w-[1200px] mx-auto">
+      <div className={embedded ? "space-y-6" : "p-6 lg:p-10 space-y-6 max-w-[1200px] mx-auto"}>
         <Skeleton className="h-12 w-64" />
         <Skeleton className="h-96 w-full" />
       </div>
@@ -113,16 +113,20 @@ export default function Shifts() {
   }
 
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
+    <div className={embedded ? "space-y-6" : "p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto"}>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
-            <Clock className="w-8 h-8 text-primary" />
-            Shift Presets
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Configure predefined shifts that can be quickly applied when scheduling employees.
-          </p>
+          {!embedded && (
+            <>
+              <h1 className="text-3xl font-bold text-foreground flex items-center gap-3">
+                <Clock className="w-8 h-8 text-primary" />
+                Shift Presets
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Configure predefined shifts that can be quickly applied when scheduling employees.
+              </p>
+            </>
+          )}
         </div>
         <Button onClick={handleOpenCreate} data-testid="button-create-shift">
           <Plus className="w-4 h-4 mr-2" />

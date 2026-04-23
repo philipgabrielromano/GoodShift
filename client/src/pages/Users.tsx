@@ -43,7 +43,7 @@ function formatLastLogin(date: string | Date | null | undefined): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function Users() {
+export default function Users({ embedded = false }: { embedded?: boolean } = {}) {
   const { data: currentUser } = useCurrentUser();
   const { data: users, isLoading } = useUsers();
   const { data: roles = [] } = useQuery<Role[]>({ queryKey: ["/api/roles"] });
@@ -255,7 +255,7 @@ export default function Users() {
 
   if (!canViewUsers) {
     return (
-      <div className="p-6 lg:p-10 max-w-[1200px] mx-auto">
+      <div className={embedded ? "" : "p-6 lg:p-10 max-w-[1200px] mx-auto"}>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <ShieldAlert className="w-12 h-12 text-muted-foreground mb-4" />
@@ -272,14 +272,18 @@ export default function Users() {
   const canEditAny = canEditProfile || canAssignRoles || canAssignLocations;
 
   return (
-    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto">
+    <div className={embedded ? "space-y-4 sm:space-y-6" : "p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto"}>
       <div className="flex items-center justify-between gap-2 sm:gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl sm:text-3xl font-bold font-display flex items-center gap-2 sm:gap-3" data-testid="text-page-title">
-            <UsersIcon className="w-5 h-5 sm:w-8 sm:h-8" />
-            User Administration
-          </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Manage user access and roles.</p>
+          {!embedded && (
+            <>
+              <h1 className="text-xl sm:text-3xl font-bold font-display flex items-center gap-2 sm:gap-3" data-testid="text-page-title">
+                <UsersIcon className="w-5 h-5 sm:w-8 sm:h-8" />
+                User Administration
+              </h1>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">Manage user access and roles.</p>
+            </>
+          )}
         </div>
         {canEditProfile && (
           <Button onClick={() => openDialog()} data-testid="button-add-user">

@@ -108,18 +108,17 @@ export function Navigation() {
 
     const configuration: NavItem[] = [];
     if (can("employees.view")) configuration.push({ href: "/employees", label: "Employees", icon: Users });
-    if (can("locations.view")) configuration.push({ href: "/locations", label: "Locations", icon: MapPin });
-    const settingsAccess = can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit");
+    const settingsAccess =
+      can("settings.global_config") || can("settings.ukg_config") || can("settings.ukg_sync") || can("settings.email_audit") ||
+      can("users.view") || can("locations.view") || can("raw_shifts.view") || can("settings.permissions") ||
+      can("trailers.view") || can("tractors.view") || can("truck_routes.view");
     if (settingsAccess || configuration.length) {
       configuration.push({ href: "/settings", label: "Settings", icon: Settings });
     }
     if (configuration.length) built.push({ id: "configuration", label: "Configuration", items: configuration });
 
     const admin: NavItem[] = [];
-    if (can("users.view")) admin.push({ href: "/users", label: "Users", icon: Shield });
-    if (can("raw_shifts.view")) admin.push({ href: "/shifts", label: "Shifts", icon: Clock });
     if (can("settings.permissions")) admin.push({ href: "/permissions", label: "Permissions", icon: ShieldCheck });
-    if (can("settings.permissions")) admin.push({ href: "/job-title-hierarchy", label: "Job Title Hierarchy", icon: Network });
     admin.push({ href: "/changelog", label: "Changelog", icon: ScrollText });
     if (admin.length) built.push({ id: "admin", label: "Admin", items: admin });
 

@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.4";
+export const APP_VERSION = "3.6.5";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.5",
+    date: "2026-04-23",
+    title: "Users, Locations, Shifts & Job Titles Consolidated into Settings",
+    changes: [
+      { type: "improvement", description: "Users, Locations, Shift Presets, and Job Title Hierarchy are now managed from inside Settings instead of having their own sidebar entries. The four standalone pages have been removed from the sidebar to reduce clutter." },
+      { type: "improvement", description: "The Settings left rail is now grouped into Personal, People & Access, Organization, Integrations, and Help so it stays scannable as more configuration moves in." },
+      { type: "improvement", description: "Old links to /users, /locations, /shifts, and /job-title-hierarchy still work — they automatically redirect to the matching section in Settings so existing bookmarks don't break." },
+      { type: "improvement", description: "Each Settings section is permission-gated: a user only sees the configuration areas they're allowed to view, and editing inside each area still respects the same edit/admin permissions as before." },
+    ],
+  },
   {
     version: "3.6.4",
     date: "2026-04-23",

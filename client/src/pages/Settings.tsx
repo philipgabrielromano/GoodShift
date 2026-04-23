@@ -4,11 +4,15 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye, User, Info, Truck } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye, User, Info, Truck, MapPin, Network } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TrailersManager } from "@/components/fleet/TrailersManager";
 import { TractorsManager } from "@/components/fleet/TractorsManager";
 import { TruckRoutesManager } from "@/components/fleet/TruckRoutesManager";
+import UsersPage from "@/pages/Users";
+import LocationsPage from "@/pages/Locations";
+import ShiftsPage from "@/pages/Shifts";
+import JobTitleHierarchyPage from "@/pages/JobTitleHierarchy";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -374,8 +378,8 @@ export default function Settings() {
     }
   };
 
-  type SectionId = "preferences" | "email" | "ukg" | "fleet" | "about";
-  const SECTION_IDS = ["preferences", "email", "ukg", "fleet", "about"] as const;
+  type SectionId = "preferences" | "users" | "locations" | "shifts" | "job-titles" | "email" | "ukg" | "fleet" | "about";
+  const SECTION_IDS = ["preferences", "users", "locations", "shifts", "job-titles", "email", "ukg", "fleet", "about"] as const;
   const [activeSection, setActiveSection] = useState<SectionId>(() => {
     if (typeof window === "undefined") return "preferences";
     const h = window.location.hash.replace("#", "") as SectionId;
@@ -422,15 +426,32 @@ export default function Settings() {
   const canViewTractors = can("tractors.view");
   const canViewRoutes = can("truck_routes.view");
   const showFleetSection = canViewTrailers || canViewTractors || canViewRoutes;
+  const showUsersSection = can("users.view");
+  const showLocationsSection = can("locations.view");
+  const showShiftsSection = can("raw_shifts.view");
+  const showJobTitlesSection = can("settings.permissions");
 
-  const sections: { id: SectionId; label: string; icon: typeof User; visible: boolean; description: string }[] = [
-    { id: "preferences", label: "My Preferences", icon: User, visible: true, description: "Your personal notification settings and account info." },
-    { id: "email", label: "Email & Notifications", icon: Mail, visible: showEmailSection, description: "Recipient lists, email templates, and the activity log." },
-    { id: "ukg", label: "UKG Integration", icon: Building2, visible: showUkgSection, description: "Connect, sync, and diagnose the UKG employee data feed." },
-    { id: "fleet", label: "Fleet & Routes", icon: Truck, visible: showFleetSection, description: "Trailers, tractors / box trucks, and delivery routes used by manifests and inspections." },
-    { id: "about", label: "About", icon: Info, visible: true, description: "Version and release information." },
+  type SettingsSection = { id: SectionId; label: string; icon: typeof User; visible: boolean; description: string; group: string };
+  const sections: SettingsSection[] = [
+    { id: "preferences", label: "My Preferences", icon: User, visible: true, description: "Your personal notification settings and account info.", group: "Personal" },
+    { id: "users", label: "Users", icon: Shield, visible: showUsersSection, description: "Manage user accounts, roles, and store access.", group: "People & Access" },
+    { id: "job-titles", label: "Job Title Hierarchy", icon: Network, visible: showJobTitlesSection, description: "Choose which job titles can see which other job titles in coaching and attendance.", group: "People & Access" },
+    { id: "locations", label: "Locations", icon: MapPin, visible: showLocationsSection, description: "Set the weekly hours budget and notification email for each store.", group: "Organization" },
+    { id: "shifts", label: "Shift Presets", icon: Clock, visible: showShiftsSection, description: "Predefined shifts that can be quickly applied when scheduling employees.", group: "Organization" },
+    { id: "fleet", label: "Fleet & Routes", icon: Truck, visible: showFleetSection, description: "Trailers, tractors / box trucks, and delivery routes used by manifests and inspections.", group: "Organization" },
+    { id: "email", label: "Email & Notifications", icon: Mail, visible: showEmailSection, description: "Recipient lists, email templates, and the activity log.", group: "Integrations" },
+    { id: "ukg", label: "UKG Integration", icon: Building2, visible: showUkgSection, description: "Connect, sync, and diagnose the UKG employee data feed.", group: "Integrations" },
+    { id: "about", label: "About", icon: Info, visible: true, description: "Version and release information.", group: "Help" },
   ];
   const visibleSections = sections.filter(s => s.visible);
+
+  // Group visible sections by their `group` field, preserving section order.
+  const groupedSections: { group: string; items: SettingsSection[] }[] = [];
+  for (const s of visibleSections) {
+    const existing = groupedSections.find(g => g.group === s.group);
+    if (existing) existing.items.push(s);
+    else groupedSections.push({ group: s.group, items: [s] });
+  }
 
   // If the current section isn't visible to this user, fall back to the first visible one
   useEffect(() => {
@@ -438,7 +459,7 @@ export default function Settings() {
       goToSection(visibleSections[0].id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection, showEmailSection, showUkgSection]);
+  }, [activeSection, showEmailSection, showUkgSection, showUsersSection, showLocationsSection, showShiftsSection, showJobTitlesSection]);
 
   const currentSection = visibleSections.find(s => s.id === activeSection) ?? visibleSections[0];
 
@@ -468,30 +489,37 @@ export default function Settings() {
       <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 items-start">
         {/* Left rail */}
         <nav
-          className="hidden lg:flex flex-col gap-1 sticky top-6"
+          className="hidden lg:flex flex-col gap-3 sticky top-6"
           aria-label="Settings sections"
           data-testid="nav-settings-sections"
         >
-          {visibleSections.map(s => {
-            const Icon = s.icon;
-            const isActive = s.id === activeSection;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => goToSection(s.id)}
-                className={`flex items-center gap-2 text-sm text-left px-3 py-2 rounded-md transition-colors ${
-                  isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "hover-elevate active-elevate-2"
-                }`}
-                data-testid={`button-settings-section-${s.id}`}
-              >
-                <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="font-medium">{s.label}</span>
-              </button>
-            );
-          })}
+          {groupedSections.map(group => (
+            <div key={group.group} className="flex flex-col gap-1">
+              <div className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {group.group}
+              </div>
+              {group.items.map(s => {
+                const Icon = s.icon;
+                const isActive = s.id === activeSection;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => goToSection(s.id)}
+                    className={`flex items-center gap-2 text-sm text-left px-3 py-2 rounded-md transition-colors ${
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "hover-elevate active-elevate-2"
+                    }`}
+                    data-testid={`button-settings-section-${s.id}`}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="font-medium">{s.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Right pane */}
@@ -1341,6 +1369,38 @@ export default function Settings() {
                     </TabsContent>
                   )}
                 </Tabs>
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === "users" && showUsersSection && (
+            <Card data-testid="card-users">
+              <CardContent className="p-3 sm:p-6">
+                <UsersPage embedded />
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === "locations" && showLocationsSection && (
+            <Card data-testid="card-locations">
+              <CardContent className="p-3 sm:p-6">
+                <LocationsPage embedded />
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === "shifts" && showShiftsSection && (
+            <Card data-testid="card-shifts">
+              <CardContent className="p-3 sm:p-6">
+                <ShiftsPage embedded />
+              </CardContent>
+            </Card>
+          )}
+
+          {activeSection === "job-titles" && showJobTitlesSection && (
+            <Card data-testid="card-job-titles">
+              <CardContent className="p-3 sm:p-6">
+                <JobTitleHierarchyPage embedded />
               </CardContent>
             </Card>
           )}

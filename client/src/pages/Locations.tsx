@@ -14,7 +14,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import type { Location } from "@shared/schema";
 import { isValidLocation } from "@/lib/utils";
 
-export default function Locations() {
+export default function Locations({ embedded = false }: { embedded?: boolean } = {}) {
   const { toast } = useToast();
   const { data: locations, isLoading } = useLocations();
   const updateLocation = useUpdateLocation();
@@ -157,7 +157,7 @@ export default function Locations() {
 
   if (isLoading) {
     return (
-      <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto">
+      <div className={embedded ? "space-y-4 sm:space-y-6" : "p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-6 max-w-[1200px] mx-auto"}>
         <Skeleton className="h-8 sm:h-12 w-48 sm:w-64" />
         <Skeleton className="h-96 w-full" />
       </div>
@@ -165,18 +165,20 @@ export default function Locations() {
   }
 
   return (
-    <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-4">
-        <div>
-          <h1 className="text-xl sm:text-3xl font-bold text-foreground flex items-center gap-2 sm:gap-3">
-            <MapPin className="w-5 h-5 sm:w-8 sm:h-8 text-primary" />
-            Store Locations
-          </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Set the weekly hours budget for each store.
-          </p>
+    <div className={embedded ? "space-y-4 sm:space-y-8" : "p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto"}>
+      {!embedded && (
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-4">
+          <div>
+            <h1 className="text-xl sm:text-3xl font-bold text-foreground flex items-center gap-2 sm:gap-3">
+              <MapPin className="w-5 h-5 sm:w-8 sm:h-8 text-primary" />
+              Store Locations
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              Set the weekly hours budget for each store.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card>

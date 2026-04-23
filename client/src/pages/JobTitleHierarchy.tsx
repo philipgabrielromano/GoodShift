@@ -19,7 +19,7 @@ function titleLabel(code: string): string {
   return code;
 }
 
-export default function JobTitleHierarchy() {
+export default function JobTitleHierarchy({ embedded = false }: { embedded?: boolean } = {}) {
   const { toast } = useToast();
   const { data: auth } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const isAdmin = auth?.user?.role === "admin";
@@ -116,7 +116,7 @@ export default function JobTitleHierarchy() {
 
   if (!isAdmin) {
     return (
-      <div className="container mx-auto p-6">
+      <div className={embedded ? "" : "container mx-auto p-6"}>
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -131,18 +131,20 @@ export default function JobTitleHierarchy() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Network className="w-6 h-6" /> Job Title Hierarchy
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            For each job title, choose which other job titles a person with that title is allowed to see in coaching and attendance.
-            Titles with nothing configured fall back to the built-in level rules (District/Store Mgr see everyone in their stores; Asst Mgr / Team Lead see lower levels).
-          </p>
+    <div className={embedded ? "space-y-4" : "container mx-auto p-6 space-y-4"}>
+      {!embedded && (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold flex items-center gap-2">
+              <Network className="w-6 h-6" /> Job Title Hierarchy
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              For each job title, choose which other job titles a person with that title is allowed to see in coaching and attendance.
+              Titles with nothing configured fall back to the built-in level rules (District/Store Mgr see everyone in their stores; Asst Mgr / Team Lead see lower levels).
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <Card>
         <CardHeader>

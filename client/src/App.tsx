@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,9 +10,6 @@ import NotFound from "@/pages/not-found";
 import Schedule from "@/pages/Schedule";
 import Employees from "@/pages/Employees";
 import Settings from "@/pages/Settings";
-import Users from "@/pages/Users";
-import Locations from "@/pages/Locations";
-import Shifts from "@/pages/Shifts";
 import Login from "@/pages/Login";
 import Attendance from "@/pages/Attendance";
 import Changelog from "@/pages/Changelog";
@@ -35,7 +32,6 @@ import WarehouseInventory from "@/pages/WarehouseInventory";
 import WarehouseInventoryList from "@/pages/WarehouseInventoryList";
 import WarehouseInventoryDetail from "@/pages/WarehouseInventoryDetail";
 import Permissions from "@/pages/Permissions";
-import JobTitleHierarchy from "@/pages/JobTitleHierarchy";
 import CreditCardInspectionForm from "@/pages/CreditCardInspectionForm";
 import CreditCardInspections from "@/pages/CreditCardInspections";
 import DriverInspectionForm from "@/pages/DriverInspectionForm";
@@ -55,9 +51,9 @@ function Router() {
       <Route path="/" component={Schedule} />
       <Route path="/employees" component={Employees} />
       <Route path="/attendance" component={Attendance} />
-      <Route path="/users" component={Users} />
-      <Route path="/locations" component={Locations} />
-      <Route path="/shifts" component={Shifts} />
+      <Route path="/users">{() => <Redirect to="/settings#users" />}</Route>
+      <Route path="/locations">{() => <Redirect to="/settings#locations" />}</Route>
+      <Route path="/shifts">{() => <Redirect to="/settings#shifts" />}</Route>
       <Route path="/settings" component={Settings} />
       <Route path="/changelog" component={Changelog} />
       <Route path="/trades" component={ShiftTrades} />
@@ -80,7 +76,7 @@ function Router() {
       <Route path="/warehouse-inventory/:id" component={WarehouseInventoryDetail} />
       <Route path="/warehouse-inventory" component={WarehouseInventory} />
       <Route path="/permissions" component={Permissions} />
-      <Route path="/job-title-hierarchy" component={JobTitleHierarchy} />
+      <Route path="/job-title-hierarchy">{() => <Redirect to="/settings#job-titles" />}</Route>
       <Route path="/credit-card-inspection/new" component={CreditCardInspectionForm} />
       <Route path="/credit-card-inspections" component={CreditCardInspections} />
       <Route path="/driver-inspection/new" component={DriverInspectionForm} />
