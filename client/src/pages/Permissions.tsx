@@ -1,10 +1,13 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -14,7 +17,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Save, ShieldCheck, RotateCcw, Plus, Trash2, Lock, Pencil } from "lucide-react";
+import {
+  Loader2, Save, ShieldCheck, RotateCcw, Plus, Trash2, Lock, Pencil, Search,
+  ChevronDown, ChevronRight, Circle,
+} from "lucide-react";
 import { DEFAULT_FEATURE_PERMISSIONS, FEATURE_CATEGORIES, type Role } from "@shared/schema";
 
 interface FeaturePermission {
@@ -35,6 +41,9 @@ export default function Permissions() {
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null);
   const [roleToRename, setRoleToRename] = useState<Role | null>(null);
   const [renameLabel, setRenameLabel] = useState("");
+  const [selectedRole, setSelectedRole] = useState<string>("admin");
+  const [search, setSearch] = useState("");
+  const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
 
   const { data: permissions, isLoading } = useQuery<FeaturePermission[]>({
     queryKey: ["/api/permissions"],
@@ -50,6 +59,23 @@ export default function Permissions() {
       setHasChanges(false);
     }
   }, [permissions]);
+
+  // Track which roles have unsaved changes (for the unsaved indicator on the rail)
+  const dirtyRoles = useMemo(() => {
+    if (!permissions) return new Set<string>();
+    const baseline = new Map(permissions.map(p => [p.feature, new Set(p.allowedRoles)]));
+    const dirty = new Set<string>();
+    for (const p of localPerms) {
+      const base = baseline.get(p.feature);
+      if (!base) continue;
+      const current = new Set(p.allowedRoles);
+      const changedRoles = new Set<string>();
+      base.forEach(r => { if (!current.has(r)) changedRoles.add(r); });
+      current.forEach(r => { if (!base.has(r)) changedRoles.add(r); });
+      changedRoles.forEach(r => dirty.add(r));
+    }
+    return dirty;
+  }, [permissions, localPerms]);
 
   const saveMutation = useMutation({
     mutationFn: async (perms: { feature: string; allowedRoles: string[] }[]) => {
@@ -114,6 +140,9 @@ export default function Permissions() {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/permissions"] });
       toast({ title: "Role deleted" });
+      if (roleToDelete && roleToDelete.name === selectedRole) {
+        setSelectedRole("admin");
+      }
       setRoleToDelete(null);
     },
     onError: (err: any) => {
@@ -138,6 +167,26 @@ export default function Permissions() {
             ? p.allowedRoles.filter(r => r !== role)
             : [...p.allowedRoles, role],
         };
+      })
+    );
+    setHasChanges(true);
+  };
+
+  // Bulk: grant or revoke an entire category for the selected role
+  const bulkSetCategory = (cat: string, grant: boolean) => {
+    if (selectedRole === "admin") return;
+    setLocalPerms(prev =>
+      prev.map(p => {
+        if ((p.category || "Other") !== cat) return p;
+        if (!matchesSearch(p)) return p;
+        const has = p.allowedRoles.includes(selectedRole);
+        if (grant && !has) {
+          return { ...p, allowedRoles: [...p.allowedRoles, selectedRole] };
+        }
+        if (!grant && has) {
+          return { ...p, allowedRoles: p.allowedRoles.filter(r => r !== selectedRole) };
+        }
+        return p;
       })
     );
     setHasChanges(true);
@@ -172,6 +221,26 @@ export default function Permissions() {
     createRoleMutation.mutate({ name, label });
   };
 
+  const matchesSearch = (p: FeaturePermission) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return p.label.toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q);
+  };
+
+  const groupedFiltered = useMemo(() => {
+    const grouped: Record<string, FeaturePermission[]> = {};
+    for (const p of localPerms) {
+      if (!matchesSearch(p)) continue;
+      const cat = p.category || "Other";
+      (grouped[cat] ||= []).push(p);
+    }
+    const orderedCats = [...FEATURE_CATEGORIES, "Other"].filter(c => grouped[c]?.length);
+    return { grouped, orderedCats };
+  }, [localPerms, search]);
+
+  const grantedCountFor = (roleName: string) =>
+    localPerms.reduce((n, p) => n + (p.allowedRoles.includes(roleName) ? 1 : 0), 0);
+
   if (isLoading || rolesLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center" data-testid="loading-permissions">
@@ -180,16 +249,20 @@ export default function Permissions() {
     );
   }
 
+  const selectedRoleObj = roles.find(r => r.name === selectedRole);
+  const isAdminSelected = selectedRole === "admin";
+  const totalPerms = localPerms.length;
+
   return (
-    <div className="p-4 lg:p-8 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="p-4 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-permissions-title">
             <ShieldCheck className="w-6 h-6" />
             Permissions
           </h1>
           <p className="text-muted-foreground mt-1">
-            Control which roles can access each feature. Admin always has full access.
+            Pick a role on the left, then toggle the features it can use. Admin always has full access.
           </p>
         </div>
         <div className="flex gap-2">
@@ -217,10 +290,11 @@ export default function Permissions() {
         </div>
       </div>
 
+      {/* Role management (rename / delete / add) */}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
-            <CardTitle>Roles</CardTitle>
+            <CardTitle>Manage Roles</CardTitle>
             <CardDescription>
               Built-in roles cannot be deleted. Custom roles only control page-level feature access.
             </CardDescription>
@@ -286,7 +360,6 @@ export default function Permissions() {
                 data-testid={`chip-role-${role.name}`}
               >
                 <span className="font-medium">{role.label}</span>
-                <span className="text-xs text-muted-foreground">({role.name})</span>
                 <button
                   type="button"
                   onClick={() => {
@@ -317,68 +390,204 @@ export default function Permissions() {
         </CardContent>
       </Card>
 
-      {(() => {
-        const grouped: Record<string, FeaturePermission[]> = {};
-        for (const p of localPerms) {
-          const cat = p.category || "Other";
-          (grouped[cat] ||= []).push(p);
-        }
-        const orderedCats = [...FEATURE_CATEGORIES, "Other"].filter(c => grouped[c]?.length);
-        return orderedCats.map(cat => (
-          <Card key={cat} data-testid={`card-category-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}>
-            <CardHeader>
-              <CardTitle className="text-base">{cat}</CardTitle>
-              <CardDescription>
-                Check or uncheck to grant or revoke access for each role. Changes take effect after saving.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-4 font-semibold text-sm w-[35%]">Permission</th>
-                      {roles.map(role => (
-                        <th key={role.name} className="text-center py-3 px-4 font-semibold text-sm">
-                          {role.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {grouped[cat].map(perm => (
-                      <tr key={perm.feature} className="border-b last:border-0 hover:bg-muted/50" data-testid={`row-permission-${perm.feature}`}>
-                        <td className="py-3 px-4">
-                          <div className="font-medium text-sm" data-testid={`text-feature-label-${perm.feature}`}>{perm.label}</div>
-                          <div className="text-xs text-muted-foreground">{perm.description}</div>
-                          <div className="text-[10px] text-muted-foreground/70 font-mono mt-0.5">{perm.feature}</div>
-                        </td>
-                        {roles.map(role => (
-                          <td key={role.name} className="text-center py-3 px-4">
-                            <Checkbox
-                              checked={perm.allowedRoles.includes(role.name)}
-                              disabled={role.name === "admin"}
-                              onCheckedChange={() => toggleRole(perm.feature, role.name)}
-                              data-testid={`checkbox-${perm.feature}-${role.name}`}
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {/* Role-centric configuration */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[500px]">
+            {/* Left rail: role list */}
+            <div className="border-b lg:border-b-0 lg:border-r bg-muted/30">
+              <div className="p-4 border-b">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Choose a role
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        ));
-      })()}
+              <ScrollArea className="lg:h-[calc(100vh-22rem)] max-h-[60vh]">
+                <div className="p-2 flex flex-col gap-1">
+                  {roles.map(role => {
+                    const isSelected = role.name === selectedRole;
+                    const granted = role.name === "admin" ? totalPerms : grantedCountFor(role.name);
+                    const isDirty = dirtyRoles.has(role.name);
+                    return (
+                      <button
+                        key={role.id}
+                        type="button"
+                        onClick={() => setSelectedRole(role.name)}
+                        className={`w-full text-left px-3 py-2 rounded-md flex items-center justify-between gap-2 transition-colors ${
+                          isSelected
+                            ? "bg-primary text-primary-foreground"
+                            : "hover-elevate active-elevate-2"
+                        }`}
+                        data-testid={`button-select-role-${role.name}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {isDirty && (
+                            <Circle
+                              className={`w-2 h-2 fill-current flex-shrink-0 ${
+                                isSelected ? "text-primary-foreground" : "text-amber-500"
+                              }`}
+                              data-testid={`indicator-unsaved-${role.name}`}
+                            />
+                          )}
+                          <span className="font-medium truncate">{role.label}</span>
+                          {role.name === "admin" && (
+                            <Lock className={`w-3 h-3 flex-shrink-0 ${isSelected ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+                          )}
+                        </div>
+                        <Badge
+                          variant={isSelected ? "outline" : "secondary"}
+                          className={`text-xs flex-shrink-0 ${
+                            isSelected ? "bg-primary-foreground/10 text-primary-foreground border-primary-foreground/30" : ""
+                          }`}
+                          data-testid={`badge-count-${role.name}`}
+                        >
+                          {granted}/{totalPerms}
+                        </Badge>
+                      </button>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Right pane: permissions for the selected role */}
+            <div className="flex flex-col">
+              <div className="p-4 border-b flex items-center gap-3 flex-wrap">
+                <div className="flex-1 min-w-[200px]">
+                  <h3 className="text-base font-semibold" data-testid="text-selected-role-label">
+                    {selectedRoleObj?.label || selectedRole}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {isAdminSelected
+                      ? "Admin has full access to every feature and cannot be modified."
+                      : `${grantedCountFor(selectedRole)} of ${totalPerms} features granted`}
+                  </p>
+                </div>
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Filter features…"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="pl-8"
+                    data-testid="input-search-permissions"
+                  />
+                </div>
+              </div>
+
+              <ScrollArea className="lg:h-[calc(100vh-22rem)] max-h-[60vh]">
+                <div className="p-2">
+                  {groupedFiltered.orderedCats.length === 0 ? (
+                    <div className="text-center text-sm text-muted-foreground py-12" data-testid="text-no-results">
+                      No features match "{search}".
+                    </div>
+                  ) : (
+                    groupedFiltered.orderedCats.map(cat => {
+                      const perms = groupedFiltered.grouped[cat];
+                      const allOn = !isAdminSelected && perms.every(p => p.allowedRoles.includes(selectedRole));
+                      const noneOn = !isAdminSelected && perms.every(p => !p.allowedRoles.includes(selectedRole));
+                      const collapsed = collapsedCats[cat];
+                      return (
+                        <Collapsible
+                          key={cat}
+                          open={!collapsed}
+                          onOpenChange={open => setCollapsedCats(s => ({ ...s, [cat]: !open }))}
+                          className="mb-2"
+                        >
+                          <div
+                            className="flex items-center justify-between gap-2 px-2 py-2 rounded-md hover-elevate"
+                            data-testid={`category-header-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                          >
+                            <CollapsibleTrigger asChild>
+                              <button
+                                type="button"
+                                className="flex items-center gap-2 flex-1 text-left"
+                                data-testid={`button-toggle-category-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                              >
+                                {collapsed ? (
+                                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                )}
+                                <span className="font-semibold text-sm">{cat}</span>
+                                <Badge variant="secondary" className="text-xs ml-1">
+                                  {isAdminSelected
+                                    ? perms.length
+                                    : perms.filter(p => p.allowedRoles.includes(selectedRole)).length}
+                                  /{perms.length}
+                                </Badge>
+                              </button>
+                            </CollapsibleTrigger>
+                            {!isAdminSelected && (
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs"
+                                  disabled={allOn}
+                                  onClick={() => bulkSetCategory(cat, true)}
+                                  data-testid={`button-grant-all-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                                >
+                                  Grant all
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs"
+                                  disabled={noneOn}
+                                  onClick={() => bulkSetCategory(cat, false)}
+                                  data-testid={`button-revoke-all-${cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                                >
+                                  Revoke all
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                          <CollapsibleContent>
+                            <div className="pl-6 pr-2 py-1 flex flex-col">
+                              {perms.map(perm => {
+                                const checked = isAdminSelected
+                                  ? true
+                                  : perm.allowedRoles.includes(selectedRole);
+                                return (
+                                  <label
+                                    key={perm.feature}
+                                    className="flex items-center justify-between gap-3 py-2 px-2 rounded-md hover-elevate cursor-pointer"
+                                    data-testid={`row-permission-${perm.feature}`}
+                                  >
+                                    <span
+                                      className="text-sm"
+                                      data-testid={`text-feature-label-${perm.feature}`}
+                                    >
+                                      {perm.label}
+                                    </span>
+                                    <Switch
+                                      checked={checked}
+                                      disabled={isAdminSelected}
+                                      onCheckedChange={() => toggleRole(perm.feature, selectedRole)}
+                                      data-testid={`switch-${perm.feature}-${selectedRole}`}
+                                    />
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      );
+                    })
+                  )}
+                </div>
+              </ScrollArea>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Dialog open={!!roleToRename} onOpenChange={open => { if (!open) { setRoleToRename(null); setRenameLabel(""); } }}>
         <DialogContent data-testid="dialog-rename-role">
           <DialogHeader>
             <DialogTitle>Rename role</DialogTitle>
             <DialogDescription>
-              Change the display name for <span className="font-mono">{roleToRename?.name}</span>. The internal identifier stays the same so existing assignments continue to work.
+              Change the display name for this role. The internal identifier stays the same so existing assignments continue to work.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
