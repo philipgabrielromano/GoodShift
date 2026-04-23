@@ -1,13 +1,20 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
-import { requireFeatureAccess } from "../middleware";
+import { requireFeatureAccess, requireFeatureAccessAny } from "../middleware";
 import { insertTrailerSchema } from "@shared/schema";
 
 export function registerTrailerRoutes(app: Express) {
   app.get(
     "/api/trailers",
-    requireFeatureAccess("trailers.view"),
+    // Also readable by trailer-manifest creators and drivers filling out an
+    // inspection — they all need the fleet list to populate dropdowns.
+    requireFeatureAccessAny([
+      "trailers.view",
+      "trailer_manifest.create",
+      "trailer_manifest.view",
+      "driver_inspection.submit",
+    ]),
     async (_req, res) => {
       try {
         const list = await storage.getTrailers();

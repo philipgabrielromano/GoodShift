@@ -31,6 +31,7 @@ import { registerOrderRoutes } from "./routes/orders";
 import { registerTrailerManifestRoutes } from "./routes/trailerManifests";
 import { registerTruckRouteRoutes } from "./routes/truckRoutes";
 import { registerTrailerRoutes } from "./routes/trailers";
+import { registerTractorRoutes } from "./routes/tractors";
 import { registerWarehouseInventoryRoutes } from "./routes/warehouseInventory";
 import { registerCreditCardInspectionRoutes } from "./routes/creditCardInspections";
 import { registerDriverInspectionRoutes } from "./routes/driverInspections";
@@ -1342,6 +1343,7 @@ export async function registerRoutes(
   registerTrailerManifestRoutes(app);
   registerTruckRouteRoutes(app);
   registerTrailerRoutes(app);
+  registerTractorRoutes(app);
   registerWarehouseInventoryRoutes(app);
   registerCreditCardInspectionRoutes(app);
   registerDriverInspectionRoutes(app);

@@ -939,6 +939,26 @@ export const insertTrailerSchema = createInsertSchema(trailers).omit({
 export type Trailer = typeof trailers.$inferSelect;
 export type InsertTrailer = z.infer<typeof insertTrailerSchema>;
 
+export const tractors = pgTable("tractors", {
+  id: serial("id").primaryKey(),
+  number: text("number").notNull(),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertTractorSchema = createInsertSchema(tractors).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  number: z.string().trim().min(1, "Tractor number is required").max(60),
+  notes: z.string().trim().max(500).nullable().optional(),
+});
+export type Tractor = typeof tractors.$inferSelect;
+export type InsertTractor = z.infer<typeof insertTractorSchema>;
+
 export const trailerManifests = pgTable("trailer_manifests", {
   id: serial("id").primaryKey(),
   fromLocation: text("from_location").notNull(),
@@ -1516,6 +1536,9 @@ export const SYSTEM_FEATURES = [
   { category: "Logistics", feature: "trailers.view", label: "View Trailers", description: "See the configured fleet of trailers (needed to pick a trailer on a manifest)" },
   { category: "Logistics", feature: "trailers.edit", label: "Manage Trailers", description: "Add, edit, and deactivate trailers in the fleet" },
   { category: "Logistics", feature: "trailers.delete", label: "Delete Trailers", description: "Permanently remove a trailer from the fleet" },
+  { category: "Logistics", feature: "tractors.view", label: "View Tractors / Box Trucks", description: "See the configured fleet of tractors and box trucks (needed to pick one on a driver inspection)" },
+  { category: "Logistics", feature: "tractors.edit", label: "Manage Tractors / Box Trucks", description: "Add, edit, and deactivate tractors and box trucks in the fleet" },
+  { category: "Logistics", feature: "tractors.delete", label: "Delete Tractors / Box Trucks", description: "Permanently remove a tractor or box truck from the fleet" },
   // Seasonal Inventory
   { category: "Orders", feature: "seasonal_inventory.view", label: "View Seasonal Inventory", description: "View aggregated seasonal balances across all stores" },
   // Inventory
@@ -1593,6 +1616,9 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "trailers.view": ["admin", "manager", "ordering"],
   "trailers.edit": ["admin", "manager", "ordering"],
   "trailers.delete": ["admin"],
+  "tractors.view": ["admin", "manager", "ordering"],
+  "tractors.edit": ["admin", "manager", "ordering"],
+  "tractors.delete": ["admin"],
   "seasonal_inventory.view": ["admin", "ordering"],
   // Inventory
   "warehouse_inventory.view": ["admin", "manager", "ordering"],

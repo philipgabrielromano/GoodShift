@@ -82,6 +82,7 @@ export function Navigation() {
     if (can("trailer_manifest.view")) logistics.push({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck });
     if (can("truck_routes.edit")) logistics.push({ href: "/truck-routes", label: "Truck Routes", icon: Truck });
     if (can("trailers.view")) logistics.push({ href: "/trailers", label: "Trailers", icon: Truck });
+    if (can("tractors.view")) logistics.push({ href: "/tractors", label: "Tractors / Box Trucks", icon: Truck });
     if (can("warehouse_inventory.view")) logistics.push({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse });
     if (can("driver_inspection.submit")) logistics.push({ href: "/driver-inspection/new", label: "Driver Inspection", icon: ClipboardList });
     if (can("driver_inspection.view_all")) logistics.push({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck });

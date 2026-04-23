@@ -28,6 +28,7 @@ import {
   truckRoutes, type TruckRoute, type InsertTruckRoute, type TruckRouteWithStops,
   truckRouteLocations,
   trailers, type Trailer, type InsertTrailer,
+  tractors, type Tractor, type InsertTractor,
   trailerManifestItems, type TrailerManifestItem,
   trailerManifestEvents, type TrailerManifestEvent,
   trailerManifestPhotos, type TrailerManifestPhoto, type InsertTrailerManifestPhoto,
@@ -308,6 +309,11 @@ export interface IStorage {
   createTrailer(input: InsertTrailer): Promise<Trailer>;
   updateTrailer(id: number, input: Partial<InsertTrailer>): Promise<Trailer>;
   deleteTrailer(id: number): Promise<void>;
+  getTractors(): Promise<Tractor[]>;
+  getTractor(id: number): Promise<Tractor | undefined>;
+  createTractor(input: InsertTractor): Promise<Tractor>;
+  updateTractor(id: number, input: Partial<InsertTractor>): Promise<Tractor>;
+  deleteTractor(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -807,6 +813,33 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTrailer(id: number): Promise<void> {
     await db.delete(trailers).where(eq(trailers.id, id));
+  }
+
+  async getTractors(): Promise<Tractor[]> {
+    return await db.select().from(tractors).orderBy(desc(tractors.isActive), tractors.number);
+  }
+
+  async getTractor(id: number): Promise<Tractor | undefined> {
+    const [t] = await db.select().from(tractors).where(eq(tractors.id, id));
+    return t;
+  }
+
+  async createTractor(input: InsertTractor): Promise<Tractor> {
+    const [created] = await db.insert(tractors).values(input).returning();
+    return created;
+  }
+
+  async updateTractor(id: number, input: Partial<InsertTractor>): Promise<Tractor> {
+    const [updated] = await db
+      .update(tractors)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(tractors.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTractor(id: number): Promise<void> {
+    await db.delete(tractors).where(eq(tractors.id, id));
   }
 
   async setTruckRouteStops(routeId: number, locationIds: number[]): Promise<void> {

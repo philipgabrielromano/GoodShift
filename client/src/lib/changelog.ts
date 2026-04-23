@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.1";
+export const APP_VERSION = "3.6.2";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.2",
+    date: "2026-04-23",
+    title: "Configurable Tractors & Dropdowns on Driver Inspections",
+    changes: [
+      { type: "feature", description: "New Tractors / Box Trucks page (Logistics → Tractors / Box Trucks). Maintain the fleet just like Trailers and Truck Routes." },
+      { type: "improvement", description: "On the Driver Inspection form, Tractor / Box Truck # is now a dropdown of active tractors from the fleet." },
+      { type: "improvement", description: "On the Driver Inspection form, Trailer # is now a dropdown of active trailers from the fleet." },
+      { type: "improvement", description: "On the Driver Inspection form, Route Number is now a dropdown of active truck routes." },
+      { type: "improvement", description: "Historical inspections still display correctly: if a saved tractor, trailer, or route was later deactivated, it shows as “(not in fleet)” / “(not in routes)” so the record stays readable." },
+    ],
+  },
   {
     version: "3.6.1",
     date: "2026-04-23",

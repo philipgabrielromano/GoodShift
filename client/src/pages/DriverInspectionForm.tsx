@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,9 @@ import {
   DRIVER_INSPECTION_ITEMS,
   DRIVER_INSPECTION_TYPES,
   type DriverInspectionType,
+  type Trailer,
+  type Tractor,
+  type TruckRoute,
 } from "@shared/schema";
 import { ClipboardCheck, Loader2, Upload, X, CheckCircle2, AlertCircle, Truck } from "lucide-react";
 
@@ -48,6 +51,14 @@ export default function DriverInspectionForm() {
   const [trailerNumber, setTrailerNumber] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [items, setItems] = useState<ItemState[]>(initialItems());
+
+  // Configurable fleet + routes for the dropdowns.
+  const { data: trailers = [] } = useQuery<Trailer[]>({ queryKey: ["/api/trailers"] });
+  const { data: tractors = [] } = useQuery<Tractor[]>({ queryKey: ["/api/tractors"] });
+  const { data: routes = [] } = useQuery<TruckRoute[]>({ queryKey: ["/api/truck-routes"] });
+  const activeTrailers = trailers.filter(t => t.isActive);
+  const activeTractors = tractors.filter(t => t.isActive);
+  const activeRoutes = routes.filter(r => r.isActive);
 
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState<string | null>(null);
@@ -215,38 +226,81 @@ export default function DriverInspectionForm() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="route">Route Number</Label>
-              <Input
-                id="route"
-                value={routeNumber}
-                onChange={(e) => setRouteNumber(e.target.value)}
-                placeholder="e.g. Route 12"
-                data-testid="input-route-number"
-              />
+              <Label>Route Number</Label>
+              <Select
+                value={routeNumber || "none"}
+                onValueChange={(v) => setRouteNumber(v === "none" ? "" : v)}
+              >
+                <SelectTrigger data-testid="select-route-number">
+                  <SelectValue placeholder="Select a route" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {/* Show the saved route even if it was later renamed/deactivated. */}
+                  {routeNumber && !activeRoutes.some(r => r.name === routeNumber) && (
+                    <SelectItem value={routeNumber} data-testid="select-route-legacy">
+                      {routeNumber} (not in routes)
+                    </SelectItem>
+                  )}
+                  {activeRoutes.map(r => (
+                    <SelectItem key={r.id} value={r.name} data-testid={`select-route-option-${r.id}`}>
+                      {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tractor">
+              <Label>
                 Tractor / Box Truck # {inspectionType === "tractor" && <span className="text-destructive">*</span>}
               </Label>
-              <Input
-                id="tractor"
-                value={tractorNumber}
-                onChange={(e) => setTractorNumber(e.target.value)}
-                placeholder="e.g. T-203"
-                data-testid="input-tractor-number"
-              />
+              <Select
+                value={tractorNumber || "none"}
+                onValueChange={(v) => setTractorNumber(v === "none" ? "" : v)}
+              >
+                <SelectTrigger data-testid="select-tractor-number">
+                  <SelectValue placeholder="Select a tractor / box truck" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {tractorNumber && !activeTractors.some(t => t.number === tractorNumber) && (
+                    <SelectItem value={tractorNumber} data-testid="select-tractor-legacy">
+                      {tractorNumber} (not in fleet)
+                    </SelectItem>
+                  )}
+                  {activeTractors.map(t => (
+                    <SelectItem key={t.id} value={t.number} data-testid={`select-tractor-option-${t.id}`}>
+                      {t.number}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="trailer">
+              <Label>
                 Trailer # {inspectionType === "trailer" && <span className="text-destructive">*</span>}
               </Label>
-              <Input
-                id="trailer"
-                value={trailerNumber}
-                onChange={(e) => setTrailerNumber(e.target.value)}
-                placeholder="e.g. TR-4412"
-                data-testid="input-trailer-number"
-              />
+              <Select
+                value={trailerNumber || "none"}
+                onValueChange={(v) => setTrailerNumber(v === "none" ? "" : v)}
+              >
+                <SelectTrigger data-testid="select-trailer-number">
+                  <SelectValue placeholder="Select a trailer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {trailerNumber && !activeTrailers.some(t => t.number === trailerNumber) && (
+                    <SelectItem value={trailerNumber} data-testid="select-trailer-legacy">
+                      {trailerNumber} (not in fleet)
+                    </SelectItem>
+                  )}
+                  {activeTrailers.map(t => (
+                    <SelectItem key={t.id} value={t.number} data-testid={`select-trailer-option-${t.id}`}>
+                      {t.number}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>

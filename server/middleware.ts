@@ -140,6 +140,29 @@ export function requireFeatureAccess(feature: string) {
   };
 }
 
+// Allow access if the user has ANY of the listed features. Useful for shared
+// read endpoints (e.g. fleet lookups consumed by both fleet managers and
+// drivers filling out an inspection).
+export function requireFeatureAccessAny(features: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const user = (req.session as any)?.user;
+    if (!user) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    if (user.role === "admin") {
+      return next();
+    }
+    const perms = await getFeaturePermissions();
+    for (const f of features) {
+      const allowedRoles = perms[f] || [];
+      if (allowedRoles.includes(user.role)) {
+        return next();
+      }
+    }
+    return res.status(403).json({ message: "Access denied" });
+  };
+}
+
 // Helper function to check if HR notification should be sent for occurrence thresholds
 // Sends emails to managers assigned to the employee's store location
 // addedOccurrenceValue: the value of the occurrence just added (used to detect crossing vs already over)

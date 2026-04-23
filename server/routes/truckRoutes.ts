@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
-import { requireFeatureAccess } from "../middleware";
+import { requireFeatureAccess, requireFeatureAccessAny } from "../middleware";
 import { insertTruckRouteSchema } from "@shared/schema";
 
 const stopsSchema = z.object({
@@ -11,7 +11,9 @@ const stopsSchema = z.object({
 export function registerTruckRouteRoutes(app: Express) {
   app.get(
     "/api/truck-routes",
-    requireFeatureAccess("truck_routes.view"),
+    // Drivers filling out an inspection also need to read the route list to
+    // populate the Route Number dropdown.
+    requireFeatureAccessAny(["truck_routes.view", "driver_inspection.submit"]),
     async (_req, res) => {
       try {
         const routes = await storage.getTruckRoutes();
@@ -25,7 +27,14 @@ export function registerTruckRouteRoutes(app: Express) {
 
   app.get(
     "/api/truck-routes/:id",
-    requireFeatureAccess("truck_routes.view"),
+    // Mirrors /api/truck-routes list — readable by anyone who needs to attach
+    // a route in a downstream form (manifest creators, drivers, etc.).
+    requireFeatureAccessAny([
+      "truck_routes.view",
+      "trailer_manifest.create",
+      "trailer_manifest.view",
+      "driver_inspection.submit",
+    ]),
     async (req, res) => {
       try {
         const id = Number(req.params.id);
