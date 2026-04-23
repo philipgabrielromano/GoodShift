@@ -2,6 +2,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { applyUserUpdate } from "./users-update";
 import { db } from "./db";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -866,62 +867,8 @@ export async function registerRoutes(
       const existing = await storage.getUser(Number(req.params.id));
       if (!existing) return res.status(404).json({ message: "User not found" });
 
-      const canEditProfile = await userHasFeature(sessionUser, "users.edit_profile");
-      const canAssignRoles = await userHasFeature(sessionUser, "users.assign_roles");
-      const canAssignLocations = await userHasFeature(sessionUser, "users.assign_locations");
-
-      const arraysEqual = (a: unknown[] = [], b: unknown[] = []) =>
-        a.length === b.length && a.every((v, i) => v === b[i]);
-
-      // Detect which fields the caller actually wants to change (vs just
-      // echoing current values). Ignore no-op changes so UIs that resend the
-      // full object don't get spurious 403s.
-      const wantsProfile = ["name", "email", "isActive"].some(
-        k =>
-          Object.prototype.hasOwnProperty.call(input, k) &&
-          (input as any)[k] !== undefined &&
-          (input as any)[k] !== (existing as any)[k]
-      );
-      const wantsRole =
-        Object.prototype.hasOwnProperty.call(input, "role") &&
-        input.role !== undefined &&
-        input.role !== (existing as any).role;
-      const wantsLocations =
-        Object.prototype.hasOwnProperty.call(input, "locationIds") &&
-        Array.isArray(input.locationIds) &&
-        !arraysEqual(input.locationIds as unknown[], ((existing as any).locationIds as unknown[]) || []);
-
-      if (wantsProfile && !canEditProfile) {
-        return res.status(403).json({ message: "You don't have permission to edit user profiles." });
-      }
-      if (wantsRole && !canAssignRoles) {
-        return res.status(403).json({ message: "You don't have permission to change user roles." });
-      }
-      if (wantsLocations && !canAssignLocations) {
-        return res.status(403).json({ message: "You don't have permission to change store assignments." });
-      }
-      if (!wantsProfile && !wantsRole && !wantsLocations) {
-        return res.json(existing);
-      }
-
-      if (wantsRole) {
-        const validRoles = await storage.getRoles();
-        if (!validRoles.some(r => r.name === input.role)) {
-          return res.status(400).json({ message: `Invalid role: ${input.role}` });
-        }
-      }
-
-      const patch: Record<string, unknown> = {};
-      if (wantsProfile) {
-        for (const k of ["name", "email", "isActive"]) {
-          if (Object.prototype.hasOwnProperty.call(input, k)) patch[k] = (input as any)[k];
-        }
-      }
-      if (wantsRole) patch.role = input.role;
-      if (wantsLocations) patch.locationIds = input.locationIds;
-
-      const user = await storage.updateUser(Number(req.params.id), patch as any);
-      res.json(user);
+      const result = await applyUserUpdate(sessionUser, existing, input);
+      return res.status(result.status).json(result.body);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
