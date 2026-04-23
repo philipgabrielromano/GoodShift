@@ -75,6 +75,9 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **class-variance-authority**: Component variant styling.
 - **clsx/tailwind-merge**: Conditional CSS class composition.
 
+### Testing
+- **Permission integration tests**: `test/permissions.test.ts` exercises `requireFeatureAccess` against the real `feature_permissions` table by mounting the actual occurrences/coaching/shift-trades route registrations and a `schedule.publish` stub. A test-only `/_test/login` endpoint seeds `req.session.user` with a synthetic role per run so we don't need Microsoft SSO. Run with `npx tsx --test test/permissions.test.ts`. Requires `DATABASE_URL`. Tests scope all `feature_permissions` mutations to a unique synthetic role and restore original `allowed_roles` after each case.
+
 ### Integrations
 - **UKG Workforce Management**: Integrates with UltiClock OData API for employee and time clock data sync.
 - **Microsoft 365 SSO**: Single sign-on authentication using Azure AD.
