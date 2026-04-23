@@ -74,7 +74,7 @@ export default function DriverInspections() {
   }, [inspections, vehicleQuery, routeQuery]);
 
   return (
-    <div className="container max-w-7xl py-8 px-4">
+    <div className="container mx-auto max-w-7xl py-8 px-4">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded bg-primary/10 flex items-center justify-center">
