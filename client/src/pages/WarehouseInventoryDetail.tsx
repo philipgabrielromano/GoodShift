@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft, Loader2, Save, CheckCircle2, Lock, Unlock, Trash2,
   TrendingUp, TrendingDown, Minus, AlertTriangle, Warehouse as WarehouseIcon,
-  Info,
+  Info, Download,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -144,6 +144,53 @@ export default function WarehouseInventoryDetail() {
 
   const priorTotal = (data?.priorItems || []).reduce((a, b) => a + b.qty, 0);
 
+  const handleExportCsv = () => {
+    if (!data) return;
+    const c = data.count;
+    const esc = (v: unknown) => {
+      let s = v == null ? "" : String(v);
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines: string[] = [];
+    lines.push(`# Warehouse count export`);
+    lines.push(`# Warehouse,${esc(titleCase(c.warehouse))}`);
+    lines.push(`# Count date,${esc(c.countDate)}`);
+    lines.push(`# Status,${esc(isFinal ? "Finalized" : "Draft")}`);
+    lines.push(`# Started by,${esc(c.createdByName || "")}`);
+    lines.push(`# Finalized by,${esc(c.finalizedByName || "")}`);
+    lines.push(`# Finalized at,${esc(c.finalizedAt || "")}`);
+    lines.push(`# Expected source,${esc(isFinal ? "snapshot at finalize" : "live system")}`);
+    lines.push(`# Exported at,${esc(new Date().toISOString())}`);
+    lines.push("");
+    lines.push(["Group", "Item", "Expected", "Counted", "Variance"].join(","));
+    data.categories.forEach(cat => {
+      cat.items.forEach(item => {
+        const counted = Math.max(0, Math.floor(Number(qty[item] ?? 0) || 0));
+        const expected = expectedMap[item];
+        const variance = expected != null ? counted - expected : null;
+        lines.push([
+          esc(cat.group),
+          esc(item),
+          expected == null ? "" : String(expected),
+          String(counted),
+          variance == null ? "" : String(variance),
+        ].join(","));
+      });
+    });
+    const csv = lines.join("\r\n") + "\r\n";
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeWarehouse = c.warehouse.replace(/[^a-z0-9-]+/gi, "-");
+    a.download = `warehouse-count-${safeWarehouse}-${c.countDate}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const saveMutation = useMutation({
     mutationFn: async () => {
       const items = Object.entries(qty).map(([itemName, v]) => ({
@@ -251,6 +298,10 @@ export default function WarehouseInventoryDetail() {
           <Badge variant={isFinal ? "default" : "secondary"} data-testid="badge-status">
             {isFinal ? "Finalized" : "Draft"}
           </Badge>
+          <Button variant="outline" onClick={handleExportCsv} data-testid="button-export-csv">
+            <Download className="w-4 h-4 mr-2" />
+            Download CSV
+          </Button>
           {!readOnly && (
             <>
               <Button variant="outline" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save">
