@@ -41,6 +41,42 @@ interface AuthStatus { user: { id: number; name: string; role: string } | null; 
 function titleCase(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+interface CountAuditEntry {
+  id: number;
+  countId: number;
+  itemName: string | null;
+  action: "update" | "finalize" | "reopen" | string;
+  changedById: number | null;
+  changedByName: string | null;
+  changedAt: string;
+  changes: Record<string, { before: unknown; after: unknown }>;
+}
+
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffSec = Math.round((Date.now() - then) / 1000);
+  if (diffSec < 5) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMo = Math.round(diffDay / 30);
+  if (diffMo < 12) return `${diffMo}mo ago`;
+  return `${Math.round(diffMo / 12)}y ago`;
+}
+
+const HISTORY_QUERY_FN = async ({ queryKey }: { queryKey: readonly unknown[] }): Promise<CountAuditEntry[]> => {
+  const countId = queryKey[1];
+  const res = await fetch(`/api/warehouse-inventory/${countId}/history`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to load history");
+  return res.json();
+};
+
 function Delta({ value }: { value: number }) {
   const Icon = value > 0 ? TrendingUp : value < 0 ? TrendingDown : Minus;
   const color = value > 0 ? "text-green-600" : value < 0 ? "text-red-600" : "text-muted-foreground";
@@ -65,6 +101,27 @@ export default function WarehouseInventoryDetail() {
   const { data, isLoading, isError, error, refetch } = useQuery<Detail>({
     queryKey: ["/api/warehouse-inventory", id],
   });
+
+  const { data: history } = useQuery<CountAuditEntry[]>({
+    queryKey: ["/api/warehouse-inventory", id, "history"],
+    queryFn: HISTORY_QUERY_FN,
+    enabled: Number.isFinite(id),
+  });
+
+  const itemEditsMap = useMemo(() => {
+    const m: Record<string, CountAuditEntry[]> = {};
+    (history || []).forEach(e => {
+      if (e.action === "update" && e.itemName) {
+        (m[e.itemName] ||= []).push(e);
+      }
+    });
+    Object.values(m).forEach(list =>
+      list.sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime())
+    );
+    return m;
+  }, [history]);
+
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   // Local editable state for quantities and notes
   const [qty, setQty] = useState<Record<string, string>>({});
@@ -532,44 +589,88 @@ export default function WarehouseInventoryDetail() {
                 const delta = currentNum - prior;
                 const expected = expectedMap[item];
                 const variance = expected != null ? currentNum - expected : null;
+                const itemEdits = itemEditsMap[item] || [];
+                const lastEdit = itemEdits[0];
+                const isExpanded = expandedItem === item;
                 return (
                   <div
                     key={item}
-                    className="flex items-center justify-between gap-3 px-4 py-2"
+                    className="px-4 py-2"
                     data-testid={`row-item-${item}`}
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate">{item}</div>
-                      {data.prior && (
-                        <div className="text-xs text-muted-foreground">
-                          Prior ({data.prior.countDate}): {prior} <Delta value={delta} />
-                        </div>
-                      )}
-                      {expected != null && (
-                        <div className="text-xs text-muted-foreground" data-testid={`text-variance-${item}`}>
-                          {isFinal ? "System expected" : "System (live)"}: {expected}
-                          {variance != null && (
-                            <>
-                              {" · variance: "}
-                              <span className={variance === 0 ? "text-muted-foreground" : variance > 0 ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
-                                {variance > 0 ? `+${variance}` : variance}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      )}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium truncate">{item}</div>
+                        {data.prior && (
+                          <div className="text-xs text-muted-foreground">
+                            Prior ({data.prior.countDate}): {prior} <Delta value={delta} />
+                          </div>
+                        )}
+                        {expected != null && (
+                          <div className="text-xs text-muted-foreground" data-testid={`text-variance-${item}`}>
+                            {isFinal ? "System expected" : "System (live)"}: {expected}
+                            {variance != null && (
+                              <>
+                                {" · variance: "}
+                                <span className={variance === 0 ? "text-muted-foreground" : variance > 0 ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
+                                  {variance > 0 ? `+${variance}` : variance}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {lastEdit && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedItem(isExpanded ? null : item)}
+                            className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover-elevate active-elevate-2 rounded -mx-1 px-1 py-0.5"
+                            aria-expanded={isExpanded}
+                            data-testid={`button-item-history-${item}`}
+                            title={`${itemEdits.length} edit${itemEdits.length === 1 ? "" : "s"} — click to ${isExpanded ? "hide" : "show"}`}
+                          >
+                            {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                            <HistoryIcon className="w-3 h-3" />
+                            <span data-testid={`text-item-last-edit-${item}`}>
+                              Edited by {lastEdit.changedByName || "—"} · {formatRelative(lastEdit.changedAt)}
+                              {itemEdits.length > 1 ? ` · ${itemEdits.length} edits` : ""}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        className="w-24 text-right"
+                        value={value}
+                        disabled={readOnly}
+                        onChange={e => setQty(q => ({ ...q, [item]: e.target.value }))}
+                        onFocus={e => e.currentTarget.select()}
+                        data-testid={`input-qty-${item}`}
+                      />
                     </div>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      className="w-24 text-right"
-                      value={value}
-                      disabled={readOnly}
-                      onChange={e => setQty(q => ({ ...q, [item]: e.target.value }))}
-                      onFocus={e => e.currentTarget.select()}
-                      data-testid={`input-qty-${item}`}
-                    />
+                    {isExpanded && lastEdit && (
+                      <ul className="mt-2 ml-5 space-y-1.5 border-l-2 border-border pl-3" data-testid={`list-item-history-${item}`}>
+                        {itemEdits.map(a => {
+                          const qtyDiff = a.changes?.qty as { before: unknown; after: unknown } | undefined;
+                          return (
+                            <li key={a.id} className="text-xs" data-testid={`item-history-entry-${a.id}`}>
+                              <div className="text-muted-foreground">
+                                {a.changedByName || "—"} · {new Date(a.changedAt).toLocaleString()}
+                              </div>
+                              {qtyDiff && (
+                                <div className="font-mono text-[11px]">
+                                  <span className="text-muted-foreground">Qty:</span>{" "}
+                                  <span className="line-through text-red-600 dark:text-red-400">{fmtVal(qtyDiff.before)}</span>
+                                  {" → "}
+                                  <span className="text-green-600 dark:text-green-400">{fmtVal(qtyDiff.after)}</span>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                 );
               })}
@@ -615,17 +716,6 @@ export default function WarehouseInventoryDetail() {
   );
 }
 
-interface CountAuditEntry {
-  id: number;
-  countId: number;
-  itemName: string | null;
-  action: "update" | "finalize" | "reopen" | string;
-  changedById: number | null;
-  changedByName: string | null;
-  changedAt: string;
-  changes: Record<string, { before: unknown; after: unknown }>;
-}
-
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined || v === "") return "—";
   return String(v);
@@ -635,12 +725,7 @@ function CountHistory({ countId, createdByName }: { countId: number; createdByNa
   const [open, setOpen] = useState(false);
   const { data, isLoading, isError } = useQuery<CountAuditEntry[]>({
     queryKey: ["/api/warehouse-inventory", countId, "history"],
-    queryFn: async () => {
-      const res = await fetch(`/api/warehouse-inventory/${countId}/history`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load history");
-      return res.json();
-    },
-    enabled: open,
+    queryFn: HISTORY_QUERY_FN,
   });
   const total = data?.length ?? null;
   return (
