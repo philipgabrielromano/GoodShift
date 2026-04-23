@@ -10,26 +10,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery } from "@tanstack/react-query";
+import { usePermissions } from "@/hooks/use-permissions";
 import type { Location } from "@shared/schema";
 import { isValidLocation } from "@/lib/utils";
-
-interface AuthStatus {
-  isAuthenticated: boolean;
-  user: { id: number; name: string; email: string; role: string; locationIds?: string[] } | null;
-}
 
 export default function Locations() {
   const { toast } = useToast();
   const { data: locations, isLoading } = useLocations();
   const updateLocation = useUpdateLocation();
-  
-  const { data: authStatus } = useQuery<AuthStatus>({
-    queryKey: ["/api/auth/status"],
-  });
-  
-  const isAdmin = authStatus?.user?.role === "admin";
-  const userLocationIds = authStatus?.user?.locationIds || [];
+
+  // Editing/configuring locations is intentionally admin-only.
+  const { user, role } = usePermissions();
+  const isAdmin = role === "admin";
+  const userLocationIds = user?.locationIds ?? [];
   
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingHours, setEditingHours] = useState<string>("");

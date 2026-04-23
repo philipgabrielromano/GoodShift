@@ -10,12 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Target, BarChart3, TrendingUp, TrendingDown, Minus, Globe } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import type { RosterTarget } from "@shared/schema";
-
-interface AuthStatus {
-  isAuthenticated: boolean;
-  user: { id: number; name: string; email: string; role: string; locationIds: string[] | null } | null;
-}
 
 interface Location {
   id: number;
@@ -101,11 +97,12 @@ export default function Roster() {
   const [selectedLocationId, setSelectedLocationId] = useState<number | null>(null);
   const [targetFteDrafts, setTargetFteDrafts] = useState<Record<string, string>>({});
 
-  const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
+  const { user, role } = usePermissions();
   const { data: locations = [] } = useQuery<Location[]>({ queryKey: ["/api/locations"] });
 
-  const isAdmin = authStatus?.user?.role === "admin";
-  const userLocationIds = authStatus?.user?.locationIds ?? [];
+  // Admin sees every schedulable location; non-admins are scoped to assigned locations.
+  const isAdmin = role === "admin";
+  const userLocationIds = user?.locationIds ?? [];
 
   const visibleLocations = useMemo(() => {
     const filtered = isAdmin

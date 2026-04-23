@@ -28,6 +28,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import type { Shift, ScheduleTemplate, Employee } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import fanfareSound from "@assets/zelda-tp-item-fanfare_1769708907750.mp3";
@@ -348,9 +349,7 @@ export default function Schedule() {
   });
 
   const isSchedulePublished = publishStatus?.isPublished ?? false;
-  const userRole = authStatus?.user?.role ?? "viewer";
-  const accessibleFeatures = authStatus?.accessibleFeatures || [];
-  const can = (feature: string) => accessibleFeatures.includes(feature);
+  const { can, role: userRole } = usePermissions();
   const canEditSchedule = can("schedule.edit");
   const canPublishSchedule = can("schedule.publish");
   const canGenerateSchedule = can("schedule.generate");
@@ -400,8 +399,10 @@ export default function Schedule() {
   });
   const [isCopyMode, setIsCopyMode] = useState(false);
   
-  // Determine if user is admin
-  const isAdmin = authStatus?.user?.role === "admin";
+  // Admin-only: see every schedulable location regardless of assignment.
+  // This is intentionally a built-in admin check (no feature key) — see
+  // `usePermissions` convention comment.
+  const isAdmin = userRole === "admin";
   
   // For non-admins, default to their first assigned location
   // Get the user's accessible locations (filter out "Location XX" fallback names)

@@ -13,12 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2, Pencil } from "lucide-react";
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
-
-interface AuthStatus {
-  isAuthenticated: boolean;
-  user: { id: number; name: string; email: string; role: string } | null;
-  accessibleFeatures?: string[];
-}
+import { usePermissions } from "@/hooks/use-permissions";
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -141,10 +136,9 @@ export default function OrderSubmissions() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const pageSize = 25;
 
-  const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
-  const isAdmin = authStatus?.user?.role === "admin";
-  const canEdit = !!authStatus?.accessibleFeatures?.includes("orders.edit");
-  const canDelete = isAdmin || !!authStatus?.accessibleFeatures?.includes("orders.delete");
+  const { can } = usePermissions();
+  const canEdit = can("orders.edit");
+  const canDelete = can("orders.delete");
   const [, navigate] = useWouterLocation();
 
   const { data: dbLocations } = useLocations();
