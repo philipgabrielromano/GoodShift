@@ -136,8 +136,49 @@ export async function registerRoutes(
   });
 
   app.get(api.employees.get.path, requireAuth, async (req, res) => {
+    const user = (req.session as any)?.user;
     const employee = await storage.getEmployee(Number(req.params.id));
     if (!employee) return res.status(404).json({ message: "Employee not found" });
+
+    if (user && user.role !== "admin") {
+      if (user.locationIds && user.locationIds.length > 0) {
+        const allLocations = await storage.getLocations();
+        const userLocationNames = allLocations
+          .filter((loc: any) => user.locationIds.includes(String(loc.id)))
+          .map((loc: any) => loc.name);
+        if (employee.location && !userLocationNames.includes(employee.location)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      if (user.role === "viewer") {
+        if (employee.isHiddenFromSchedule) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+        return res.json({
+          id: employee.id,
+          name: employee.name,
+          jobTitle: employee.jobTitle,
+          location: employee.location,
+          employmentType: employee.employmentType,
+          maxWeeklyHours: employee.maxWeeklyHours,
+          isActive: employee.isActive,
+          isHiddenFromSchedule: employee.isHiddenFromSchedule,
+          color: employee.color,
+          email: "",
+          ukgEmployeeId: null,
+          hireDate: null,
+          preferredDaysPerWeek: employee.preferredDaysPerWeek,
+          nonWorkingDays: employee.nonWorkingDays,
+        });
+      }
+
+      const canViewEmployees = await userHasFeature(user, "employees.view");
+      if (!canViewEmployees) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
     res.json(employee);
   });
 
@@ -366,10 +407,38 @@ export async function registerRoutes(
     const d = new Date(dateStr);
     return !isNaN(d.getTime());
   };
-  
+
+  // Resolve the effective location a user is authorized to act on.
+  // Returns { effectiveLocation, error } where effectiveLocation is the resolved
+  // location string (or undefined for "all"), and error is a 403 message if the
+  // requested location is outside the user's authorized scope.
+  const resolveAuthorizedLocation = async (user: any, requestedLocation: string | undefined): Promise<{ effectiveLocation: string | undefined; error: string | null }> => {
+    if (!user || user.role === "admin") {
+      return { effectiveLocation: requestedLocation && requestedLocation !== "all" ? requestedLocation : undefined, error: null };
+    }
+    if (user.locationIds && user.locationIds.length > 0) {
+      const allLocations = await storage.getLocations();
+      const userLocationNames = allLocations
+        .filter((loc: any) => user.locationIds.includes(String(loc.id)))
+        .map((loc: any) => loc.name as string);
+      if (!requestedLocation || requestedLocation === "all") {
+        if (userLocationNames.length === 1) {
+          return { effectiveLocation: userLocationNames[0], error: null };
+        }
+        return { effectiveLocation: undefined, error: "You must specify a location you are assigned to" };
+      }
+      if (!userLocationNames.includes(requestedLocation)) {
+        return { effectiveLocation: undefined, error: "Access denied: location outside your assigned scope" };
+      }
+      return { effectiveLocation: requestedLocation, error: null };
+    }
+    return { effectiveLocation: requestedLocation && requestedLocation !== "all" ? requestedLocation : undefined, error: null };
+  };
+
   // Copy current week's schedule to the next week
-  app.post("/api/schedule/copy-to-next-week", requireAuth, async (req, res) => {
+  app.post("/api/schedule/copy-to-next-week", requireFeatureAccess("schedule.edit"), async (req, res) => {
     try {
+      const user = (req.session as any)?.user;
       const { weekStart, location } = req.body;
       if (!weekStart) {
         return res.status(400).json({ message: "weekStart is required" });
@@ -378,6 +447,9 @@ export async function registerRoutes(
       if (!isValidDate(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
+
+      const { effectiveLocation, error: locError } = await resolveAuthorizedLocation(user, location);
+      if (locError) return res.status(403).json({ message: locError });
       
       const currentWeekStart = new Date(weekStart);
       const currentWeekEnd = new Date(currentWeekStart);
@@ -387,9 +459,9 @@ export async function registerRoutes(
       const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
       
       let filteredShifts = shifts;
-      if (location && location !== "all") {
+      if (effectiveLocation) {
         const allEmployees = await storage.getEmployees();
-        const locationEmpIds = new Set(allEmployees.filter(e => e.location === location).map(e => e.id));
+        const locationEmpIds = new Set(allEmployees.filter(e => e.location === effectiveLocation).map(e => e.id));
         filteredShifts = shifts.filter(s => locationEmpIds.has(s.employeeId));
       }
       
@@ -400,10 +472,9 @@ export async function registerRoutes(
       const nextWeekStart = new Date(currentWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
       const nextWeekEnd = new Date(nextWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
       
-      const loc = location && location !== "all" ? location : undefined;
-      const cleared = await storage.deleteShiftsByDateRange(nextWeekStart, nextWeekEnd, loc);
+      const cleared = await storage.deleteShiftsByDateRange(nextWeekStart, nextWeekEnd, effectiveLocation);
       if (cleared > 0) {
-        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${loc || "all locations"})`);
+        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${effectiveLocation || "all locations"})`);
       }
       
       const newShifts = filteredShifts.map(shift => ({
@@ -432,9 +503,10 @@ export async function registerRoutes(
   });
   
   // Save current week as a template
-  app.post("/api/schedule-templates", requireAuth, async (req, res) => {
+  app.post("/api/schedule-templates", requireFeatureAccess("schedule.templates"), async (req, res) => {
     try {
-      const { name, description, weekStart, createdBy, location } = req.body;
+      const user = (req.session as any)?.user;
+      const { name, description, weekStart, location } = req.body;
       if (!name || !weekStart) {
         return res.status(400).json({ message: "name and weekStart are required" });
       }
@@ -442,6 +514,9 @@ export async function registerRoutes(
       if (!isValidDate(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
+
+      const { effectiveLocation, error: locError } = await resolveAuthorizedLocation(user, location);
+      if (locError) return res.status(403).json({ message: locError });
       
       const currentWeekStart = new Date(weekStart);
       const currentWeekEnd = new Date(currentWeekStart);
@@ -450,9 +525,9 @@ export async function registerRoutes(
       
       let shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
       
-      if (location && location !== "all") {
+      if (effectiveLocation) {
         const allEmployees = await storage.getEmployees();
-        const locationEmpIds = new Set(allEmployees.filter(e => e.location === location).map(e => e.id));
+        const locationEmpIds = new Set(allEmployees.filter(e => e.location === effectiveLocation).map(e => e.id));
         shifts = shifts.filter(s => locationEmpIds.has(s.employeeId));
       }
       
@@ -478,11 +553,11 @@ export async function registerRoutes(
       const template = await storage.createScheduleTemplate({
         name,
         description: description || null,
-        createdBy: createdBy || null,
+        createdBy: user?.id || null,
         shiftPatterns: JSON.stringify(patterns),
       });
       
-      console.log(`[Template Save] Saved "${name}" with ${patterns.length} patterns (location: ${location || "all"})`);
+      console.log(`[Template Save] Saved "${name}" with ${patterns.length} patterns (location: ${effectiveLocation || "all"})`);
       res.status(201).json(template);
     } catch (err) {
       console.error("Error creating template:", err);
@@ -491,8 +566,9 @@ export async function registerRoutes(
   });
   
   // Apply a template to a week
-  app.post("/api/schedule-templates/:id/apply", requireAuth, async (req, res) => {
+  app.post("/api/schedule-templates/:id/apply", requireFeatureAccess("schedule.templates"), async (req, res) => {
     try {
+      const user = (req.session as any)?.user;
       const templateId = Number(req.params.id);
       const { weekStart, location } = req.body;
       
@@ -503,6 +579,9 @@ export async function registerRoutes(
       if (!isValidDate(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
+
+      const { effectiveLocation, error: locError } = await resolveAuthorizedLocation(user, location);
+      if (locError) return res.status(403).json({ message: locError });
       
       const template = await storage.getScheduleTemplate(templateId);
       if (!template) {
@@ -520,19 +599,16 @@ export async function registerRoutes(
       const targetWeekEnd = new Date(targetWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
       const targetWeekStartET = toZonedTime(targetWeekStart, TIMEZONE);
       
-      const loc = location && location !== "all" ? location : undefined;
-      
       let filteredPatterns = patterns;
-      let locationEmpIds: Set<number> | null = null;
-      if (loc) {
+      if (effectiveLocation) {
         const allEmployees = await storage.getEmployees();
-        locationEmpIds = new Set(allEmployees.filter(e => e.location === loc).map(e => e.id));
-        filteredPatterns = patterns.filter((p: any) => locationEmpIds!.has(p.employeeId));
+        const locationEmpIds = new Set(allEmployees.filter(e => e.location === effectiveLocation).map(e => e.id));
+        filteredPatterns = patterns.filter((p: any) => locationEmpIds.has(p.employeeId));
       }
       
-      const cleared = await storage.deleteShiftsByDateRange(targetWeekStart, targetWeekEnd, loc);
+      const cleared = await storage.deleteShiftsByDateRange(targetWeekStart, targetWeekEnd, effectiveLocation);
       if (cleared > 0) {
-        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${loc || "all locations"})`);
+        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${effectiveLocation || "all locations"})`);
       }
       
       const newShifts = filteredPatterns.map((pattern: any) => {
@@ -573,7 +649,7 @@ export async function registerRoutes(
     }
   });
   
-  app.delete("/api/schedule-templates/:id", requireAuth, async (req, res) => {
+  app.delete("/api/schedule-templates/:id", requireFeatureAccess("schedule.templates"), async (req, res) => {
     const user = (req.session as any)?.user;
     const template = await storage.getScheduleTemplate(Number(req.params.id));
     if (!template) return res.status(404).json({ message: "Template not found" });
@@ -621,7 +697,13 @@ export async function registerRoutes(
 
   // === Global Settings ===
   app.get(api.globalSettings.get.path, requireAuth, async (req, res) => {
+    const user = (req.session as any)?.user;
     const settings = await storage.getGlobalSettings();
+    if (!settings) return res.json(settings);
+    if (user?.role !== "admin") {
+      const { ukgApiUrl, ukgUsername, ukgPassword, hrNotificationEmail, orderNotificationEmails, driverInspectionEmails, warehouseVarianceEmailsCleveland, warehouseVarianceEmailsCanton, ...safeSettings } = settings;
+      return res.json(safeSettings);
+    }
     res.json(settings);
   });
 
