@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.2";
+export const APP_VERSION = "3.6.3";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.3",
+    date: "2026-04-23",
+    title: "Inspection Form Polish",
+    changes: [
+      { type: "improvement", description: "Driver Inspection, Credit Card Inspection, and CC Inspections list pages are now centered on the screen, matching the rest of the app." },
+      { type: "improvement", description: "Driver Inspection checklist replaces the small radio dial + icon combo with two large clickable pills (green OK, red Repair). The whole pill is the click target — tap the icon or the label to set the status." },
+      { type: "improvement", description: "Selected status pill is highlighted with a colored background and border, making it easy to scan an entire checklist at a glance." },
+    ],
+  },
   {
     version: "3.6.2",
     date: "2026-04-23",

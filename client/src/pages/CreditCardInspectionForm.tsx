@@ -137,7 +137,7 @@ export default function CreditCardInspectionForm() {
   })();
 
   return (
-    <div className="container max-w-4xl py-8 px-4">
+    <div className="p-4 lg:p-8 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-12 h-12 rounded bg-primary/10 flex items-center justify-center">
           <CreditCard className="w-6 h-6 text-primary" />

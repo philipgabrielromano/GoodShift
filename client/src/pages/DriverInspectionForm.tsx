@@ -147,39 +147,74 @@ export default function DriverInspectionForm() {
   const engineOffItems = items.filter(i => i.section === "engine_off");
   const engineOnItems = items.filter(i => i.section === "engine_on");
 
-  const renderItem = (item: ItemState) => (
-    <div
-      key={item.key}
-      className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-3 border rounded hover-elevate"
-      data-testid={`row-item-${item.key}`}
-    >
-      <div className="flex items-start gap-2 flex-1">
-        <span className="text-sm text-muted-foreground font-mono pt-1">*</span>
-        <Label className="text-sm font-normal leading-snug">{item.label}</Label>
-      </div>
-      <RadioGroup
-        value={item.status ?? ""}
-        onValueChange={(v) => setItemStatus(item.key, v as "ok" | "repair")}
-        className="flex gap-4 flex-shrink-0"
+  const renderItem = (item: ItemState) => {
+    const okSelected = item.status === "ok";
+    const repairSelected = item.status === "repair";
+    // peer-focus-visible:* surfaces a visible focus ring on the pill when the
+    // sr-only radio receives keyboard focus.
+    const basePill =
+      "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-sm font-medium cursor-pointer transition-colors hover-elevate active-elevate-2 " +
+      "peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background ";
+    const okPillClass =
+      basePill +
+      (okSelected
+        ? "bg-green-100 dark:bg-green-950/40 border-green-600 text-green-700 dark:text-green-400"
+        : "bg-background border-border text-muted-foreground");
+    const repairPillClass =
+      basePill +
+      (repairSelected
+        ? "bg-destructive/10 border-destructive text-destructive"
+        : "bg-background border-border text-muted-foreground");
+    return (
+      <div
+        key={item.key}
+        className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 p-3 border rounded hover-elevate"
+        data-testid={`row-item-${item.key}`}
       >
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="ok" id={`ok-${item.key}`} data-testid={`radio-ok-${item.key}`} />
-          <Label htmlFor={`ok-${item.key}`} className="flex items-center gap-1 cursor-pointer font-normal text-sm">
-            <CheckCircle2 className="w-4 h-4 text-green-600" /> OK
-          </Label>
+        <div className="flex items-start gap-2 flex-1">
+          <span className="text-sm text-muted-foreground font-mono pt-1">*</span>
+          <Label className="text-sm font-normal leading-snug">{item.label}</Label>
         </div>
-        <div className="flex items-center gap-2">
-          <RadioGroupItem value="repair" id={`repair-${item.key}`} data-testid={`radio-repair-${item.key}`} />
-          <Label htmlFor={`repair-${item.key}`} className="flex items-center gap-1 cursor-pointer font-normal text-sm">
-            <AlertCircle className="w-4 h-4 text-destructive" /> Repair
-          </Label>
-        </div>
-      </RadioGroup>
-    </div>
-  );
+        {/* shadcn RadioGroup gives us native keyboard nav + ARIA semantics; we
+            visually hide the radio dial and make the entire label the click
+            target via peer-* utilities. */}
+        <RadioGroup
+          value={item.status ?? ""}
+          onValueChange={(v) => setItemStatus(item.key, v as "ok" | "repair")}
+          className="flex gap-2 flex-shrink-0"
+          aria-label={`Status for ${item.label}`}
+        >
+          <div>
+            <RadioGroupItem
+              value="ok"
+              id={`ok-${item.key}`}
+              data-testid={`radio-ok-${item.key}`}
+              className="sr-only peer"
+            />
+            <Label htmlFor={`ok-${item.key}`} className={okPillClass}>
+              <CheckCircle2 className={"w-4 h-4 " + (okSelected ? "text-green-600" : "text-muted-foreground")} />
+              OK
+            </Label>
+          </div>
+          <div>
+            <RadioGroupItem
+              value="repair"
+              id={`repair-${item.key}`}
+              data-testid={`radio-repair-${item.key}`}
+              className="sr-only peer"
+            />
+            <Label htmlFor={`repair-${item.key}`} className={repairPillClass}>
+              <AlertCircle className={"w-4 h-4 " + (repairSelected ? "text-destructive" : "text-muted-foreground")} />
+              Repair
+            </Label>
+          </div>
+        </RadioGroup>
+      </div>
+    );
+  };
 
   return (
-    <div className="container max-w-4xl py-8 px-4">
+    <div className="p-4 lg:p-8 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <div className="w-12 h-12 rounded bg-primary/10 flex items-center justify-center">
           <ClipboardCheck className="w-6 h-6 text-primary" />

@@ -45,7 +45,7 @@ export default function CreditCardInspections() {
   });
 
   return (
-    <div className="container max-w-6xl py-8 px-4">
+    <div className="p-4 lg:p-8 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded bg-primary/10 flex items-center justify-center">
