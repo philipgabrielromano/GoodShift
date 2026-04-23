@@ -144,6 +144,7 @@ export default function OrderSubmissions() {
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const isAdmin = authStatus?.user?.role === "admin";
   const canEdit = !!authStatus?.accessibleFeatures?.includes("orders.edit");
+  const canDelete = isAdmin || !!authStatus?.accessibleFeatures?.includes("orders.delete");
   const [, navigate] = useWouterLocation();
 
   const { data: dbLocations } = useLocations();
@@ -402,7 +403,7 @@ export default function OrderSubmissions() {
                 </>
               )}
 
-              {(canEdit || isAdmin) && (
+              {(canEdit || canDelete) && (
                 <>
                   <hr />
                   <div className="flex flex-col gap-2">
@@ -418,7 +419,7 @@ export default function OrderSubmissions() {
                         Edit Order
                       </Button>
                     )}
-                    {isAdmin && (
+                    {canDelete && (
                       <Button
                         variant="destructive"
                         size="sm"

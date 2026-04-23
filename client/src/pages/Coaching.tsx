@@ -97,6 +97,7 @@ export default function Coaching() {
 
   const { can } = usePermissions();
   const isManagerOrAdmin = can("coaching.view");
+  const canEditCoaching = can("coaching.edit");
 
   const coachingEmployeesUrl = showInactive ? "/api/coaching/employees?showInactive=true" : "/api/coaching/employees";
   const { data: employees, isLoading: employeesLoading } = useQuery<CoachingEmployee[]>({
@@ -315,7 +316,7 @@ export default function Coaching() {
             {isManagerOrAdmin ? "Document feedback conversations with team members." : "View your coaching history."}
           </p>
         </div>
-        {isManagerOrAdmin && (
+        {canEditCoaching && (
           <div className="flex items-center gap-2">
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetForm(); }}>
             <DialogTrigger asChild>
@@ -546,7 +547,7 @@ export default function Coaching() {
             <div className="text-center py-8 sm:py-12 text-muted-foreground" data-testid="text-no-logs">
               <MessageSquare className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-3 opacity-30" />
               <p className="text-sm">No coaching logs found.</p>
-              {isManagerOrAdmin && <p className="text-xs sm:text-sm mt-1">Tap "New Coaching Log" to create one.</p>}
+              {canEditCoaching && <p className="text-xs sm:text-sm mt-1">Tap "New Coaching Log" to create one.</p>}
             </div>
           ) : (
             <>
@@ -696,7 +697,7 @@ export default function Coaching() {
                       >
                         {detailLog.attachmentName || "Download PDF"}
                       </a>
-                      {isManagerOrAdmin && (
+                      {canEditCoaching && (
                         <Button
                           variant="ghost"
                           size="icon"
@@ -711,7 +712,7 @@ export default function Coaching() {
                         </Button>
                       )}
                     </div>
-                  ) : isManagerOrAdmin ? (
+                  ) : canEditCoaching ? (
                     <div>
                       <input
                         type="file"
