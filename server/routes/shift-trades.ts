@@ -7,7 +7,7 @@ export function registerShiftTradeRoutes(app: Express) {
   // ========== SHIFT TRADING ==========
 
   // GET /api/shift-trades - List shift trades (filter by employeeId, status)
-  app.get("/api/shift-trades", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/shift-trades", requireFeatureAccess("shift_trades.view"), async (req: Request, res: Response) => {
     try {
       const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
       const status = req.query.status as string | undefined;
@@ -20,7 +20,7 @@ export function registerShiftTradeRoutes(app: Express) {
   });
 
   // GET /api/shift-trades/:id - Get single trade
-  app.get("/api/shift-trades/:id", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/shift-trades/:id", requireFeatureAccess("shift_trades.view"), async (req: Request, res: Response) => {
     try {
       const trade = await storage.getShiftTrade(Number(req.params.id));
       if (!trade) return res.status(404).json({ message: "Trade not found" });

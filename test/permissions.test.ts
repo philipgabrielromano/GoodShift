@@ -207,6 +207,16 @@ const ROUTE_GATES: RouteGate[] = [
 
   // -------------------- Collaboration --------------------
   {
+    feature: "shift_trades.view",
+    method: "GET",
+    path: "/api/shift-trades",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/shift-trades.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/shift-trades"\s*,\s*requireFeatureAccess\(\s*"shift_trades\.view"\s*\)/,
+  },
+  {
     feature: "shift_trades.approve",
     method: "PATCH",
     path: "/api/shift-trades/999999/manager-respond",
@@ -599,7 +609,6 @@ const EXEMPT_FEATURES: Record<string, string> = {
   "employees.view": "Employee directory listing is gated by requireAuth; visibility filtering happens in handlers, not via requireFeatureAccess middleware.",
   "raw_shifts.view": "Client-side navigation guard only (Navigation.tsx); no server route gates it.",
   "employees.has_direct_reports": "Role capability flag consumed by direct-report assignment logic, not a route gate.",
-  "shift_trades.view": "Server-side trade endpoints use requireAuth; visibility is filtered in handlers, not gated by feature.",
   "users.assign_roles": "Enforced inline inside PUT /api/users/:id with a custom 403 message, not via requireFeatureAccess middleware.",
   "users.assign_locations": "Enforced inline inside PUT /api/users/:id with a custom 403 message, not via requireFeatureAccess middleware.",
 };
