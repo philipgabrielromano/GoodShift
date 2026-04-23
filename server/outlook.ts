@@ -894,3 +894,145 @@ export async function sendTestEmail(toEmail: string): Promise<{ success: boolean
     return { success: false, error: error.message };
   }
 }
+
+// Warehouse variance CSV email (sent from the count detail page so leaders can
+// hand the same CSV they'd download manually to ops/audit in one click).
+export interface WarehouseVarianceEmailData {
+  countId: number;
+  warehouse: string;
+  countDate: string;
+  status: "draft" | "final";
+  finalizedByName: string | null;
+  finalizedAt: string | null;
+  createdByName: string | null;
+  itemsWithVariance: number;
+  varianceNet: number;
+  varianceAbs: number;
+  appUrl: string;
+  csvBase64: string;
+  csvFilename: string;
+  triggeredByName: string;
+}
+
+function titleCase(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export async function sendWarehouseVarianceCsvEmail(
+  toEmails: string[],
+  data: WarehouseVarianceEmailData,
+): Promise<{ success: boolean; error?: string }> {
+  const recipients = toEmails.map(e => e.trim()).filter(Boolean);
+  if (recipients.length === 0) {
+    return { success: false, error: "No recipients configured" };
+  }
+  const statusLabel = data.status === "final" ? "Finalized" : "Draft";
+  const subject = `GoodShift: ${titleCase(data.warehouse)} Warehouse Count Variance - ${data.countDate} (${statusLabel})`;
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for warehouse variance email');
+      return { success: false, error: "HR_SENDER_EMAIL not configured" };
+    }
+
+    const finalizedRow = data.status === "final"
+      ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Finalized:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.finalizedByName || "—"}${data.finalizedAt ? ` · ${new Date(data.finalizedAt).toLocaleString()}` : ""}</td></tr>`
+      : "";
+
+    const varianceColor = data.varianceNet === 0 ? "#6b7280" : data.varianceNet > 0 ? "#16a34a" : "#dc2626";
+    const varianceSign = data.varianceNet > 0 ? "+" : "";
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #00539F; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">${titleCase(data.warehouse)} Warehouse Count Variance</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>The variance CSV for the ${titleCase(data.warehouse)} warehouse count on <strong>${data.countDate}</strong> is attached. Status: <strong>${statusLabel}</strong>.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Warehouse:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${titleCase(data.warehouse)}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Count date:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.countDate}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Status:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${statusLabel}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Started by:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.createdByName || "—"}</td>
+        </tr>
+        ${finalizedRow}
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Items off:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.itemsWithVariance}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Net variance:</strong></td>
+          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; color: ${varianceColor}; font-weight: 600;">${varianceSign}${data.varianceNet.toLocaleString()} (abs ${data.varianceAbs.toLocaleString()})</td>
+        </tr>
+      </table>
+
+      <p style="margin-top: 20px;">
+        <a href="${data.appUrl}/warehouse-inventory/${data.countId}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          Open Count in GoodShift
+        </a>
+      </p>
+
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        Sent by ${data.triggeredByName} from GoodShift. The CSV header includes the same metadata shown above.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const message = {
+      subject,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: recipients.map(address => ({ emailAddress: { address } })),
+      ccRecipients: recipients.some(r => r.toLowerCase() === ALWAYS_CC_EMAIL.toLowerCase())
+        ? []
+        : [{ emailAddress: { address: ALWAYS_CC_EMAIL } }],
+      attachments: [
+        {
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          name: data.csvFilename,
+          contentType: "text/csv",
+          contentBytes: data.csvBase64,
+        },
+      ],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent warehouse variance CSV for count #${data.countId} to ${recipients.join(", ")}`);
+    await storage.createEmailLog({
+      type: "warehouse_variance_csv",
+      recipientEmail: recipients.join(", "),
+      subject,
+      status: "sent",
+      employeeName: data.triggeredByName,
+      relatedId: data.countId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return { success: true };
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send warehouse variance CSV email:', error);
+    void storage.createEmailLog({
+      type: "warehouse_variance_csv",
+      recipientEmail: recipients.join(", "),
+      subject,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.triggeredByName,
+      relatedId: data.countId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return { success: false, error: error?.message || String(error) };
+  }
+}

@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft, Loader2, Save, CheckCircle2, Lock, Unlock, Trash2,
   TrendingUp, TrendingDown, Minus, AlertTriangle, Warehouse as WarehouseIcon,
-  Info, Download,
+  Info, Download, Mail,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -32,6 +32,9 @@ interface Detail {
   // Live system-expected on-hand per item (only present for non-final counts).
   // For finalized counts, use Item.expectedQty (snapshotted at finalize time).
   expectedMap?: Record<string, number>;
+  // True when per-warehouse variance email recipients are configured in
+  // Settings; gates the "Email CSV" button.
+  hasEmailRecipients?: boolean;
 }
 interface AuthStatus { user: { id: number; name: string; role: string } | null; }
 
@@ -230,6 +233,19 @@ export default function WarehouseInventoryDetail() {
     onError: (err: any) => toast({ title: "Finalize failed", description: err?.message || "Error", variant: "destructive" }),
   });
 
+  const emailCsvMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/warehouse-inventory/${id}/email-csv`, {});
+      return (await res.json()) as { success: boolean; recipients: string[] };
+    },
+    onSuccess: (resp) => {
+      const list = resp?.recipients?.join(", ") || "";
+      toast({ title: "CSV emailed", description: list ? `Sent to ${list}` : "Recipients notified." });
+    },
+    onError: (err: any) =>
+      toast({ title: "Email failed", description: err?.message || "Error", variant: "destructive" }),
+  });
+
   const reopenMutation = useMutation({
     mutationFn: async () => apiRequest("POST", `/api/warehouse-inventory/${id}/reopen`),
     onSuccess: () => {
@@ -305,6 +321,26 @@ export default function WarehouseInventoryDetail() {
             <Download className="w-4 h-4 mr-2" />
             Download CSV
           </Button>
+          {(() => {
+            const hasRecipients = data.hasEmailRecipients !== false;
+            const tooltip = hasRecipients
+              ? `Email the variance CSV to the configured ${titleCase(c.warehouse)} recipients`
+              : `No variance email recipients configured for the ${titleCase(c.warehouse)} warehouse. Add them in Settings → Notifications.`;
+            return (
+              <Button
+                variant="outline"
+                onClick={() => emailCsvMutation.mutate()}
+                disabled={emailCsvMutation.isPending || !hasRecipients}
+                data-testid="button-email-csv"
+                title={tooltip}
+              >
+                {emailCsvMutation.isPending
+                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  : <Mail className="w-4 h-4 mr-2" />}
+                Email CSV
+              </Button>
+            );
+          })()}
           {!readOnly && (
             <>
               <Button variant="outline" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save">

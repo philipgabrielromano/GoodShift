@@ -73,6 +73,11 @@ export const globalSettings = pgTable("global_settings", {
   orderNotificationEmails: text("order_notification_emails"),
   // Driver inspection repair-alert emails (comma-separated)
   driverInspectionEmails: text("driver_inspection_emails"),
+  // Warehouse variance CSV email recipients per warehouse (comma-separated).
+  // Used by the "Email CSV" action on the warehouse count detail page so ops/audit
+  // get the same CSV (with metadata header) the user can download manually.
+  warehouseVarianceEmailsCleveland: text("warehouse_variance_emails_cleveland"),
+  warehouseVarianceEmailsCanton: text("warehouse_variance_emails_canton"),
   // Login page tagline shown under the logo
   loginTagline: text("login_tagline"),
   // UKG API credentials (overrides environment variables when set)

@@ -70,6 +70,8 @@ export default function Settings() {
   const [hrEmail, setHrEmail] = useState<string>("");
   const [orderEmails, setOrderEmails] = useState<string>("");
   const [driverInspectionEmails, setDriverInspectionEmails] = useState<string>("");
+  const [warehouseVarianceEmailsCleveland, setWarehouseVarianceEmailsCleveland] = useState<string>("");
+  const [warehouseVarianceEmailsCanton, setWarehouseVarianceEmailsCanton] = useState<string>("");
   const [loginTagline, setLoginTagline] = useState<string>("");
   const [altEmail, setAltEmail] = useState("");
   const [altEmailSaving, setAltEmailSaving] = useState(false);
@@ -92,6 +94,18 @@ export default function Settings() {
       setDriverInspectionEmails(settings.driverInspectionEmails);
     }
   }, [settings?.driverInspectionEmails]);
+
+  useEffect(() => {
+    if (settings?.warehouseVarianceEmailsCleveland) {
+      setWarehouseVarianceEmailsCleveland(settings.warehouseVarianceEmailsCleveland);
+    }
+  }, [settings?.warehouseVarianceEmailsCleveland]);
+
+  useEffect(() => {
+    if (settings?.warehouseVarianceEmailsCanton) {
+      setWarehouseVarianceEmailsCanton(settings.warehouseVarianceEmailsCanton);
+    }
+  }, [settings?.warehouseVarianceEmailsCanton]);
 
   useEffect(() => {
     if (settings?.loginTagline !== undefined && settings?.loginTagline !== null) {
@@ -324,6 +338,26 @@ export default function Settings() {
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Login tagline updated" });
+          },
+          onError: () => {
+            toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
+          }
+        }
+      );
+    }
+  };
+
+  const saveWarehouseVarianceEmails = () => {
+    if (settings) {
+      updateSettings.mutate(
+        {
+          ...settings,
+          warehouseVarianceEmailsCleveland: warehouseVarianceEmailsCleveland || null,
+          warehouseVarianceEmailsCanton: warehouseVarianceEmailsCanton || null,
+        },
+        {
+          onSuccess: () => {
+            toast({ title: "Settings Saved", description: "Warehouse variance email recipients updated" });
           },
           onError: () => {
             toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
@@ -974,6 +1008,49 @@ export default function Settings() {
                 </span>
               </div>
             )}
+          </div>
+
+          <div className="pt-6 border-t space-y-2">
+            <Label>Warehouse Variance CSV Recipients</Label>
+            <p className="text-sm text-muted-foreground">
+              Recipients for the "Email CSV" action on warehouse count detail pages. The same CSV (with metadata header) leaders can download manually is sent as an attachment, per warehouse.
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="warehouse-variance-emails-cleveland" className="text-xs uppercase tracking-wider text-muted-foreground">Cleveland</Label>
+                <Input
+                  id="warehouse-variance-emails-cleveland"
+                  type="text"
+                  placeholder="ops-cleveland@company.com, audit@company.com"
+                  value={warehouseVarianceEmailsCleveland}
+                  onChange={(e) => setWarehouseVarianceEmailsCleveland(e.target.value)}
+                  data-testid="input-warehouse-variance-emails-cleveland"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="warehouse-variance-emails-canton" className="text-xs uppercase tracking-wider text-muted-foreground">Canton</Label>
+                <Input
+                  id="warehouse-variance-emails-canton"
+                  type="text"
+                  placeholder="ops-canton@company.com, audit@company.com"
+                  value={warehouseVarianceEmailsCanton}
+                  onChange={(e) => setWarehouseVarianceEmailsCanton(e.target.value)}
+                  data-testid="input-warehouse-variance-emails-canton"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={saveWarehouseVarianceEmails}
+                disabled={updateSettings.isPending}
+                data-testid="button-save-warehouse-variance-emails"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Separate multiple email addresses with commas. Leave a warehouse blank to disable the Email CSV button for that warehouse.
+            </p>
           </div>
 
           <div className="pt-6 border-t space-y-2">

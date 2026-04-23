@@ -11,6 +11,7 @@ import {
   type Warehouse,
 } from "@shared/schema";
 import { computeWarehouseOnHand } from "../services/warehouseOnHand";
+import { sendWarehouseVarianceCsvEmail } from "../outlook";
 
 function getSessionUser(req: Request): { id: number; name: string; role?: string } | null {
   const u = (req.session as any)?.user;
@@ -471,6 +472,140 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Email the variance CSV to ops/audit. Recipients are ALWAYS resolved from
+  // the per-warehouse list configured in Settings
+  // (warehouseVarianceEmailsCleveland / warehouseVarianceEmailsCanton). We do
+  // NOT accept a caller-supplied recipient list here — that would let any user
+  // with warehouse_inventory.view exfiltrate count data to arbitrary addresses.
+  // The CSV body matches the client-side download exactly so leaders can hand
+  // off counts in one click.
+  app.post("/api/warehouse-inventory/:id/email-csv", requireAccess, async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+
+      const count = await storage.getWarehouseInventoryCount(id);
+      if (!count) return res.status(404).json({ message: "Count not found" });
+      const items = await storage.getWarehouseInventoryCountItems(id);
+
+      // Resolve expected map: snapshot for finalized counts, live engine otherwise.
+      let expectedMap: Record<string, number | null> = {};
+      if (count.status === "final") {
+        for (const it of items) expectedMap[it.itemName] = it.expectedQty ?? null;
+      } else {
+        const live = await computeWarehouseOnHand(count.warehouse as Warehouse, count.countDate);
+        for (const it of live.items) expectedMap[it.itemName] = it.onHand;
+      }
+
+      // Compute variance summary (same logic as dashboard endpoint).
+      let itemsWithVariance = 0;
+      let varianceNet = 0;
+      let varianceAbs = 0;
+      for (const it of items) {
+        const exp = expectedMap[it.itemName];
+        if (exp != null) {
+          const diff = it.qty - exp;
+          if (diff !== 0) itemsWithVariance++;
+          varianceNet += diff;
+          varianceAbs += Math.abs(diff);
+        }
+      }
+
+      // Build CSV identical in shape to the client download (metadata header + rows).
+      const isFinal = count.status === "final";
+      const esc = (v: unknown) => {
+        let s = v == null ? "" : String(v);
+        if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+        return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const titleCaseW = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+      const lines: string[] = [];
+      lines.push(`# Warehouse count export`);
+      lines.push(`# Warehouse,${esc(titleCaseW(count.warehouse))}`);
+      lines.push(`# Count date,${esc(count.countDate)}`);
+      lines.push(`# Status,${esc(isFinal ? "Finalized" : "Draft")}`);
+      lines.push(`# Started by,${esc(count.createdByName || "")}`);
+      lines.push(`# Finalized by,${esc(count.finalizedByName || "")}`);
+      // Match client export: client receives finalizedAt as the JSON-serialized
+      // ISO string, so normalize Date objects here to keep CSVs byte-identical.
+      const finalizedAtStr = count.finalizedAt
+        ? (count.finalizedAt instanceof Date ? count.finalizedAt.toISOString() : String(count.finalizedAt))
+        : "";
+      lines.push(`# Finalized at,${esc(finalizedAtStr)}`);
+      lines.push(`# Expected source,${esc(isFinal ? "snapshot at finalize" : "live system")}`);
+      lines.push(`# Exported at,${esc(new Date().toISOString())}`);
+      lines.push("");
+      lines.push(["Group", "Item", "Expected", "Counted", "Variance"].join(","));
+      for (const cat of WAREHOUSE_INVENTORY_CATEGORIES) {
+        for (const itemName of cat.items) {
+          const row = items.find(i => i.itemName === itemName);
+          const counted = row?.qty ?? 0;
+          const expected = expectedMap[itemName];
+          const variance = expected != null ? counted - expected : null;
+          lines.push([
+            esc(cat.group),
+            esc(itemName),
+            expected == null ? "" : String(expected),
+            String(counted),
+            variance == null ? "" : String(variance),
+          ].join(","));
+        }
+      }
+      const csvBody = "\uFEFF" + lines.join("\r\n") + "\r\n";
+      const csvBase64 = Buffer.from(csvBody, "utf-8").toString("base64");
+      const safeWarehouse = count.warehouse.replace(/[^a-z0-9-]+/gi, "-");
+      const csvFilename = `warehouse-count-${safeWarehouse}-${count.countDate}.csv`;
+
+      // Resolve recipients ONLY from per-warehouse settings (no caller override).
+      let recipients: string[] = [];
+      const settings = await storage.getGlobalSettings();
+      const raw = count.warehouse === "cleveland"
+        ? settings?.warehouseVarianceEmailsCleveland
+        : count.warehouse === "canton"
+          ? settings?.warehouseVarianceEmailsCanton
+          : null;
+      if (raw) {
+        recipients = raw.split(",").map(s => s.trim()).filter(Boolean);
+      }
+      if (recipients.length === 0) {
+        return res.status(400).json({
+          message: `No variance email recipients configured for the ${titleCaseW(count.warehouse)} warehouse. Add them in Settings → Notifications.`,
+        });
+      }
+
+      const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0] || req.protocol || "https";
+      const host = req.get("host") || "";
+      const appUrl = `${proto}://${host}`;
+
+      const result = await sendWarehouseVarianceCsvEmail(recipients, {
+        countId: id,
+        warehouse: count.warehouse,
+        countDate: count.countDate,
+        status: isFinal ? "final" : "draft",
+        finalizedByName: count.finalizedByName ?? null,
+        finalizedAt: count.finalizedAt ? new Date(count.finalizedAt).toISOString() : null,
+        createdByName: count.createdByName ?? null,
+        itemsWithVariance,
+        varianceNet,
+        varianceAbs,
+        appUrl,
+        csvBase64,
+        csvFilename,
+        triggeredByName: user.name,
+      });
+      if (!result.success) {
+        return res.status(502).json({ message: result.error || "Email failed to send" });
+      }
+      res.json({ success: true, recipients });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      console.error("[WarehouseInventory] Email CSV error:", err);
+      res.status(500).json({ message: err?.message || "Failed to email CSV" });
+    }
+  });
+
   // Detail (count + items + prior count for comparison)
   app.get("/api/warehouse-inventory/:id", requireAccess, async (req, res) => {
     try {
@@ -491,6 +626,16 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         expectedMap = {};
         for (const it of live.items) expectedMap[it.itemName] = it.onHand;
       }
+      // Whether per-warehouse variance email recipients are configured. Used by
+      // the UI to disable the "Email CSV" button (and tooltip the reason) when
+      // no recipients exist for this warehouse.
+      const settings = await storage.getGlobalSettings();
+      const recipientsRaw = count.warehouse === "cleveland"
+        ? settings?.warehouseVarianceEmailsCleveland
+        : count.warehouse === "canton"
+          ? settings?.warehouseVarianceEmailsCanton
+          : null;
+      const hasEmailRecipients = !!(recipientsRaw && recipientsRaw.split(",").some(s => s.trim().length > 0));
       res.json({
         count,
         items,
@@ -498,6 +643,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         priorItems,
         categories: WAREHOUSE_INVENTORY_CATEGORIES,
         expectedMap,
+        hasEmailRecipients,
       });
     } catch (err) {
       console.error("[WarehouseInventory] Detail error:", err);
