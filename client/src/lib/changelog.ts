@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.3";
+export const APP_VERSION = "3.6.4";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.4",
+    date: "2026-04-23",
+    title: "Fleet & Routes Consolidated into Settings",
+    changes: [
+      { type: "improvement", description: "Trailers, Tractors / Box Trucks, and Truck Routes are now managed from a single 'Fleet & Routes' section in Settings, with a tab for each list. The three separate pages have been removed from the Logistics nav to reduce clutter." },
+      { type: "improvement", description: "Old links to /trailers, /tractors, and /truck-routes still work — they automatically redirect to Settings → Fleet & Routes so existing bookmarks don't break." },
+      { type: "improvement", description: "Tabs respect each user's permissions: a user only sees the lists they're allowed to view, and the section is hidden entirely if they have no fleet permissions at all." },
+    ],
+  },
   {
     version: "3.6.3",
     date: "2026-04-23",

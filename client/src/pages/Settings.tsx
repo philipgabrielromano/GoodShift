@@ -4,7 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye, User, Info } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye, User, Info, Truck } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { TrailersManager } from "@/components/fleet/TrailersManager";
+import { TractorsManager } from "@/components/fleet/TractorsManager";
+import { TruckRoutesManager } from "@/components/fleet/TruckRoutesManager";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -370,17 +374,18 @@ export default function Settings() {
     }
   };
 
-  type SectionId = "preferences" | "email" | "ukg" | "about";
+  type SectionId = "preferences" | "email" | "ukg" | "fleet" | "about";
+  const SECTION_IDS = ["preferences", "email", "ukg", "fleet", "about"] as const;
   const [activeSection, setActiveSection] = useState<SectionId>(() => {
     if (typeof window === "undefined") return "preferences";
     const h = window.location.hash.replace("#", "") as SectionId;
-    return (["preferences", "email", "ukg", "about"] as const).includes(h as any) ? h : "preferences";
+    return SECTION_IDS.includes(h as any) ? h : "preferences";
   });
 
   useEffect(() => {
     const handler = () => {
       const h = window.location.hash.replace("#", "") as SectionId;
-      if ((["preferences", "email", "ukg", "about"] as const).includes(h as any)) {
+      if (SECTION_IDS.includes(h as any)) {
         setActiveSection(h);
       }
     };
@@ -413,11 +418,16 @@ export default function Settings() {
 
   const showEmailSection = canGlobalConfig || canEmailAudit;
   const showUkgSection = canUkgConfig || canUkgSync;
+  const canViewTrailers = can("trailers.view");
+  const canViewTractors = can("tractors.view");
+  const canViewRoutes = can("truck_routes.view");
+  const showFleetSection = canViewTrailers || canViewTractors || canViewRoutes;
 
   const sections: { id: SectionId; label: string; icon: typeof User; visible: boolean; description: string }[] = [
     { id: "preferences", label: "My Preferences", icon: User, visible: true, description: "Your personal notification settings and account info." },
     { id: "email", label: "Email & Notifications", icon: Mail, visible: showEmailSection, description: "Recipient lists, email templates, and the activity log." },
     { id: "ukg", label: "UKG Integration", icon: Building2, visible: showUkgSection, description: "Connect, sync, and diagnose the UKG employee data feed." },
+    { id: "fleet", label: "Fleet & Routes", icon: Truck, visible: showFleetSection, description: "Trailers, tractors / box trucks, and delivery routes used by manifests and inspections." },
     { id: "about", label: "About", icon: Info, visible: true, description: "Version and release information." },
   ];
   const visibleSections = sections.filter(s => s.visible);
@@ -1296,6 +1306,44 @@ export default function Settings() {
         )}
       </Card>}
           </>}
+
+          {activeSection === "fleet" && showFleetSection && (
+            <Card data-testid="card-fleet">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Truck className="w-5 h-5" />
+                  Fleet & Routes
+                </CardTitle>
+                <CardDescription>
+                  These dropdowns power the trailer manifest and driver inspection forms. Pick a tab below to manage each list.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue={canViewTrailers ? "trailers" : canViewTractors ? "tractors" : "routes"} className="w-full">
+                  <TabsList className="grid w-full grid-cols-3" data-testid="tabs-fleet">
+                    <TabsTrigger value="trailers" disabled={!canViewTrailers} data-testid="tab-trailers">Trailers</TabsTrigger>
+                    <TabsTrigger value="tractors" disabled={!canViewTractors} data-testid="tab-tractors">Tractors / Box Trucks</TabsTrigger>
+                    <TabsTrigger value="routes" disabled={!canViewRoutes} data-testid="tab-routes">Routes</TabsTrigger>
+                  </TabsList>
+                  {canViewTrailers && (
+                    <TabsContent value="trailers" className="mt-4">
+                      <TrailersManager />
+                    </TabsContent>
+                  )}
+                  {canViewTractors && (
+                    <TabsContent value="tractors" className="mt-4">
+                      <TractorsManager />
+                    </TabsContent>
+                  )}
+                  {canViewRoutes && (
+                    <TabsContent value="routes" className="mt-4">
+                      <TruckRoutesManager />
+                    </TabsContent>
+                  )}
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
 
           {activeSection === "about" && (
             <Card data-testid="card-about">
