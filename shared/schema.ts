@@ -1449,7 +1449,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "reports.roster": ["admin", "manager", "optimizer"],
   // Configuration
   "locations.view": ["admin", "manager", "optimizer"],
-  "locations.edit": ["admin"],
+  "locations.edit": ["admin", "manager"],
   "settings.global_config": ["admin"],
   "settings.ukg_config": ["admin"],
   "settings.ukg_sync": ["admin"],

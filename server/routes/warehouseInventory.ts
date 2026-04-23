@@ -582,14 +582,12 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
-  // Reopen — admin/manager only (same gate as feature access is fine; manager can correct)
+  // Reopen — gated by warehouse_inventory.finalize feature (admin/manager by default,
+  // plus any custom role granted that feature).
   app.post("/api/warehouse-inventory/:id/reopen", requireFinalize, async (req, res) => {
     try {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
-      if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers or admins can reopen a finalized count" });
-      }
       const id = Number(req.params.id);
       const count = await storage.getWarehouseInventoryCount(id);
       if (!count) return res.status(404).json({ message: "Count not found" });

@@ -64,9 +64,12 @@ export async function registerRoutes(
     
     let employees = await storage.getEmployees();
     
-    // Filter by active/inactive status (inactive only available to managers/admins)
+    // Filter by active/inactive status (inactive only available to roles that
+    // can edit employees — built-in admin/manager or any custom role with the
+    // employees.edit feature granted).
     const showInactive = req.query.showInactive === "true";
-    if (showInactive && (user?.role === "admin" || user?.role === "manager")) {
+    const canSeeInactive = await userHasFeature(user, "employees.edit");
+    if (showInactive && canSeeInactive) {
       employees = employees.filter(emp => !emp.isActive);
     } else {
       employees = employees.filter(emp => emp.isActive);
@@ -951,7 +954,7 @@ export async function registerRoutes(
     res.json(location);
   });
 
-  app.post(api.locations.create.path, requireFeatureAccess("locations.edit"), async (req, res) => {
+  app.post(api.locations.create.path, requireAdmin, async (req, res) => {
     try {
       const input = api.locations.create.input.parse(req.body);
       const location = await storage.createLocation(input);
@@ -964,14 +967,15 @@ export async function registerRoutes(
     }
   });
 
-  app.put(api.locations.update.path, requireAuth, async (req, res) => {
+  app.put(api.locations.update.path, requireFeatureAccess("locations.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user as { id: number; role: string; locationIds?: string[] };
       const locationId = Number(req.params.id);
       const input = api.locations.update.input.parse(req.body);
       
-      // Managers can only update their assigned locations
-      if (user.role === "manager") {
+      // Non-admins (built-in manager or any custom role with locations.edit)
+      // can only update their assigned locations and can't change admin-only fields.
+      if (user.role !== "admin") {
         const userLocationIds = user.locationIds || [];
         if (!userLocationIds.includes(String(locationId))) {
           return res.status(403).json({ message: "You can only update your assigned locations" });
@@ -993,9 +997,6 @@ export async function registerRoutes(
         if (input.warehouseAssignment !== undefined) {
           return res.status(403).json({ message: "Only admins can change warehouse assignment for a location" });
         }
-      } else if (user.role !== "admin") {
-        // Viewers cannot update locations at all
-        return res.status(403).json({ message: "Unauthorized" });
       }
       
       const location = await storage.updateLocation(locationId, input);
@@ -1008,7 +1009,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete(api.locations.delete.path, requireFeatureAccess("locations.edit"), async (req, res) => {
+  app.delete(api.locations.delete.path, requireAdmin, async (req, res) => {
     await storage.deleteLocation(Number(req.params.id));
     res.status(204).send();
   });
@@ -1072,13 +1073,10 @@ export async function registerRoutes(
     }
   });
 
-  // Publish a week's schedule (managers and admins only)
-  app.post("/api/schedule/publish", requireAuth, async (req, res) => {
+  // Publish a week's schedule (anyone with schedule.publish feature)
+  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers and admins can publish schedules" });
-      }
       
       const { weekStart } = req.body;
       if (!weekStart || !isValidDate(weekStart)) {
@@ -1139,13 +1137,9 @@ export async function registerRoutes(
     }
   });
 
-  // Unpublish a week's schedule (managers and admins only)
-  app.delete("/api/schedule/publish/:weekStart", requireAuth, async (req, res) => {
+  // Unpublish a week's schedule (anyone with schedule.publish feature)
+  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), async (req, res) => {
     try {
-      const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager") {
-        return res.status(403).json({ message: "Only managers and admins can unpublish schedules" });
-      }
       
       const weekStart = req.params.weekStart as string;
       if (!isValidDate(weekStart)) {

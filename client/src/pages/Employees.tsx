@@ -1,4 +1,5 @@
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useToggleScheduleVisibility } from "@/hooks/use-employees";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -55,7 +56,8 @@ interface AuthStatus {
 export default function Employees() {
   const [showInactive, setShowInactive] = useState(false);
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
-  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
+  const { can } = usePermissions();
+  const isManagerOrAdmin = can("employees.edit");
   const { data: employees, isLoading } = useEmployees({ showInactive });
   const [search, setSearch] = useState(() => {
     const params = new URLSearchParams(window.location.search);

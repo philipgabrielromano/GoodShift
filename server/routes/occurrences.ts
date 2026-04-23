@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth } from "../middleware";
+import { requireAuth, requireFeatureAccess } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
 
 const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
@@ -51,38 +51,38 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     return !!linkedEmployee && linkedEmployee.id === targetEmployeeId;
   }
 
-  if (user.role === "manager" || user.role === "optimizer") {
-    // Explicit direct-report assignments take priority over the auto hierarchy
-    if (user.id) {
-      const explicit = await storage.getDirectReportsForManager(user.id);
-      if (explicit.length > 0) {
-        return explicit.includes(targetEmployeeId);
-      }
+  // Any non-viewer, non-admin role (built-in manager/optimizer or custom role like
+  // DM/Director) gets the same hierarchy/location-scoped access. Feature-level
+  // gating happens at the route entrypoint via requireFeatureAccess; here we only
+  // restrict WHICH employees they can act on.
+  // Explicit direct-report assignments take priority over the auto hierarchy
+  if (user.id) {
+    const explicit = await storage.getDirectReportsForManager(user.id);
+    if (explicit.length > 0) {
+      return explicit.includes(targetEmployeeId);
     }
-
-    const allowedNames = await getAllowedLocationNames(user);
-    if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
-      return false;
-    }
-
-    const managerEmployee = allEmployees.find(e =>
-      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-    );
-
-    // Per-job-title visibility (configured by admin) overrides numeric levels.
-    const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
-    if (visibleTitleSet) {
-      if (managerEmployee && targetEmployee.id === managerEmployee.id) return false;
-      return !!targetEmployee.jobTitle && visibleTitleSet.has(targetEmployee.jobTitle.toUpperCase());
-    }
-
-    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-    if (managerLevel >= 3) return true;
-    const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
-    return empLevel < managerLevel;
   }
 
-  return false;
+  const allowedNames = await getAllowedLocationNames(user);
+  if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
+    return false;
+  }
+
+  const managerEmployee = allEmployees.find(e =>
+    e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+  );
+
+  // Per-job-title visibility (configured by admin) overrides numeric levels.
+  const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+  if (visibleTitleSet) {
+    if (managerEmployee && targetEmployee.id === managerEmployee.id) return false;
+    return !!targetEmployee.jobTitle && visibleTitleSet.has(targetEmployee.jobTitle.toUpperCase());
+  }
+
+  const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+  if (managerLevel >= 3) return true;
+  const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
+  return empLevel < managerLevel;
 }
 
 async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
@@ -98,56 +98,51 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     return new Set(linkedEmployee ? [linkedEmployee.id] : []);
   }
 
-  if (user.role === "manager" || user.role === "optimizer") {
-    if (user.id) {
-      const explicit = await storage.getDirectReportsForManager(user.id);
-      if (explicit.length > 0) {
-        const explicitSet = new Set(explicit);
-        return new Set(activeEmployees.filter(e => explicitSet.has(e.id)).map(e => e.id));
-      }
+  // Any non-viewer, non-admin role (built-in manager/optimizer or custom role with
+  // attendance feature access) gets hierarchy/location-scoped visibility.
+  if (user.id) {
+    const explicit = await storage.getDirectReportsForManager(user.id);
+    if (explicit.length > 0) {
+      const explicitSet = new Set(explicit);
+      return new Set(activeEmployees.filter(e => explicitSet.has(e.id)).map(e => e.id));
     }
-
-    const allowedNames = await getAllowedLocationNames(user);
-    const managerEmployee = allEmployees.find(e =>
-      e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
-    );
-
-    // Per-job-title visibility (configured by admin) overrides numeric levels.
-    const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
-    if (visibleTitleSet) {
-      const visibleByTitle = activeEmployees.filter(e => {
-        if (managerEmployee && e.id === managerEmployee.id) return false;
-        if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
-        return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
-      });
-      return new Set(visibleByTitle.map(e => e.id));
-    }
-
-    const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-
-    const visible = activeEmployees.filter(e => {
-      if (managerEmployee && e.id === managerEmployee.id) return false;
-      if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
-      if (managerLevel >= 3) return true;
-      return getHierarchyLevel(e.jobTitle) < managerLevel;
-    });
-
-    return new Set(visible.map(e => e.id));
   }
 
-  return new Set();
+  const allowedNames = await getAllowedLocationNames(user);
+  const managerEmployee = allEmployees.find(e =>
+    e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+  );
+
+  // Per-job-title visibility (configured by admin) overrides numeric levels.
+  const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+  if (visibleTitleSet) {
+    const visibleByTitle = activeEmployees.filter(e => {
+      if (managerEmployee && e.id === managerEmployee.id) return false;
+      if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
+      return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
+    });
+    return new Set(visibleByTitle.map(e => e.id));
+  }
+
+  const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+
+  const visible = activeEmployees.filter(e => {
+    if (managerEmployee && e.id === managerEmployee.id) return false;
+    if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
+    if (managerLevel >= 3) return true;
+    return getHierarchyLevel(e.jobTitle) < managerLevel;
+  });
+
+  return new Set(visible.map(e => e.id));
 }
 
 export function registerOccurrenceRoutes(app: Express) {
 
   // Get employees filtered by hierarchy for the attendance page
-  app.get("/api/attendance/employees", requireAuth, async (req, res) => {
+  app.get("/api/attendance/employees", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       if (!user) return res.status(401).json({ message: "Authentication required" });
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Manager access required" });
-      }
 
       const showInactive = req.query.showInactive === "true";
       const allEmployees = await storage.getEmployees();
@@ -228,7 +223,7 @@ export function registerOccurrenceRoutes(app: Express) {
 
   // === Occurrences ===
   // Get occurrences for an employee within a date range
-  app.get("/api/occurrences/:employeeId", requireAuth, async (req, res) => {
+  app.get("/api/occurrences/:employeeId", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const employeeId = Number(req.params.employeeId);
       const { startDate, endDate } = req.query;
@@ -252,12 +247,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Create a new occurrence
-  app.post("/api/occurrences", requireAuth, async (req, res) => {
+  app.post("/api/occurrences", requireFeatureAccess("attendance.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can create occurrences" });
-      }
       
       const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, isFmla, isConsecutiveSickness, reason, documentUrl } = req.body;
       
@@ -303,12 +295,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Retract an occurrence
-  app.post("/api/occurrences/:id/retract", requireAuth, async (req, res) => {
+  app.post("/api/occurrences/:id/retract", requireFeatureAccess("attendance.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can retract occurrences" });
-      }
       
       const id = Number(req.params.id);
       const { reason } = req.body;
@@ -335,12 +324,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Retract an adjustment
-  app.post("/api/occurrence-adjustments/:id/retract", requireAuth, async (req, res) => {
+  app.post("/api/occurrence-adjustments/:id/retract", requireFeatureAccess("attendance.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can retract adjustments" });
-      }
       
       const id = Number(req.params.id);
       const { reason } = req.body;
@@ -372,7 +358,7 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Get occurrence summary (rolling 12-month tally) for an employee
-  app.get("/api/occurrences/:employeeId/summary", requireAuth, async (req, res) => {
+  app.get("/api/occurrences/:employeeId/summary", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const employeeId = Number(req.params.employeeId);
       const user = (req.session as any)?.user;
@@ -481,12 +467,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Get occurrence alerts - employees at 5, 7, or 8+ occurrences
-  app.get("/api/occurrence-alerts", requireAuth, async (req, res) => {
+  app.get("/api/occurrence-alerts", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can view occurrence alerts" });
-      }
 
       const now = new Date();
       const oneYearAgo = new Date(now);
@@ -638,12 +621,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Create an occurrence adjustment
-  app.post("/api/occurrence-adjustments", requireAuth, async (req, res) => {
+  app.post("/api/occurrence-adjustments", requireFeatureAccess("attendance.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can create adjustments" });
-      }
       
       const { employeeId, adjustmentValue, adjustmentType, notes, calendarYear } = req.body;
       
@@ -729,12 +709,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Create a corrective action
-  app.post("/api/corrective-actions", requireAuth, async (req, res) => {
+  app.post("/api/corrective-actions", requireFeatureAccess("attendance.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can create corrective actions" });
-      }
       
       const { employeeId, actionType, actionDate, occurrenceCount, notes } = req.body;
       
@@ -795,12 +772,9 @@ export function registerOccurrenceRoutes(app: Express) {
   });
 
   // Delete a corrective action
-  app.delete("/api/corrective-actions/:id", requireAuth, async (req, res) => {
+  app.delete("/api/corrective-actions/:id", requireFeatureAccess("attendance.edit"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
-      if (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer") {
-        return res.status(403).json({ message: "Only managers and admins can delete corrective actions" });
-      }
       
       const id = Number(req.params.id);
 

@@ -85,8 +85,10 @@ export function registerReportRoutes(app: Express) {
         );
       }
 
-      // Hierarchy filtering - same-level peers cannot see each other
-      if (user.role === "manager" || user.role === "optimizer") {
+      // Hierarchy filtering - same-level peers cannot see each other.
+      // Applies to any non-admin user (built-in or custom role) granted
+      // reports.occurrences feature access.
+      if (user.role !== "admin" && user.role !== "viewer") {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );

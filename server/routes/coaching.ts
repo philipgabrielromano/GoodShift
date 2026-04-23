@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth } from "../middleware";
+import { requireAuth, requireFeatureAccess } from "../middleware";
 import { insertCoachingLogSchema, coachingLogs } from "@shared/schema";
 import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
 import { eq } from "drizzle-orm";
@@ -57,7 +57,7 @@ async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
 
 export function registerCoachingRoutes(app: Express) {
 
-  app.get("/api/coaching/employees", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/coaching/employees", requireFeatureAccess("coaching.view"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -75,7 +75,9 @@ export function registerCoachingRoutes(app: Express) {
         })));
       }
 
-      if (user.role === "manager" || user.role === "optimizer") {
+      if (user.role !== "viewer") {
+        // Any non-admin, non-viewer role with coaching.view access flows through
+        // the same hierarchy/location scoping as built-in manager/optimizer.
         // Explicit direct-report assignments fully replace the auto hierarchy.
         const explicitSet = await getExplicitReportsSet(user);
         if (explicitSet) {
@@ -137,7 +139,7 @@ export function registerCoachingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/coaching/logs", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/coaching/logs", requireFeatureAccess("coaching.view"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
       if (!user) return res.status(401).json({ message: "Authentication required" });
@@ -152,7 +154,7 @@ export function registerCoachingRoutes(app: Express) {
         return res.json(allLogs);
       }
 
-      if (user.role === "manager" || user.role === "optimizer") {
+      if (user.role !== "viewer") {
         const allEmployees = await storage.getEmployees();
 
         // Explicit direct-report assignments override the auto job-title hierarchy
@@ -222,12 +224,9 @@ export function registerCoachingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/coaching/logs", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/coaching/logs", requireFeatureAccess("coaching.edit"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
-      if (!user || (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer")) {
-        return res.status(403).json({ message: "Manager access required" });
-      }
 
       const parsed = insertCoachingLogSchema.safeParse({
         ...req.body,
@@ -239,7 +238,7 @@ export function registerCoachingRoutes(app: Express) {
         return res.status(400).json({ error: "Invalid coaching log data", details: parsed.error.errors });
       }
 
-      if (user.role === "manager" || user.role === "optimizer") {
+      if (user.role !== "admin") {
         const allEmployees = await storage.getEmployees();
         const targetEmployee = allEmployees.find(e => e.id === parsed.data.employeeId);
         if (!targetEmployee) {
@@ -298,12 +297,9 @@ export function registerCoachingRoutes(app: Express) {
 
   const objectStorageService = new ObjectStorageService();
 
-  app.post("/api/coaching/upload-url", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/coaching/upload-url", requireFeatureAccess("coaching.edit"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
-      if (!user || (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer")) {
-        return res.status(403).json({ message: "Manager access required" });
-      }
 
       const { fileName, fileSize, contentType } = req.body;
 
@@ -330,12 +326,9 @@ export function registerCoachingRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/coaching/logs/:id/attachment", requireAuth, async (req: Request, res: Response) => {
+  app.patch("/api/coaching/logs/:id/attachment", requireFeatureAccess("coaching.edit"), async (req: Request, res: Response) => {
     try {
       const user = (req.session as any)?.user;
-      if (!user || (user.role !== "admin" && user.role !== "manager" && user.role !== "optimizer")) {
-        return res.status(403).json({ message: "Manager access required" });
-      }
 
       const logId = Number(req.params.id);
       const { attachmentUrl, attachmentName } = req.body;
@@ -346,7 +339,7 @@ export function registerCoachingRoutes(app: Express) {
         return res.status(404).json({ error: "Coaching log not found" });
       }
 
-      if (user.role === "manager" || user.role === "optimizer") {
+      if (user.role !== "admin") {
         const allEmployees = await storage.getEmployees();
         const targetEmployee = allEmployees.find(e => e.id === existingLog.employeeId);
         if (!targetEmployee) {

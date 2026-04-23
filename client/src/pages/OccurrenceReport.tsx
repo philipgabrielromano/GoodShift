@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -42,11 +43,12 @@ interface AuthStatus {
 export default function OccurrenceReport() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [showInactive, setShowInactive] = useState(false);
+  const { can } = usePermissions();
 
   const { data: authStatus } = useQuery<AuthStatus>({
     queryKey: ["/api/auth/status"],
   });
-  const canToggle = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
+  const canToggle = can("attendance.view");
 
   const { data: reportLocations, isLoading: locationsLoading } = useQuery<string[]>({
     queryKey: ["/api/reports/locations"],

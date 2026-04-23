@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -94,7 +95,8 @@ export default function Coaching() {
     queryKey: ["/api/auth/status"],
   });
 
-  const isManagerOrAdmin = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
+  const { can } = usePermissions();
+  const isManagerOrAdmin = can("coaching.view");
 
   const coachingEmployeesUrl = showInactive ? "/api/coaching/employees?showInactive=true" : "/api/coaching/employees";
   const { data: employees, isLoading: employeesLoading } = useQuery<CoachingEmployee[]>({

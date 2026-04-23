@@ -172,9 +172,11 @@ export function registerShiftTradeRoutes(app: Express) {
         // Notify store managers for approval
         if (requester?.location) {
           const allUsers = await storage.getUsers();
-          const storeManagers = allUsers.filter(u => 
-            (u.role === "manager" || u.role === "admin" || u.role === "optimizer") && u.isActive
-          );
+          // Notify everyone whose role can approve shift trades (built-in or custom).
+          const { getFeaturePermissions } = await import("../middleware");
+          const perms = await getFeaturePermissions();
+          const approverRoles = new Set(["admin", ...(perms["shift_trades.approve"] || [])]);
+          const storeManagers = allUsers.filter(u => approverRoles.has(u.role) && u.isActive);
           for (const mgr of storeManagers) {
             await storage.createNotification({
               userId: mgr.id,
@@ -353,7 +355,8 @@ export function registerShiftTradeRoutes(app: Express) {
       }
 
       const sessionUser = (req.session as any)?.user;
-      const isManagerOrAdmin = sessionUser?.role === "admin" || sessionUser?.role === "manager" || sessionUser?.role === "optimizer";
+      const { userHasFeature } = await import("../middleware");
+      const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
       if (!isManagerOrAdmin) {
         const allEmployees = await storage.getEmployees();
         const callerEmployee = allEmployees.find(e =>

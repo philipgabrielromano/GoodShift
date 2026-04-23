@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useLocation, useSearch } from "wouter";
 import { useOccurrenceSummary, useRetractOccurrence, useRetractAdjustment, useCreateOccurrenceAdjustment, useCorrectiveActions, useCreateCorrectiveAction, useDeleteCorrectiveAction } from "@/hooks/use-occurrences";
 import { Button } from "@/components/ui/button";
@@ -68,8 +69,9 @@ export default function Attendance() {
     queryKey: ["/api/auth/status"],
   });
   
+  const { can } = usePermissions();
   const isViewer = authStatus?.user?.role === "viewer";
-  const canManageOccurrences = authStatus?.user?.role === "admin" || authStatus?.user?.role === "manager" || authStatus?.user?.role === "optimizer";
+  const canManageOccurrences = can("attendance.edit");
   
   const attendanceUrl = showInactive ? "/api/attendance/employees?showInactive=true" : "/api/attendance/employees";
   const { data: employees, isLoading: employeesLoading } = useQuery<AttendanceEmployee[]>({

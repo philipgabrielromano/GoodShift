@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { usePermissions } from "@/hooks/use-permissions";
 import { Link, useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,8 @@ export default function WarehouseInventoryDetail() {
 
   const { data: auth } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const role = auth?.user?.role;
+  const { can } = usePermissions();
+  const canReopen = can("warehouse_inventory.finalize");
 
   const { data, isLoading, isError, error, refetch } = useQuery<Detail>({
     queryKey: ["/api/warehouse-inventory", id],
@@ -314,7 +317,7 @@ export default function WarehouseInventoryDetail() {
               </Button>
             </>
           )}
-          {isFinal && (role === "admin" || role === "manager") && (
+          {isFinal && canReopen && (
             <Button variant="outline" onClick={() => reopenMutation.mutate()} disabled={reopenMutation.isPending} data-testid="button-reopen">
               {reopenMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Unlock className="w-4 h-4 mr-2" />}
               Reopen
@@ -563,7 +566,7 @@ export default function WarehouseInventoryDetail() {
       {readOnly && (
         <div className="text-xs text-muted-foreground flex items-center gap-2">
           <Lock className="w-3 h-3" /> This count is finalized.
-          {(role === "admin" || role === "manager") && <> Use Reopen to make corrections.</>}
+          {canReopen && <> Use Reopen to make corrections.</>}
         </div>
       )}
     </div>
