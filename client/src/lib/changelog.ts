@@ -8,9 +8,33 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.0.4";
+export const APP_VERSION = "3.5.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.5.0",
+    date: "2026-04-23",
+    title: "Truck Routes, Order Notifications, Seasonal Inventory & Hardened Security",
+    changes: [
+      { type: "feature", description: "Truck Routes — new admin page (Orders → Truck Routes) lets you define delivery routes with an ordered list of store stops. Each stop's notification email is shown right in the route editor so you can see exactly who'll be alerted." },
+      { type: "feature", description: "Trailer manifests can now be tied to a configured truck route. When a manifest moves to In Transit, the system emails every store on the route automatically (instead of just one destination), with duplicates removed and stops missing an email skipped gracefully." },
+      { type: "feature", description: "Order Fulfilled email — when the warehouse marks an equipment order as fulfilled, the requesting store and submitter are emailed automatically with a list of every item that was filled. No extra approval step; the fulfill toggle is the trigger." },
+      { type: "feature", description: "Seasonal Inventory page — new dashboard (Orders → Seasonal Inventory) shows on-deposit and pending-requested seasonal counts across every store in one view, computed live from order submissions." },
+      { type: "feature", description: "Configurable Truck Routes permissions — admins can now control who can view, edit, or delete truck routes independently of trailer manifest permissions. Defaults preserve existing access (admin, manager, ordering)." },
+      { type: "feature", description: "Configurable Seasonal Inventory permission — the cross-store aggregate view now has its own permission key (Seasonal Inventory → View), separate from order viewing. Per-store seasonal lookups used by the Order Form remain available to all submitters." },
+      { type: "improvement", description: "Truck-route stops are validated before saving — the system rejects unknown stores, removes duplicates while preserving order, and skips a database write entirely when the stop list hasn't actually changed." },
+      { type: "improvement", description: "Routes that are still attached to a trailer manifest can no longer be deleted by accident — the delete is rejected with a clear message so you don't end up with broken manifest references." },
+      { type: "improvement", description: "Manifest creation form now includes a route picker that auto-fills the route number and previews exactly which stores will be notified before you save." },
+      { type: "security", description: "Locked down object storage — uploads now require login, and downloads enforce per-file access control so HR records, coaching attachments, manifest photos, driver inspection photos, and credit-card terminal photos can no longer be retrieved by sharing a URL." },
+      { type: "security", description: "Schedule copy and template endpoints now enforce feature permissions and per-store location scoping. Non-admins can no longer copy or apply templates to stores outside their assigned locations." },
+      { type: "security", description: "Global Settings API now redacts UKG credentials and notification email lists for non-admin users. Only admins receive the full settings payload." },
+      { type: "security", description: "Employee detail endpoint now enforces the same role and location controls as the employee list — non-admins outside an employee's stores are blocked, and viewer-role users see redacted personal data." },
+      { type: "security", description: "Production API logs no longer capture response bodies. Previously every /api response was serialized into the request log, which could expose secrets and PII to anyone with log access." },
+      { type: "security", description: "Patched 13 dependency vulnerabilities (4 high, 8 moderate, 1 low) across xmldom, dompurify, fast-xml-parser, cookie, http-proxy-agent, and uuid via package overrides. Audit now reports zero vulnerabilities." },
+      { type: "fix", description: "Fixed a MySQL proxy connection error that intermittently broke order submission and retrieval." },
+      { type: "improvement", description: "Permission-test suite expanded to cover every truck-routes endpoint and the seasonal-inventory aggregate view, so accidental gate removals will be caught automatically going forward." },
+    ],
+  },
   {
     version: "3.0.4",
     date: "2026-04-21",
