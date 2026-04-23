@@ -512,10 +512,10 @@ export function registerOrderRoutes(app: Express) {
       const filter = typeof location === "string" && location.trim() ? location.trim() : undefined;
       // Single-location lookups are allowed for any submitter (they need it
       // for inline form validation). Pulling balances across all stores is
-      // an aggregate view and requires `orders.view_all`.
+      // an aggregate view and requires `seasonal_inventory.view`.
       if (!filter) {
         const user = (req.session as Record<string, { role?: string }>)?.user;
-        const allowed = await userHasFeature(user, "orders.view_all");
+        const allowed = await userHasFeature(user, "seasonal_inventory.view");
         if (!allowed) {
           return res.status(403).json({ message: "Access denied" });
         }

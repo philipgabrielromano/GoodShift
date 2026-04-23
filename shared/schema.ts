@@ -1453,6 +1453,11 @@ export const SYSTEM_FEATURES = [
   { category: "Logistics", feature: "trailer_manifest.view", label: "View Trailer Manifests", description: "See live and completed trailer loads" },
   { category: "Logistics", feature: "trailer_manifest.edit", label: "Edit Trailer Manifests", description: "Update item counts and manifest status" },
   { category: "Logistics", feature: "trailer_manifest.delete", label: "Delete Trailer Manifests", description: "Remove manifests from the system" },
+  { category: "Logistics", feature: "truck_routes.view", label: "View Truck Routes", description: "See configured delivery routes (needed to attach a route to a manifest)" },
+  { category: "Logistics", feature: "truck_routes.edit", label: "Manage Truck Routes", description: "Create, edit, and reorder stops on delivery routes" },
+  { category: "Logistics", feature: "truck_routes.delete", label: "Delete Truck Routes", description: "Permanently remove configured truck routes" },
+  // Seasonal Inventory
+  { category: "Orders", feature: "seasonal_inventory.view", label: "View Seasonal Inventory", description: "View aggregated seasonal balances across all stores" },
   // Inventory
   { category: "Inventory", feature: "warehouse_inventory.view", label: "View Warehouse Inventory", description: "See inventory dashboards and counts" },
   { category: "Inventory", feature: "warehouse_inventory.edit", label: "Edit Warehouse Counts", description: "Create and update daily inventory counts" },
@@ -1522,6 +1527,10 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "trailer_manifest.view": ["admin", "manager", "ordering"],
   "trailer_manifest.edit": ["admin", "manager", "ordering"],
   "trailer_manifest.delete": ["admin"],
+  "truck_routes.view": ["admin", "manager", "ordering"],
+  "truck_routes.edit": ["admin", "manager", "ordering"],
+  "truck_routes.delete": ["admin"],
+  "seasonal_inventory.view": ["admin", "ordering"],
   // Inventory
   "warehouse_inventory.view": ["admin", "manager", "ordering"],
   "warehouse_inventory.edit": ["admin", "manager", "ordering"],

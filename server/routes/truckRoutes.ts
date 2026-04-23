@@ -11,7 +11,7 @@ const stopsSchema = z.object({
 export function registerTruckRouteRoutes(app: Express) {
   app.get(
     "/api/truck-routes",
-    requireFeatureAccess("trailer_manifest.view"),
+    requireFeatureAccess("truck_routes.view"),
     async (_req, res) => {
       try {
         const routes = await storage.getTruckRoutes();
@@ -25,7 +25,7 @@ export function registerTruckRouteRoutes(app: Express) {
 
   app.get(
     "/api/truck-routes/:id",
-    requireFeatureAccess("trailer_manifest.view"),
+    requireFeatureAccess("truck_routes.view"),
     async (req, res) => {
       try {
         const id = Number(req.params.id);
@@ -44,7 +44,7 @@ export function registerTruckRouteRoutes(app: Express) {
 
   app.post(
     "/api/truck-routes",
-    requireFeatureAccess("trailer_manifest.edit"),
+    requireFeatureAccess("truck_routes.edit"),
     async (req, res) => {
       try {
         const input = insertTruckRouteSchema.parse(req.body);
@@ -62,7 +62,7 @@ export function registerTruckRouteRoutes(app: Express) {
 
   app.put(
     "/api/truck-routes/:id",
-    requireFeatureAccess("trailer_manifest.edit"),
+    requireFeatureAccess("truck_routes.edit"),
     async (req, res) => {
       try {
         const id = Number(req.params.id);
@@ -86,7 +86,7 @@ export function registerTruckRouteRoutes(app: Express) {
 
   app.put(
     "/api/truck-routes/:id/stops",
-    requireFeatureAccess("trailer_manifest.edit"),
+    requireFeatureAccess("truck_routes.edit"),
     async (req, res) => {
       try {
         const id = Number(req.params.id);
@@ -114,7 +114,7 @@ export function registerTruckRouteRoutes(app: Express) {
 
   app.delete(
     "/api/truck-routes/:id",
-    requireFeatureAccess("trailer_manifest.delete"),
+    requireFeatureAccess("truck_routes.delete"),
     async (req, res) => {
       try {
         const id = Number(req.params.id);

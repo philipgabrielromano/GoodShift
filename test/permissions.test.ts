@@ -458,42 +458,57 @@ const ROUTE_GATES: RouteGate[] = [
     sourcePattern: /app\.delete\(\s*"\/api\/trailer-manifests\/:id"\s*,\s*requireDelete\b/,
   },
   {
-    feature: "trailer_manifest.view",
+    feature: "truck_routes.view",
     method: "GET",
     path: "/api/truck-routes",
     okStatuses: [200, 500],
     kind: "real",
     sourceFile: "server/routes/truckRoutes.ts",
-    sourcePattern: /app\.get\(\s*"\/api\/truck-routes"\s*,\s*requireFeatureAccess\(\s*"trailer_manifest\.view"\s*\)/,
+    sourcePattern: /app\.get\(\s*"\/api\/truck-routes"\s*,\s*requireFeatureAccess\(\s*"truck_routes\.view"\s*\)/,
   },
   {
-    feature: "trailer_manifest.edit",
+    feature: "truck_routes.edit",
     method: "POST",
     path: "/api/truck-routes",
     body: {},
     okStatuses: [400, 500],
     kind: "real",
     sourceFile: "server/routes/truckRoutes.ts",
-    sourcePattern: /app\.post\(\s*"\/api\/truck-routes"\s*,\s*requireFeatureAccess\(\s*"trailer_manifest\.edit"\s*\)/,
+    sourcePattern: /app\.post\(\s*"\/api\/truck-routes"\s*,\s*requireFeatureAccess\(\s*"truck_routes\.edit"\s*\)/,
   },
   {
-    feature: "trailer_manifest.edit",
+    feature: "truck_routes.edit",
     method: "PUT",
     path: "/api/truck-routes/999999/stops",
     body: { locationIds: [] },
     okStatuses: [400, 404, 500],
     kind: "real",
     sourceFile: "server/routes/truckRoutes.ts",
-    sourcePattern: /app\.put\(\s*"\/api\/truck-routes\/:id\/stops"\s*,\s*requireFeatureAccess\(\s*"trailer_manifest\.edit"\s*\)/,
+    sourcePattern: /app\.put\(\s*"\/api\/truck-routes\/:id\/stops"\s*,\s*requireFeatureAccess\(\s*"truck_routes\.edit"\s*\)/,
   },
   {
-    feature: "trailer_manifest.delete",
+    feature: "truck_routes.delete",
     method: "DELETE",
     path: "/api/truck-routes/999999",
     okStatuses: [204, 404, 500],
     kind: "real",
     sourceFile: "server/routes/truckRoutes.ts",
-    sourcePattern: /app\.delete\(\s*"\/api\/truck-routes\/:id"\s*,\s*requireFeatureAccess\(\s*"trailer_manifest\.delete"\s*\)/,
+    sourcePattern: /app\.delete\(\s*"\/api\/truck-routes\/:id"\s*,\s*requireFeatureAccess\(\s*"truck_routes\.delete"\s*\)/,
+  },
+  {
+    // The seasonal-balances endpoint is gated by `orders.submit` for the
+    // per-store branch (used by the Order Form). The aggregate (no `location`
+    // query) branch additionally requires `seasonal_inventory.view`, enforced
+    // inline via `userHasFeature` rather than middleware. We assert both the
+    // inline check exists in source and that an unauthorized request to the
+    // aggregate branch is rejected.
+    feature: "seasonal_inventory.view",
+    method: "GET",
+    path: "/api/orders/seasonal-balances",
+    okStatuses: [200, 403, 500],
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern: /userHasFeature\([^)]*,\s*"seasonal_inventory\.view"\s*\)/,
   },
 
   // -------------------- Inventory --------------------

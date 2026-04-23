@@ -23,8 +23,8 @@ const ROUTES_KEY = ["/api/truck-routes"];
 export default function TruckRoutes() {
   const { toast } = useToast();
   const { can } = usePermissions();
-  const canEdit = can("trailer_manifest.edit");
-  const canDelete = can("trailer_manifest.delete");
+  const canEdit = can("truck_routes.edit");
+  const canDelete = can("truck_routes.delete");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
