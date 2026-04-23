@@ -276,7 +276,9 @@ export function registerWarehouseInventoryRoutes(app: Express) {
             totals: { total: 0, byGroup: {} as Record<string, number> },
             priorTotals: { total: 0, byGroup: {} as Record<string, number> },
             delta: { total: 0, byGroup: {} as Record<string, number> },
+            variance: { net: 0, abs: 0, expectedTotal: 0, hasExpected: false },
             staleDays: null as number | null,
+            onHand,
           };
         }
         const prior = await storage.getLatestWarehouseInventoryCount(w, latest.countDate);
@@ -289,6 +291,26 @@ export function registerWarehouseInventoryRoutes(app: Express) {
           totals.total += it.qty;
           totals.byGroup[it.groupName] = (totals.byGroup[it.groupName] || 0) + it.qty;
         }
+        // Variance vs system-expected (snapshotted at finalize). Legacy counts
+        // pre-dating the on-hand engine have no expectedQty; in that case we
+        // surface hasExpected=false so the UI can show "—" rather than 0.
+        let varianceNet = 0;
+        let varianceAbs = 0;
+        let expectedTotal = 0;
+        let varianceHasExpected = false;
+        for (const it of items) {
+          const exp = it.expectedQty;
+          if (exp != null) {
+            varianceHasExpected = true;
+            const diff = it.qty - exp;
+            varianceNet += diff;
+            varianceAbs += Math.abs(diff);
+            expectedTotal += exp;
+          }
+        }
+        const variance = varianceHasExpected
+          ? { net: varianceNet, abs: varianceAbs, expectedTotal, hasExpected: true }
+          : { net: 0, abs: 0, expectedTotal: 0, hasExpected: false };
         const priorTotals = { total: 0, byGroup: {} as Record<string, number> };
         for (const it of priorItems) {
           priorTotals.total += it.qty;
@@ -313,7 +335,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
           Math.round((todayDate.getTime() - latestDate.getTime()) / 86400000),
         );
 
-        return { warehouse: w, latest, prior, items, priorItems, totals, priorTotals, delta, staleDays, onHand };
+        return { warehouse: w, latest, prior, items, priorItems, totals, priorTotals, delta, variance, staleDays, onHand };
       }));
       res.json({ warehouses: results, today });
     } catch (err) {
@@ -356,11 +378,33 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const from = typeof req.query.from === "string" ? req.query.from : undefined;
       const to = typeof req.query.to === "string" ? req.query.to : undefined;
       const counts = await storage.getWarehouseInventoryCounts({ warehouse, status, from, to, limit: 200 });
-      // Attach totals per count for list display
+      // Attach totals + variance per count for list display. Variance is only
+      // meaningful when expectedQty was snapshotted (post on-hand-engine
+      // counts). Legacy counts have no expectedQty → hasExpected=false so the
+      // UI shows "—" instead of a misleading 0.
       const withTotals = await Promise.all(counts.map(async c => {
         const items = await storage.getWarehouseInventoryCountItems(c.id);
         const total = items.reduce((a, b) => a + b.qty, 0);
-        return { ...c, totalItems: total };
+        let varianceNet = 0;
+        let varianceAbs = 0;
+        let expectedTotal = 0;
+        let hasExpected = false;
+        for (const it of items) {
+          if (it.expectedQty != null) {
+            hasExpected = true;
+            const diff = it.qty - it.expectedQty;
+            varianceNet += diff;
+            varianceAbs += Math.abs(diff);
+            expectedTotal += it.expectedQty;
+          }
+        }
+        return {
+          ...c,
+          totalItems: total,
+          variance: hasExpected
+            ? { net: varianceNet, abs: varianceAbs, expectedTotal, hasExpected: true }
+            : { net: 0, abs: 0, expectedTotal: 0, hasExpected: false },
+        };
       }));
       res.json(withTotals);
     } catch (err) {

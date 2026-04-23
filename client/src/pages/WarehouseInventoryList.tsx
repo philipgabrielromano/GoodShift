@@ -10,8 +10,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Download, ArrowLeft, AlertTriangle, Warehouse as WarehouseIcon } from "lucide-react";
+import { classifyVariance } from "@/lib/warehouseVariance";
 
 interface Meta { warehouses: string[]; today: string; }
+interface Variance { net: number; abs: number; expectedTotal: number; hasExpected: boolean }
 interface Row {
   id: number;
   warehouse: string;
@@ -20,6 +22,7 @@ interface Row {
   createdByName: string | null;
   notes: string | null;
   totalItems: number;
+  variance: Variance;
 }
 
 function titleCase(s: string) {
@@ -146,9 +149,49 @@ export default function WarehouseInventoryList() {
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       <div className="text-right">
+                        <div className="text-xs text-muted-foreground">variance</div>
+                        {(() => {
+                          const v = row.variance;
+                          if (!v?.hasExpected) {
+                            return <div className="font-semibold text-muted-foreground" data-testid={`text-variance-${row.id}`}>—</div>;
+                          }
+                          const level = classifyVariance(v);
+                          const cls =
+                            level === "high"
+                              ? "text-red-600 dark:text-red-400"
+                              : level === "moderate"
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-foreground";
+                          return (
+                            <div className={`font-semibold ${cls}`} data-testid={`text-variance-${row.id}`}>
+                              {v.net > 0 ? "+" : ""}{v.net}
+                              <span className="text-xs font-normal text-muted-foreground"> · ±{v.abs}</span>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      <div className="text-right">
                         <div className="font-semibold" data-testid={`text-total-${row.id}`}>{row.totalItems.toLocaleString()}</div>
                         <div className="text-xs text-muted-foreground">items</div>
                       </div>
+                      {(() => {
+                        const level = classifyVariance(row.variance);
+                        if (level === "high") {
+                          return (
+                            <Badge variant="destructive" data-testid={`badge-variance-${row.id}`}>
+                              <AlertTriangle className="w-3.5 h-3.5 mr-1" /> High
+                            </Badge>
+                          );
+                        }
+                        if (level === "moderate") {
+                          return (
+                            <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400" data-testid={`badge-variance-${row.id}`}>
+                              Moderate
+                            </Badge>
+                          );
+                        }
+                        return null;
+                      })()}
                       <Badge variant={row.status === "final" ? "default" : "secondary"} data-testid={`badge-status-${row.id}`}>
                         {row.status === "final" ? "Finalized" : "Draft"}
                       </Badge>

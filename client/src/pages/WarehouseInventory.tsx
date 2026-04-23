@@ -21,6 +21,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
+import { classifyVariance } from "@/lib/warehouseVariance";
 
 type AdjustmentReason = "salvage_pickup" | "adjustment" | "other";
 const ADJUSTMENT_REASONS: AdjustmentReason[] = ["salvage_pickup", "adjustment", "other"];
@@ -40,6 +41,7 @@ interface DashboardWarehouse {
   totals: { total: number; byGroup: Record<string, number> };
   priorTotals: { total: number; byGroup: Record<string, number> };
   delta: { total: number; byGroup: Record<string, number> };
+  variance: { net: number; abs: number; expectedTotal: number; hasExpected: boolean };
   staleDays: number | null;
   onHand: {
     warehouse: string;
@@ -387,11 +389,31 @@ export default function WarehouseInventory() {
                     : "No counts recorded yet"}
                 </CardDescription>
               </div>
-              {w.latest && (
-                <Badge variant={w.latest.status === "final" ? "default" : "secondary"} data-testid={`badge-status-${w.warehouse}`}>
-                  {w.latest.status === "final" ? "Finalized" : "Draft"}
-                </Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {w.latest && (() => {
+                  const level = classifyVariance(w.variance);
+                  if (level === "high") {
+                    return (
+                      <Badge variant="destructive" data-testid={`badge-variance-${w.warehouse}`}>
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1" /> High variance ±{w.variance.abs}
+                      </Badge>
+                    );
+                  }
+                  if (level === "moderate") {
+                    return (
+                      <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400" data-testid={`badge-variance-${w.warehouse}`}>
+                        Variance ±{w.variance.abs}
+                      </Badge>
+                    );
+                  }
+                  return null;
+                })()}
+                {w.latest && (
+                  <Badge variant={w.latest.status === "final" ? "default" : "secondary"} data-testid={`badge-status-${w.warehouse}`}>
+                    {w.latest.status === "final" ? "Finalized" : "Draft"}
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               {!w.latest ? (
@@ -406,10 +428,29 @@ export default function WarehouseInventory() {
                 </Button>
               ) : (
                 <>
-                  <div className="flex items-baseline gap-3">
+                  <div className="flex items-baseline gap-3 flex-wrap">
                     <div className="text-4xl font-bold" data-testid={`text-total-${w.warehouse}`}>{w.totals.total.toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">total items</div>
                     {w.prior && <DeltaPill value={w.delta.total} />}
+                    <div className="text-xs text-muted-foreground" data-testid={`text-variance-${w.warehouse}`}>
+                      variance vs system:{" "}
+                      {w.variance.hasExpected ? (
+                        <span className={
+                          classifyVariance(w.variance) === "high"
+                            ? "text-red-600 dark:text-red-400 font-semibold"
+                            : classifyVariance(w.variance) === "moderate"
+                              ? "text-amber-600 dark:text-amber-400 font-medium"
+                              : "text-foreground"
+                        }>
+                          {w.variance.net > 0 ? "+" : ""}{w.variance.net} net · ±{w.variance.abs} abs
+                          {w.variance.expectedTotal > 0 && (
+                            <> ({Math.round((w.variance.abs / w.variance.expectedTotal) * 1000) / 10}% off)</>
+                          )}
+                        </span>
+                      ) : (
+                        <span>—</span>
+                      )}
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     {Object.entries(w.totals.byGroup).map(([g, qty]) => (
