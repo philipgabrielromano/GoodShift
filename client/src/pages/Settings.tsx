@@ -4,13 +4,15 @@ import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye } from "lucide-react";
+import { RefreshCw, CheckCircle2, XCircle, Building2, LogIn, LogOut, Shield, Mail, Send, Save, Bell, Activity, Database, Clock, Wifi, WifiOff, ChevronDown, ChevronUp, Eye, User, Info } from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings";
 import type { Employee } from "@shared/schema";
+import { Link } from "wouter";
+import { APP_VERSION, changelog } from "@/lib/changelog";
 
 interface DiagnosticApiCall {
   timestamp: string;
@@ -367,6 +369,31 @@ export default function Settings() {
     }
   };
 
+  type SectionId = "preferences" | "email" | "ukg" | "about";
+  const [activeSection, setActiveSection] = useState<SectionId>(() => {
+    if (typeof window === "undefined") return "preferences";
+    const h = window.location.hash.replace("#", "") as SectionId;
+    return (["preferences", "email", "ukg", "about"] as const).includes(h as any) ? h : "preferences";
+  });
+
+  useEffect(() => {
+    const handler = () => {
+      const h = window.location.hash.replace("#", "") as SectionId;
+      if ((["preferences", "email", "ukg", "about"] as const).includes(h as any)) {
+        setActiveSection(h);
+      }
+    };
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+
+  const goToSection = (id: SectionId) => {
+    setActiveSection(id);
+    if (typeof window !== "undefined" && window.location.hash !== `#${id}`) {
+      window.history.replaceState(null, "", `#${id}`);
+    }
+  };
+
   const saveDriverInspectionEmails = () => {
     if (settings) {
       updateSettings.mutate(
@@ -383,15 +410,92 @@ export default function Settings() {
     }
   };
 
+  const showEmailSection = canGlobalConfig || canEmailAudit;
+  const showUkgSection = canUkgConfig || canUkgSync;
+
+  const sections: { id: SectionId; label: string; icon: typeof User; visible: boolean; description: string }[] = [
+    { id: "preferences", label: "My Preferences", icon: User, visible: true, description: "Your personal notification settings and account info." },
+    { id: "email", label: "Email & Notifications", icon: Mail, visible: showEmailSection, description: "Recipient lists, email templates, and the activity log." },
+    { id: "ukg", label: "UKG Integration", icon: Building2, visible: showUkgSection, description: "Connect, sync, and diagnose the UKG employee data feed." },
+    { id: "about", label: "About", icon: Info, visible: true, description: "Version and release information." },
+  ];
+  const visibleSections = sections.filter(s => s.visible);
+
+  // If the current section isn't visible to this user, fall back to the first visible one
+  useEffect(() => {
+    if (!visibleSections.find(s => s.id === activeSection) && visibleSections[0]) {
+      goToSection(visibleSections[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, showEmailSection, showUkgSection]);
+
+  const currentSection = visibleSections.find(s => s.id === activeSection) ?? visibleSections[0];
+
   return (
-    <div className="p-6 lg:p-10 space-y-8 max-w-[1200px] mx-auto">
-      <div>
+    <div className="p-6 lg:p-10 max-w-[1200px] mx-auto">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold font-display">Settings</h1>
         <p className="text-muted-foreground mt-1">
           {isAdmin ? "Configure global constraints and requirements." : "Manage your notification preferences."}
         </p>
       </div>
 
+      {/* Mobile section picker */}
+      <div className="lg:hidden mb-4">
+        <Select value={activeSection} onValueChange={(v) => goToSection(v as SectionId)}>
+          <SelectTrigger data-testid="select-settings-section-mobile">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {visibleSections.map(s => (
+              <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 items-start">
+        {/* Left rail */}
+        <nav
+          className="hidden lg:flex flex-col gap-1 sticky top-6"
+          aria-label="Settings sections"
+          data-testid="nav-settings-sections"
+        >
+          {visibleSections.map(s => {
+            const Icon = s.icon;
+            const isActive = s.id === activeSection;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => goToSection(s.id)}
+                className={`flex items-center gap-2 text-sm text-left px-3 py-2 rounded-md transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "hover-elevate active-elevate-2"
+                }`}
+                data-testid={`button-settings-section-${s.id}`}
+              >
+                <Icon className="w-4 h-4 flex-shrink-0" />
+                <span className="font-medium">{s.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Right pane */}
+        <div className="space-y-8 min-w-0">
+          {currentSection && (
+            <div>
+              <h2 className="text-xl font-semibold flex items-center gap-2" data-testid="text-section-title">
+                <currentSection.icon className="w-5 h-5" />
+                {currentSection.label}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">{currentSection.description}</p>
+            </div>
+          )}
+
+          {activeSection === "preferences" && <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -443,7 +547,6 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {showAdminArea && <>
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -503,6 +606,9 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+          </>}
+
+          {activeSection === "ukg" && <>
       {(canUkgConfig || canUkgSync) && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -861,6 +967,9 @@ export default function Settings() {
         )}
       </Card>}
 
+          </>}
+
+          {activeSection === "email" && <>
       {canGlobalConfig && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1184,7 +1293,52 @@ export default function Settings() {
           </CardContent>
         )}
       </Card>}
-      </>}
+          </>}
+
+          {activeSection === "about" && (
+            <Card data-testid="card-about">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Info className="w-5 h-5" />
+                  About GoodShift
+                </CardTitle>
+                <CardDescription>Version and release information.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Current Version</p>
+                    <p className="text-sm font-medium" data-testid="text-app-version">{APP_VERSION}</p>
+                  </div>
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Released</p>
+                    <p className="text-sm font-medium" data-testid="text-release-date">
+                      {changelog[0]?.date
+                        ? new Date(changelog[0].date).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+                {changelog[0]?.title && (
+                  <div className="p-3 bg-muted/30 rounded border space-y-1">
+                    <p className="text-xs text-muted-foreground font-medium">Latest release</p>
+                    <p className="text-sm font-medium" data-testid="text-latest-release-title">{changelog[0].title}</p>
+                  </div>
+                )}
+                <div>
+                  <Link
+                    href="/changelog"
+                    className="text-sm text-primary hover:underline"
+                    data-testid="link-view-changelog"
+                  >
+                    View full changelog →
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
