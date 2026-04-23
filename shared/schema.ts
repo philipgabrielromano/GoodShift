@@ -1191,6 +1191,27 @@ export const warehouseInventoryCountItems = pgTable("warehouse_inventory_count_i
   uniqueIndex("uniq_wh_inventory_count_item").on(table.countId, table.itemName),
 ]);
 
+// Per-edit audit history for warehouse inventory count items. One row per
+// item-quantity change while the count is in draft (finalized counts can't be
+// edited without reopening, which is also logged). Field-level before/after
+// lives in the `changes` jsonb column as { qty: { before, after } }.
+export const warehouseInventoryAudits = pgTable("warehouse_inventory_audits", {
+  id: serial("id").primaryKey(),
+  countId: integer("count_id").notNull(),
+  itemName: text("item_name"), // nullable: item-level edits set this; count-level events (finalize/reopen) leave it null
+  action: text("action").notNull(), // 'update' | 'finalize' | 'reopen'
+  changedById: integer("changed_by_id"),
+  changedByName: text("changed_by_name"),
+  changedAt: timestamp("changed_at").notNull().defaultNow(),
+  changes: jsonb("changes").notNull(),
+}, (table) => [
+  index("idx_wh_inventory_audits_count_id").on(table.countId),
+  index("idx_wh_inventory_audits_item").on(table.countId, table.itemName),
+]);
+
+export type WarehouseInventoryAudit = typeof warehouseInventoryAudits.$inferSelect;
+export type WarehouseInventoryAuditChanges = Record<string, { before: unknown; after: unknown }>;
+
 // === WAREHOUSE TRANSFERS ===
 // Represents inter-warehouse or external adjustments (in/out) that aren't
 // captured by store orders. Examples: salvage truck pickup, transfer between

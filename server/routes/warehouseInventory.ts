@@ -745,9 +745,25 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Per-count audit history (per-item qty edits + finalize/reopen events).
+  // Returned newest-first so the UI shows the most recent change at the top.
+  app.get("/api/warehouse-inventory/:id/history", requireAccess, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      const audits = await storage.getWarehouseInventoryAudits(id);
+      res.json(audits);
+    } catch (err) {
+      console.error("[WarehouseInventory] History error:", err);
+      res.status(500).json({ message: "Failed to load count history" });
+    }
+  });
+
   // Bulk update item quantities
   app.put("/api/warehouse-inventory/:id/items", requireEdit, async (req, res) => {
     try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
       const id = Number(req.params.id);
       const count = await storage.getWarehouseInventoryCount(id);
       if (!count) return res.status(404).json({ message: "Count not found" });
@@ -755,7 +771,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         return res.status(409).json({ message: "Finalized counts cannot be edited. Reopen first." });
       }
       const { items } = itemsUpdateSchema.parse(req.body);
-      const updated = await storage.updateWarehouseInventoryItems(id, items);
+      const updated = await storage.updateWarehouseInventoryItems(id, items, user);
       if (updated === null) {
         // Race: finalized between check and tx
         return res.status(409).json({ message: "Finalized counts cannot be edited. Reopen first." });
@@ -801,7 +817,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const id = Number(req.params.id);
       const count = await storage.getWarehouseInventoryCount(id);
       if (!count) return res.status(404).json({ message: "Count not found" });
-      const updated = await storage.reopenWarehouseInventoryCount(id);
+      const updated = await storage.reopenWarehouseInventoryCount(id, user);
       res.json(updated);
     } catch (err) {
       console.error("[WarehouseInventory] Reopen error:", err);

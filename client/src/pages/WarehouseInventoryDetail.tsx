@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft, Loader2, Save, CheckCircle2, Lock, Unlock, Trash2,
   TrendingUp, TrendingDown, Minus, AlertTriangle, Warehouse as WarehouseIcon,
-  Info, Download, Mail,
+  Info, Download, Mail, History as HistoryIcon, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -209,6 +209,7 @@ export default function WarehouseInventoryDetail() {
     onSuccess: () => {
       toast({ title: "Saved", description: "Count updated." });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory", id, "history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory"] });
     },
@@ -228,6 +229,7 @@ export default function WarehouseInventoryDetail() {
     onSuccess: () => {
       toast({ title: "Finalized", description: "Count is now locked." });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory", id, "history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
     },
     onError: (err: any) => toast({ title: "Finalize failed", description: err?.message || "Error", variant: "destructive" }),
@@ -251,6 +253,7 @@ export default function WarehouseInventoryDetail() {
     onSuccess: () => {
       toast({ title: "Reopened", description: "Count is editable again." });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory", id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory", id, "history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
     },
     onError: (err: any) => toast({ title: "Reopen failed", description: err?.message || "Error", variant: "destructive" }),
@@ -605,6 +608,111 @@ export default function WarehouseInventoryDetail() {
           {canReopen && <> Use Reopen to make corrections.</>}
         </div>
       )}
+
+      {/* Edit history (per-item qty edits + finalize/reopen events) */}
+      <CountHistory countId={id} createdByName={c.createdByName} />
     </div>
+  );
+}
+
+interface CountAuditEntry {
+  id: number;
+  countId: number;
+  itemName: string | null;
+  action: "update" | "finalize" | "reopen" | string;
+  changedById: number | null;
+  changedByName: string | null;
+  changedAt: string;
+  changes: Record<string, { before: unknown; after: unknown }>;
+}
+
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  return String(v);
+}
+
+function CountHistory({ countId, createdByName }: { countId: number; createdByName: string | null }) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading, isError } = useQuery<CountAuditEntry[]>({
+    queryKey: ["/api/warehouse-inventory", countId, "history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/warehouse-inventory/${countId}/history`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load history");
+      return res.json();
+    },
+    enabled: open,
+  });
+  const total = data?.length ?? null;
+  return (
+    <Card data-testid="card-history">
+      <CardHeader className="pb-2">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-2 text-left w-full hover-elevate active-elevate-2 rounded-md -mx-1 px-1 py-1"
+          data-testid="button-toggle-history"
+          aria-expanded={open}
+        >
+          {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          <HistoryIcon className="w-4 h-4 text-primary" />
+          <CardTitle className="text-base">Edit log</CardTitle>
+          {total !== null && (
+            <span className="text-xs text-muted-foreground" data-testid="text-history-count">
+              · {total} {total === 1 ? "entry" : "entries"}
+            </span>
+          )}
+        </button>
+      </CardHeader>
+      {open && (
+        <CardContent className="pt-0">
+          {isLoading && (
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin" /> Loading edit history…
+            </div>
+          )}
+          {isError && (
+            <div className="text-xs text-destructive">Failed to load edit history.</div>
+          )}
+          {data && data.length === 0 && (
+            <div className="text-xs text-muted-foreground" data-testid="text-history-empty">
+              No edits recorded yet — only the original entry exists.
+            </div>
+          )}
+          {data && data.length > 0 && (
+            <ul className="space-y-2" data-testid="list-history">
+              {data.map(a => {
+                const isItemEdit = a.action === "update" && a.itemName;
+                const qtyDiff = a.changes?.qty as { before: unknown; after: unknown } | undefined;
+                return (
+                  <li key={a.id} className="border-l-2 border-border pl-3 text-xs" data-testid={`history-entry-${a.id}`}>
+                    <div className="flex flex-wrap items-baseline gap-x-2">
+                      <span className="font-medium capitalize">
+                        {a.action === "finalize" ? "Finalized" :
+                         a.action === "reopen" ? "Reopened" :
+                         isItemEdit ? `Edited ${a.itemName}` : a.action}
+                      </span>
+                      <span className="text-muted-foreground">
+                        by {a.changedByName || "—"} · {new Date(a.changedAt).toLocaleString()}
+                      </span>
+                    </div>
+                    {isItemEdit && qtyDiff && (
+                      <div className="mt-0.5 font-mono text-[11px]">
+                        <span className="text-muted-foreground">Qty:</span>{" "}
+                        <span className="line-through text-red-600 dark:text-red-400">{fmtVal(qtyDiff.before)}</span>
+                        {" → "}
+                        <span className="text-green-600 dark:text-green-400">{fmtVal(qtyDiff.after)}</span>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="text-xs text-muted-foreground pt-2 mt-2 border-t" data-testid="text-history-created">
+            Originally started by {createdByName || "—"}.
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }

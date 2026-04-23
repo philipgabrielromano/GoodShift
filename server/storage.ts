@@ -31,6 +31,7 @@ import {
   TRAILER_MANIFEST_CATEGORIES,
   warehouseInventoryCounts, type WarehouseInventoryCount, type InsertWarehouseInventoryCount,
   warehouseInventoryCountItems, type WarehouseInventoryCountItem,
+  warehouseInventoryAudits, type WarehouseInventoryAudit, type WarehouseInventoryAuditChanges,
   warehouseTransfers, type WarehouseTransfer, type InsertWarehouseTransfer,
   warehouseTransferAudits, type WarehouseTransferAudit, type WarehouseTransferAuditChanges,
   WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
@@ -147,10 +148,12 @@ export interface IStorage {
   updateWarehouseInventoryItems(
     countId: number,
     items: { itemName: string; qty: number }[],
-  ): Promise<WarehouseInventoryCountItem[]>;
+    user?: { id: number; name: string } | null,
+  ): Promise<WarehouseInventoryCountItem[] | null>;
   finalizeWarehouseInventoryCount(id: number, user: { id: number; name: string }): Promise<WarehouseInventoryCount>;
-  reopenWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount>;
+  reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount>;
   deleteWarehouseInventoryCount(id: number): Promise<void>;
+  getWarehouseInventoryAudits(countId: number): Promise<WarehouseInventoryAudit[]>;
   // Warehouse transfers
   getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number; createdById?: number; createdByName?: string }): Promise<WarehouseTransfer[]>;
   createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
@@ -925,6 +928,7 @@ export class DatabaseStorage implements IStorage {
   async updateWarehouseInventoryItems(
     countId: number,
     items: { itemName: string; qty: number }[],
+    user?: { id: number; name: string } | null,
   ): Promise<WarehouseInventoryCountItem[] | null> {
     if (items.length === 0) {
       const current = await this.getWarehouseInventoryCount(countId);
@@ -939,14 +943,38 @@ export class DatabaseStorage implements IStorage {
       const row = (locked as any).rows?.[0] || (locked as any)[0];
       if (!row || row.status !== "draft") return null;
 
+      // Snapshot existing qty per item so we can write before/after audit rows
+      // for every actual change. Items unchanged (same qty) are skipped to
+      // keep the timeline focused on real edits.
+      const existing = await tx.select().from(warehouseInventoryCountItems)
+        .where(eq(warehouseInventoryCountItems.countId, countId));
+      const beforeMap = new Map<string, number>();
+      existing.forEach(r => beforeMap.set(r.itemName, r.qty));
+
+      const auditRows: { countId: number; itemName: string; action: string; changedById: number | null; changedByName: string | null; changes: WarehouseInventoryAuditChanges }[] = [];
+
       for (const { itemName, qty } of items) {
         const normalized = Math.max(0, Math.floor(Number(qty) || 0));
+        const before = beforeMap.get(itemName);
+        if (before === undefined) continue; // unknown item — skip silently
+        if (before === normalized) continue; // no actual change
         await tx.update(warehouseInventoryCountItems)
           .set({ qty: normalized })
           .where(and(
             eq(warehouseInventoryCountItems.countId, countId),
             eq(warehouseInventoryCountItems.itemName, itemName),
           ));
+        auditRows.push({
+          countId,
+          itemName,
+          action: "update",
+          changedById: user?.id ?? null,
+          changedByName: user?.name ?? null,
+          changes: { qty: { before, after: normalized } } satisfies WarehouseInventoryAuditChanges,
+        });
+      }
+      if (auditRows.length > 0) {
+        await tx.insert(warehouseInventoryAudits).values(auditRows);
       }
       await tx.update(warehouseInventoryCounts)
         .set({ updatedAt: new Date() })
@@ -961,38 +989,69 @@ export class DatabaseStorage implements IStorage {
     id: number,
     user: { id: number; name: string },
   ): Promise<WarehouseInventoryCount> {
-    const [updated] = await db.update(warehouseInventoryCounts)
-      .set({
-        status: "final",
-        finalizedAt: new Date(),
-        finalizedById: user.id,
-        finalizedByName: user.name,
-        updatedAt: new Date(),
-      })
-      .where(eq(warehouseInventoryCounts.id, id))
-      .returning();
-    return updated;
+    // Status flip + audit row are written in one transaction so we never end
+    // up with a finalized count that has no corresponding audit entry (or
+    // an orphan audit row for a finalize that didn't take).
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(warehouseInventoryCounts)
+        .set({
+          status: "final",
+          finalizedAt: new Date(),
+          finalizedById: user.id,
+          finalizedByName: user.name,
+          updatedAt: new Date(),
+        })
+        .where(eq(warehouseInventoryCounts.id, id))
+        .returning();
+      await tx.insert(warehouseInventoryAudits).values({
+        countId: id,
+        itemName: null,
+        action: "finalize",
+        changedById: user.id,
+        changedByName: user.name,
+        changes: { status: { before: "draft", after: "final" } } satisfies WarehouseInventoryAuditChanges,
+      });
+      return updated;
+    });
   }
 
-  async reopenWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount> {
-    const [updated] = await db.update(warehouseInventoryCounts)
-      .set({
-        status: "draft",
-        finalizedAt: null,
-        finalizedById: null,
-        finalizedByName: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(warehouseInventoryCounts.id, id))
-      .returning();
-    return updated;
+  async reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount> {
+    // Same atomicity as finalize: status flip and audit row land together.
+    return await db.transaction(async (tx) => {
+      const [updated] = await tx.update(warehouseInventoryCounts)
+        .set({
+          status: "draft",
+          finalizedAt: null,
+          finalizedById: null,
+          finalizedByName: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(warehouseInventoryCounts.id, id))
+        .returning();
+      await tx.insert(warehouseInventoryAudits).values({
+        countId: id,
+        itemName: null,
+        action: "reopen",
+        changedById: user?.id ?? null,
+        changedByName: user?.name ?? null,
+        changes: { status: { before: "final", after: "draft" } } satisfies WarehouseInventoryAuditChanges,
+      });
+      return updated;
+    });
   }
 
   async deleteWarehouseInventoryCount(id: number): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.delete(warehouseInventoryCountItems).where(eq(warehouseInventoryCountItems.countId, id));
+      await tx.delete(warehouseInventoryAudits).where(eq(warehouseInventoryAudits.countId, id));
       await tx.delete(warehouseInventoryCounts).where(eq(warehouseInventoryCounts.id, id));
     });
+  }
+
+  async getWarehouseInventoryAudits(countId: number): Promise<WarehouseInventoryAudit[]> {
+    return await db.select().from(warehouseInventoryAudits)
+      .where(eq(warehouseInventoryAudits.countId, countId))
+      .orderBy(desc(warehouseInventoryAudits.changedAt), desc(warehouseInventoryAudits.id));
   }
 
   // Warehouse transfers
