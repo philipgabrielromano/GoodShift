@@ -50,6 +50,7 @@
     "@uppy/core": "^5.2.0",
     "@uppy/dashboard": "^5.1.0",
     "@uppy/react": "^5.1.1",
+    "@xmldom/xmldom": "^0.8.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -125,7 +126,13 @@
   "overrides": {
     "drizzle-kit": {
       "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
-    }
+    },
+    "@xmldom/xmldom": "^0.8.13",
+    "dompurify": "^3.4.0",
+    "fast-xml-parser": "^5.7.0",
+    "cookie": "^0.7.0",
+    "@tootallnate/once": "^3.0.1",
+    "uuid": "^14.0.0"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
