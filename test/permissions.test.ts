@@ -37,10 +37,12 @@ import type { AddressInfo } from "net";
 import { eq } from "drizzle-orm";
 
 import { db } from "../server/db";
-import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, SYSTEM_FEATURES } from "../shared/schema";
+import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, SYSTEM_FEATURES, users } from "../shared/schema";
+import { storage } from "../server/storage";
 import {
   invalidatePermissionsCache,
   requireFeatureAccess,
+  userHasFeature,
 } from "../server/middleware";
 import { registerOccurrenceRoutes } from "../server/routes/occurrences";
 import { registerCoachingRoutes } from "../server/routes/coaching";
@@ -686,6 +688,64 @@ function buildTestApp() {
   // wiring matches.
   mountStubs(app);
 
+  // Mirror of the inline PUT /api/users/:id handler from server/routes.ts so
+  // we can exercise its inline permission checks (users.assign_roles,
+  // users.assign_locations, users.edit_profile) end-to-end. The
+  // INLINE_USER_UPDATE_SOURCE_PATTERNS test below source-greps server/routes.ts
+  // to make sure the production handler keeps the same checks and 403
+  // messages so this stub stays representative.
+  app.put(
+    "/_test/users/:id",
+    requireFeatureAccess("users.view"),
+    async (req, res) => {
+      try {
+        const sessionUser = (req.session as any)?.user;
+        const input = (req.body ?? {}) as Record<string, unknown>;
+
+        const existing = await storage.getUser(Number(req.params.id));
+        if (!existing) return res.status(404).json({ message: "User not found" });
+
+        const canEditProfile = await userHasFeature(sessionUser, "users.edit_profile");
+        const canAssignRoles = await userHasFeature(sessionUser, "users.assign_roles");
+        const canAssignLocations = await userHasFeature(sessionUser, "users.assign_locations");
+
+        const arraysEqual = (a: unknown[] = [], b: unknown[] = []) =>
+          a.length === b.length && a.every((v, i) => v === b[i]);
+
+        const wantsProfile = ["name", "email", "isActive"].some(
+          k =>
+            Object.prototype.hasOwnProperty.call(input, k) &&
+            (input as any)[k] !== undefined &&
+            (input as any)[k] !== (existing as any)[k]
+        );
+        const wantsRole =
+          Object.prototype.hasOwnProperty.call(input, "role") &&
+          input.role !== undefined &&
+          input.role !== (existing as any).role;
+        const wantsLocations =
+          Object.prototype.hasOwnProperty.call(input, "locationIds") &&
+          Array.isArray(input.locationIds) &&
+          !arraysEqual(input.locationIds as unknown[], ((existing as any).locationIds as unknown[]) || []);
+
+        if (wantsProfile && !canEditProfile) {
+          return res.status(403).json({ message: "You don't have permission to edit user profiles." });
+        }
+        if (wantsRole && !canAssignRoles) {
+          return res.status(403).json({ message: "You don't have permission to change user roles." });
+        }
+        if (wantsLocations && !canAssignLocations) {
+          return res.status(403).json({ message: "You don't have permission to change store assignments." });
+        }
+        if (!wantsProfile && !wantsRole && !wantsLocations) {
+          return res.json(existing);
+        }
+        res.json({ ok: true });
+      } catch (err: any) {
+        res.status(500).json({ message: err?.message ?? "error" });
+      }
+    },
+  );
+
   return app;
 }
 
@@ -1021,4 +1081,185 @@ test("EXEMPT_FEATURES never accidentally gain a requireFeatureAccess gate", asyn
       `EXEMPT feature "${feature}" is now wired as middleware in ${offenders.join(", ")}; move it into ROUTE_GATES.`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Inline (non-middleware) permission tests
+// ---------------------------------------------------------------------------
+//
+// A handful of permissions are enforced inline inside their handlers instead
+// of through requireFeatureAccess middleware. They return custom 403 messages
+// so they need direct coverage here in addition to the EXEMPT_FEATURES grep.
+//
+//   • PUT /api/users/:id has three inline checks (users.edit_profile,
+//     users.assign_roles, users.assign_locations) layered on top of the
+//     users.view middleware gate. The buildTestApp() mirror of that handler
+//     mounted at /_test/users/:id is verified against the production source
+//     in INLINE_USER_UPDATE_SOURCE_PATTERNS below.
+//   • DELETE /api/trailer-manifests/:id passes the trailer_manifest.delete
+//     gate but then enforces an inline admin-only override.
+
+async function createInlineTestUser(): Promise<number> {
+  const created = await storage.createUser({
+    email: `inline_test_${process.pid}_${Date.now()}@example.com`,
+    name: "Inline Test User",
+    role: "viewer",
+    isActive: true,
+    locationIds: null as any,
+  } as any);
+  return created.id;
+}
+
+async function deleteInlineTestUser(id: number): Promise<void> {
+  try {
+    await db.delete(users).where(eq(users.id, id));
+  } catch {
+    /* best-effort cleanup */
+  }
+}
+
+test("inline: users.assign_roles withheld → PUT role change is 403 with custom message", async () => {
+  const userId = await createInlineTestUser();
+  const originalView = await grantTestRole("users.view");
+  const originalEdit = await grantTestRole("users.edit_profile");
+  // Make sure the synthetic role does NOT have users.assign_roles.
+  const originalAssignRoles = await getAllowedRoles("users.assign_roles");
+  await setAllowedRoles(
+    "users.assign_roles",
+    originalAssignRoles.filter(r => r !== TEST_ROLE),
+  );
+  try {
+    const cookie = await loginAs(TEST_ROLE);
+    const res = await request({
+      method: "PUT",
+      path: `/_test/users/${userId}`,
+      body: { role: "manager" },
+      cookie,
+    });
+    assert.equal(
+      res.status,
+      403,
+      `expected 403 for role change without users.assign_roles, got ${res.status}: ${JSON.stringify(res.body)}`,
+    );
+    assert.equal(
+      res.body?.message,
+      "You don't have permission to change user roles.",
+    );
+  } finally {
+    await setAllowedRoles("users.view", originalView);
+    await setAllowedRoles("users.edit_profile", originalEdit);
+    await setAllowedRoles("users.assign_roles", originalAssignRoles);
+    await deleteInlineTestUser(userId);
+  }
+});
+
+test("inline: users.assign_locations withheld → PUT location change is 403 with custom message", async () => {
+  const userId = await createInlineTestUser();
+  const originalView = await grantTestRole("users.view");
+  const originalEdit = await grantTestRole("users.edit_profile");
+  const originalAssignLocations = await getAllowedRoles("users.assign_locations");
+  await setAllowedRoles(
+    "users.assign_locations",
+    originalAssignLocations.filter(r => r !== TEST_ROLE),
+  );
+  try {
+    const cookie = await loginAs(TEST_ROLE);
+    const res = await request({
+      method: "PUT",
+      path: `/_test/users/${userId}`,
+      body: { locationIds: ["1"] },
+      cookie,
+    });
+    assert.equal(
+      res.status,
+      403,
+      `expected 403 for location change without users.assign_locations, got ${res.status}: ${JSON.stringify(res.body)}`,
+    );
+    assert.equal(
+      res.body?.message,
+      "You don't have permission to change store assignments.",
+    );
+  } finally {
+    await setAllowedRoles("users.view", originalView);
+    await setAllowedRoles("users.edit_profile", originalEdit);
+    await setAllowedRoles("users.assign_locations", originalAssignLocations);
+    await deleteInlineTestUser(userId);
+  }
+});
+
+test("inline: trailer_manifest.delete granted but non-admin → 403 with admin-only message", async () => {
+  // Grant the synthetic role the feature gate so we get past requireDelete and
+  // hit the inline admin-only override inside the handler.
+  const original = await grantTestRole("trailer_manifest.delete");
+  try {
+    const cookie = await loginAs(TEST_ROLE);
+    const res = await request({
+      method: "DELETE",
+      path: "/api/trailer-manifests/999999",
+      cookie,
+    });
+    assert.equal(
+      res.status,
+      403,
+      `expected inline admin 403, got ${res.status}: ${JSON.stringify(res.body)}`,
+    );
+    assert.equal(
+      res.body?.message,
+      "Admin access required to delete manifests",
+    );
+  } finally {
+    await setAllowedRoles("trailer_manifest.delete", original);
+  }
+});
+
+test("inline: trailer_manifest.delete granted to admin → bypasses inline admin override", async () => {
+  // Sanity check the inverse: admin role should pass both the gate and the
+  // inline admin-only check (and proceed to a non-403 status downstream).
+  const cookie = await loginAs("admin");
+  const res = await request({
+    method: "DELETE",
+    path: "/api/trailer-manifests/999999",
+    cookie,
+  });
+  assert.notEqual(
+    res.status,
+    403,
+    `admin should not be blocked by inline admin-only override (got ${res.status}: ${JSON.stringify(res.body)})`,
+  );
+});
+
+test("inline check source patterns still exist in production routes", async () => {
+  // Guard against drift: the /_test/users/:id stub mirrors the inline checks
+  // in PUT /api/users/:id, and the trailer-manifest test exercises the inline
+  // admin-only override. If the production code drops or reworks these
+  // checks, this test fails so the stub / expectations are updated alongside.
+  const fs = await import("node:fs/promises");
+  const routesSrc = await fs.readFile("server/routes.ts", "utf8");
+  const trailerSrc = await fs.readFile("server/routes/trailerManifests.ts", "utf8");
+
+  const inlineUserChecks: RegExp[] = [
+    /userHasFeature\(\s*sessionUser\s*,\s*"users\.edit_profile"\s*\)/,
+    /userHasFeature\(\s*sessionUser\s*,\s*"users\.assign_roles"\s*\)/,
+    /userHasFeature\(\s*sessionUser\s*,\s*"users\.assign_locations"\s*\)/,
+    /You don't have permission to edit user profiles\./,
+    /You don't have permission to change user roles\./,
+    /You don't have permission to change store assignments\./,
+  ];
+  for (const pattern of inlineUserChecks) {
+    assert.ok(
+      pattern.test(routesSrc),
+      `Inline user-update check missing from server/routes.ts: ${pattern}`,
+    );
+  }
+
+  // Trailer manifest delete: gate + inline admin override.
+  assert.ok(
+    /app\.delete\(\s*"\/api\/trailer-manifests\/:id"\s*,\s*requireDelete\b/.test(trailerSrc),
+    "DELETE /api/trailer-manifests/:id should still be wrapped in requireDelete",
+  );
+  assert.ok(
+    /sessionUser\.role\s*!==\s*"admin"/.test(trailerSrc) &&
+      /Admin access required to delete manifests/.test(trailerSrc),
+    "Inline admin-only override missing from DELETE /api/trailer-manifests/:id",
+  );
 });
