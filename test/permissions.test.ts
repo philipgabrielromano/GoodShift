@@ -5,6 +5,22 @@
  * actually gate the corresponding endpoints when a custom role (e.g. "DM") is
  * granted or revoked from a feature via the role/permissions UI.
  *
+ * The suite is data-driven from a ROUTE_GATES table that maps each feature
+ * key in shared/schema.ts → SYSTEM_FEATURES to a representative endpoint:
+ *
+ *   • "real" entries mount the real route registration from server/routes/*
+ *     so we exercise the actual middleware wiring.
+ *   • "stub" entries cover routes registered inline in server/routes.ts; we
+ *     mount a tiny stub here that uses the same requireFeatureAccess(...)
+ *     middleware and additionally regex-grep server/routes.ts to prove the
+ *     production route is wired to the same feature key.
+ *
+ * Adding a new feature to SYSTEM_FEATURES will fail the coverage test until
+ * either an entry is added to ROUTE_GATES or it is added to EXEMPT_FEATURES
+ * with a documented reason. Exempt features are also asserted to never appear
+ * as a `requireFeatureAccess("...")` argument anywhere in server/, so an
+ * accidentally-added gate forces the entry to move into ROUTE_GATES.
+ *
  * Run with:   npx tsx --test test/permissions.test.ts
  *
  * Requires DATABASE_URL to be set so the real feature_permissions table can
@@ -14,7 +30,7 @@
 
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import express from "express";
+import express, { type Express } from "express";
 import session from "express-session";
 import http from "http";
 import type { AddressInfo } from "net";
@@ -29,12 +45,595 @@ import {
 import { registerOccurrenceRoutes } from "../server/routes/occurrences";
 import { registerCoachingRoutes } from "../server/routes/coaching";
 import { registerShiftTradeRoutes } from "../server/routes/shift-trades";
+import { registerTaskAssignmentRoutes } from "../server/routes/task-assignments";
+import { registerOptimizationRoutes } from "../server/routes/optimization";
+import { registerDriverInspectionRoutes } from "../server/routes/driverInspections";
+import { registerCreditCardInspectionRoutes } from "../server/routes/creditCardInspections";
+import { registerOrderRoutes } from "../server/routes/orders";
+import { registerTrailerManifestRoutes } from "../server/routes/trailerManifests";
+import { registerWarehouseInventoryRoutes } from "../server/routes/warehouseInventory";
+import { registerReportRoutes } from "../server/routes/reports";
+import { registerRosterRoutes } from "../server/routes/roster";
+import { registerUKGRoutes } from "../server/routes/ukg";
 
 // A unique synthetic role per test run so we never collide with real data.
 const TEST_ROLE = `test_dm_${process.pid}_${Date.now()}`;
 
 let server: http.Server;
 let baseUrl = "";
+
+// ---------------------------------------------------------------------------
+// ROUTE GATE INVENTORY
+// ---------------------------------------------------------------------------
+
+type RouteGate = {
+  feature: string;
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  body?: unknown;
+  // Statuses that count as "gate let me through" (anything that isn't 401/403).
+  okStatuses?: number[];
+  // "real": handler is mounted by one of the registerXxxRoutes() above and we
+  // can verify its production wiring via source grep against `sourceFile`.
+  // "stub": handler is inlined in server/routes.ts in production; we mount a
+  // local stub with the same middleware here AND grep server/routes.ts to
+  // prove the production route is gated by the same feature.
+  kind: "real" | "stub";
+  sourceFile: string;
+  sourcePattern: RegExp;
+};
+
+// Default broad set of "passed the gate" statuses; specific entries can
+// narrow this when we know exactly what the handler returns.
+const BROADLY_OK = [200, 201, 204, 400, 404, 409, 500];
+
+const ROUTE_GATES: RouteGate[] = [
+  // -------------------- Scheduling --------------------
+  {
+    feature: "schedule.edit",
+    method: "POST",
+    path: "/api/_stub/shifts",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern: /app\.post\(\s*api\.shifts\.create\.path\s*,\s*requireFeatureAccess\(\s*"schedule\.edit"\s*\)/,
+  },
+  {
+    feature: "schedule.publish",
+    method: "POST",
+    path: "/api/schedule/publish",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/schedule\/publish"\s*,\s*requireFeatureAccess\(\s*"schedule\.publish"\s*\)/,
+  },
+  {
+    feature: "schedule.generate",
+    method: "POST",
+    path: "/api/schedule/generate",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.post\(\s*api\.schedule\.generate\.path\s*,\s*requireFeatureAccess\(\s*"schedule\.generate"\s*\)/,
+  },
+  {
+    feature: "schedule.templates",
+    method: "GET",
+    path: "/api/shift-presets",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.get\(\s*api\.shiftPresets\.list\.path\s*,\s*requireFeatureAccess\(\s*"schedule\.templates"\s*\)/,
+  },
+  {
+    feature: "schedule.roster_targets",
+    method: "GET",
+    path: "/api/roster-targets?locationId=1",
+    okStatuses: [200, 400, 500],
+    kind: "real",
+    sourceFile: "server/routes/roster.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/roster-targets"\s*,\s*requireFeatureAccess\(\s*"schedule\.roster_targets"\s*\)/,
+  },
+
+  // -------------------- Workforce --------------------
+  {
+    feature: "employees.edit",
+    method: "POST",
+    path: "/api/employees",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.post\(\s*api\.employees\.create\.path\s*,\s*requireFeatureAccess\(\s*"employees\.edit"\s*\)/,
+  },
+  {
+    feature: "employees.delete",
+    method: "DELETE",
+    path: "/api/employees/999999",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.delete\(\s*api\.employees\.delete\.path\s*,\s*requireFeatureAccess\(\s*"employees\.delete"\s*\)/,
+  },
+
+  // -------------------- Compliance & HR --------------------
+  {
+    feature: "attendance.view",
+    method: "GET",
+    path: "/api/attendance/employees",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/occurrences.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/attendance\/employees"\s*,\s*requireFeatureAccess\(\s*"attendance\.view"\s*\)/,
+  },
+  {
+    feature: "attendance.edit",
+    method: "POST",
+    path: "/api/occurrences",
+    body: {},
+    okStatuses: [400],
+    kind: "real",
+    sourceFile: "server/routes/occurrences.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/occurrences"\s*,\s*requireFeatureAccess\(\s*"attendance\.edit"\s*\)/,
+  },
+  {
+    feature: "coaching.view",
+    method: "GET",
+    path: "/api/coaching/employees",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/coaching.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/coaching\/employees"\s*,\s*requireFeatureAccess\(\s*"coaching\.view"\s*\)/,
+  },
+  {
+    feature: "coaching.edit",
+    method: "POST",
+    path: "/api/coaching/logs",
+    body: {},
+    okStatuses: [400],
+    kind: "real",
+    sourceFile: "server/routes/coaching.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/coaching\/logs"\s*,\s*requireFeatureAccess\(\s*"coaching\.edit"\s*\)/,
+  },
+
+  // -------------------- Collaboration --------------------
+  {
+    feature: "shift_trades.approve",
+    method: "PATCH",
+    path: "/api/shift-trades/999999/manager-respond",
+    body: { approved: false },
+    okStatuses: [400, 404, 500],
+    kind: "real",
+    sourceFile: "server/routes/shift-trades.ts",
+    sourcePattern:
+      /app\.patch\(\s*"\/api\/shift-trades\/:id\/manager-respond"\s*,\s*requireFeatureAccess\(\s*"shift_trades\.approve"\s*\)/,
+  },
+  {
+    feature: "task_assignment.view",
+    method: "GET",
+    path: "/api/task-assignments?date=2025-01-01",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/task-assignments.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/task-assignments"\s*,\s*requireFeatureAccess\(\s*"task_assignment\.view"\s*\)/,
+  },
+  {
+    feature: "task_assignment.edit",
+    method: "POST",
+    path: "/api/task-assignments",
+    body: {},
+    okStatuses: [400],
+    kind: "real",
+    sourceFile: "server/routes/task-assignments.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/task-assignments"\s*,\s*requireFeatureAccess\(\s*"task_assignment\.edit"\s*\)/,
+  },
+
+  // -------------------- Store Operations --------------------
+  {
+    feature: "optimization.view",
+    method: "GET",
+    path: "/api/optimization/events",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/optimization.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/optimization\/events"\s*,\s*requireFeatureAccess\(\s*"optimization\.view"\s*\)/,
+  },
+  {
+    feature: "optimization.edit",
+    method: "POST",
+    path: "/api/optimization/events",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/optimization.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/optimization\/events"\s*,\s*requireFeatureAccess\(\s*"optimization\.edit"\s*\)/,
+  },
+
+  // -------------------- Orders --------------------
+  // The orders routes hit MySQL; in test envs without MySQL the handler may
+  // return 500 after the gate passes. That's fine — what we care about is
+  // that the gate let the request through.
+  {
+    feature: "orders.submit",
+    method: "POST",
+    path: "/api/orders",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/orders"\s*,\s*requireFeatureAccess\(\s*"orders\.submit"\s*\)/,
+  },
+  {
+    feature: "orders.view_all",
+    method: "GET",
+    path: "/api/orders",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/orders"\s*,\s*requireFeatureAccess\(\s*"orders\.view_all"\s*\)/,
+  },
+  {
+    feature: "orders.edit",
+    method: "PUT",
+    path: "/api/orders/999999",
+    body: {},
+    okStatuses: BROADLY_OK,
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.put\(\s*"\/api\/orders\/:id"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+  },
+  {
+    feature: "orders.delete",
+    method: "DELETE",
+    path: "/api/orders/999999",
+    okStatuses: BROADLY_OK,
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.delete\(\s*"\/api\/orders\/:id"\s*,\s*requireFeatureAccess\(\s*"orders\.delete"\s*\)/,
+  },
+
+  // -------------------- Credit Card Inspections --------------------
+  {
+    feature: "credit_card_inspection.view_all",
+    method: "GET",
+    path: "/api/credit-card-inspections",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/creditCardInspections.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/credit-card-inspections"\s*,\s*requireFeatureAccess\(\s*"credit_card_inspection\.view_all"\s*\)/,
+  },
+  {
+    feature: "credit_card_inspection.submit",
+    method: "POST",
+    path: "/api/credit-card-inspections",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/creditCardInspections.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/credit-card-inspections"\s*,\s*requireFeatureAccess\(\s*"credit_card_inspection\.submit"\s*\)/,
+  },
+  {
+    feature: "credit_card_inspection.delete",
+    method: "DELETE",
+    path: "/api/credit-card-inspections/999999",
+    okStatuses: [204, 500],
+    kind: "real",
+    sourceFile: "server/routes/creditCardInspections.ts",
+    sourcePattern:
+      /app\.delete\(\s*"\/api\/credit-card-inspections\/:id"\s*,\s*requireFeatureAccess\(\s*"credit_card_inspection\.delete"\s*\)/,
+  },
+
+  // -------------------- Driver Inspections --------------------
+  {
+    feature: "driver_inspection.view_all",
+    method: "GET",
+    path: "/api/driver-inspections",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/driverInspections.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/driver-inspections"\s*,\s*requireFeatureAccess\(\s*"driver_inspection\.view_all"\s*\)/,
+  },
+  {
+    feature: "driver_inspection.submit",
+    method: "POST",
+    path: "/api/driver-inspections",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/driverInspections.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/driver-inspections"\s*,\s*requireFeatureAccess\(\s*"driver_inspection\.submit"\s*\)/,
+  },
+  {
+    feature: "driver_inspection.resolve_repairs",
+    method: "PATCH",
+    path: "/api/driver-inspections/999999/items/foo",
+    body: { resolved: true },
+    okStatuses: [400, 404, 500],
+    kind: "real",
+    sourceFile: "server/routes/driverInspections.ts",
+    sourcePattern:
+      /app\.patch\(\s*"\/api\/driver-inspections\/:id\/items\/:key"\s*,\s*requireFeatureAccess\(\s*"driver_inspection\.resolve_repairs"\s*\)/,
+  },
+  {
+    feature: "driver_inspection.delete",
+    method: "DELETE",
+    path: "/api/driver-inspections/999999",
+    okStatuses: [204, 500],
+    kind: "real",
+    sourceFile: "server/routes/driverInspections.ts",
+    sourcePattern:
+      /app\.delete\(\s*"\/api\/driver-inspections\/:id"\s*,\s*requireFeatureAccess\(\s*"driver_inspection\.delete"\s*\)/,
+  },
+
+  // -------------------- Logistics --------------------
+  {
+    feature: "trailer_manifest.view",
+    method: "GET",
+    path: "/api/trailer-manifests",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/trailerManifests.ts",
+    sourcePattern: /app\.get\(\s*"\/api\/trailer-manifests"\s*,\s*requireAccess\b/,
+  },
+  {
+    feature: "trailer_manifest.edit",
+    method: "POST",
+    path: "/api/trailer-manifests",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/trailerManifests.ts",
+    sourcePattern: /app\.post\(\s*"\/api\/trailer-manifests"\s*,\s*requireEdit\b/,
+  },
+  {
+    feature: "trailer_manifest.delete",
+    method: "DELETE",
+    path: "/api/trailer-manifests/999999",
+    okStatuses: [204, 404, 500],
+    kind: "real",
+    sourceFile: "server/routes/trailerManifests.ts",
+    sourcePattern: /app\.delete\(\s*"\/api\/trailer-manifests\/:id"\s*,\s*requireDelete\b/,
+  },
+
+  // -------------------- Inventory --------------------
+  {
+    feature: "warehouse_inventory.view",
+    method: "GET",
+    path: "/api/warehouse-inventory",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/warehouseInventory.ts",
+    sourcePattern: /app\.get\(\s*"\/api\/warehouse-inventory"\s*,\s*requireAccess\b/,
+  },
+  {
+    feature: "warehouse_inventory.edit",
+    method: "POST",
+    path: "/api/warehouse-inventory",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/warehouseInventory.ts",
+    sourcePattern: /app\.post\(\s*"\/api\/warehouse-inventory"\s*,\s*requireEdit\b/,
+  },
+  {
+    feature: "warehouse_inventory.finalize",
+    method: "POST",
+    path: "/api/warehouse-inventory/999999/finalize",
+    body: {},
+    okStatuses: [404, 500],
+    kind: "real",
+    sourceFile: "server/routes/warehouseInventory.ts",
+    sourcePattern:
+      /app\.post\(\s*"\/api\/warehouse-inventory\/:id\/finalize"\s*,\s*requireFinalize\b/,
+  },
+  {
+    feature: "warehouse_inventory.transfer",
+    method: "POST",
+    path: "/api/warehouse-transfers",
+    body: {},
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/warehouseInventory.ts",
+    sourcePattern: /app\.post\(\s*"\/api\/warehouse-transfers"\s*,\s*requireTransfer\b/,
+  },
+
+  // -------------------- Reports --------------------
+  {
+    feature: "reports.occurrences",
+    method: "GET",
+    path: "/api/reports/occurrences",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/reports.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/reports\/occurrences"\s*,\s*requireFeatureAccess\(\s*"reports\.occurrences"\s*\)/,
+  },
+  {
+    feature: "reports.variance",
+    method: "GET",
+    path: "/api/reports/variance",
+    okStatuses: [400, 500],
+    kind: "real",
+    sourceFile: "server/routes/reports.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/reports\/variance"\s*,\s*requireFeatureAccess\(\s*"reports\.variance"\s*\)/,
+  },
+  {
+    feature: "reports.roster",
+    method: "GET",
+    path: "/api/roster-report",
+    okStatuses: [200, 400, 500],
+    kind: "real",
+    sourceFile: "server/routes/roster.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/roster-report"\s*,\s*requireFeatureAccess\(\s*"reports\.roster"\s*\)/,
+  },
+
+  // -------------------- Configuration --------------------
+  {
+    feature: "locations.view",
+    method: "GET",
+    path: "/api/locations/999999",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.get\(\s*api\.locations\.get\.path\s*,\s*requireFeatureAccess\(\s*"locations\.view"\s*\)/,
+  },
+  {
+    feature: "locations.edit",
+    method: "PUT",
+    path: "/api/locations/999999",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.put\(\s*api\.locations\.update\.path\s*,\s*requireFeatureAccess\(\s*"locations\.edit"\s*\)/,
+  },
+  {
+    feature: "settings.global_config",
+    method: "POST",
+    path: "/api/global-settings",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.post\(\s*api\.globalSettings\.update\.path\s*,\s*requireFeatureAccess\(\s*"settings\.global_config"\s*\)/,
+  },
+  {
+    feature: "settings.ukg_config",
+    method: "GET",
+    path: "/api/ukg/credentials",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/ukg.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/ukg\/credentials"\s*,\s*requireFeatureAccess\(\s*"settings\.ukg_config"\s*\)/,
+  },
+  {
+    feature: "settings.ukg_sync",
+    method: "GET",
+    path: "/api/ukg/diagnostics",
+    okStatuses: [200, 500],
+    kind: "real",
+    sourceFile: "server/routes/ukg.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/ukg\/diagnostics"\s*,\s*requireFeatureAccess\(\s*"settings\.ukg_sync"\s*\)/,
+  },
+  {
+    feature: "settings.email_audit",
+    method: "GET",
+    path: "/api/email-logs",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/email-logs"\s*,\s*requireAuth\s*,\s*requireFeatureAccess\(\s*"settings\.email_audit"\s*\)/,
+  },
+  {
+    feature: "settings.permissions",
+    method: "GET",
+    path: "/api/permissions",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/permissions"\s*,\s*requireFeatureAccess\(\s*"settings\.permissions"\s*\)/,
+  },
+
+  // -------------------- User Administration --------------------
+  {
+    feature: "users.view",
+    method: "GET",
+    path: "/api/users",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.get\(\s*api\.users\.list\.path\s*,\s*requireFeatureAccess\(\s*"users\.view"\s*\)/,
+  },
+  {
+    feature: "users.edit_profile",
+    method: "POST",
+    path: "/api/users",
+    body: {},
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.post\(\s*api\.users\.create\.path\s*,\s*requireFeatureAccess\(\s*"users\.edit_profile"\s*\)/,
+  },
+  {
+    feature: "users.delete",
+    method: "DELETE",
+    path: "/api/users/999999",
+    kind: "stub",
+    sourceFile: "server/routes.ts",
+    sourcePattern:
+      /app\.delete\(\s*api\.users\.delete\.path\s*,\s*requireFeatureAccess\(\s*"users\.delete"\s*\)/,
+  },
+];
+
+// Features intentionally NOT covered by ROUTE_GATES because they are not
+// enforced via requireFeatureAccess middleware on a server route. The
+// EXEMPT_FEATURES negative test below asserts none of these accidentally
+// gain a middleware gate without being moved into ROUTE_GATES.
+const EXEMPT_FEATURES: Record<string, string> = {
+  "schedule.view": "Display-only filter; schedule listing is gated by requireAuth, not feature middleware.",
+  "employees.view": "Employee directory listing is gated by requireAuth; visibility filtering happens in handlers, not via requireFeatureAccess middleware.",
+  "raw_shifts.view": "Client-side navigation guard only (Navigation.tsx); no server route gates it.",
+  "employees.has_direct_reports": "Role capability flag consumed by direct-report assignment logic, not a route gate.",
+  "shift_trades.view": "Server-side trade endpoints use requireAuth; visibility is filtered in handlers, not gated by feature.",
+  "users.assign_roles": "Enforced inline inside PUT /api/users/:id with a custom 403 message, not via requireFeatureAccess middleware.",
+  "users.assign_locations": "Enforced inline inside PUT /api/users/:id with a custom 403 message, not via requireFeatureAccess middleware.",
+};
+
+// ---------------------------------------------------------------------------
+// Test app + helpers
+// ---------------------------------------------------------------------------
+
+function mountStubs(app: Express) {
+  // For each "stub" RouteGate, mount a tiny handler with the same middleware
+  // so the gate behaviour can be exercised end-to-end without booting the
+  // entire production app (which depends on UKG, scheduler, MySQL, etc.).
+  const register: Record<RouteGate["method"], Express["get"]> = {
+    GET: app.get.bind(app),
+    POST: app.post.bind(app),
+    PUT: app.put.bind(app),
+    PATCH: app.patch.bind(app),
+    DELETE: app.delete.bind(app),
+  };
+  const stubHandler = (
+    feature: string,
+  ): express.RequestHandler => (_req, res) => {
+    res.json({ ok: true, feature });
+  };
+  for (const gate of ROUTE_GATES) {
+    if (gate.kind !== "stub") continue;
+    // For paths that have query strings in the table, register against the
+    // bare path without the query string.
+    const path = gate.path.split("?")[0];
+    register[gate.method](
+      path,
+      requireFeatureAccess(gate.feature),
+      stubHandler(gate.feature),
+    );
+  }
+}
 
 function buildTestApp() {
   const app = express();
@@ -67,19 +666,25 @@ function buildTestApp() {
     });
   });
 
-  // Mount the real route registrations whose feature gating we want to test.
+  // Mount all real route registrations whose feature gating we want to test.
   registerOccurrenceRoutes(app);
   registerCoachingRoutes(app);
   registerShiftTradeRoutes(app);
+  registerTaskAssignmentRoutes(app);
+  registerOptimizationRoutes(app);
+  registerDriverInspectionRoutes(app);
+  registerCreditCardInspectionRoutes(app);
+  registerOrderRoutes(app);
+  registerTrailerManifestRoutes(app);
+  registerWarehouseInventoryRoutes(app);
+  registerReportRoutes(app);
+  registerRosterRoutes(app);
+  registerUKGRoutes(app);
 
-  // schedule.publish is registered inline in server/routes.ts. Re-mount a stub
-  // here that uses the same middleware so we can verify the feature gate
-  // without booting the entire app (which pulls in UKG, scheduler, etc).
-  app.post(
-    "/api/schedule/publish",
-    requireFeatureAccess("schedule.publish"),
-    (_req, res) => res.json({ ok: true }),
-  );
+  // Mount stubs for routes registered inline in server/routes.ts (which we
+  // can't import in isolation). Source-grep tests verify the production
+  // wiring matches.
+  mountStubs(app);
 
   return app;
 }
@@ -170,46 +775,50 @@ async function revokeTestRole(feature: string): Promise<void> {
 /**
  * Run a feature's grant→endpoint→revoke→endpoint cycle.
  *
- * `expectGrantedNotForbidden`: when the role has the feature, the endpoint
- * must NOT return 403 (it may legitimately return 200/400/404/500 depending
- * on request payload — what matters is that the gate let the request through).
+ * Granted: the endpoint must NOT return 401 or 403 (it may legitimately
+ * return 200/400/404/500 depending on request payload — what matters is
+ * that the gate let the request through).
  *
- * `expectRevoked403`: when the role lacks the feature, the endpoint MUST
- * return 403 with the middleware's "Access denied" message.
+ * Revoked: the endpoint MUST return 403 with the middleware's "Access
+ * denied" message.
  */
 async function assertGated(opts: {
   feature: string;
   method: string;
   path: string;
   body?: unknown;
-  // Statuses that are acceptable as "passed the gate".
   okStatuses?: number[];
 }) {
   const { feature, method, path, body } = opts;
-  const okStatuses = opts.okStatuses ?? [200, 400, 404, 500];
+  const okStatuses = opts.okStatuses ?? BROADLY_OK;
 
   const original = await grantTestRole(feature);
   try {
     const cookie = await loginAs(TEST_ROLE);
 
-    // Granted: must not be 403 (and must not be 401).
     const granted = await request({ method, path, body, cookie });
-    assert.notEqual(
-      granted.status,
-      403,
-      `[${feature}] granted role should not be forbidden (got 403 ${JSON.stringify(granted.body)})`,
-    );
+    // The gate passed iff we don't see the middleware's 401/403 responses.
+    // A downstream 403 from a different check (e.g. an inline admin-only
+    // guard inside the handler) is fine: it proves the request reached the
+    // handler.
     assert.notEqual(
       granted.status,
       401,
       `[${feature}] granted role should be authenticated`,
     );
+    if (granted.status === 403) {
+      assert.notEqual(
+        granted.body?.message,
+        "Access denied",
+        `[${feature}] granted role hit the feature-gate middleware (got "Access denied")`,
+      );
+    }
+    const allowed = [...okStatuses, 403];
     assert.ok(
-      okStatuses.includes(granted.status),
-      `[${feature}] expected status in ${JSON.stringify(okStatuses)}, got ${granted.status}: ${JSON.stringify(granted.body)}`,
+      allowed.includes(granted.status),
+      `[${feature}] expected status in ${JSON.stringify(okStatuses)} (or downstream 403), got ${granted.status}: ${JSON.stringify(granted.body)}`,
     );
 
-    // Revoke and re-test: must be 403 with middleware message.
     await revokeTestRole(feature);
     const revoked = await request({ method, path, body, cookie });
     assert.equal(
@@ -223,10 +832,13 @@ async function assertGated(opts: {
       `[${feature}] revoked role should hit the feature-gate middleware (got ${JSON.stringify(revoked.body)})`,
     );
   } finally {
-    // Restore original allowed_roles so we never leak test state.
     await setAllowedRoles(feature, original);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
 
 before(async () => {
   const app = buildTestApp();
@@ -245,6 +857,10 @@ after(async () => {
   const { pool } = await import("../server/db");
   await pool.end();
 });
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 test("admin shortcut: even with no permission row, admin role bypasses the gate", async () => {
   // attendance.edit removed for everyone except the synthetic role; admin must
@@ -265,128 +881,144 @@ test("admin shortcut: even with no permission row, admin role bypasses the gate"
   }
 });
 
-test("custom role with no permissions is denied across all gated endpoints", async () => {
+test("custom role with no permissions is denied across a sample of gated endpoints", async () => {
   const cookie = await loginAs(TEST_ROLE);
-  const cases: Array<{ method: string; path: string; body?: unknown }> = [
-    { method: "GET", path: "/api/attendance/employees" },
-    { method: "POST", path: "/api/occurrences", body: {} },
-    { method: "GET", path: "/api/coaching/employees" },
-    { method: "POST", path: "/api/coaching/logs", body: {} },
-    { method: "POST", path: "/api/schedule/publish", body: {} },
-    { method: "PATCH", path: "/api/shift-trades/999999/manager-respond", body: {} },
-  ];
-  for (const c of cases) {
-    const res = await request({ ...c, cookie });
-    assert.equal(res.status, 403, `${c.method} ${c.path} should be 403 for ungranted role`);
+  // A representative slice of the table — the data-driven loop below covers
+  // every entry exhaustively in the granted/revoked direction.
+  const samples = ROUTE_GATES.filter((g) =>
+    [
+      "attendance.view",
+      "attendance.edit",
+      "coaching.view",
+      "coaching.edit",
+      "schedule.publish",
+      "shift_trades.approve",
+      "warehouse_inventory.view",
+      "orders.submit",
+      "users.view",
+    ].includes(g.feature),
+  );
+  for (const c of samples) {
+    const path = c.path; // include query string if present
+    const res = await request({ method: c.method, path, body: c.body, cookie });
+    assert.equal(
+      res.status,
+      403,
+      `${c.method} ${path} should be 403 for ungranted role (got ${res.status})`,
+    );
     assert.equal(res.body?.message, "Access denied");
   }
 });
 
-test("attendance.view gates GET /api/attendance/employees", async () => {
-  await assertGated({
-    feature: "attendance.view",
-    method: "GET",
-    path: "/api/attendance/employees",
-    okStatuses: [200],
+// One concrete test per feature — generated from ROUTE_GATES so adding a new
+// SYSTEM_FEATURES entry only requires extending the table above.
+for (const gate of ROUTE_GATES) {
+  test(`gate ${gate.feature} → ${gate.method} ${gate.path}`, async () => {
+    await assertGated({
+      feature: gate.feature,
+      method: gate.method,
+      path: gate.path,
+      body: gate.body,
+      okStatuses: gate.okStatuses,
+    });
   });
-});
+}
 
-test("attendance.edit gates POST /api/occurrences", async () => {
-  await assertGated({
-    feature: "attendance.edit",
-    method: "POST",
-    path: "/api/occurrences",
-    body: {},
-    okStatuses: [400], // empty body → handler returns 400 after gate passes
-  });
-});
-
-test("coaching.view gates GET /api/coaching/employees", async () => {
-  await assertGated({
-    feature: "coaching.view",
-    method: "GET",
-    path: "/api/coaching/employees",
-    okStatuses: [200],
-  });
-});
-
-test("coaching.edit gates POST /api/coaching/logs", async () => {
-  await assertGated({
-    feature: "coaching.edit",
-    method: "POST",
-    path: "/api/coaching/logs",
-    body: {},
-    okStatuses: [400], // schema validation fails after gate passes
-  });
-});
-
-test("schedule.publish gates POST /api/schedule/publish", async () => {
-  await assertGated({
-    feature: "schedule.publish",
-    method: "POST",
-    path: "/api/schedule/publish",
-    body: {},
-    okStatuses: [200], // stub handler returns 200 once gate passes
-  });
-});
-
-test("production route source wires each feature to the expected endpoint", async () => {
-  // Guards against the schedule.publish inline route (and the externally
-  // mounted routes) silently drifting away from the feature keys exercised
-  // by the integration tests above. We grep the route sources directly so
-  // we don't have to boot the full app (with UKG, scheduler, etc.) just to
-  // assert middleware wiring.
+test("production source wires every ROUTE_GATES entry to the expected feature", async () => {
+  // Guards against the production routes silently drifting away from the
+  // feature keys exercised by the integration tests above. We grep the route
+  // sources directly so we don't have to boot the full app to assert the
+  // middleware wiring.
   const fs = await import("node:fs/promises");
-  const expectations: Array<{ file: string; pattern: RegExp; label: string }> = [
-    {
-      file: "server/routes.ts",
-      pattern:
-        /app\.post\(\s*"\/api\/schedule\/publish"\s*,\s*requireFeatureAccess\(\s*"schedule\.publish"\s*\)/,
-      label: "POST /api/schedule/publish -> schedule.publish",
-    },
-    {
-      file: "server/routes/occurrences.ts",
-      pattern:
-        /app\.get\(\s*"\/api\/attendance\/employees"\s*,\s*requireFeatureAccess\(\s*"attendance\.view"\s*\)/,
-      label: "GET /api/attendance/employees -> attendance.view",
-    },
-    {
-      file: "server/routes/occurrences.ts",
-      pattern:
-        /app\.post\(\s*"\/api\/occurrences"\s*,\s*requireFeatureAccess\(\s*"attendance\.edit"\s*\)/,
-      label: "POST /api/occurrences -> attendance.edit",
-    },
-    {
-      file: "server/routes/coaching.ts",
-      pattern:
-        /app\.get\(\s*"\/api\/coaching\/employees"\s*,\s*requireFeatureAccess\(\s*"coaching\.view"\s*\)/,
-      label: "GET /api/coaching/employees -> coaching.view",
-    },
-    {
-      file: "server/routes/coaching.ts",
-      pattern:
-        /app\.post\(\s*"\/api\/coaching\/logs"\s*,\s*requireFeatureAccess\(\s*"coaching\.edit"\s*\)/,
-      label: "POST /api/coaching/logs -> coaching.edit",
-    },
-    {
-      file: "server/routes/shift-trades.ts",
-      pattern:
-        /app\.patch\(\s*"\/api\/shift-trades\/:id\/manager-respond"\s*,\s*requireFeatureAccess\(\s*"shift_trades\.approve"\s*\)/,
-      label: "PATCH /api/shift-trades/:id/manager-respond -> shift_trades.approve",
-    },
-  ];
-  for (const exp of expectations) {
-    const src = await fs.readFile(exp.file, "utf8");
-    assert.ok(exp.pattern.test(src), `Missing wiring in ${exp.file}: ${exp.label}`);
+  const cache = new Map<string, string>();
+  for (const gate of ROUTE_GATES) {
+    let src = cache.get(gate.sourceFile);
+    if (!src) {
+      src = await fs.readFile(gate.sourceFile, "utf8");
+      cache.set(gate.sourceFile, src);
+    }
+    assert.ok(
+      gate.sourcePattern.test(src),
+      `Missing wiring in ${gate.sourceFile} for ${gate.feature}: ${gate.sourcePattern}`,
+    );
   }
 });
 
-test("shift_trades.approve gates PATCH /api/shift-trades/:id/manager-respond", async () => {
-  await assertGated({
-    feature: "shift_trades.approve",
-    method: "PATCH",
-    path: "/api/shift-trades/999999/manager-respond",
-    body: { approved: false },
-    okStatuses: [404], // unknown trade id → 404 after gate passes
-  });
+test("every SYSTEM_FEATURES entry is covered by ROUTE_GATES or explicitly exempt", async () => {
+  const covered = new Set(ROUTE_GATES.map((g) => g.feature));
+  const exempt = new Set(Object.keys(EXEMPT_FEATURES));
+
+  // Sanity: ROUTE_GATES entries must reference real SYSTEM_FEATURES keys.
+  const knownFeatures = new Set(SYSTEM_FEATURES.map((f) => f.feature));
+  for (const f of covered) {
+    assert.ok(
+      knownFeatures.has(f),
+      `ROUTE_GATES references unknown feature "${f}"`,
+    );
+  }
+  for (const f of exempt) {
+    assert.ok(
+      knownFeatures.has(f),
+      `EXEMPT_FEATURES references unknown feature "${f}"`,
+    );
+  }
+
+  // Sanity: no overlap between covered and exempt.
+  for (const f of covered) {
+    assert.ok(
+      !exempt.has(f),
+      `Feature "${f}" is in both ROUTE_GATES and EXEMPT_FEATURES`,
+    );
+  }
+
+  // Coverage assertion: every system feature must be addressed somewhere.
+  const missing: string[] = [];
+  for (const f of knownFeatures) {
+    if (!covered.has(f) && !exempt.has(f)) missing.push(f);
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `New SYSTEM_FEATURES entries lack a permission test. Add a ROUTE_GATES entry or an EXEMPT_FEATURES reason for: ${missing.join(", ")}`,
+  );
+});
+
+test("EXEMPT_FEATURES never accidentally gain a requireFeatureAccess gate", async () => {
+  // If someone adds requireFeatureAccess("raw_shifts.view") to a route, this
+  // test fails so the entry is moved out of EXEMPT_FEATURES into ROUTE_GATES
+  // and gets real coverage.
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  async function walk(dir: string): Promise<string[]> {
+    const out: string[] = [];
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        out.push(...(await walk(full)));
+      } else if (e.isFile() && full.endsWith(".ts")) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  const files = await walk("server");
+  const sources: Record<string, string> = {};
+  for (const f of files) sources[f] = await fs.readFile(f, "utf8");
+
+  for (const feature of Object.keys(EXEMPT_FEATURES)) {
+    const needle = new RegExp(
+      `requireFeatureAccess\\(\\s*"${feature.replace(/\./g, "\\.")}"\\s*\\)`,
+    );
+    const offenders = Object.entries(sources)
+      .filter(([, src]) => needle.test(src))
+      .map(([file]) => file);
+    assert.deepEqual(
+      offenders,
+      [],
+      `EXEMPT feature "${feature}" is now wired as middleware in ${offenders.join(", ")}; move it into ROUTE_GATES.`,
+    );
+  }
 });
