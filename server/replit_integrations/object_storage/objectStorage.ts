@@ -237,6 +237,43 @@ export class ObjectStorageService {
       requestedPermission: requestedPermission ?? ObjectPermission.READ,
     });
   }
+
+  // Checks if the user can access the object entity using its ACL policy.
+  // Returns false (deny) when no ACL policy is present — callers that need a
+  // broader fallback (e.g., privileged-role bypass) must implement it separately.
+  async canAccessObjectEntityOrFallback({
+    userId,
+    objectFile,
+    requestedPermission,
+  }: {
+    userId?: string;
+    objectFile: File;
+    requestedPermission?: ObjectPermission;
+  }): Promise<boolean> {
+    const aclPolicy = await getObjectAclPolicy(objectFile);
+    if (!aclPolicy) {
+      // No ACL policy: deny by default. Objects without a policy have not gone
+      // through the access-control wiring and must be treated as restricted.
+      return false;
+    }
+    return canAccessObject({
+      userId,
+      objectFile,
+      requestedPermission: requestedPermission ?? ObjectPermission.READ,
+    });
+  }
+
+  // Tries to set an ACL policy on an object path. Logs a warning on failure but
+  // does not throw so that write flows are not blocked by ACL registration errors.
+  // Note: a failure here leaves the object without ACL metadata, which causes the
+  // download route to deny all non-privileged access until ACL is correctly set.
+  async trySetObjectAclSilent(objectPath: string, aclPolicy: ObjectAclPolicy): Promise<void> {
+    try {
+      await this.trySetObjectEntityAclPolicy(objectPath, aclPolicy);
+    } catch (err) {
+      console.warn("[ObjectStorage] ACL set failed for", objectPath, ":", err);
+    }
+  }
 }
 
 function parseObjectPath(path: string): {

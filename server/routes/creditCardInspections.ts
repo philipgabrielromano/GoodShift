@@ -69,6 +69,18 @@ export function registerCreditCardInspectionRoutes(app: Express) {
         submittedByName: sessionUser?.name ?? null,
         anyIssuesFound,
       });
+
+      if (sessionUser?.id) {
+        for (const t of terminals) {
+          if (t.photoUrl) {
+            await objectStorageService.trySetObjectAclSilent(t.photoUrl, {
+              owner: String(sessionUser.id),
+              visibility: "private",
+            });
+          }
+        }
+      }
+
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) {

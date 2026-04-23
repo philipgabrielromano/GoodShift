@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
+import { requireAuth } from "../../middleware";
 
 /**
  * Register object storage routes for file uploads.
@@ -35,7 +37,7 @@ export function registerObjectStorageRoutes(app: Express): void {
    * IMPORTANT: The client should NOT send the file to this endpoint.
    * Send JSON metadata only, then upload the file directly to uploadURL.
    */
-  app.post("/api/uploads/request-url", async (req, res) => {
+  app.post("/api/uploads/request-url", requireAuth, async (req, res) => {
     try {
       const { name, size, contentType } = req.body;
 
@@ -67,12 +69,36 @@ export function registerObjectStorageRoutes(app: Express): void {
    *
    * GET /objects/{*objectPath}
    *
-   * This serves files from object storage. For public files, no auth needed.
-   * For protected files, add authentication middleware and ACL checks.
+   * Requires authentication. Enforces ACL when a policy has been set on the object.
+   * Objects without an ACL policy are denied to non-privileged users (default-deny).
+   * Privileged roles (admin, manager, optimizer) can access any object regardless
+   * of ACL to ensure supervisors retain access to attachments uploaded by reports.
+   * Forces Content-Disposition: attachment to prevent browser execution of
+   * uploaded HTML/JS files (defense against same-origin content injection).
    */
-  app.get("/objects/{*objectPath}", async (req, res) => {
+  app.get("/objects/{*objectPath}", requireAuth, async (req, res) => {
+    const sessionUser = (req.session as any)?.user;
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+
+      // Privileged roles (admin, manager, optimizer) can access any private object
+      // so that supervisors retain access to attachments uploaded by their reports.
+      const privilegedRoles = ["admin", "manager", "optimizer"];
+      const isPrivileged = privilegedRoles.includes(sessionUser.role);
+
+      const canAccess = isPrivileged || await objectStorageService.canAccessObjectEntityOrFallback({
+        userId: String(sessionUser.id),
+        objectFile,
+        requestedPermission: ObjectPermission.READ,
+      });
+
+      if (!canAccess) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Force download to prevent browser from executing uploaded HTML/JS
+      res.set("Content-Disposition", "attachment");
+
       await objectStorageService.downloadObject(objectFile, res);
     } catch (error) {
       console.error("Error serving object:", error);
@@ -83,4 +109,3 @@ export function registerObjectStorageRoutes(app: Express): void {
     }
   });
 }
-

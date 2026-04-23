@@ -8,6 +8,7 @@ import {
   TRAILER_MANIFEST_CATEGORIES,
 } from "@shared/schema";
 import { sendTrailerInTransitEmail } from "../outlook";
+import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
 
 function getSessionUser(req: Request): { id: number; name: string } | null {
   const u = (req.session as any)?.user;
@@ -49,6 +50,7 @@ const photoSchema = z.object({
 });
 
 export function registerTrailerManifestRoutes(app: Express) {
+  const objectStorageService = new ObjectStorageService();
   const requireAccess = requireFeatureAccess("trailer_manifest.view");
   const requireEdit = requireFeatureAccess("trailer_manifest.edit");
   const requireDelete = requireFeatureAccess("trailer_manifest.delete");
@@ -305,6 +307,10 @@ export function registerTrailerManifestRoutes(app: Express) {
         { manifestId: id, objectPath: input.objectPath, caption: input.caption || null },
         user,
       );
+      await objectStorageService.trySetObjectAclSilent(input.objectPath, {
+        owner: String(user.id),
+        visibility: "private",
+      });
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });

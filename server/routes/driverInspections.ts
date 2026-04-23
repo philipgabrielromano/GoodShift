@@ -116,6 +116,13 @@ export function registerDriverInspectionRoutes(app: Express) {
         openRepairCount,
       });
 
+      if (parsed.photoUrl && sessionUser?.id) {
+        await objectStorageService.trySetObjectAclSilent(parsed.photoUrl, {
+          owner: String(sessionUser.id),
+          visibility: "private",
+        });
+      }
+
       // Fire-and-forget repair notification
       if (anyRepairsNeeded) {
         (async () => {

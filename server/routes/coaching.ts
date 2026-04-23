@@ -56,6 +56,7 @@ async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
 }
 
 export function registerCoachingRoutes(app: Express) {
+  const objectStorageService = new ObjectStorageService();
 
   app.get("/api/coaching/employees", requireFeatureAccess("coaching.view"), async (req: Request, res: Response) => {
     try {
@@ -280,6 +281,13 @@ export function registerCoachingRoutes(app: Express) {
 
       const newLog = await storage.createCoachingLog(parsed.data);
 
+      if (parsed.data.attachmentUrl) {
+        await objectStorageService.trySetObjectAclSilent(parsed.data.attachmentUrl, {
+          owner: String(user.id),
+          visibility: "private",
+        });
+      }
+
       const employee = await storage.getEmployee(newLog.employeeId);
       const enriched = {
         ...newLog,
@@ -294,8 +302,6 @@ export function registerCoachingRoutes(app: Express) {
       res.status(500).json({ error: "Failed to create coaching log" });
     }
   });
-
-  const objectStorageService = new ObjectStorageService();
 
   app.post("/api/coaching/upload-url", requireFeatureAccess("coaching.edit"), async (req: Request, res: Response) => {
     try {
@@ -389,6 +395,13 @@ export function registerCoachingRoutes(app: Express) {
 
       if (!updated) {
         return res.status(404).json({ error: "Coaching log not found" });
+      }
+
+      if (attachmentUrl) {
+        await objectStorageService.trySetObjectAclSilent(attachmentUrl, {
+          owner: String(user.id),
+          visibility: "private",
+        });
       }
 
       res.json(updated);

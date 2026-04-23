@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
+import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
 
 const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
@@ -137,6 +138,7 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
 }
 
 export function registerOccurrenceRoutes(app: Express) {
+  const objectStorageService = new ObjectStorageService();
 
   // Get employees filtered by hierarchy for the attendance page
   app.get("/api/attendance/employees", requireFeatureAccess("attendance.view"), async (req, res) => {
@@ -276,6 +278,13 @@ export function registerOccurrenceRoutes(app: Express) {
         documentUrl: documentUrl || null,
         createdBy: user.id
       });
+
+      if (documentUrl) {
+        await objectStorageService.trySetObjectAclSilent(documentUrl, {
+          owner: String(user.id),
+          visibility: "private",
+        });
+      }
       
       // Only check HR notification thresholds for countable occurrences (not FMLA or consecutive sickness)
       if (!isFmla && !isConsecutiveSickness) {
