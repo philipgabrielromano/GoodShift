@@ -1229,6 +1229,28 @@ export const TRANSFER_REASON_LABELS: Record<TransferReason, string> = {
   other: "Other",
 };
 
+// Per-edit audit history for warehouse transfers. One row per change to a
+// transfer's mutable fields (notes, transferDate) — including deletes so we
+// can reconstruct who removed a row and what it looked like at the time.
+// Field-level before/after lives in the `changes` jsonb column as
+// { fieldName: { before: <value>, after: <value> } }.
+export const warehouseTransferAudits = pgTable("warehouse_transfer_audits", {
+  id: serial("id").primaryKey(),
+  transferId: integer("transfer_id").notNull(),
+  transferGroupId: text("transfer_group_id"),
+  action: text("action").notNull(), // 'update' | 'delete'
+  changedById: integer("changed_by_id"),
+  changedByName: text("changed_by_name"),
+  changedAt: timestamp("changed_at").notNull().defaultNow(),
+  changes: jsonb("changes").notNull(),
+}, (table) => [
+  index("idx_wh_transfer_audits_transfer_id").on(table.transferId),
+  index("idx_wh_transfer_audits_group_id").on(table.transferGroupId),
+]);
+
+export type WarehouseTransferAudit = typeof warehouseTransferAudits.$inferSelect;
+export type WarehouseTransferAuditChanges = Record<string, { before: unknown; after: unknown }>;
+
 export const insertWarehouseTransferSchema = createInsertSchema(warehouseTransfers).omit({
   id: true,
   createdAt: true,

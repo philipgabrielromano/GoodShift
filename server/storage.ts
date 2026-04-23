@@ -32,6 +32,7 @@ import {
   warehouseInventoryCounts, type WarehouseInventoryCount, type InsertWarehouseInventoryCount,
   warehouseInventoryCountItems, type WarehouseInventoryCountItem,
   warehouseTransfers, type WarehouseTransfer, type InsertWarehouseTransfer,
+  warehouseTransferAudits, type WarehouseTransferAudit, type WarehouseTransferAuditChanges,
   WAREHOUSE_INVENTORY_CATEGORIES, WAREHOUSES,
   creditCardInspections, type CreditCardInspection, type InsertCreditCardInspection,
   driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
@@ -156,6 +157,7 @@ export interface IStorage {
   createPairedWarehouseTransfer(input: { fromWarehouse: string; toWarehouse: string; transferDate: string; itemName: string; groupName: string; qty: number; notes?: string | null }, user: { id: number; name: string }): Promise<WarehouseTransfer[]>;
   updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }, user: { id: number; name: string }): Promise<WarehouseTransfer>;
   deleteWarehouseTransfer(id: number, user: { id: number; name: string }): Promise<void>;
+  getWarehouseTransferAudits(id: number): Promise<WarehouseTransferAudit[]>;
 
   // Locations
   getLocations(): Promise<Location[]>;
@@ -1082,12 +1084,45 @@ export class DatabaseStorage implements IStorage {
       };
       if (input.notes !== undefined) patch.notes = input.notes;
       if (input.transferDate !== undefined) patch.transferDate = input.transferDate;
-      // Apply to BOTH halves of a paired transfer so they always agree
+
+      // Affected rows: paired transfers update both halves, so each half gets
+      // its own audit row pointing at its own id (with shared transferGroupId
+      // for grouping).
+      const affected = row.transferGroupId
+        ? await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId))
+        : [row];
+
       if (row.transferGroupId) {
         await tx.update(warehouseTransfers).set(patch).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
       } else {
         await tx.update(warehouseTransfers).set(patch).where(eq(warehouseTransfers.id, id));
       }
+
+      // Build a per-row audit entry capturing only fields that actually changed.
+      const auditRows: { transferId: number; transferGroupId: string | null; action: string; changedById: number; changedByName: string; changes: WarehouseTransferAuditChanges }[] = [];
+      for (const r of affected) {
+        const changes: WarehouseTransferAuditChanges = {};
+        if (input.notes !== undefined && (r.notes ?? null) !== (input.notes ?? null)) {
+          changes.notes = { before: r.notes ?? null, after: input.notes ?? null };
+        }
+        if (input.transferDate !== undefined && r.transferDate !== input.transferDate) {
+          changes.transferDate = { before: r.transferDate, after: input.transferDate };
+        }
+        if (Object.keys(changes).length > 0) {
+          auditRows.push({
+            transferId: r.id,
+            transferGroupId: r.transferGroupId,
+            action: "update",
+            changedById: user.id,
+            changedByName: user.name,
+            changes,
+          });
+        }
+      }
+      if (auditRows.length > 0) {
+        await tx.insert(warehouseTransferAudits).values(auditRows);
+      }
+
       const [refreshed] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
       return refreshed;
     });
@@ -1099,15 +1134,61 @@ export class DatabaseStorage implements IStorage {
     await db.transaction(async (tx) => {
       const [row] = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
       if (!row) return;
+      const affected = row.transferGroupId
+        ? await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId))
+        : [row];
+
+      // Snapshot the deleted row(s) into the audit trail before removing them
+      // so we can show "deleted X by Y on Z" and what the row used to look
+      // like. We keep the audit rows even after the parent transfer is gone.
+      await tx.insert(warehouseTransferAudits).values(affected.map(r => ({
+        transferId: r.id,
+        transferGroupId: r.transferGroupId,
+        action: "delete",
+        changedById: user.id,
+        changedByName: user.name,
+        changes: {
+          warehouse: { before: r.warehouse, after: null },
+          itemName: { before: r.itemName, after: null },
+          qty: { before: r.qty, after: null },
+          reason: { before: r.reason, after: null },
+          transferDate: { before: r.transferDate, after: null },
+          notes: { before: r.notes ?? null, after: null },
+        } satisfies WarehouseTransferAuditChanges,
+      })));
+
       if (row.transferGroupId) {
-        const pair = await tx.select().from(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
-        console.log(`[WarehouseTransfers] User ${user.name} (id=${user.id}) deleted paired transfer group ${row.transferGroupId} (rows: ${pair.map(r => r.id).join(", ")}) — item=${row.itemName}, qty=${row.qty}`);
+        console.log(`[WarehouseTransfers] User ${user.name} (id=${user.id}) deleted paired transfer group ${row.transferGroupId} (rows: ${affected.map(r => r.id).join(", ")}) — item=${row.itemName}, qty=${row.qty}`);
         await tx.delete(warehouseTransfers).where(eq(warehouseTransfers.transferGroupId, row.transferGroupId));
       } else {
         console.log(`[WarehouseTransfers] User ${user.name} (id=${user.id}) deleted transfer ${id} — warehouse=${row.warehouse}, item=${row.itemName}, qty=${row.qty}, reason=${row.reason}`);
         await tx.delete(warehouseTransfers).where(eq(warehouseTransfers.id, id));
       }
     });
+  }
+
+  async getWarehouseTransferAudits(id: number): Promise<WarehouseTransferAudit[]> {
+    // Look up the transfer (or its audit footprint, if it's been deleted) so
+    // we can return ALL history rows for the same logical movement —
+    // including both halves of a paired inter-warehouse transfer.
+    const [row] = await db.select().from(warehouseTransfers).where(eq(warehouseTransfers.id, id));
+    if (row?.transferGroupId) {
+      return await db.select().from(warehouseTransferAudits)
+        .where(eq(warehouseTransferAudits.transferGroupId, row.transferGroupId))
+        .orderBy(desc(warehouseTransferAudits.changedAt), desc(warehouseTransferAudits.id));
+    }
+    // Either the row exists with no group, or it's been deleted — fall back
+    // to per-id history. If deleted, the audit row for the delete still
+    // carries the group id, so try that path too.
+    const direct = await db.select().from(warehouseTransferAudits)
+      .where(eq(warehouseTransferAudits.transferId, id))
+      .orderBy(desc(warehouseTransferAudits.changedAt), desc(warehouseTransferAudits.id));
+    if (direct.length > 0 && direct[0].transferGroupId) {
+      return await db.select().from(warehouseTransferAudits)
+        .where(eq(warehouseTransferAudits.transferGroupId, direct[0].transferGroupId))
+        .orderBy(desc(warehouseTransferAudits.changedAt), desc(warehouseTransferAudits.id));
+    }
+    return direct;
   }
 
   // Locations

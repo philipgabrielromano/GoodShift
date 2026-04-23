@@ -234,6 +234,21 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Per-transfer audit history (notes/date edits + deletes). Returns rows
+  // newest-first; for paired transfers, both halves are merged so the UI
+  // shows a single timeline regardless of which side was clicked.
+  app.get("/api/warehouse-transfers/:id/history", requireAccess, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid id" });
+      const audits = await storage.getWarehouseTransferAudits(id);
+      res.json(audits);
+    } catch (err) {
+      console.error("[WarehouseTransfers] History error:", err);
+      res.status(500).json({ message: "Failed to load transfer history" });
+    }
+  });
+
   app.delete("/api/warehouse-transfers/:id", requireTransfer, async (req, res) => {
     try {
       const user = getSessionUser(req);

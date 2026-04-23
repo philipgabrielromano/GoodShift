@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  ArrowRight, Download, Loader2, Plus, TrendingDown, TrendingUp, Minus, History, AlertTriangle, Warehouse as WarehouseIcon, ArrowLeftRight, Trash2, Pencil,
+  ArrowRight, Download, Loader2, Plus, TrendingDown, TrendingUp, Minus, History, AlertTriangle, Warehouse as WarehouseIcon, ArrowLeftRight, Trash2, Pencil, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -96,6 +96,7 @@ export default function WarehouseInventory() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferMode, setTransferMode] = useState<"paired" | "adjustment">("paired");
   const [editingTransfer, setEditingTransfer] = useState<{ id: number; notes: string; transferDate: string; isPaired: boolean } | null>(null);
+  const [expandedHistory, setExpandedHistory] = useState<Set<number>>(new Set());
   const [transferForm, setTransferForm] = useState({
     fromWarehouse: "cleveland",
     toWarehouse: "canton",
@@ -182,9 +183,11 @@ export default function WarehouseInventory() {
   const updateTransferMutation = useMutation({
     mutationFn: async ({ id, notes, transferDate }: { id: number; notes: string | null; transferDate?: string }) =>
       apiRequest("PATCH", `/api/warehouse-transfers/${id}`, { notes, transferDate }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-transfers"] });
       queryClient.invalidateQueries({ queryKey: ["/api/warehouse-inventory/dashboard"] });
+      // Refresh any open history panel so the new audit row shows immediately
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouse-transfers", vars.id, "history"] });
       setEditingTransfer(null);
       toast({ title: "Transfer updated" });
     },
@@ -705,9 +708,28 @@ export default function WarehouseInventory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transfersQuery.data.map(t => (
-                    <tr key={t.id} className="border-b last:border-0 hover-elevate" data-testid={`row-transfer-${t.id}`}>
-                      <td className="py-2 pr-3">{t.transferDate}</td>
+                  {transfersQuery.data.map(t => {
+                    const isExpanded = expandedHistory.has(t.id);
+                    return (
+                  <Fragment key={t.id}>
+                    <tr className="border-b last:border-0 hover-elevate" data-testid={`row-transfer-${t.id}`}>
+                      <td className="py-2 pr-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:underline"
+                          onClick={() => setExpandedHistory(s => {
+                            const n = new Set(s);
+                            if (n.has(t.id)) n.delete(t.id); else n.add(t.id);
+                            return n;
+                          })}
+                          data-testid={`button-toggle-history-${t.id}`}
+                          aria-expanded={isExpanded}
+                          aria-label="Toggle edit history"
+                        >
+                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                          {t.transferDate}
+                        </button>
+                      </td>
                       <td className="py-2 pr-3">
                         {titleCase(t.warehouse)}
                         {t.counterpartyWarehouse && (
@@ -762,7 +784,16 @@ export default function WarehouseInventory() {
                         </Button>
                       </td>
                     </tr>
-                  ))}
+                    {isExpanded && (
+                      <tr className="border-b last:border-0 bg-muted/20" data-testid={`row-history-${t.id}`}>
+                        <td colSpan={7} className="py-3 px-3">
+                          <TransferHistory transferId={t.id} createdByName={t.createdByName} createdAt={t.createdAt} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -882,6 +913,100 @@ export default function WarehouseInventory() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+interface AuditEntry {
+  id: number;
+  transferId: number;
+  transferGroupId: string | null;
+  action: "update" | "delete" | string;
+  changedById: number | null;
+  changedByName: string | null;
+  changedAt: string;
+  changes: Record<string, { before: unknown; after: unknown }>;
+}
+
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  return String(v);
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  notes: "Notes",
+  transferDate: "Date",
+  warehouse: "Warehouse",
+  itemName: "Item",
+  qty: "Qty",
+  reason: "Reason",
+};
+
+function TransferHistory({
+  transferId,
+  createdByName,
+  createdAt,
+}: {
+  transferId: number;
+  createdByName: string | null;
+  createdAt: string | null;
+}) {
+  const { data, isLoading, isError } = useQuery<AuditEntry[]>({
+    queryKey: ["/api/warehouse-transfers", transferId, "history"],
+    queryFn: async () => {
+      const res = await fetch(`/api/warehouse-transfers/${transferId}/history`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load history");
+      return res.json();
+    },
+  });
+  if (isLoading) {
+    return <div className="text-xs text-muted-foreground flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" /> Loading edit history…</div>;
+  }
+  if (isError) {
+    return <div className="text-xs text-destructive">Failed to load edit history.</div>;
+  }
+  return (
+    <div className="space-y-2" data-testid={`history-list-${transferId}`}>
+      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Edit History</div>
+      {(data || []).length === 0 ? (
+        <div className="text-xs text-muted-foreground" data-testid={`history-empty-${transferId}`}>
+          No edits recorded — only the original entry exists.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {(data || []).map(a => (
+            <li key={a.id} className="border-l-2 border-border pl-3 text-xs" data-testid={`history-entry-${a.id}`}>
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium capitalize">{a.action}</span>
+                <span className="text-muted-foreground">
+                  by {a.changedByName || "—"} · {new Date(a.changedAt).toLocaleString()}
+                </span>
+                {a.transferId !== transferId && (
+                  <span className="text-muted-foreground italic">(paired side #{a.transferId})</span>
+                )}
+              </div>
+              <ul className="mt-1 space-y-0.5">
+                {Object.entries(a.changes).map(([field, diff]) => (
+                  <li key={field} className="font-mono text-[11px]">
+                    <span className="text-muted-foreground">{FIELD_LABELS[field] || field}:</span>{" "}
+                    <span className="line-through text-red-600 dark:text-red-400">{fmtVal(diff.before)}</span>
+                    {a.action !== "delete" && (
+                      <>
+                        {" → "}
+                        <span className="text-green-600 dark:text-green-400">{fmtVal(diff.after)}</span>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="text-xs text-muted-foreground pt-1 border-t" data-testid={`history-created-${transferId}`}>
+        Originally recorded by {createdByName || "—"}
+        {createdAt ? ` on ${new Date(createdAt).toLocaleString()}` : ""}.
+      </div>
     </div>
   );
 }
