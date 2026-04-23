@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle } from "lucide-react";
+import { getJobTitle } from "@/lib/utils";
 
 interface OccurrenceRow {
   employeeId: number;
@@ -150,7 +151,7 @@ export default function OccurrenceReport() {
                           </p>
                         </Link>
                         <p className="text-[10px] text-muted-foreground" data-testid={`text-job-title-${row.employeeId}`}>
-                          {row.jobTitle} &middot; {row.location}
+                          {getJobTitle(row.jobTitle)} &middot; {row.location}
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
@@ -191,7 +192,7 @@ export default function OccurrenceReport() {
                           </Link>
                         </TableCell>
                         <TableCell data-testid={`text-job-title-${row.employeeId}`}>
-                          {row.jobTitle}
+                          {getJobTitle(row.jobTitle)}
                         </TableCell>
                         <TableCell data-testid={`text-location-${row.employeeId}`}>
                           {row.location}
