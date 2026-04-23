@@ -28,6 +28,7 @@ import type {
 } from "@shared/schema";
 import { TRAILER_MANIFEST_STATUSES } from "@shared/schema";
 import { useUpload } from "@/hooks/use-upload";
+import { useUsersBasic } from "@/hooks/use-users";
 
 interface ManifestDetail {
   manifest: TrailerManifest;
@@ -66,9 +67,10 @@ export default function TrailerManifestDetail() {
     fromLocation: "",
     toLocation: "",
     trailerNumber: "",
-    driverName: "",
+    driverUserId: "" as string,
     notes: "",
   });
+  const { data: pickerUsers = [] } = useUsersBasic();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   const { data: trailers = [] } = useQuery<Trailer[]>({ queryKey: ["/api/trailers"] });
@@ -80,7 +82,7 @@ export default function TrailerManifestDetail() {
         fromLocation: data.manifest.fromLocation || "",
         toLocation: data.manifest.toLocation || "",
         trailerNumber: data.manifest.trailerNumber || "",
-        driverName: data.manifest.driverName || "",
+        driverUserId: data.manifest.driverUserId != null ? String(data.manifest.driverUserId) : "",
         notes: data.manifest.notes || "",
       });
     }
@@ -131,7 +133,7 @@ export default function TrailerManifestDetail() {
       return await apiRequest("PUT", `/api/trailer-manifests/${manifestId}`, {
         ...input,
         trailerNumber: input.trailerNumber || null,
-        driverName: input.driverName || null,
+        driverUserId: input.driverUserId ? Number(input.driverUserId) : null,
         notes: input.notes || null,
       });
     },
@@ -452,12 +454,30 @@ export default function TrailerManifestDetail() {
               </div>
               <div className="space-y-2">
                 <Label>Driver</Label>
-                <Input
-                  value={headerForm.driverName}
-                  onChange={e => setHeaderForm({ ...headerForm, driverName: e.target.value })}
+                <Select
+                  value={headerForm.driverUserId || "none"}
+                  onValueChange={(v) => setHeaderForm({ ...headerForm, driverUserId: v === "none" ? "" : v })}
                   disabled={isReadOnly}
-                  data-testid="input-edit-driver"
-                />
+                >
+                  <SelectTrigger data-testid="select-edit-driver">
+                    <SelectValue placeholder={data?.manifest.driverName || "Select driver"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">— None —</SelectItem>
+                    {/* If the saved driver isn't in the active list (deactivated), still show it. */}
+                    {headerForm.driverUserId &&
+                      !pickerUsers.some(u => String(u.id) === headerForm.driverUserId) && (
+                        <SelectItem value={headerForm.driverUserId} data-testid="select-edit-driver-legacy">
+                          {data?.manifest.driverName || `User #${headerForm.driverUserId}`} (inactive)
+                        </SelectItem>
+                      )}
+                    {pickerUsers.map(u => (
+                      <SelectItem key={u.id} value={String(u.id)} data-testid={`select-edit-driver-option-${u.id}`}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label>Notes</Label>

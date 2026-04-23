@@ -464,7 +464,7 @@ export default function Settings() {
   const currentSection = visibleSections.find(s => s.id === activeSection) ?? visibleSections[0];
 
   return (
-    <div className="p-6 lg:p-10 max-w-[1200px] mx-auto">
+    <div className="p-6 lg:p-10 max-w-[1600px] mx-auto">
       <div className="mb-6">
         <h1 className="text-3xl font-bold font-display">Settings</h1>
         <p className="text-muted-foreground mt-1">

@@ -19,7 +19,7 @@ import type { TrailerManifest, TrailerManifestStatus, TruckRoute, TruckRouteWith
 import { TRAILER_MANIFEST_STATUSES } from "@shared/schema";
 import { useLocations } from "@/hooks/use-locations";
 import { isValidLocation } from "@/lib/utils";
-import { useCurrentUser } from "@/hooks/use-users";
+import { useCurrentUser, useUsersBasic } from "@/hooks/use-users";
 
 const STATUS_LABELS: Record<TrailerManifestStatus, string> = {
   loading: "Loading",
@@ -45,7 +45,7 @@ export default function TrailerManifests() {
     toLocation: "",
     routeId: "" as string, // empty = no configured route attached
     trailerNumber: "",
-    driverName: "",
+    driverUserId: "" as string, // empty = no driver assigned
     notes: "",
   });
 
@@ -64,15 +64,16 @@ export default function TrailerManifests() {
   const activeTrailers = trailers.filter(t => t.isActive);
 
   const { data: currentUser } = useCurrentUser();
-  const currentUserName = currentUser?.user?.name || "";
+  const currentUserId = currentUser?.user?.id;
+  const { data: pickerUsers = [] } = useUsersBasic();
 
   // Default driver to logged-in user when opening the create dialog (only if blank).
   useEffect(() => {
-    if (createOpen && currentUserName && !form.driverName) {
-      setForm(f => ({ ...f, driverName: currentUserName }));
+    if (createOpen && currentUserId && !form.driverUserId) {
+      setForm(f => ({ ...f, driverUserId: String(currentUserId) }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [createOpen, currentUserName]);
+  }, [createOpen, currentUserId]);
 
   const { data: manifests = [], isLoading, isError, error } = useQuery<TrailerManifest[]>({
     queryKey: ["/api/trailer-manifests", statusFilter],
@@ -106,7 +107,7 @@ export default function TrailerManifests() {
         toLocation: input.toLocation,
         routeId: input.routeId ? Number(input.routeId) : null,
         trailerNumber: input.trailerNumber || null,
-        driverName: input.driverName || null,
+        driverUserId: input.driverUserId ? Number(input.driverUserId) : null,
         notes: input.notes || null,
       };
       return await apiRequest("POST", "/api/trailer-manifests", payload);
@@ -116,7 +117,7 @@ export default function TrailerManifests() {
       queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
       toast({ title: "Manifest created" });
       setCreateOpen(false);
-      setForm({ fromLocation: "", toLocation: "", routeId: "", trailerNumber: "", driverName: "", notes: "" });
+      setForm({ fromLocation: "", toLocation: "", routeId: "", trailerNumber: "", driverUserId: "", notes: "" });
       setLocation(`/trailer-manifests/${created.id}`);
     },
     onError: (err: any) => {
@@ -260,12 +261,22 @@ export default function TrailerManifests() {
                   </div>
                   <div className="space-y-2">
                     <Label>Driver</Label>
-                    <Input
-                      value={form.driverName}
-                      onChange={e => setForm({ ...form, driverName: e.target.value })}
-                      placeholder="Driver name"
-                      data-testid="input-driver-name"
-                    />
+                    <Select
+                      value={form.driverUserId || "none"}
+                      onValueChange={(v) => setForm({ ...form, driverUserId: v === "none" ? "" : v })}
+                    >
+                      <SelectTrigger data-testid="select-driver-user">
+                        <SelectValue placeholder="Select driver" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">— None —</SelectItem>
+                        {pickerUsers.map(u => (
+                          <SelectItem key={u.id} value={String(u.id)} data-testid={`select-driver-option-${u.id}`}>
+                            {u.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
                 <div className="space-y-2">

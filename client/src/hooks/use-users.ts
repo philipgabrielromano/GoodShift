@@ -3,6 +3,20 @@ import { api, buildUrl } from "@shared/routes";
 import type { User, InsertUser } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 
+export function useUsersBasic() {
+  return useQuery<{ id: number; name: string }[]>({
+    queryKey: ["/api/users/basic"],
+    queryFn: async () => {
+      const res = await fetch("/api/users/basic", { credentials: "include" });
+      if (!res.ok) {
+        if (res.status === 403) return [];
+        throw new Error("Failed to fetch users");
+      }
+      return res.json();
+    },
+  });
+}
+
 export function useUsers() {
   return useQuery<User[]>({
     queryKey: [api.users.list.path],

@@ -669,8 +669,16 @@ export class DatabaseStorage implements IStorage {
       const [r] = await db.select({ id: truckRoutes.id }).from(truckRoutes).where(eq(truckRoutes.id, input.routeId));
       if (!r) throw new Error(`Unknown routeId: ${input.routeId}`);
     }
+    // If a driverUserId is provided, look up the user and denormalize driverName for display/email.
+    let resolvedDriverName = input.driverName ?? null;
+    if (input.driverUserId != null) {
+      const [u] = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, input.driverUserId));
+      if (!u) throw new Error(`Unknown driverUserId: ${input.driverUserId}`);
+      resolvedDriverName = u.name;
+    }
     const [created] = await db.insert(trailerManifests).values({
       ...input,
+      driverName: resolvedDriverName,
       createdById: user.id,
       createdByName: user.name,
     }).returning();
@@ -695,8 +703,19 @@ export class DatabaseStorage implements IStorage {
       const [r] = await db.select({ id: truckRoutes.id }).from(truckRoutes).where(eq(truckRoutes.id, input.routeId));
       if (!r) throw new Error(`Unknown routeId: ${input.routeId}`);
     }
+    const update: Record<string, unknown> = { ...input, updatedAt: new Date() };
+    if (input.driverUserId !== undefined) {
+      if (input.driverUserId === null) {
+        // Caller cleared the driver — clear the denormalized name too so list/email/display all agree.
+        update.driverName = null;
+      } else {
+        const [u] = await db.select({ id: users.id, name: users.name }).from(users).where(eq(users.id, input.driverUserId));
+        if (!u) throw new Error(`Unknown driverUserId: ${input.driverUserId}`);
+        update.driverName = u.name;
+      }
+    }
     const [updated] = await db.update(trailerManifests)
-      .set({ ...input, updatedAt: new Date() })
+      .set(update)
       .where(eq(trailerManifests.id, id))
       .returning();
     return updated;

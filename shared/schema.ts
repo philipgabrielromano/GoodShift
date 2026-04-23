@@ -965,6 +965,7 @@ export const trailerManifests = pgTable("trailer_manifests", {
   toLocation: text("to_location").notNull(),
   routeId: integer("route_id"),
   trailerNumber: text("trailer_number"),
+  driverUserId: integer("driver_user_id"),
   driverName: text("driver_name"),
   status: text("status").notNull().default("loading"),
   notes: text("notes"),

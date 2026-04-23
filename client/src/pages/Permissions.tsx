@@ -393,7 +393,7 @@ export default function Permissions() {
       {/* Role-centric configuration */}
       <Card>
         <CardContent className="p-0">
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[500px]">
+          <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] min-h-[500px]">
             {/* Left rail: role list */}
             <div className="border-b lg:border-b-0 lg:border-r bg-muted/30">
               <div className="p-4 border-b">
@@ -435,7 +435,7 @@ export default function Permissions() {
                         </div>
                         <Badge
                           variant={isSelected ? "outline" : "secondary"}
-                          className={`text-xs flex-shrink-0 ${
+                          className={`text-xs flex-shrink-0 whitespace-nowrap tabular-nums ${
                             isSelected ? "bg-primary-foreground/10 text-primary-foreground border-primary-foreground/30" : ""
                           }`}
                           data-testid={`badge-count-${role.name}`}
@@ -509,7 +509,7 @@ export default function Permissions() {
                                   <ChevronDown className="w-4 h-4 text-muted-foreground" />
                                 )}
                                 <span className="font-semibold text-sm">{cat}</span>
-                                <Badge variant="secondary" className="text-xs ml-1">
+                                <Badge variant="secondary" className="text-xs ml-1 whitespace-nowrap tabular-nums">
                                   {isAdminSelected
                                     ? perms.length
                                     : perms.filter(p => p.allowedRoles.includes(selectedRole)).length}

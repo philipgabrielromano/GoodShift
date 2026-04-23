@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.5";
+export const APP_VERSION = "3.6.6";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.6",
+    date: "2026-04-23",
+    title: "Settings Polish + Trailer Manifest Driver Picker",
+    changes: [
+      { type: "improvement", description: "The Settings page now uses the full width of the screen so the embedded Users, Locations, and other tables have room to breathe instead of feeling cramped." },
+      { type: "improvement", description: "Trailer Manifest's Driver field is now a dropdown of real users (defaulting to whoever is creating the manifest) instead of free-form text. Manifests now record the actual user ID so you can tie a trailer to a specific person in the system." },
+      { type: "fix", description: "The permission counters on the Permissions page (e.g. '95/107') no longer get cut off when the role list is narrow." },
+    ],
+  },
   {
     version: "3.6.5",
     date: "2026-04-23",

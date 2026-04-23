@@ -954,6 +954,18 @@ export async function registerRoutes(
     res.json(users);
   });
 
+  // Lightweight roster for pickers (e.g. driver select on trailer manifests).
+  // Only exposes id + name + isActive — safe for any authenticated user.
+  app.get("/api/users/basic", requireAuth, async (_req, res) => {
+    const users = await storage.getUsers();
+    res.json(
+      users
+        .filter((u: any) => u.isActive !== false)
+        .map((u: any) => ({ id: u.id, name: u.name }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name)),
+    );
+  });
+
   app.get(api.users.get.path, requireFeatureAccess("users.view"), async (req, res) => {
     const user = await storage.getUser(Number(req.params.id));
     if (!user) return res.status(404).json({ message: "User not found" });
