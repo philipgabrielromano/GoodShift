@@ -1463,8 +1463,9 @@ export async function registerRoutes(
 
       const targetUser = await storage.getUser(userId);
       if (!targetUser) return res.status(404).json({ message: "User not found" });
-      if (targetUser.role !== "manager" && targetUser.role !== "optimizer") {
-        return res.status(400).json({ message: "Direct reports can only be assigned to manager or optimizer users" });
+      const canHaveReports = await userHasFeature(targetUser, "employees.has_direct_reports");
+      if (!canHaveReports) {
+        return res.status(400).json({ message: "Direct reports can only be assigned to roles with the 'Can Have Direct Reports' permission" });
       }
 
       const schema = z.object({ employeeIds: z.array(z.number().int().positive()) });

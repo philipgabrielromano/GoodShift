@@ -1365,6 +1365,7 @@ export const SYSTEM_FEATURES = [
   { category: "Workforce", feature: "employees.view", label: "View Employees", description: "See the employee directory" },
   { category: "Workforce", feature: "employees.edit", label: "Edit Employees", description: "Create and update employee records" },
   { category: "Workforce", feature: "employees.delete", label: "Delete Employees", description: "Permanently remove employee records" },
+  { category: "Workforce", feature: "employees.has_direct_reports", label: "Can Have Direct Reports", description: "Users in this role can be assigned direct reports (team responsibility)" },
   { category: "Workforce", feature: "raw_shifts.view", label: "Raw Shift Data", description: "View raw UKG shift data" },
   // Compliance & HR
   { category: "Compliance & HR", feature: "attendance.view", label: "View Attendance", description: "See attendance and occurrence records" },
@@ -1434,6 +1435,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "employees.view": ["admin", "manager", "optimizer"],
   "employees.edit": ["admin", "manager"],
   "employees.delete": ["admin"],
+  "employees.has_direct_reports": ["admin", "manager", "optimizer"],
   "raw_shifts.view": ["admin"],
   // Compliance & HR
   "attendance.view": ["admin", "manager", "optimizer"],

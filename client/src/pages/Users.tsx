@@ -77,6 +77,18 @@ export default function Users() {
   const features = authStatus?.accessibleFeatures || [];
   const can = (f: string) => features.includes(f);
 
+  const isAdminRole = currentUser?.user?.role === "admin";
+  const { data: allPermissions } = useQuery<{ feature: string; allowedRoles: string[] }[]>({
+    queryKey: ["/api/permissions"],
+    enabled: isAdminRole,
+  });
+  const directReportsRoles = useMemo(() => {
+    const row = (allPermissions || []).find(p => p.feature === "employees.has_direct_reports");
+    return new Set(row?.allowedRoles || []);
+  }, [allPermissions]);
+  const roleCanHaveDirectReports = (role: string) =>
+    role === "admin" || directReportsRoles.has(role);
+
   const canViewUsers = can("users.view");
   const canEditProfile = can("users.edit_profile");
   const canAssignRoles = can("users.assign_roles");
@@ -327,7 +339,7 @@ export default function Users() {
                               <Pencil className="w-4 h-4 mr-2" /> Edit
                             </DropdownMenuItem>
                           )}
-                          {isAdmin && (user.role === "manager" || user.role === "optimizer") && (
+                          {isAdmin && roleCanHaveDirectReports(user.role) && (
                             <DropdownMenuItem onClick={() => openReports(user)} data-testid={`button-reports-user-${user.id}`}>
                               <Network className="w-4 h-4 mr-2" /> Manage Direct Reports
                             </DropdownMenuItem>
@@ -466,7 +478,7 @@ export default function Users() {
                                   <Pencil className="w-4 h-4 mr-2" /> Edit
                                 </DropdownMenuItem>
                               )}
-                              {isAdmin && (user.role === "manager" || user.role === "optimizer") && (
+                              {isAdmin && roleCanHaveDirectReports(user.role) && (
                                 <DropdownMenuItem onClick={() => openReports(user)} data-testid={`button-reports-user-${user.id}`}>
                                   <Network className="w-4 h-4 mr-2" /> Manage Direct Reports
                                 </DropdownMenuItem>
