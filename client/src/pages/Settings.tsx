@@ -13,6 +13,7 @@ import { useGlobalSettings, useUpdateGlobalSettings } from "@/hooks/use-settings
 import type { Employee } from "@shared/schema";
 import { Link } from "wouter";
 import { APP_VERSION, changelog } from "@/lib/changelog";
+import { EmailBrandingCard } from "@/components/settings/EmailBrandingCard";
 
 interface DiagnosticApiCall {
   timestamp: string;
@@ -970,6 +971,7 @@ export default function Settings() {
           </>}
 
           {activeSection === "email" && <>
+      {canGlobalConfig && <EmailBrandingCard />}
       {canGlobalConfig && <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

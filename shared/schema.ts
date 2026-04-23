@@ -84,7 +84,44 @@ export const globalSettings = pgTable("global_settings", {
   ukgApiUrl: text("ukg_api_url"),
   ukgUsername: text("ukg_username"),
   ukgPassword: text("ukg_password"),
+  // Email branding overrides (font, dynamic-value style, per-template header colors).
+  // Defaults live in `server/emailBranding.ts`; this column only holds overrides.
+  emailBranding: jsonb("email_branding").$type<EmailBrandingConfig>(),
 });
+
+// === Email branding ===
+// Stable identifiers for every email type the app sends. Keep in sync with
+// `server/emailBranding.ts` (`EMAIL_TYPES`) and `server/outlook.ts`.
+export const EMAIL_TYPE_IDS = [
+  "occurrence_alert",
+  "order_submitted",
+  "order_confirmation",
+  "order_fulfilled",
+  "shift_trade",
+  "schedule_published",
+  "trailer_in_transit",
+  "driver_inspection",
+  "warehouse_variance",
+] as const;
+export type EmailTypeId = typeof EMAIL_TYPE_IDS[number];
+
+export interface EmailBrandingConfig {
+  fontFamily?: string;
+  dynamicValueColor?: string;
+  dynamicValueWeight?: "normal" | "bold";
+  dynamicValueItalic?: boolean;
+  headerColors?: Partial<Record<EmailTypeId, string>>;
+}
+
+const hexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/i, "Must be a hex color like #00539F");
+
+export const emailBrandingConfigSchema = z.object({
+  fontFamily: z.string().min(1).max(200).optional(),
+  dynamicValueColor: hexColor.optional(),
+  dynamicValueWeight: z.enum(["normal", "bold"]).optional(),
+  dynamicValueItalic: z.boolean().optional(),
+  headerColors: z.record(z.enum(EMAIL_TYPE_IDS), hexColor).optional(),
+}).strict();
 
 // Retail job codes that are scheduleable
 export const RETAIL_JOB_CODES = [
@@ -270,7 +307,9 @@ export type InsertRosterTarget = z.infer<typeof insertRosterTargetSchema>;
 export const insertEmployeeSchema = createInsertSchema(employees).omit({ id: true });
 export const insertShiftSchema = createInsertSchema(shifts).omit({ id: true });
 export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).omit({ id: true });
-export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true });
+export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true }).extend({
+  emailBranding: emailBrandingConfigSchema.nullish(),
+});
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ id: true });

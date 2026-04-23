@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.5.0";
+export const APP_VERSION = "3.6.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.6.0",
+    date: "2026-04-23",
+    title: "Configurable Email Branding",
+    changes: [
+      { type: "feature", description: "New Email Branding card under Settings → Email & Notifications. Pick a font, choose a header color per email template, and set the color/weight/italics of dynamic data values (names, dates, counts, etc.) — applied to every email GoodShift sends." },
+      { type: "feature", description: "Branding controls cover all 9 email templates: Attendance Alert, Order Submitted, Order Confirmation, Order Fulfilled, Shift Trade, Schedule Posted, Trailer In Transit, Driver Inspection, and Warehouse Variance — each with its own header color." },
+      { type: "feature", description: "Live preview pane renders any template with the current branding using realistic sample data, so admins can see exactly how each email will look before saving." },
+      { type: "improvement", description: "Color picker uses the official Goodwill brand palette (blue, light blue, sky, orange, yellow, lime, green, magenta, red, grey) so emails stay on-brand by default." },
+      { type: "improvement", description: "Severity-based colors on Attendance Alerts and per-action colors on Shift Trade emails are preserved automatically — these always override the chosen header color so urgent context isn't lost." },
+    ],
+  },
   {
     version: "3.5.0",
     date: "2026-04-23",

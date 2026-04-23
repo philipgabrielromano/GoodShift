@@ -5,8 +5,18 @@ import { Client } from '@microsoft/microsoft-graph-client';
 import { ClientSecretCredential } from '@azure/identity';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials';
 import { storage } from './storage';
+import { brandingFromSettings, renderEmailLayout, dv, htmlEscape, type ResolvedBranding } from './emailBranding';
 
 const ALWAYS_CC_EMAIL = "promano@goodwillgoodskills.org";
+
+async function getBranding(): Promise<ResolvedBranding> {
+  try {
+    const settings = await storage.getGlobalSettings();
+    return brandingFromSettings(settings);
+  } catch {
+    return brandingFromSettings(null);
+  }
+}
 
 let graphClient: Client | null = null;
 
@@ -81,55 +91,29 @@ export async function sendOccurrenceAlertEmail(
     const attendanceLink = `${data.appUrl}/attendance?employeeId=${data.employeeId}`;
     const thresholdLabel = getThresholdLabel(data.threshold);
     const thresholdAction = getThresholdAction(data.threshold);
-    
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: ${data.threshold >= 8 ? '#dc2626' : data.threshold >= 7 ? '#ea580c' : '#f59e0b'}; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">Attendance Alert: ${thresholdLabel}</h2>
-    </div>
-    
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
-      <p>An employee has reached ${data.netTally.toFixed(1)} occurrence points, triggering the <strong>${thresholdLabel.toLowerCase()}</strong>.</p>
-      
+    const branding = await getBranding();
+
+    const bodyHtml = `
+      <p>An employee has reached ${dv(data.netTally.toFixed(1), branding)} occurrence points, triggering the <strong>${thresholdLabel.toLowerCase()}</strong>.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-        <tr>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Employee:</strong></td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.employeeName}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Position:</strong></td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.jobTitle}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.location}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Current Points:</strong></td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.netTally.toFixed(1)}</td>
-        </tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Employee:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.employeeName, branding)}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Position:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${htmlEscape(data.jobTitle)}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>Current Points:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.netTally.toFixed(1), branding)}</td></tr>
       </table>
-      
       <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 20px 0;">
-        <strong>Recommended Action:</strong><br>
-        ${thresholdAction}
-      </div>
-      
-      <p>
-        <a href="${attendanceLink}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View Attendance Record
-        </a>
-      </p>
-      
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+        <strong>Recommended Action:</strong><br>${thresholdAction}
+      </div>`;
+
+    const emailBody = renderEmailLayout({
+      type: "occurrence_alert",
+      title: `Attendance Alert: ${thresholdLabel}`,
+      bodyHtml,
+      ctaLabel: "View Attendance Record",
+      ctaHref: attendanceLink,
+      branding,
+      headerColorOverride: data.threshold >= 8 ? '#dc2626' : (data.threshold >= 7 ? '#ea580c' : '#f59e0b'),
+    });
 
     const message = {
       subject: `Attendance Alert: ${data.employeeName} - ${thresholdLabel}`,
@@ -198,58 +182,33 @@ export async function sendOrderNotificationEmail(
       return false;
     }
 
+    const branding = await getBranding();
     const fieldsHtml = data.nonZeroFields.map(f =>
-      `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-weight: 500;">${f.value}</td></tr>`
+      `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(f.value, branding)}</td></tr>`
     ).join("");
 
     const notesHtml = data.notes
-      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${htmlEscape(data.notes).replace(/\n/g, "<br>")}</div>`
       : "";
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #00539F; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">New Order Submitted</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+    const bodyHtml = `
       <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderDate}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderType}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.location}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Submitted By:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.submittedBy}</td>
-        </tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderDate}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.orderType, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Submitted By:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.submittedBy, branding)}</td></tr>
       </table>
-
       ${fieldsHtml ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Order Details</h3><table style="width: 100%; border-collapse: collapse;">${fieldsHtml}</table>` : ""}
+      ${notesHtml}`;
 
-      ${notesHtml}
-
-      <p style="margin-top: 20px;">
-        <a href="${data.appUrl}/orders" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View Orders
-        </a>
-      </p>
-
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const emailBody = renderEmailLayout({
+      type: "order_submitted",
+      title: "New Order Submitted",
+      bodyHtml,
+      ctaLabel: "View Orders",
+      ctaHref: `${data.appUrl}/orders`,
+      branding,
+    });
 
     const message = {
       subject: `GoodShift: New ${data.orderType} Order - ${data.location}`,
@@ -294,56 +253,34 @@ export async function sendOrderConfirmationEmail(
       return false;
     }
 
+    const branding = await getBranding();
     const fieldsHtml = data.nonZeroFields.map(f =>
-      `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-weight: 500;">${f.value}</td></tr>`
+      `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(f.value, branding)}</td></tr>`
     ).join("");
 
     const notesHtml = data.notes
-      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${htmlEscape(data.notes).replace(/\n/g, "<br>")}</div>`
       : "";
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #22c55e; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">Order Confirmation</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+    const bodyHtml = `
       <p>Your order has been submitted successfully. Here is a summary of what was submitted:</p>
-
       <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderDate}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderType}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.location}</td>
-        </tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.orderDate}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.orderType, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
       </table>
-
       ${fieldsHtml ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Order Details</h3><table style="width: 100%; border-collapse: collapse;">${fieldsHtml}</table>` : ""}
+      ${notesHtml}`;
 
-      ${notesHtml}
-
-      <p style="margin-top: 20px;">
-        <a href="${data.appUrl}/orders" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View All Orders
-        </a>
-      </p>
-
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated confirmation from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const emailBody = renderEmailLayout({
+      type: "order_confirmation",
+      title: "Order Confirmation",
+      bodyHtml,
+      ctaLabel: "View All Orders",
+      ctaHref: `${data.appUrl}/orders`,
+      branding,
+      footerText: "This is an automated confirmation from GoodShift. Please do not reply to this email.",
+    });
 
     const message = {
       subject: `Order Confirmation: ${data.orderType} - ${data.location} (${data.orderDate})`,
@@ -401,53 +338,40 @@ export async function sendOrderFulfilledEmail(
       return false;
     }
 
+    const branding = await getBranding();
     const fieldsHtml = data.fulfilledFields.length
       ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Items Fulfilled</h3>
          <table style="width: 100%; border-collapse: collapse;">
            ${data.fulfilledFields.map(f =>
-             `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-weight: 500; text-align: right;">${f.value}</td></tr>`
+             `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; text-align: right;">${dv(f.value, branding)}</td></tr>`
            ).join("")}
          </table>`
       : "";
 
     const notesHtml = data.notes
-      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${htmlEscape(data.notes).replace(/\n/g, "<br>")}</div>`
       : "";
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #16a34a; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">Order Fulfilled</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+    const bodyHtml = `
       <p>The warehouse has marked your order as <strong>fulfilled</strong>. The items below are on their way or ready for pickup.</p>
-
       <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
         <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Order Date:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.orderDate}</td></tr>
-        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.orderType}</td></tr>
-        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.location}</td></tr>
-        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Fulfilled By:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.fulfilledBy}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv(data.orderType, branding)}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Fulfilled By:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv(data.fulfilledBy, branding)}</td></tr>
         <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Fulfilled At:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.fulfilledAt}</td></tr>
       </table>
-
       ${fieldsHtml}
-      ${notesHtml}
+      ${notesHtml}`;
 
-      <p style="margin-top: 20px;">
-        <a href="${data.appUrl}/orders" style="display: inline-block; background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View Order
-        </a>
-      </p>
-
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const emailBody = renderEmailLayout({
+      type: "order_fulfilled",
+      title: "Order Fulfilled",
+      bodyHtml,
+      ctaLabel: "View Order",
+      ctaHref: `${data.appUrl}/orders`,
+      branding,
+    });
 
     const message = {
       subject,
@@ -537,41 +461,24 @@ export async function sendTradeNotificationEmail(
       return false;
     }
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: ${details.color}; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">${details.heading}</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
-      <p>Hi ${data.recipientName},</p>
+    const branding = await getBranding();
+    const bodyHtml = `
+      <p>Hi ${dv(data.recipientName, branding)},</p>
       <p>${details.body}</p>
-      
       <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
-        <tr>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.requesterName}'s Shift:</strong></td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.requesterShiftDate}<br>${data.requesterShiftTime}</td>
-        </tr>
-        <tr>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.responderName || "Trade Partner"}'s Shift:</strong></td>
-          <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${data.responderShiftDate}<br>${data.responderShiftTime}</td>
-        </tr>
-      </table>
-      
-      <p>
-        <a href="${data.appUrl}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          Open GoodShift
-        </a>
-      </p>
-      
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.requesterName}'s Shift:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.requesterShiftDate, branding)}<br>${data.requesterShiftTime}</td></tr>
+        <tr><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.responderName || "Trade Partner"}'s Shift:</strong></td><td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.responderShiftDate, branding)}<br>${data.responderShiftTime}</td></tr>
+      </table>`;
+
+    const emailBody = renderEmailLayout({
+      type: "shift_trade",
+      title: details.heading,
+      bodyHtml,
+      ctaLabel: "Open GoodShift",
+      ctaHref: data.appUrl,
+      branding,
+      headerColorOverride: details.color,
+    });
 
     const message = {
       subject: `GoodShift: ${details.subject} - ${data.requesterName}`,
@@ -611,32 +518,20 @@ export interface SchedulePublishEmailData {
   appUrl: string;
 }
 
-export function generateSchedulePublishEmailHtml(data: SchedulePublishEmailData): string {
-  return `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #00539F; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">New Schedule Posted</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
-      <p>Hi ${data.recipientName},</p>
-      <p>A new schedule has been posted for the week of <strong>${data.weekStartDate}</strong> at <strong>${data.locationName}</strong>.</p>
-      <p>Please log in to GoodShift to view your upcoming shifts.</p>
-      
-      <p style="margin-top: 24px;">
-        <a href="${data.appUrl}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View My Schedule
-        </a>
-      </p>
-      
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+export function generateSchedulePublishEmailHtml(data: SchedulePublishEmailData, branding?: ResolvedBranding): string {
+  const b = branding || brandingFromSettings(null);
+  const bodyHtml = `
+      <p>Hi ${dv(data.recipientName, b)},</p>
+      <p>A new schedule has been posted for the week of ${dv(data.weekStartDate, b)} at ${dv(data.locationName, b)}.</p>
+      <p>Please log in to GoodShift to view your upcoming shifts.</p>`;
+  return renderEmailLayout({
+    type: "schedule_published",
+    title: "New Schedule Posted",
+    bodyHtml,
+    ctaLabel: "View My Schedule",
+    ctaHref: data.appUrl,
+    branding: b,
+  });
 }
 
 export async function sendSchedulePublishEmail(
@@ -651,7 +546,8 @@ export async function sendSchedulePublishEmail(
       return false;
     }
 
-    const emailBody = generateSchedulePublishEmailHtml(data);
+    const branding = await getBranding();
+    const emailBody = generateSchedulePublishEmailHtml(data, branding);
 
     const message = {
       subject: `GoodShift: New Schedule Posted - Week of ${data.weekStartDate}`,
@@ -722,47 +618,35 @@ export async function sendTrailerInTransitEmail(
       : `<p style="color:#6b7280;">No items recorded on this manifest.</p>`;
 
     const notesHtml = data.notes
-      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${htmlEscape(data.notes).replace(/\n/g, "<br>")}</div>`
       : "";
 
-    const detailRow = (label: string, value: string | null) =>
-      value ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${label}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${value}</td></tr>` : "";
+    const branding = await getBranding();
+    const detailRow = (label: string, value: string | null, useDv = false) =>
+      value ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${label}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${useDv ? dv(value, branding) : value}</td></tr>` : "";
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #B45309; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">Trailer In Transit to ${data.toLocation}</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+    const bodyHtml = `
       <p>A trailer manifest has been marked <strong>In Transit</strong> bound for your store.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
-        ${detailRow("From", data.fromLocation)}
-        ${detailRow("To", data.toLocation)}
+        ${detailRow("From", data.fromLocation, true)}
+        ${detailRow("To", data.toLocation, true)}
         ${detailRow("Departed", data.departedAt)}
-        ${detailRow("Route #", data.routeNumber)}
-        ${detailRow("Trailer #", data.trailerNumber)}
+        ${detailRow("Route #", data.routeNumber, true)}
+        ${detailRow("Trailer #", data.trailerNumber, true)}
         ${detailRow("Seal #", data.sealNumber)}
-        ${detailRow("Driver", data.driverName)}
+        ${detailRow("Driver", data.driverName, true)}
       </table>
-
       ${itemsHtml}
-      ${notesHtml}
+      ${notesHtml}`;
 
-      <p style="margin-top: 20px;">
-        <a href="${data.appUrl}/trailer-manifests/${data.manifestId}" style="display: inline-block; background-color: #B45309; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View Manifest
-        </a>
-      </p>
-
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const emailBody = renderEmailLayout({
+      type: "trailer_in_transit",
+      title: `Trailer In Transit to ${data.toLocation}`,
+      bodyHtml,
+      ctaLabel: "View Manifest",
+      ctaHref: `${data.appUrl}/trailer-manifests/${data.manifestId}`,
+      branding,
+    });
 
     const message = {
       subject,
@@ -834,47 +718,34 @@ export async function sendDriverInspectionAlertEmail(
       ? (data.tractorNumber || "—")
       : (data.trailerNumber || "—");
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 640px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #dc2626; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">Driver Inspection: Repair Needed</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+    const branding = await getBranding();
+    const bodyHtml = `
       <p>A driver has flagged repair items during a pre-trip inspection.</p>
-
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
         <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Submitted:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.submittedAt}</td></tr>
-        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Driver:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.driverName}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Driver:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.driverName, branding)}</td></tr>
         <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Inspection Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${typeLabel}</td></tr>
-        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.inspectionType === "tractor" ? "Tractor/Truck #" : "Trailer #"}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${vehicleLabel}</td></tr>
-        ${data.inspectionType === "tractor" && data.trailerNumber ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Trailer #:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.trailerNumber}</td></tr>` : ""}
-        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Route:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.routeNumber || "—"}</td></tr>
-        ${data.startingMileage != null ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Starting Mileage:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.startingMileage.toLocaleString()}</td></tr>` : ""}
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${data.inspectionType === "tractor" ? "Tractor/Truck #" : "Trailer #"}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(vehicleLabel, branding)}</td></tr>
+        ${data.inspectionType === "tractor" && data.trailerNumber ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Trailer #:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.trailerNumber, branding)}</td></tr>` : ""}
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Route:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.routeNumber ? dv(data.routeNumber, branding) : "—"}</td></tr>
+        ${data.startingMileage != null ? `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Starting Mileage:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.startingMileage.toLocaleString(), branding)}</td></tr>` : ""}
       </table>
-
       <h3 style="margin: 20px 0 8px; font-size: 15px; color: #111;">Items Flagged for Repair</h3>
       <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb;">
         <thead><tr style="background-color: #f3f4f6;"><th style="text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">Section</th><th style="text-align: left; padding: 8px 10px; border-bottom: 1px solid #e5e7eb; font-size: 13px;">Item</th></tr></thead>
         <tbody>${repairRows}</tbody>
       </table>
+      ${notesHtml}`;
 
-      ${notesHtml}
-
-      <p style="margin-top: 24px;">
-        <a href="${data.appUrl}/driver-inspections/${data.inspectionId}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          View Inspection
-        </a>
-      </p>
-
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        This is an automated notification from GoodShift. Please do not reply to this email.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const emailBody = renderEmailLayout({
+      type: "driver_inspection",
+      title: "Driver Inspection: Repair Needed",
+      bodyHtml,
+      ctaLabel: "View Inspection",
+      ctaHref: `${data.appUrl}/driver-inspections/${data.inspectionId}`,
+      branding,
+      maxWidthPx: 680,
+    });
 
     const [primary, ...rest] = toEmails;
     const message: any = {
@@ -1046,56 +917,28 @@ export async function sendWarehouseVarianceCsvEmail(
     const varianceColor = data.varianceNet === 0 ? "#6b7280" : data.varianceNet > 0 ? "#16a34a" : "#dc2626";
     const varianceSign = data.varianceNet > 0 ? "+" : "";
 
-    const emailBody = `
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-    <div style="background-color: #00539F; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
-      <h2 style="margin: 0;">${titleCase(data.warehouse)} Warehouse Count Variance</h2>
-    </div>
-    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+    const branding = await getBranding();
+    const bodyHtml = `
       <p>The variance CSV for the ${titleCase(data.warehouse)} warehouse count on <strong>${data.countDate}</strong> is attached. Status: <strong>${statusLabel}</strong>.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Warehouse:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${titleCase(data.warehouse)}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Count date:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.countDate}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Status:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${statusLabel}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Started by:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.createdByName || "—"}</td>
-        </tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Warehouse:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(titleCase(data.warehouse), branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Count date:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.countDate}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Status:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${statusLabel}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Started by:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.createdByName ? dv(data.createdByName, branding) : "—"}</td></tr>
         ${finalizedRow}
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Items off:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${data.itemsWithVariance}</td>
-        </tr>
-        <tr>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Net variance:</strong></td>
-          <td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; color: ${varianceColor}; font-weight: 600;">${varianceSign}${data.varianceNet.toLocaleString()} (abs ${data.varianceAbs.toLocaleString()})</td>
-        </tr>
-      </table>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Items off:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.itemsWithVariance, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Net variance:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; color: ${varianceColor}; font-weight: 600;">${varianceSign}${data.varianceNet.toLocaleString()} (abs ${data.varianceAbs.toLocaleString()})</td></tr>
+      </table>`;
 
-      <p style="margin-top: 20px;">
-        <a href="${data.appUrl}/warehouse-inventory/${data.countId}" style="display: inline-block; background-color: #00539F; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-          Open Count in GoodShift
-        </a>
-      </p>
-
-      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
-        Sent by ${data.triggeredByName} from GoodShift. The CSV header includes the same metadata shown above.
-      </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    const emailBody = renderEmailLayout({
+      type: "warehouse_variance",
+      title: `${titleCase(data.warehouse)} Warehouse Count Variance`,
+      bodyHtml,
+      ctaLabel: "Open Count in GoodShift",
+      ctaHref: `${data.appUrl}/warehouse-inventory/${data.countId}`,
+      branding,
+      footerText: `Sent by ${data.triggeredByName} from GoodShift. The CSV header includes the same metadata shown above.`,
+    });
 
     const message = {
       subject,

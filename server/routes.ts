@@ -13,6 +13,10 @@ import { inArray } from "drizzle-orm";
 import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage";
 import { sendOccurrenceAlertEmail, sendSchedulePublishEmail, generateSchedulePublishEmailHtml, testOutlookConnection, type OccurrenceAlertEmailData } from "./outlook";
+import { brandingFromSettings, EMAIL_TYPES, GOODWILL_BRAND_PALETTE, DEFAULT_EMAIL_BRANDING } from "./emailBranding";
+import { renderSampleEmail } from "./emailSamples";
+import type { EmailTypeId } from "@shared/schema";
+import { EMAIL_TYPE_IDS, emailBrandingConfigSchema } from "@shared/schema";
 import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
@@ -779,6 +783,49 @@ export async function registerRoutes(
       res.json({ html });
     } catch (error: any) {
       res.status(500).json({ message: error.message || "Failed to generate preview" });
+    }
+  });
+
+  // === Email branding & previews ===
+  app.get("/api/email-branding/options", requireAuth, async (_req, res) => {
+    res.json({
+      palette: GOODWILL_BRAND_PALETTE,
+      types: EMAIL_TYPES,
+      defaults: DEFAULT_EMAIL_BRANDING,
+    });
+  });
+
+  // Render any of the 9 email types with the current branding for live preview.
+  // Sample data is fabricated server-side so the preview can stay realistic
+  // without exposing any tenant data.
+  app.get("/api/outlook/email-preview/:type", requireAuth, async (req, res) => {
+    try {
+      const type = req.params.type as EmailTypeId;
+      if (!EMAIL_TYPE_IDS.includes(type)) {
+        return res.status(400).json({ message: "Unknown email type" });
+      }
+      // Allow a one-shot override via querystring for live preview before save.
+      const previewBrandingRaw = typeof req.query.branding === "string" ? req.query.branding : null;
+      let overrideBranding: any = undefined;
+      if (previewBrandingRaw) {
+        try {
+          const parsed = JSON.parse(previewBrandingRaw);
+          const { emailBrandingConfigSchema } = await import("@shared/schema");
+          overrideBranding = emailBrandingConfigSchema.parse(parsed);
+        } catch {
+          return res.status(400).json({ message: "Invalid branding override" });
+        }
+      }
+      const settings = overrideBranding === undefined ? await storage.getGlobalSettings() : null;
+      const branding = overrideBranding !== undefined
+        ? brandingFromSettings({ emailBranding: overrideBranding } as any)
+        : brandingFromSettings(settings);
+
+      const appUrl = "https://goodshift.goodwillgoodskills.org";
+      const html = renderSampleEmail(type, branding, appUrl);
+      res.json({ html });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message || "Failed to render preview" });
     }
   });
 
