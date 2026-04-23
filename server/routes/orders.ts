@@ -4,7 +4,7 @@ import { requireFeatureAccess, requireAdmin, userHasFeature } from "../middlewar
 import type { PoolConnection } from "mysql2/promise";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
-import { sendOrderNotificationEmail, sendOrderConfirmationEmail, type OrderNotificationEmailData } from "../outlook";
+import { sendOrderNotificationEmail, sendOrderConfirmationEmail, sendOrderFulfilledEmail, type OrderNotificationEmailData } from "../outlook";
 import { storage } from "../storage";
 
 const nonNegInt = z.number().int().min(0).nullable().optional();
@@ -544,6 +544,73 @@ export function registerOrderRoutes(app: Express) {
         return res.status(404).json({ message: "Order not found" });
       }
       res.json({ message: "Order marked as fulfilled" });
+
+      // Notify the requesting store that their order is fulfilled.
+      void (async () => {
+        try {
+          const [orderRows] = await mysqlPool.execute<OrderRow[]>(
+            "SELECT * FROM orders WHERE id = ?",
+            [id]
+          );
+          if (orderRows.length === 0) return;
+          const order = toCamel(orderRows[0]);
+          const orderLocation = String(order.location || "").trim();
+          if (!orderLocation) return;
+
+          // Surface the actually-requested items so the recipient knows what
+          // is being shipped/picked up. We include any *_requested or
+          // saved_*_requested field with a positive value.
+          const fulfilledFields: { label: string; value: number | string }[] = [];
+          for (const [key, val] of Object.entries(order)) {
+            if (typeof val !== "number" || val <= 0) continue;
+            if (!/Requested$/.test(key)) continue;
+            fulfilledFields.push({ label: FIELD_LABELS[key] || key, value: val });
+          }
+
+          const allLocations = await storage.getLocations();
+          const dest = allLocations.find(
+            l => l.name.trim().toLowerCase() === orderLocation.toLowerCase(),
+          );
+          const recipients = new Set<string>();
+          const locEmail = dest?.notificationEmail?.trim();
+          if (locEmail) recipients.add(locEmail.toLowerCase());
+
+          // Also notify the original submitter when their stored value looks
+          // like an email address (some submitters are saved by name only).
+          const submittedBy = String(order.submittedBy || "").trim();
+          if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submittedBy)) {
+            recipients.add(submittedBy.toLowerCase());
+          }
+
+          if (recipients.size === 0) {
+            console.log(`[Orders] No fulfillment notification email available for "${orderLocation}" (order #${id})`);
+            return;
+          }
+
+          const fulfilledAt = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
+          const orderDateRaw = order.orderDate;
+          const orderDate = orderDateRaw
+            ? new Date(orderDateRaw as string).toLocaleDateString("en-US", { timeZone: "America/New_York" })
+            : "";
+          await Promise.all(
+            Array.from(recipients).map(addr =>
+              sendOrderFulfilledEmail(addr, {
+                orderId: id,
+                orderDate,
+                orderType: String(order.orderType || ""),
+                location: orderLocation,
+                fulfilledBy,
+                fulfilledAt,
+                fulfilledFields,
+                notes: order.notes ? String(order.notes) : null,
+                appUrl: "https://goodshift.goodwillgoodskills.org",
+              }),
+            ),
+          );
+        } catch (e) {
+          console.error("[Orders] Failed to send fulfillment email:", e);
+        }
+      })();
     } catch (err) {
       console.error("[Orders] Error fulfilling order:", err);
       res.status(500).json({ message: "Failed to fulfill order" });

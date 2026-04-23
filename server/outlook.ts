@@ -375,6 +375,109 @@ export async function sendOrderConfirmationEmail(
   }
 }
 
+// Order fulfilled notification (sent to requesting store when warehouse marks fulfilled)
+export interface OrderFulfilledEmailData {
+  orderId: number;
+  orderDate: string;
+  orderType: string;
+  location: string;
+  fulfilledBy: string;
+  fulfilledAt: string;
+  fulfilledFields: { label: string; value: number | string }[];
+  notes: string | null;
+  appUrl: string;
+}
+
+export async function sendOrderFulfilledEmail(
+  toEmail: string,
+  data: OrderFulfilledEmailData
+): Promise<boolean> {
+  const subject = `GoodShift: Order Fulfilled - ${data.location} (${data.orderDate})`;
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for order fulfilled notification');
+      return false;
+    }
+
+    const fieldsHtml = data.fulfilledFields.length
+      ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Items Fulfilled</h3>
+         <table style="width: 100%; border-collapse: collapse;">
+           ${data.fulfilledFields.map(f =>
+             `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${f.label}</td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-weight: 500; text-align: right;">${f.value}</td></tr>`
+           ).join("")}
+         </table>`
+      : "";
+
+    const notesHtml = data.notes
+      ? `<div style="background-color: #f9fafb; border-left: 4px solid #6b7280; padding: 12px 16px; margin: 16px 0;"><strong>Notes:</strong><br>${data.notes}</div>`
+      : "";
+
+    const emailBody = `
+<html>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <div style="background-color: #16a34a; color: white; padding: 15px 20px; border-radius: 4px 4px 0 0;">
+      <h2 style="margin: 0;">Order Fulfilled</h2>
+    </div>
+    <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; background-color: #ffffff;">
+      <p>The warehouse has marked your order as <strong>fulfilled</strong>. The items below are on their way or ready for pickup.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Order Date:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.orderDate}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.orderType}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.location}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Fulfilled By:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.fulfilledBy}</td></tr>
+        <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Fulfilled At:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${data.fulfilledAt}</td></tr>
+      </table>
+
+      ${fieldsHtml}
+      ${notesHtml}
+
+      <p style="margin-top: 20px;">
+        <a href="${data.appUrl}/orders" style="display: inline-block; background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+          View Order
+        </a>
+      </p>
+
+      <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+        This is an automated notification from GoodShift. Please do not reply to this email.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+
+    const message = {
+      subject,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+      ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
+    };
+
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent order fulfilled notification to ${toEmail} for order #${data.orderId}`);
+    await storage.createEmailLog({
+      type: "order_fulfilled",
+      recipientEmail: toEmail,
+      subject,
+      status: "sent",
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return true;
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send order fulfilled notification:', error);
+    void storage.createEmailLog({
+      type: "order_fulfilled",
+      recipientEmail: toEmail,
+      subject,
+      status: "failed",
+      error: error?.message || String(error),
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return false;
+  }
+}
+
 // Shift trade notification email
 export interface TradeNotificationEmailData {
   recipientName: string;

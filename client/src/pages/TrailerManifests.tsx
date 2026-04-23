@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Plus, Truck, MapPin, ArrowRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { TrailerManifest, TrailerManifestStatus } from "@shared/schema";
+import type { TrailerManifest, TrailerManifestStatus, TruckRoute, TruckRouteWithStops } from "@shared/schema";
 import { TRAILER_MANIFEST_STATUSES } from "@shared/schema";
 import { useLocations } from "@/hooks/use-locations";
 import { isValidLocation } from "@/lib/utils";
@@ -42,6 +42,7 @@ export default function TrailerManifests() {
   const [form, setForm] = useState({
     fromLocation: "",
     toLocation: "",
+    routeId: "" as string, // empty = no configured route attached
     routeNumber: "",
     trailerNumber: "",
     sealNumber: "",
@@ -51,6 +52,14 @@ export default function TrailerManifests() {
 
   const { data: locations = [] } = useLocations();
   const sortedLocations = locations.slice().filter(isValidLocation).sort((a, b) => a.name.localeCompare(b.name));
+
+  const { data: routes = [] } = useQuery<TruckRoute[]>({ queryKey: ["/api/truck-routes"] });
+  const activeRoutes = routes.filter(r => r.isActive);
+  const selectedRouteId = form.routeId ? Number(form.routeId) : null;
+  const { data: selectedRoute } = useQuery<TruckRouteWithStops>({
+    queryKey: ["/api/truck-routes", selectedRouteId],
+    enabled: selectedRouteId !== null,
+  });
 
   const { data: manifests = [], isLoading, isError, error } = useQuery<TrailerManifest[]>({
     queryKey: ["/api/trailer-manifests", statusFilter],
@@ -80,7 +89,9 @@ export default function TrailerManifests() {
   const createMutation = useMutation({
     mutationFn: async (input: typeof form) => {
       const payload = {
-        ...input,
+        fromLocation: input.fromLocation,
+        toLocation: input.toLocation,
+        routeId: input.routeId ? Number(input.routeId) : null,
         routeNumber: input.routeNumber || null,
         trailerNumber: input.trailerNumber || null,
         sealNumber: input.sealNumber || null,
@@ -94,7 +105,7 @@ export default function TrailerManifests() {
       queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
       toast({ title: "Manifest created" });
       setCreateOpen(false);
-      setForm({ fromLocation: "", toLocation: "", routeNumber: "", trailerNumber: "", sealNumber: "", driverName: "", notes: "" });
+      setForm({ fromLocation: "", toLocation: "", routeId: "", routeNumber: "", trailerNumber: "", sealNumber: "", driverName: "", notes: "" });
       setLocation(`/trailer-manifests/${created.id}`);
     },
     onError: (err: any) => {
@@ -180,7 +191,41 @@ export default function TrailerManifests() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>Route number</Label>
+                    <Label>Route</Label>
+                    <Select
+                      value={form.routeId || "none"}
+                      onValueChange={(v) => {
+                        if (v === "none") {
+                          setForm({ ...form, routeId: "" });
+                        } else {
+                          const r = activeRoutes.find(rr => String(rr.id) === v);
+                          setForm({ ...form, routeId: v, routeNumber: r?.name || form.routeNumber });
+                        }
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-route">
+                        <SelectValue placeholder="No configured route" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No configured route</SelectItem>
+                        {activeRoutes.map(r => (
+                          <SelectItem key={r.id} value={String(r.id)} data-testid={`select-route-option-${r.id}`}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedRoute && selectedRoute.stops.length > 0 && (
+                      <p className="text-xs text-muted-foreground" data-testid="text-route-stops-preview">
+                        Notifies: {selectedRoute.stops.map(s => s.locationName).join(", ")}
+                      </p>
+                    )}
+                    {selectedRoute && selectedRoute.stops.length === 0 && (
+                      <p className="text-xs text-destructive">This route has no stops yet — no one will be notified.</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Route number / label</Label>
                     <Input
                       value={form.routeNumber}
                       onChange={e => setForm({ ...form, routeNumber: e.target.value })}
@@ -188,6 +233,8 @@ export default function TrailerManifests() {
                       data-testid="input-route-number"
                     />
                   </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Trailer number</Label>
                     <Input

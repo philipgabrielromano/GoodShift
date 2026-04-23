@@ -847,10 +847,44 @@ export const TRAILER_MANIFEST_CATEGORIES: { group: string; items: string[] }[] =
 export const TRAILER_MANIFEST_STATUSES = ["loading", "in_transit", "delivered", "closed"] as const;
 export type TrailerManifestStatus = (typeof TRAILER_MANIFEST_STATUSES)[number];
 
+export const truckRoutes = pgTable("truck_routes", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const truckRouteLocations = pgTable("truck_route_locations", {
+  id: serial("id").primaryKey(),
+  routeId: integer("route_id").notNull(),
+  locationId: integer("location_id").notNull(),
+  sequence: integer("sequence").notNull().default(0),
+}, (table) => [
+  index("idx_truck_route_locations_route_id").on(table.routeId),
+]);
+
+export const insertTruckRouteSchema = createInsertSchema(truckRoutes).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+}).extend({
+  name: z.string().trim().min(1, "Route name is required").max(120),
+  description: z.string().trim().max(500).nullable().optional(),
+});
+export type TruckRoute = typeof truckRoutes.$inferSelect;
+export type InsertTruckRoute = z.infer<typeof insertTruckRouteSchema>;
+export type TruckRouteLocation = typeof truckRouteLocations.$inferSelect;
+export type TruckRouteWithStops = TruckRoute & {
+  stops: Array<{ id: number; locationId: number; sequence: number; locationName: string; notificationEmail: string | null }>;
+};
+
 export const trailerManifests = pgTable("trailer_manifests", {
   id: serial("id").primaryKey(),
   fromLocation: text("from_location").notNull(),
   toLocation: text("to_location").notNull(),
+  routeId: integer("route_id"),
   routeNumber: text("route_number"),
   trailerNumber: text("trailer_number"),
   sealNumber: text("seal_number"),

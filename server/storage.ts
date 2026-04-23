@@ -25,6 +25,8 @@ import {
   taskAssignments, type TaskAssignment, type InsertTaskAssignment,
   customTasks, type CustomTask, type InsertCustomTask,
   trailerManifests, type TrailerManifest, type InsertTrailerManifest,
+  truckRoutes, type TruckRoute, type InsertTruckRoute, type TruckRouteWithStops,
+  truckRouteLocations,
   trailerManifestItems, type TrailerManifestItem,
   trailerManifestEvents, type TrailerManifestEvent,
   trailerManifestPhotos, type TrailerManifestPhoto, type InsertTrailerManifestPhoto,
@@ -289,6 +291,15 @@ export interface IStorage {
   createDriverInspection(inspection: InsertDriverInspection & { driverId?: number | null; driverName?: string | null; anyRepairsNeeded?: boolean; openRepairCount?: number }): Promise<DriverInspection>;
   updateDriverInspectionItems(id: number, items: DriverInspectionItem[], openRepairCount: number): Promise<DriverInspection | undefined>;
   deleteDriverInspection(id: number): Promise<void>;
+
+  // Truck Routes
+  getTruckRoutes(): Promise<TruckRoute[]>;
+  getTruckRoute(id: number): Promise<TruckRoute | undefined>;
+  getTruckRouteWithStops(id: number): Promise<TruckRouteWithStops | undefined>;
+  createTruckRoute(input: InsertTruckRoute): Promise<TruckRoute>;
+  updateTruckRoute(id: number, input: Partial<InsertTruckRoute>): Promise<TruckRoute>;
+  deleteTruckRoute(id: number): Promise<void>;
+  setTruckRouteStops(routeId: number, locationIds: number[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -640,6 +651,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTrailerManifest(input: InsertTrailerManifest, user: { id: number; name: string }): Promise<TrailerManifest> {
+    if (input.routeId != null) {
+      const [r] = await db.select({ id: truckRoutes.id }).from(truckRoutes).where(eq(truckRoutes.id, input.routeId));
+      if (!r) throw new Error(`Unknown routeId: ${input.routeId}`);
+    }
     const [created] = await db.insert(trailerManifests).values({
       ...input,
       createdById: user.id,
@@ -662,6 +677,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTrailerManifest(id: number, input: Partial<InsertTrailerManifest>): Promise<TrailerManifest> {
+    if (input.routeId != null) {
+      const [r] = await db.select({ id: truckRoutes.id }).from(truckRoutes).where(eq(truckRoutes.id, input.routeId));
+      if (!r) throw new Error(`Unknown routeId: ${input.routeId}`);
+    }
     const [updated] = await db.update(trailerManifests)
       .set({ ...input, updatedAt: new Date() })
       .where(eq(trailerManifests.id, id))
@@ -686,6 +705,122 @@ export class DatabaseStorage implements IStorage {
     await db.delete(trailerManifestEvents).where(eq(trailerManifestEvents.manifestId, id));
     await db.delete(trailerManifestItems).where(eq(trailerManifestItems.manifestId, id));
     await db.delete(trailerManifests).where(eq(trailerManifests.id, id));
+  }
+
+  // Truck Routes
+  async getTruckRoutes(): Promise<TruckRoute[]> {
+    return await db.select().from(truckRoutes).orderBy(desc(truckRoutes.isActive), truckRoutes.name);
+  }
+
+  async getTruckRoute(id: number): Promise<TruckRoute | undefined> {
+    const [r] = await db.select().from(truckRoutes).where(eq(truckRoutes.id, id));
+    return r;
+  }
+
+  async getTruckRouteWithStops(id: number): Promise<TruckRouteWithStops | undefined> {
+    const route = await this.getTruckRoute(id);
+    if (!route) return undefined;
+    const stopRows = await db
+      .select({
+        id: truckRouteLocations.id,
+        locationId: truckRouteLocations.locationId,
+        sequence: truckRouteLocations.sequence,
+        locationName: locations.name,
+        notificationEmail: locations.notificationEmail,
+      })
+      .from(truckRouteLocations)
+      .leftJoin(locations, eq(truckRouteLocations.locationId, locations.id))
+      .where(eq(truckRouteLocations.routeId, id))
+      .orderBy(truckRouteLocations.sequence, truckRouteLocations.id);
+    return {
+      ...route,
+      stops: stopRows.map(s => ({
+        id: s.id,
+        locationId: s.locationId,
+        sequence: s.sequence,
+        locationName: s.locationName ?? `(deleted location #${s.locationId})`,
+        notificationEmail: s.notificationEmail ?? null,
+      })),
+    };
+  }
+
+  async createTruckRoute(input: InsertTruckRoute): Promise<TruckRoute> {
+    const [created] = await db.insert(truckRoutes).values(input).returning();
+    return created;
+  }
+
+  async updateTruckRoute(id: number, input: Partial<InsertTruckRoute>): Promise<TruckRoute> {
+    const [updated] = await db
+      .update(truckRoutes)
+      .set({ ...input, updatedAt: new Date() })
+      .where(eq(truckRoutes.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTruckRoute(id: number): Promise<void> {
+    await db.transaction(async (tx) => {
+      const inUse = await tx
+        .select({ id: trailerManifests.id })
+        .from(trailerManifests)
+        .where(eq(trailerManifests.routeId, id))
+        .limit(1);
+      if (inUse.length > 0) {
+        throw new Error("Route is referenced by one or more trailer manifests");
+      }
+      await tx.delete(truckRouteLocations).where(eq(truckRouteLocations.routeId, id));
+      await tx.delete(truckRoutes).where(eq(truckRoutes.id, id));
+    });
+  }
+
+  async setTruckRouteStops(routeId: number, locationIds: number[]): Promise<void> {
+    // Dedup while preserving order.
+    const seen = new Set<number>();
+    const normalized: number[] = [];
+    for (const id of locationIds) {
+      if (!Number.isInteger(id) || id <= 0) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      normalized.push(id);
+    }
+
+    await db.transaction(async (tx) => {
+      // Validate referenced locations exist.
+      if (normalized.length > 0) {
+        const found = await tx
+          .select({ id: locations.id })
+          .from(locations)
+          .where(inArray(locations.id, normalized));
+        const foundIds = new Set(found.map(r => r.id));
+        const missing = normalized.filter(id => !foundIds.has(id));
+        if (missing.length > 0) {
+          throw new Error(`Unknown location id(s): ${missing.join(", ")}`);
+        }
+      }
+
+      // Idempotent: no-op when current stop sequence already matches.
+      const current = await tx
+        .select({ locationId: truckRouteLocations.locationId, sequence: truckRouteLocations.sequence })
+        .from(truckRouteLocations)
+        .where(eq(truckRouteLocations.routeId, routeId))
+        .orderBy(truckRouteLocations.sequence);
+      const currentIds = current.map(r => r.locationId);
+      const same =
+        currentIds.length === normalized.length &&
+        currentIds.every((id, i) => id === normalized[i]);
+      if (same) return;
+
+      await tx.delete(truckRouteLocations).where(eq(truckRouteLocations.routeId, routeId));
+      if (normalized.length > 0) {
+        const rows = normalized.map((locationId, idx) => ({
+          routeId,
+          locationId,
+          sequence: idx,
+        }));
+        await tx.insert(truckRouteLocations).values(rows);
+      }
+      await tx.update(truckRoutes).set({ updatedAt: new Date() }).where(eq(truckRoutes.id, routeId));
+    });
   }
 
   async getTrailerManifestItems(manifestId: number): Promise<TrailerManifestItem[]> {

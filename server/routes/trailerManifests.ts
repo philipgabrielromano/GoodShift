@@ -91,8 +91,11 @@ export function registerTrailerManifestRoutes(app: Express) {
       const input = createSchema.parse(req.body);
       const created = await storage.createTrailerManifest(input, user);
       res.status(201).json(created);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (typeof err?.message === "string" && err.message.startsWith("Unknown routeId")) {
+        return res.status(400).json({ message: err.message });
+      }
       console.error("[TrailerManifests] Create error:", err);
       res.status(500).json({ message: "Failed to create manifest" });
     }
@@ -110,8 +113,11 @@ export function registerTrailerManifestRoutes(app: Express) {
       const input = updateSchema.parse(req.body);
       const updated = await storage.updateTrailerManifest(id, input);
       res.json(updated);
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      if (typeof err?.message === "string" && err.message.startsWith("Unknown routeId")) {
+        return res.status(400).json({ message: err.message });
+      }
       console.error("[TrailerManifests] Update error:", err);
       res.status(500).json({ message: "Failed to update manifest" });
     }
@@ -127,19 +133,13 @@ export function registerTrailerManifestRoutes(app: Express) {
       const updated = await storage.setTrailerManifestStatus(id, status);
       res.json(updated);
 
-      // Send notification email to destination store on transition to in_transit
+      // Send notification email(s) when manifest transitions to in_transit.
+      // If a configured truck route is attached, notify every stop on the
+      // route (so all stores along the run know a truck is on the way).
+      // Otherwise fall back to notifying just the destination store.
       if (status === "in_transit" && existing.status !== "in_transit") {
         void (async () => {
           try {
-            const allLocations = await storage.getLocations();
-            const dest = allLocations.find(
-              l => l.name.trim().toLowerCase() === updated.toLocation.trim().toLowerCase(),
-            );
-            const toEmail = dest?.notificationEmail?.trim();
-            if (!toEmail) {
-              console.log(`[TrailerManifests] No notification email configured for destination "${updated.toLocation}"; skipping email`);
-              return;
-            }
             const items = await storage.getTrailerManifestItems(id);
             const itemSummary = items
               .filter(i => i.qty > 0)
@@ -147,21 +147,64 @@ export function registerTrailerManifestRoutes(app: Express) {
             const departedAt = updated.departedAt
               ? new Date(updated.departedAt).toLocaleString("en-US", { timeZone: "America/New_York" })
               : new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
-            await sendTrailerInTransitEmail(toEmail, {
-              manifestId: updated.id,
-              fromLocation: updated.fromLocation,
-              toLocation: updated.toLocation,
-              routeNumber: updated.routeNumber,
-              trailerNumber: updated.trailerNumber,
-              sealNumber: updated.sealNumber,
-              driverName: updated.driverName,
-              itemSummary,
-              notes: updated.notes,
-              departedAt,
-              appUrl: "https://goodshift.goodwillgoodskills.org",
+
+            type Recipient = { email: string; locationName: string };
+            const recipients: Recipient[] = [];
+
+            if (updated.routeId) {
+              const route = await storage.getTruckRouteWithStops(updated.routeId);
+              if (route) {
+                for (const stop of route.stops) {
+                  const email = stop.notificationEmail?.trim();
+                  if (email) recipients.push({ email, locationName: stop.locationName });
+                }
+              }
+            }
+
+            if (recipients.length === 0) {
+              const allLocations = await storage.getLocations();
+              const dest = allLocations.find(
+                l => l.name.trim().toLowerCase() === updated.toLocation.trim().toLowerCase(),
+              );
+              const toEmail = dest?.notificationEmail?.trim();
+              if (toEmail) {
+                recipients.push({ email: toEmail, locationName: updated.toLocation });
+              }
+            }
+
+            if (recipients.length === 0) {
+              console.log(`[TrailerManifests] No notification email available for manifest #${id}; skipping email`);
+              return;
+            }
+
+            // Dedup by email (case-insensitive) in case a route lists a store twice
+            const seen = new Set<string>();
+            const unique = recipients.filter(r => {
+              const k = r.email.toLowerCase();
+              if (seen.has(k)) return false;
+              seen.add(k);
+              return true;
             });
+
+            await Promise.all(
+              unique.map(r =>
+                sendTrailerInTransitEmail(r.email, {
+                  manifestId: updated.id,
+                  fromLocation: updated.fromLocation,
+                  toLocation: r.locationName,
+                  routeNumber: updated.routeNumber,
+                  trailerNumber: updated.trailerNumber,
+                  sealNumber: updated.sealNumber,
+                  driverName: updated.driverName,
+                  itemSummary,
+                  notes: updated.notes,
+                  departedAt,
+                  appUrl: "https://goodshift.goodwillgoodskills.org",
+                }),
+              ),
+            );
           } catch (e) {
-            console.error("[TrailerManifests] Failed to send in-transit email:", e);
+            console.error("[TrailerManifests] Failed to send in-transit email(s):", e);
           }
         })();
       }
