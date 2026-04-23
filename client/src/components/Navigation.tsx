@@ -75,19 +75,22 @@ export function Navigation() {
     if (can("optimization.view")) development.push({ href: "/optimization", label: "Store Optimization", icon: Target });
     if (development.length) built.push({ id: "development", label: "Development", items: development });
 
-    const orders: NavItem[] = [];
-    if (can("orders.submit")) orders.push({ href: "/orders/new", label: "Order Form", icon: PackageOpen });
-    if (can("orders.view_all")) orders.push({ href: "/orders", label: "Order Submissions", icon: FileText });
-    if (can("seasonal_inventory.view")) orders.push({ href: "/seasonal-inventory", label: "Seasonal Inventory", icon: PackageOpen });
-    if (can("trailer_manifest.view")) orders.push({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck });
-    if (can("truck_routes.edit")) orders.push({ href: "/truck-routes", label: "Truck Routes", icon: Truck });
-    if (can("trailers.view")) orders.push({ href: "/trailers", label: "Trailers", icon: Truck });
-    if (can("warehouse_inventory.view")) orders.push({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse });
-    if (can("credit_card_inspection.submit")) orders.push({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard });
-    if (can("credit_card_inspection.view_all")) orders.push({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard });
-    if (can("driver_inspection.submit")) orders.push({ href: "/driver-inspection/new", label: "Driver Inspection", icon: ClipboardList });
-    if (can("driver_inspection.view_all")) orders.push({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck });
-    if (orders.length) built.push({ id: "orders", label: "Ordering and Logging", items: orders });
+    const logistics: NavItem[] = [];
+    if (can("orders.submit")) logistics.push({ href: "/orders/new", label: "Order Form", icon: PackageOpen });
+    if (can("orders.view_all")) logistics.push({ href: "/orders", label: "Order Submissions", icon: FileText });
+    if (can("seasonal_inventory.view")) logistics.push({ href: "/seasonal-inventory", label: "Seasonal Inventory", icon: PackageOpen });
+    if (can("trailer_manifest.view")) logistics.push({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck });
+    if (can("truck_routes.edit")) logistics.push({ href: "/truck-routes", label: "Truck Routes", icon: Truck });
+    if (can("trailers.view")) logistics.push({ href: "/trailers", label: "Trailers", icon: Truck });
+    if (can("warehouse_inventory.view")) logistics.push({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse });
+    if (can("driver_inspection.submit")) logistics.push({ href: "/driver-inspection/new", label: "Driver Inspection", icon: ClipboardList });
+    if (can("driver_inspection.view_all")) logistics.push({ href: "/driver-inspections", label: "Driver Inspections", icon: Truck });
+    if (logistics.length) built.push({ id: "logistics", label: "Logistics", items: logistics });
+
+    const logging: NavItem[] = [];
+    if (can("credit_card_inspection.submit")) logging.push({ href: "/credit-card-inspection/new", label: "CC Inspection Form", icon: CreditCard });
+    if (can("credit_card_inspection.view_all")) logging.push({ href: "/credit-card-inspections", label: "CC Inspections", icon: CreditCard });
+    if (logging.length) built.push({ id: "logging", label: "Logging", items: logging });
 
     // Inventory (always visible — external links)
     built.push({
