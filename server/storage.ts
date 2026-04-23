@@ -154,6 +154,7 @@ export interface IStorage {
   reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount>;
   deleteWarehouseInventoryCount(id: number): Promise<void>;
   getWarehouseInventoryAudits(countId: number): Promise<WarehouseInventoryAudit[]>;
+  exportWarehouseInventoryAudits(filters?: { warehouse?: string; from?: string; to?: string }): Promise<Array<WarehouseInventoryAudit & { warehouse: string | null; countDate: string | null }>>;
   // Warehouse transfers
   getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number; createdById?: number; createdByName?: string }): Promise<WarehouseTransfer[]>;
   createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
@@ -1054,6 +1055,38 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(warehouseInventoryAudits)
       .where(eq(warehouseInventoryAudits.countId, countId))
       .orderBy(desc(warehouseInventoryAudits.changedAt), desc(warehouseInventoryAudits.id));
+  }
+
+  async exportWarehouseInventoryAudits(filters?: { warehouse?: string; from?: string; to?: string }): Promise<Array<WarehouseInventoryAudit & { warehouse: string | null; countDate: string | null }>> {
+    // Inclusive date range on changedAt, interpreted in UTC for consistency
+    // with exportWarehouseTransferAudits:
+    //   from = start of `from` day (UTC, inclusive)
+    //   to   = start of day AFTER `to` (UTC, exclusive) → so `to` itself is included
+    const conds: SQL[] = [];
+    if (filters?.from) {
+      conds.push(gte(warehouseInventoryAudits.changedAt, new Date(filters.from + "T00:00:00.000Z")));
+    }
+    if (filters?.to) {
+      const toStart = new Date(filters.to + "T00:00:00.000Z");
+      const toExclusive = new Date(toStart.getTime() + 86_400_000);
+      conds.push(lt(warehouseInventoryAudits.changedAt, toExclusive));
+    }
+    if (filters?.warehouse) {
+      conds.push(eq(warehouseInventoryCounts.warehouse, filters.warehouse));
+    }
+    const baseQuery = db.select({
+      audit: warehouseInventoryAudits,
+      warehouse: warehouseInventoryCounts.warehouse,
+      countDate: warehouseInventoryCounts.countDate,
+    })
+      .from(warehouseInventoryAudits)
+      .leftJoin(warehouseInventoryCounts, eq(warehouseInventoryAudits.countId, warehouseInventoryCounts.id));
+    const filtered = conds.length > 0 ? baseQuery.where(and(...conds)) : baseQuery;
+    const rows = await filtered.orderBy(
+      desc(warehouseInventoryAudits.changedAt),
+      desc(warehouseInventoryAudits.id),
+    );
+    return rows.map(r => ({ ...r.audit, warehouse: r.warehouse ?? null, countDate: r.countDate ?? null }));
   }
 
   // Warehouse transfers

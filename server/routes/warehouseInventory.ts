@@ -509,6 +509,53 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     }
   });
 
+  // Admin-only: export the warehouse-count audit trail to CSV. Optional
+  // filters: warehouse, from/to (YYYY-MM-DD on changedAt). Mirrors the
+  // shape of /api/warehouse-transfer-audits/export.csv. Mounted BEFORE
+  // the /:id routes so the literal path doesn't get parsed as an id.
+  app.get("/api/warehouse-inventory/audit-log.csv", async (req, res) => {
+    try {
+      const user = getSessionUser(req);
+      if (!user) return res.status(401).json({ message: "Authentication required" });
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Only admins can export the inventory audit log" });
+      }
+      const rawWarehouse = typeof req.query.warehouse === "string" ? req.query.warehouse : undefined;
+      const warehouse: Warehouse | undefined = rawWarehouse && (WAREHOUSES as readonly string[]).includes(rawWarehouse)
+        ? (rawWarehouse as Warehouse)
+        : undefined;
+      const from = typeof req.query.from === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from) ? req.query.from : undefined;
+      const to = typeof req.query.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to) ? req.query.to : undefined;
+      const rows = await storage.exportWarehouseInventoryAudits({ warehouse, from, to });
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="warehouse-inventory-audits-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      res.write(["Date/Time", "User", "Action", "Warehouse", "CountDate", "CountId", "Item", "Qty before", "Qty after"].join(",") + "\n");
+      for (const r of rows) {
+        const ch = (r.changes ?? {}) as Record<string, { before: unknown; after: unknown }>;
+        const qtyBefore = ch?.qty?.before;
+        const qtyAfter = ch?.qty?.after;
+        res.write([
+          csvSafe(new Date(r.changedAt).toISOString()),
+          csvSafe(r.changedByName ?? ""),
+          csvSafe(r.action),
+          csvSafe(r.warehouse ?? ""),
+          csvSafe(r.countDate ?? ""),
+          String(r.countId),
+          csvSafe(r.itemName ?? ""),
+          qtyBefore == null ? "" : csvSafe(String(qtyBefore)),
+          qtyAfter == null ? "" : csvSafe(String(qtyAfter)),
+        ].join(",") + "\n");
+      }
+      res.end();
+    } catch (err) {
+      console.error("[WarehouseInventory] Audit CSV export error:", err);
+      res.status(500).json({ message: "Failed to export inventory audits" });
+    }
+  });
+
   // CSV export for leadership
   app.get("/api/warehouse-inventory/export.csv", requireAccess, async (req, res) => {
     try {

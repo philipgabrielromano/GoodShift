@@ -207,6 +207,60 @@ export default function WarehouseInventoryDetail() {
 
   const priorTotal = (data?.priorItems || []).reduce((a, b) => a + b.qty, 0);
 
+  const handleExportEditLog = async () => {
+    if (!data) return;
+    const c = data.count;
+    const esc = (v: unknown) => {
+      let s = v == null ? "" : String(v);
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    let entries: CountAuditEntry[] = [];
+    try {
+      entries = await queryClient.fetchQuery<CountAuditEntry[]>({
+        queryKey: ["/api/warehouse-inventory", id, "history"],
+        queryFn: HISTORY_QUERY_FN,
+      });
+    } catch (err: any) {
+      toast({ title: "Download failed", description: err?.message || "Could not load edit log", variant: "destructive" });
+      return;
+    }
+    // Oldest-first reads more naturally as an audit trail.
+    const ordered = [...entries].sort(
+      (a, b) => new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime(),
+    );
+    const lines: string[] = [];
+    lines.push(`# Warehouse count edit log`);
+    lines.push(`# Warehouse,${esc(titleCase(c.warehouse))}`);
+    lines.push(`# Count date,${esc(c.countDate)}`);
+    lines.push(`# Count id,${esc(c.id)}`);
+    lines.push(`# Exported at,${esc(new Date().toISOString())}`);
+    lines.push("");
+    lines.push(["Date/Time", "User", "Action", "Item", "Qty before", "Qty after"].join(","));
+    ordered.forEach(a => {
+      const qtyDiff = a.changes?.qty as { before: unknown; after: unknown } | undefined;
+      lines.push([
+        esc(new Date(a.changedAt).toISOString()),
+        esc(a.changedByName || ""),
+        esc(a.action),
+        esc(a.itemName || ""),
+        qtyDiff?.before == null ? "" : esc(String(qtyDiff.before)),
+        qtyDiff?.after == null ? "" : esc(String(qtyDiff.after)),
+      ].join(","));
+    });
+    const csv = lines.join("\r\n") + "\r\n";
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeWarehouse = c.warehouse.replace(/[^a-z0-9-]+/gi, "-");
+    a.download = `warehouse-count-edit-log-${safeWarehouse}-${c.countDate}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportCsv = () => {
     if (!data) return;
     const c = data.count;
@@ -380,6 +434,15 @@ export default function WarehouseInventoryDetail() {
           <Button variant="outline" onClick={handleExportCsv} data-testid="button-export-csv">
             <Download className="w-4 h-4 mr-2" />
             Download CSV
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleExportEditLog}
+            data-testid="button-export-edit-log"
+            title="Download the audit trail of edits, finalize, and reopen events for this count"
+          >
+            <HistoryIcon className="w-4 h-4 mr-2" />
+            Download edit log
           </Button>
           {(() => {
             const hasRecipients = data.hasEmailRecipients !== false;
