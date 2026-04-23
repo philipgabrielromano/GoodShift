@@ -135,8 +135,13 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const warehouse = typeof req.query.warehouse === "string" ? req.query.warehouse : undefined;
       const from = typeof req.query.from === "string" ? req.query.from : undefined;
       const to = typeof req.query.to === "string" ? req.query.to : undefined;
+      const createdByName = typeof req.query.createdByName === "string" && req.query.createdByName.trim()
+        ? req.query.createdByName.trim()
+        : undefined;
+      const createdByIdRaw = typeof req.query.createdById === "string" ? parseInt(req.query.createdById, 10) : NaN;
+      const createdById = Number.isFinite(createdByIdRaw) && createdByIdRaw > 0 ? createdByIdRaw : undefined;
       const limit = Math.min(500, Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100));
-      const rows = await storage.getWarehouseTransfers({ warehouse, from, to, limit });
+      const rows = await storage.getWarehouseTransfers({ warehouse, from, to, limit, createdById, createdByName });
       res.json(rows);
     } catch (err) {
       console.error("[WarehouseTransfers] List error:", err);

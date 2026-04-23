@@ -121,14 +121,48 @@ export default function WarehouseInventory() {
     setTransferForm(f => ({ ...f, transferDate: meta.today, itemName: meta.categories[0]?.items[0] || "" }));
   }
 
-  const transfersQuery = useQuery<Array<{ id: number; warehouse: string; transferDate: string; itemName: string; qty: number; reason: string; counterpartyWarehouse: string | null; transferGroupId: string | null; notes: string | null; createdByName: string | null; createdAt: string | null; updatedByName: string | null; updatedAt: string | null }>>({
-    queryKey: ["/api/warehouse-transfers"],
+  const [transferFilters, setTransferFilters] = useState({
+    warehouse: "all",
+    createdByName: "all",
+    from: "",
+    to: "",
+  });
+
+  // Unfiltered query used to populate the "Recorded by" dropdown so the list of
+  // names doesn't shrink as users apply filters. Limited to a generous slice of
+  // recent rows (matches the list endpoint default cap).
+  const allTransfersQuery = useQuery<Array<{ createdByName: string | null }>>({
+    queryKey: ["/api/warehouse-transfers", "all-names"],
     queryFn: async () => {
-      const res = await fetch("/api/warehouse-transfers?limit=50", { credentials: "include" });
+      const res = await fetch("/api/warehouse-transfers?limit=500", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load transfers");
       return res.json();
     },
   });
+  const recordedByOptions = Array.from(new Set(
+    (allTransfersQuery.data || [])
+      .map(t => t.createdByName)
+      .filter((n): n is string => !!n && n.trim().length > 0),
+  )).sort((a, b) => a.localeCompare(b));
+
+  const transfersQuery = useQuery<Array<{ id: number; warehouse: string; transferDate: string; itemName: string; qty: number; reason: string; counterpartyWarehouse: string | null; transferGroupId: string | null; notes: string | null; createdByName: string | null; createdAt: string | null; updatedByName: string | null; updatedAt: string | null }>>({
+    queryKey: ["/api/warehouse-transfers", transferFilters],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      if (transferFilters.warehouse !== "all") params.set("warehouse", transferFilters.warehouse);
+      if (transferFilters.createdByName !== "all") params.set("createdByName", transferFilters.createdByName);
+      if (transferFilters.from) params.set("from", transferFilters.from);
+      if (transferFilters.to) params.set("to", transferFilters.to);
+      const res = await fetch(`/api/warehouse-transfers?${params.toString()}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load transfers");
+      return res.json();
+    },
+  });
+  const hasActiveFilters = transferFilters.warehouse !== "all"
+    || transferFilters.createdByName !== "all"
+    || !!transferFilters.from
+    || !!transferFilters.to;
 
   const transferMutation = useMutation({
     mutationFn: async () => {
@@ -689,10 +723,74 @@ export default function WarehouseInventory() {
           </Dialog>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-wrap items-end gap-3 mb-4 pb-4 border-b">
+            <div className="space-y-1">
+              <Label className="text-xs">Warehouse</Label>
+              <Select
+                value={transferFilters.warehouse}
+                onValueChange={v => setTransferFilters(f => ({ ...f, warehouse: v }))}
+              >
+                <SelectTrigger className="w-40 h-9" data-testid="select-filter-warehouse"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All warehouses</SelectItem>
+                  {(meta?.warehouses || []).map(w => (
+                    <SelectItem key={w} value={w} data-testid={`option-filter-warehouse-${w}`}>{titleCase(w)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Recorded by</Label>
+              <Select
+                value={transferFilters.createdByName}
+                onValueChange={v => setTransferFilters(f => ({ ...f, createdByName: v }))}
+              >
+                <SelectTrigger className="w-52 h-9" data-testid="select-filter-created-by"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Anyone</SelectItem>
+                  {recordedByOptions.map(name => (
+                    <SelectItem key={name} value={name} data-testid={`option-filter-created-by-${name}`}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">From</Label>
+              <Input
+                type="date"
+                className="w-40 h-9"
+                value={transferFilters.from}
+                onChange={e => setTransferFilters(f => ({ ...f, from: e.target.value }))}
+                data-testid="input-filter-from"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">To</Label>
+              <Input
+                type="date"
+                className="w-40 h-9"
+                value={transferFilters.to}
+                onChange={e => setTransferFilters(f => ({ ...f, to: e.target.value }))}
+                data-testid="input-filter-to"
+              />
+            </div>
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setTransferFilters({ warehouse: "all", createdByName: "all", from: "", to: "" })}
+                data-testid="button-clear-filters"
+              >
+                Clear
+              </Button>
+            )}
+          </div>
           {transfersQuery.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading transfers…</div>
           ) : !transfersQuery.data || transfersQuery.data.length === 0 ? (
-            <div className="text-sm text-muted-foreground" data-testid="text-no-transfers">No transfers recorded yet.</div>
+            <div className="text-sm text-muted-foreground" data-testid="text-no-transfers">
+              {hasActiveFilters ? "No transfers match these filters." : "No transfers recorded yet."}
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

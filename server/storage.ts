@@ -152,7 +152,7 @@ export interface IStorage {
   reopenWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount>;
   deleteWarehouseInventoryCount(id: number): Promise<void>;
   // Warehouse transfers
-  getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]>;
+  getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number; createdById?: number; createdByName?: string }): Promise<WarehouseTransfer[]>;
   createWarehouseTransfer(input: InsertWarehouseTransfer, user: { id: number; name: string }): Promise<WarehouseTransfer>;
   createPairedWarehouseTransfer(input: { fromWarehouse: string; toWarehouse: string; transferDate: string; itemName: string; groupName: string; qty: number; notes?: string | null }, user: { id: number; name: string }): Promise<WarehouseTransfer[]>;
   updateWarehouseTransfer(id: number, input: { notes?: string | null; transferDate?: string }, user: { id: number; name: string }): Promise<WarehouseTransfer>;
@@ -996,11 +996,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Warehouse transfers
-  async getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number }): Promise<WarehouseTransfer[]> {
+  async getWarehouseTransfers(filters?: { warehouse?: string; from?: string; to?: string; limit?: number; createdById?: number; createdByName?: string }): Promise<WarehouseTransfer[]> {
     const conds: any[] = [];
     if (filters?.warehouse) conds.push(eq(warehouseTransfers.warehouse, filters.warehouse));
     if (filters?.from) conds.push(gte(warehouseTransfers.transferDate, filters.from));
     if (filters?.to) conds.push(lte(warehouseTransfers.transferDate, filters.to));
+    if (filters?.createdById != null) conds.push(eq(warehouseTransfers.createdById, filters.createdById));
+    if (filters?.createdByName) conds.push(eq(warehouseTransfers.createdByName, filters.createdByName));
     let q = db.select().from(warehouseTransfers) as any;
     if (conds.length) q = q.where(and(...conds));
     q = q.orderBy(desc(warehouseTransfers.transferDate), desc(warehouseTransfers.id));
