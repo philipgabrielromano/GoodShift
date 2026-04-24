@@ -105,9 +105,15 @@ function NumberField({ label, value, onChange, testId, hint, hintTone }: { label
       <Label className="text-sm">{label}</Label>
       <Input
         type="number"
+        min={0}
         data-testid={testId}
         value={value ?? ""}
-        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+        onChange={(e) => {
+          if (e.target.value === "") return onChange(null);
+          // Counts can never be negative — clamp anything < 0 to 0.
+          const n = Number(e.target.value);
+          onChange(Number.isFinite(n) && n < 0 ? 0 : n);
+        }}
         className="h-9"
       />
       {hint && (
@@ -273,17 +279,33 @@ export default function OrderForm() {
       : 0;
     const adjustedAvailable = balance.available + ownPrior;
     const remaining = adjustedAvailable - requested;
-    const exceeds = requested > adjustedAvailable;
-    const hint = exceeds
-      ? `Only ${adjustedAvailable} on deposit — request exceeds available by ${requested - adjustedAvailable}`
-      : `Available: ${adjustedAvailable} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}, after this request ${remaining})`;
+    // Only flag as "exceeds" when the user actually requested something positive.
+    // A request of 0 (or empty) should never block submit, even if the store is
+    // currently overdrawn (negative available) — they're not asking for more,
+    // so there's nothing to validate against. This matches the server-side rule.
+    const exceeds = requested > 0 && requested > adjustedAvailable;
+    const isOverdrawn = adjustedAvailable < 0;
+    let hint: string;
+    let hintTone: "muted" | "destructive";
+    if (exceeds) {
+      hint = isOverdrawn
+        ? `This store is overdrawn by ${Math.abs(adjustedAvailable)} ${label.toLowerCase()} — none can be requested until more are returned.`
+        : `Only ${adjustedAvailable} on deposit — request exceeds available by ${requested - adjustedAvailable}.`;
+      hintTone = "destructive";
+    } else if (isOverdrawn) {
+      hint = `Overdrawn by ${Math.abs(adjustedAvailable)} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}). Cannot request more in this category until returns catch up.`;
+      hintTone = "destructive";
+    } else {
+      hint = `Available: ${adjustedAvailable} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}, after this request ${remaining}).`;
+      hintTone = "muted";
+    }
     return {
       season,
       field,
       label,
       requested,
       hint,
-      hintTone: exceeds ? ("destructive" as const) : ("muted" as const),
+      hintTone,
       exceeds,
     };
   });
