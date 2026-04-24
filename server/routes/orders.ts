@@ -4,8 +4,58 @@ import { requireFeatureAccess, requireAdmin, userHasFeature } from "../middlewar
 import type { PoolConnection } from "mysql2/promise";
 import { mysqlPool } from "../mysql";
 import { z } from "zod";
-import { sendOrderNotificationEmail, sendOrderConfirmationEmail, sendOrderFulfilledEmail, type OrderNotificationEmailData } from "../outlook";
+import {
+  sendOrderNotificationEmail,
+  sendOrderConfirmationEmail,
+  sendOrderFulfilledEmail,
+  sendOrderApprovedEmail,
+  sendOrderDeniedEmail,
+  type OrderNotificationEmailData,
+} from "../outlook";
 import { storage } from "../storage";
+import { ORDER_STATUSES, type OrderStatus } from "@shared/schema";
+
+// Statuses whose seasonal requests count toward the soft-hold balance shown
+// in the Order Form and enforced at submit time. Denied orders are dropped.
+// "submitted" is included so a store cannot over-request even before an
+// approver acts — the approver sees a true picture of what is reserved.
+const SEASONAL_HOLD_STATUSES: OrderStatus[] = ["submitted", "approved", "received", "closed"];
+
+function getActor(req: { session?: any }): { id: number | null; name: string; email: string | null } {
+  const sess = (req.session as Record<string, { id?: number; name?: string; email?: string }>)?.user;
+  return {
+    id: typeof sess?.id === "number" ? sess.id : null,
+    name: sess?.name || sess?.email || "Unknown",
+    email: sess?.email || null,
+  };
+}
+
+// Writes an audit row to the Postgres `order_events` table. State-change
+// callers (approve/deny/receive/unreceive) MUST `await` this so they can
+// surface a 500 if the audit write fails — we don't want a state change to
+// silently commit without a history row. Best-effort callers (background
+// emails, etc.) can keep using `void`.
+async function logOrderEvent(args: {
+  orderId: number;
+  eventType: "created" | "modified" | "approved" | "denied" | "received" | "unreceived" | "deleted";
+  fromStatus?: OrderStatus | null;
+  toStatus?: OrderStatus | null;
+  byUserId: number | null;
+  byUserName: string;
+  note?: string | null;
+  changes?: Record<string, unknown> | null;
+}): Promise<void> {
+  await storage.createOrderEvent({
+    orderId: args.orderId,
+    eventType: args.eventType,
+    fromStatus: args.fromStatus ?? null,
+    toStatus: args.toStatus ?? null,
+    byUserId: args.byUserId,
+    byUserName: args.byUserName,
+    note: args.note ?? null,
+    changes: (args.changes ?? null) as any,
+  });
+}
 
 const nonNegInt = z.number().int().min(0).nullable().optional();
 
@@ -94,6 +144,12 @@ interface OrderRow extends RowDataPacket {
   submitted_at: string | null;
   fulfilled_at: string | null;
   fulfilled_by: string | null;
+  status: OrderStatus;
+  approved_at: string | null;
+  approved_by: string | null;
+  denied_at: string | null;
+  denied_by: string | null;
+  denial_reason: string | null;
   notes: string | null;
   totes_requested: number | null;
   totes_returned: number | null;
@@ -272,8 +328,18 @@ interface LocationBalance {
 }
 
 async function loadBalances(location?: string): Promise<LocationBalance[]> {
-  const where = location ? "WHERE location = ?" : "";
-  const params = location ? [location] : [];
+  // Only count non-denied orders toward the seasonal balance display.
+  // Denied orders never reserved anything; submitted orders are a soft hold
+  // so the store cannot keep stacking pending requests against the same
+  // deposit before the approver acts.
+  const statusPlaceholders = SEASONAL_HOLD_STATUSES.map(() => "?").join(",");
+  const conds: string[] = [`status IN (${statusPlaceholders})`];
+  const params: (string | number)[] = [...SEASONAL_HOLD_STATUSES];
+  if (location) {
+    conds.push("location = ?");
+    params.push(location);
+  }
+  const where = `WHERE ${conds.join(" AND ")}`;
   const selectCols = SEASONAL_CATEGORIES
     .map(c => `COALESCE(SUM(${c.returnedCol}), 0) AS ret_${c.key}, COALESCE(SUM(${c.requestedCol}), 0) AS req_${c.key}`)
     .join(", ");
@@ -324,11 +390,17 @@ async function validateSeasonalRequests(
   // FOR UPDATE locks the rows being aggregated (within the active transaction)
   // so a concurrent submitter for the same location must wait until this
   // transaction commits, preventing two submits from each passing validation
-  // against stale aggregates and overdrawing the deposit.
-  const where = excludeOrderId !== null ? "WHERE location = ? AND id <> ?" : "WHERE location = ?";
-  const params: (string | number)[] = excludeOrderId !== null
-    ? [parsed.location, excludeOrderId]
-    : [parsed.location];
+  // against stale aggregates and overdrawing the deposit. Denied orders are
+  // dropped; submitted/approved/received/closed all count as soft-held so a
+  // store cannot stack pending requests above their on-deposit balance.
+  const statusPlaceholders = SEASONAL_HOLD_STATUSES.map(() => "?").join(",");
+  const conds: string[] = ["location = ?", `status IN (${statusPlaceholders})`];
+  const params: (string | number)[] = [parsed.location, ...SEASONAL_HOLD_STATUSES];
+  if (excludeOrderId !== null) {
+    conds.push("id <> ?");
+    params.push(excludeOrderId);
+  }
+  const where = `WHERE ${conds.join(" AND ")}`;
   const [rows] = await conn.execute<RowDataPacket[]>(
     `SELECT ${selectCols} FROM orders ${where} FOR UPDATE`,
     params
@@ -366,11 +438,18 @@ export function registerOrderRoutes(app: Express) {
     let conn: PoolConnection | null = null;
     try {
       const parsed = orderSchema.parse(req.body);
-      const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
+      const actor = getActor(req);
       const { columns, values } = toSnakeColumns(parsed);
 
       columns.push("submitted_by");
-      values.push(user?.name || user?.email || "Unknown");
+      values.push(actor.name);
+
+      // Phase 1: every newly created order is "submitted" (pending) and has
+      // no inventory effect until an approver acts on it. The MySQL column
+      // also defaults to 'submitted', but we set it explicitly so the audit
+      // trail is unambiguous.
+      columns.push("status");
+      values.push("submitted");
 
       const placeholders = columns.map(() => "?").join(", ");
 
@@ -391,10 +470,19 @@ export function registerOrderRoutes(app: Express) {
       conn.release();
       conn = null;
 
-      res.status(201).json({ id: result.insertId, message: "Order submitted successfully" });
+      const newOrderId = result.insertId;
+      void logOrderEvent({
+        orderId: newOrderId,
+        eventType: "created",
+        toStatus: "submitted",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
 
-      const submittedBy = user?.name || user?.email || "Unknown";
-      const submitterEmail = user?.email;
+      res.status(201).json({ id: newOrderId, status: "submitted", message: "Order submitted successfully" });
+
+      const submittedBy = actor.name;
+      const submitterEmail = actor.email;
       void (async () => {
         try {
           const nonZeroFields: { label: string; value: string | number }[] = [];
@@ -457,7 +545,7 @@ export function registerOrderRoutes(app: Express) {
 
   app.get("/api/orders", requireFeatureAccess("orders.view_all"), async (req, res) => {
     try {
-      const { startDate, endDate, location, orderType, limit, offset } = req.query;
+      const { startDate, endDate, location, orderType, status, limit, offset } = req.query;
       console.log("[Orders] GET /api/orders query:", JSON.stringify(req.query));
 
       let query = "SELECT * FROM orders WHERE 1=1";
@@ -479,6 +567,10 @@ export function registerOrderRoutes(app: Express) {
         query += " AND order_type = ?";
         params.push(orderType);
       }
+      if (status && typeof status === "string" && (ORDER_STATUSES as readonly string[]).includes(status)) {
+        query += " AND status = ?";
+        params.push(status);
+      }
 
       query += " ORDER BY order_date DESC, submitted_at DESC";
 
@@ -494,6 +586,7 @@ export function registerOrderRoutes(app: Express) {
       if (endDate && typeof endDate === "string") { countQuery += " AND order_date <= ?"; countParams.push(endDate); }
       if (location && typeof location === "string") { countQuery += " AND location = ?"; countParams.push(location); }
       if (orderType && typeof orderType === "string") { countQuery += " AND order_type = ?"; countParams.push(orderType); }
+      if (status && typeof status === "string" && (ORDER_STATUSES as readonly string[]).includes(status)) { countQuery += " AND status = ?"; countParams.push(status); }
       const [countRows] = await mysqlPool.execute<CountRow[]>(countQuery, countParams);
       const total = countRows[0]?.total || 0;
 
@@ -528,22 +621,84 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.post("/api/orders/:id/fulfill", requireFeatureAccess("orders.edit"), async (req, res) => {
+  // Mark an order as physically received at the store. This is the renamed
+  // "fulfill" action — the legacy /fulfill route is kept as an alias below
+  // for backwards compat with any clients/scripts that still reference it.
+  // Only allowed transition: approved → received. Receiving a second time
+  // (received → received) is a no-op for the user and is treated as success
+  // without re-running the UPDATE so we don't get tripped up by MySQL's
+  // affectedRows=0 behaviour when nothing actually changes.
+  const handleReceive = async (req: any, res: any) => {
+    let conn: PoolConnection | null = null;
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid order id" });
       }
-      const user = (req.session as Record<string, { name?: string; email?: string }>)?.user;
-      const fulfilledBy = user?.name || user?.email || "Unknown";
-      const [result] = await mysqlPool.execute<ResultSetHeader>(
-        "UPDATE orders SET fulfilled_at = NOW(), fulfilled_by = ? WHERE id = ?",
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      // SELECT FOR UPDATE + status predicate in the UPDATE makes the
+      // approved → received transition atomic against concurrent
+      // approve/deny/unreceive on the same row.
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT id, status FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const fromStatus = rows[0].status as OrderStatus;
+      if (fromStatus === "received") {
+        // Already received — nothing to do, no audit row to write.
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.json({ message: "Order is already received", status: "received" });
+      }
+      if (fromStatus !== "approved") {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}". Only approved orders can be marked received.`,
+        });
+      }
+
+      const fulfilledBy = actor.name;
+      const [result] = await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET fulfilled_at = NOW(), fulfilled_by = ?, status = 'received' WHERE id = ? AND status = 'approved'",
         [fulfilledBy, id]
       );
       if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Order not found" });
+        // Another writer changed the status between our SELECT FOR UPDATE
+        // and the UPDATE (shouldn't happen with the lock, but defend in
+        // depth) — surface a 409 so the client can retry.
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
       }
-      res.json({ message: "Order marked as fulfilled" });
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      // Await the audit write — if it fails we surface a 500 and the operator
+      // will see a state-change without a history row in the logs (no silent
+      // partial commits possible without an alert).
+      await logOrderEvent({
+        orderId: id,
+        eventType: "received",
+        fromStatus,
+        toStatus: "received",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
+      res.json({ message: "Order marked as received", status: "received" });
 
       // Notify the requesting store that their order is fulfilled.
       void (async () => {
@@ -612,28 +767,305 @@ export function registerOrderRoutes(app: Express) {
         }
       })();
     } catch (err) {
-      console.error("[Orders] Error fulfilling order:", err);
-      res.status(500).json({ message: "Failed to fulfill order" });
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      console.error("[Orders] Error receiving order:", err);
+      res.status(500).json({ message: "Failed to mark order as received" });
     }
-  });
+  };
 
-  app.post("/api/orders/:id/unfulfill", requireFeatureAccess("orders.edit"), async (req, res) => {
+  app.post("/api/orders/:id/receive", requireFeatureAccess("orders.receive"), handleReceive);
+  // Backwards-compat alias for the renamed action.
+  app.post("/api/orders/:id/fulfill", requireFeatureAccess("orders.receive"), handleReceive);
+
+  // Reverse a receive — moves an order from received back to approved so a
+  // leader can correct a mistaken receive. Requires orders.receive (same
+  // permission as marking received). `closed` is intentionally disallowed
+  // here: closing an order is a terminal action; reopening it requires a
+  // separate "reopen closed order" workflow we have not yet implemented
+  // (tracked as a follow-up).
+  const handleUnreceive = async (req: any, res: any) => {
+    let conn: PoolConnection | null = null;
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid order id" });
       }
-      const [result] = await mysqlPool.execute<ResultSetHeader>(
-        "UPDATE orders SET fulfilled_at = NULL, fulfilled_by = NULL WHERE id = ?",
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT id, status FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const fromStatus = rows[0].status as OrderStatus;
+      if (fromStatus === "closed") {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({
+          message: "This order is closed. Closed orders can't be reverted to approved.",
+        });
+      }
+      if (fromStatus !== "received") {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}", not received — nothing to undo.`,
+        });
+      }
+      const [result] = await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET fulfilled_at = NULL, fulfilled_by = NULL, status = 'approved' WHERE id = ? AND status = 'received'",
         [id]
       );
       if (result.affectedRows === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
+      }
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      await logOrderEvent({
+        orderId: id,
+        eventType: "unreceived",
+        fromStatus,
+        toStatus: "approved",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
+      res.json({ message: "Order moved back to approved", status: "approved" });
+    } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      console.error("[Orders] Error un-receiving order:", err);
+      res.status(500).json({ message: "Failed to undo receive" });
+    }
+  };
+  app.post("/api/orders/:id/unreceive", requireFeatureAccess("orders.receive"), handleUnreceive);
+  app.post("/api/orders/:id/unfulfill", requireFeatureAccess("orders.receive"), handleUnreceive);
+
+  // Approve a submitted order. Re-validates seasonal balances at approval
+  // time so two simultaneously-pending requests can't both be approved past
+  // the on-deposit balance.
+  app.post("/api/orders/:id/approve", requireFeatureAccess("orders.approve"), async (req, res) => {
+    let conn: PoolConnection | null = null;
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT * FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
         return res.status(404).json({ message: "Order not found" });
       }
-      res.json({ message: "Order marked as not fulfilled" });
+      const order = rows[0];
+      const fromStatus = order.status as OrderStatus;
+      if (fromStatus !== "submitted") {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}". Only submitted orders can be approved.`,
+        });
+      }
+
+      // Re-validate seasonal balances against everything else committed so
+      // we never approve into a deficit. We exclude this order from the
+      // baseline because it itself is the request being committed.
+      const camel = toCamel(order) as Record<string, any>;
+      const seasonalParsed: any = {
+        location: String(camel.location || ""),
+      };
+      for (const c of SEASONAL_CATEGORIES) {
+        seasonalParsed[c.requestedField] = Number(camel[c.requestedField] || 0) || null;
+      }
+      const balanceError = await validateSeasonalRequests(conn, seasonalParsed, id);
+      if (balanceError) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(422).json({ message: balanceError });
+      }
+
+      await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET status = 'approved', approved_at = NOW(), approved_by = ?, denied_at = NULL, denied_by = NULL, denial_reason = NULL WHERE id = ?",
+        [actor.name, id]
+      );
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      // Await the audit write — if it fails the route returns 500 so the
+      // operator sees a state-change without a history row, instead of a
+      // silent partial commit.
+      await logOrderEvent({
+        orderId: id,
+        eventType: "approved",
+        fromStatus,
+        toStatus: "approved",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
+      res.json({ message: "Order approved", status: "approved" });
+
+      // Notify submitter (best-effort, async).
+      void (async () => {
+        try {
+          const submittedBy = String(camel.submittedBy || "").trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submittedBy)) return;
+          await sendOrderApprovedEmail(submittedBy.toLowerCase(), {
+            orderId: id,
+            orderDate: String(camel.orderDate || ""),
+            orderType: String(camel.orderType || ""),
+            location: String(camel.location || ""),
+            approvedBy: actor.name,
+            appUrl: "https://goodshift.goodwillgoodskills.org",
+          });
+        } catch (e) {
+          console.error("[Orders] Failed to send approval email:", e);
+        }
+      })();
     } catch (err) {
-      console.error("[Orders] Error unfulfilling order:", err);
-      res.status(500).json({ message: "Failed to unfulfill order" });
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        conn.release();
+      }
+      console.error("[Orders] Error approving order:", err);
+      res.status(500).json({ message: "Failed to approve order" });
+    }
+  });
+
+  // Deny a submitted order. Requires a non-empty reason so the submitter
+  // can see why their request was rejected.
+  const denySchema = z.object({ reason: z.string().trim().min(1, "A reason is required").max(2000) });
+  app.post("/api/orders/:id/deny", requireFeatureAccess("orders.approve"), async (req, res) => {
+    let conn: PoolConnection | null = null;
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const { reason } = denySchema.parse(req.body);
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      // SELECT FOR UPDATE + status predicate makes the submitted → denied
+      // transition atomic against a concurrent approve.
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT * FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const order = rows[0];
+      const fromStatus = order.status as OrderStatus;
+      if (fromStatus !== "submitted") {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}". Only submitted orders can be denied.`,
+        });
+      }
+
+      const [result] = await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET status = 'denied', denied_at = NOW(), denied_by = ?, denial_reason = ?, approved_at = NULL, approved_by = NULL WHERE id = ? AND status = 'submitted'",
+        [actor.name, reason, id]
+      );
+      if (result.affectedRows === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
+      }
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      await logOrderEvent({
+        orderId: id,
+        eventType: "denied",
+        fromStatus,
+        toStatus: "denied",
+        byUserId: actor.id,
+        byUserName: actor.name,
+        note: reason,
+      });
+      res.json({ message: "Order denied", status: "denied" });
+
+      void (async () => {
+        try {
+          const camel = toCamel(order) as Record<string, any>;
+          const submittedBy = String(camel.submittedBy || "").trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submittedBy)) return;
+          await sendOrderDeniedEmail(submittedBy.toLowerCase(), {
+            orderId: id,
+            orderDate: String(camel.orderDate || ""),
+            orderType: String(camel.orderType || ""),
+            location: String(camel.location || ""),
+            deniedBy: actor.name,
+            reason,
+            appUrl: "https://goodshift.goodwillgoodskills.org",
+          });
+        } catch (e) {
+          console.error("[Orders] Failed to send denial email:", e);
+        }
+      })();
+    } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Orders] Error denying order:", err);
+      res.status(500).json({ message: "Failed to deny order" });
+    }
+  });
+
+  // Audit log for a single order — anyone who can view orders can read it.
+  app.get("/api/orders/:id/events", requireFeatureAccess("orders.view_all"), async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const events = await storage.getOrderEvents(id);
+      res.json(events);
+    } catch (err) {
+      console.error("[Orders] Error fetching order events:", err);
+      res.status(500).json({ message: "Failed to fetch order events" });
     }
   });
 
@@ -658,12 +1090,14 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid order id" });
       }
       const parsed = orderSchema.parse(req.body);
+      const actor = getActor(req);
 
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
 
+      // Pull the full row so we can compute a per-field diff for the audit log.
       const [existing] = await conn.execute<OrderRow[]>(
-        "SELECT id FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT * FROM orders WHERE id = ? FOR UPDATE",
         [id]
       );
       if (existing.length === 0) {
@@ -672,6 +1106,8 @@ export function registerOrderRoutes(app: Express) {
         conn = null;
         return res.status(404).json({ message: "Order not found" });
       }
+      const beforeRow = toCamel(existing[0]) as Record<string, any>;
+      const beforeStatus = (existing[0].status as OrderStatus) || "submitted";
 
       const balanceError = await validateSeasonalRequests(conn, parsed, id);
       if (balanceError) {
@@ -698,6 +1134,29 @@ export function registerOrderRoutes(app: Express) {
       conn.release();
       conn = null;
 
+      // Compute a compact diff of just the fields that actually changed so the
+      // audit log doesn't blow up with ~70 unchanged columns per edit.
+      const before: Record<string, any> = {};
+      const after: Record<string, any> = {};
+      for (const [key, newVal] of Object.entries(parsed)) {
+        const oldVal = beforeRow[key];
+        const oldNorm = oldVal === undefined ? null : oldVal;
+        const newNorm = newVal === undefined ? null : newVal;
+        if (oldNorm !== newNorm) {
+          before[key] = oldNorm;
+          after[key] = newNorm;
+        }
+      }
+      void logOrderEvent({
+        orderId: id,
+        eventType: "modified",
+        fromStatus: beforeStatus,
+        toStatus: beforeStatus,
+        byUserId: actor.id,
+        byUserName: actor.name,
+        changes: { before, after },
+      });
+
       res.json({ message: "Order updated successfully" });
     } catch (err) {
       if (conn) {
@@ -714,13 +1173,35 @@ export function registerOrderRoutes(app: Express) {
 
   app.delete("/api/orders/:id", requireFeatureAccess("orders.delete"), async (req, res) => {
     try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const actor = getActor(req);
+      const [rows] = await mysqlPool.execute<OrderRow[]>(
+        "SELECT id, status FROM orders WHERE id = ?",
+        [id]
+      );
+      const fromStatus = (rows[0]?.status as OrderStatus | undefined) || null;
       const [result] = await mysqlPool.execute<ResultSetHeader>(
         "DELETE FROM orders WHERE id = ?",
-        [req.params.id]
+        [id]
       );
       if (result.affectedRows === 0) {
         return res.status(404).json({ message: "Order not found" });
       }
+      // Keep the audit trail around even though the order itself is gone —
+      // delete the order_events row only if a future operator decides to
+      // purge them. For now we log the deletion and leave prior events in
+      // place for forensics.
+      void logOrderEvent({
+        orderId: id,
+        eventType: "deleted",
+        fromStatus,
+        toStatus: null,
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
       res.json({ message: "Order deleted" });
     } catch (err) {
       console.error("[Orders] Error deleting order:", err);

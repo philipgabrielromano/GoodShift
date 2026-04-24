@@ -8,12 +8,27 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, FileText, ChevronLeft, ChevronRight, Trash2, Pencil, PackageCheck, PackageX } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Loader2,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
+  Pencil,
+  PackageCheck,
+  PackageX,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  History,
+} from "lucide-react";
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
+import type { OrderEvent, OrderStatus } from "@shared/schema";
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -29,6 +44,34 @@ const ORDER_TYPE_COLORS: Record<string, string> = {
   "Supplemental production": "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
 };
 
+const STATUS_META: Record<OrderStatus, { label: string; className: string; Icon: typeof Clock }> = {
+  submitted: {
+    label: "Submitted",
+    className: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
+    Icon: Clock,
+  },
+  approved: {
+    label: "Approved",
+    className: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    Icon: CheckCircle2,
+  },
+  denied: {
+    label: "Denied",
+    className: "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
+    Icon: XCircle,
+  },
+  received: {
+    label: "Received",
+    className: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    Icon: PackageCheck,
+  },
+  closed: {
+    label: "Closed",
+    className: "bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200",
+    Icon: PackageCheck,
+  },
+};
+
 interface Order {
   id: number;
   orderDate: string;
@@ -38,19 +81,14 @@ interface Order {
   submittedAt: string;
   fulfilledAt: string | null;
   fulfilledBy: string | null;
+  status: OrderStatus;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  deniedAt: string | null;
+  deniedBy: string | null;
+  denialReason: string | null;
   notes: string | null;
   [key: string]: string | number | boolean | null;
-}
-
-const SEASONAL_REQUEST_KEYS = [
-  "savedWinterRequested",
-  "savedSummerRequested",
-  "savedHalloweenRequested",
-  "savedChristmasRequested",
-] as const;
-
-function hasSeasonalRequest(order: Order): boolean {
-  return SEASONAL_REQUEST_KEYS.some(k => Number(order[k] || 0) > 0);
 }
 
 interface OrdersResponse {
@@ -85,6 +123,8 @@ const FIELD_LABELS: Record<string, string> = {
   booksGaylordsReturned: "Books Gaylords Returned",
   shoesGaylordsRequested: "Shoes Gaylords Requested",
   shoesGaylordsReturned: "Shoes Gaylords Returned",
+  furnitureGaylordsRequested: "Furniture Gaylords Requested",
+  furnitureGaylordsReturned: "Furniture Gaylords Returned",
   savedWinterRequested: "Saved Winter Requested",
   savedWinterReturned: "Saved Winter Returned",
   savedSummerRequested: "Saved Summer Requested",
@@ -125,18 +165,125 @@ const FIELD_LABELS: Record<string, string> = {
   waresProduction: "Wares Production",
 };
 
-const SKIP_KEYS = new Set(["id", "orderDate", "orderType", "location", "submittedBy", "submittedAt", "fulfilledAt", "fulfilledBy", "notes"]);
+// Fields shown in the header section of the dialog. Everything else (the
+// hundreds of equipment columns) is rendered in the details grid below.
+const SKIP_KEYS = new Set([
+  "id",
+  "orderDate",
+  "orderType",
+  "location",
+  "submittedBy",
+  "submittedAt",
+  "fulfilledAt",
+  "fulfilledBy",
+  "notes",
+  "status",
+  "approvedAt",
+  "approvedBy",
+  "deniedAt",
+  "deniedBy",
+  "denialReason",
+]);
 
-function formatDate(dateStr: string): string {
+function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function formatDateTime(dateStr: string): string {
+function formatDateTime(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
   const d = new Date(dateStr);
   return d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function StatusBadge({ status }: { status: OrderStatus }) {
+  const meta = STATUS_META[status] ?? STATUS_META.submitted;
+  const { Icon } = meta;
+  return (
+    <Badge variant="secondary" className={`${meta.className} inline-flex items-center gap-1`} data-testid={`badge-status-${status}`}>
+      <Icon className="w-3 h-3" />
+      {meta.label}
+    </Badge>
+  );
+}
+
+const EVENT_LABELS: Record<string, string> = {
+  created: "Submitted",
+  modified: "Modified",
+  approved: "Approved",
+  denied: "Denied",
+  received: "Received",
+  unreceived: "Reverted to Approved",
+  deleted: "Deleted",
+};
+
+function AuditLog({ orderId }: { orderId: number }) {
+  const { data, isLoading, error } = useQuery<OrderEvent[]>({
+    queryKey: ["/api/orders", orderId, "events"],
+    queryFn: async () => {
+      const res = await fetch(`/api/orders/${orderId}/events`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+  });
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading history…
+      </div>
+    );
+  }
+  if (error) {
+    return <div className="text-sm text-destructive">Couldn't load history.</div>;
+  }
+  if (!data || data.length === 0) {
+    return <div className="text-sm text-muted-foreground">No history yet.</div>;
+  }
+  return (
+    <ul className="space-y-2" data-testid={`list-audit-${orderId}`}>
+      {data.map((e) => {
+        const changes = e.changes as { before?: Record<string, any>; after?: Record<string, any> } | null;
+        const changedKeys = changes?.after ? Object.keys(changes.after) : [];
+        return (
+          <li key={e.id} className="rounded border bg-muted/30 p-2 text-sm" data-testid={`event-${e.id}`}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="font-medium">
+                {EVENT_LABELS[e.eventType] || e.eventType}
+                {e.fromStatus && e.toStatus && e.fromStatus !== e.toStatus
+                  ? ` (${e.fromStatus} → ${e.toStatus})`
+                  : ""}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatDateTime(e.createdAt as unknown as string)}
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground">by {e.byUserName}</div>
+            {e.note && <div className="mt-1 text-sm">{e.note}</div>}
+            {changedKeys.length > 0 && (
+              <div className="mt-1 text-xs">
+                <span className="text-muted-foreground">Changed: </span>
+                {changedKeys.map((k, i) => {
+                  const before = changes?.before?.[k];
+                  const after = changes?.after?.[k];
+                  return (
+                    <span key={k}>
+                      {i > 0 ? ", " : ""}
+                      <span className="font-medium">{FIELD_LABELS[k] || k}</span>
+                      {" "}
+                      <span className="text-muted-foreground">
+                        ({before ?? "—"} → {after ?? "—"})
+                      </span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export default function OrderSubmissions() {
@@ -145,13 +292,18 @@ export default function OrderSubmissions() {
   const [endDate, setEndDate] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | "">("");
   const [page, setPage] = useState(0);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [denyOpen, setDenyOpen] = useState(false);
+  const [denyReason, setDenyReason] = useState("");
   const pageSize = 25;
 
   const { can } = usePermissions();
   const canEdit = can("orders.edit");
   const canDelete = can("orders.delete");
+  const canApprove = can("orders.approve");
+  const canReceive = can("orders.receive");
   const [, navigate] = useWouterLocation();
 
   const { data: dbLocations } = useLocations();
@@ -160,6 +312,11 @@ export default function OrderSubmissions() {
     .map((l: any) => (l.orderFormName ?? l.name) as string)
     .sort((a, b) => a.localeCompare(b));
 
+  const invalidateAll = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/orders/seasonal-balances"] });
+  };
+
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/orders/${id}`);
@@ -167,26 +324,55 @@ export default function OrderSubmissions() {
     onSuccess: () => {
       toast({ title: "Order deleted" });
       setSelectedOrder(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      invalidateAll();
     },
     onError: (err: Error) => {
       toast({ title: "Failed to delete order", description: err.message, variant: "destructive" });
     },
   });
 
-  const fulfillMutation = useMutation({
-    mutationFn: async ({ id, fulfilled }: { id: number; fulfilled: boolean }) => {
-      const path = fulfilled ? "fulfill" : "unfulfill";
+  const receiveMutation = useMutation({
+    mutationFn: async ({ id, received }: { id: number; received: boolean }) => {
+      const path = received ? "receive" : "unreceive";
       await apiRequest("POST", `/api/orders/${id}/${path}`);
     },
     onSuccess: (_data, vars) => {
-      toast({ title: vars.fulfilled ? "Order marked as fulfilled" : "Order marked as not fulfilled" });
+      toast({ title: vars.received ? "Order marked as received" : "Order moved back to approved" });
       setSelectedOrder(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/orders/seasonal-balances"] });
+      invalidateAll();
     },
     onError: (err: Error) => {
-      toast({ title: "Failed to update fulfillment", description: err.message, variant: "destructive" });
+      toast({ title: "Couldn't update receive status", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("POST", `/api/orders/${id}/approve`);
+    },
+    onSuccess: () => {
+      toast({ title: "Order approved" });
+      setSelectedOrder(null);
+      invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't approve order", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const denyMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      await apiRequest("POST", `/api/orders/${id}/deny`, { reason });
+    },
+    onSuccess: () => {
+      toast({ title: "Order denied" });
+      setDenyOpen(false);
+      setDenyReason("");
+      setSelectedOrder(null);
+      invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't deny order", description: err.message, variant: "destructive" });
     },
   });
 
@@ -195,6 +381,7 @@ export default function OrderSubmissions() {
   if (endDate) queryParams.set("endDate", endDate);
   if (locationFilter) queryParams.set("location", locationFilter);
   if (typeFilter) queryParams.set("orderType", typeFilter);
+  if (statusFilter) queryParams.set("status", statusFilter);
   queryParams.set("limit", String(pageSize));
   queryParams.set("offset", String(page * pageSize));
 
@@ -225,6 +412,8 @@ export default function OrderSubmissions() {
       }));
   };
 
+  const statusForRow = (o: Order): OrderStatus => (o.status as OrderStatus) || "submitted";
+
   return (
     <div className="p-6">
       <div className="flex items-center gap-3 mb-6">
@@ -237,7 +426,7 @@ export default function OrderSubmissions() {
           <CardTitle className="text-lg">Filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="space-y-1">
               <Label className="text-sm">Start Date</Label>
               <Input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(0); }} data-testid="input-filter-start-date" />
@@ -262,7 +451,7 @@ export default function OrderSubmissions() {
             </div>
             <div className="space-y-1">
               <Label className="text-sm">Order Type</Label>
-              <Select value={typeFilter} onValueChange={(val) => { setTypeFilter(val === "all" ? "" : val); setPage(0); }}>
+              <Select value={typeFilter || "all"} onValueChange={(val) => { setTypeFilter(val === "all" ? "" : val); setPage(0); }}>
                 <SelectTrigger data-testid="select-filter-order-type">
                   <SelectValue placeholder="All Types" />
                 </SelectTrigger>
@@ -270,6 +459,23 @@ export default function OrderSubmissions() {
                   <SelectItem value="all">All Types</SelectItem>
                   {ORDER_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">Status</Label>
+              <Select
+                value={statusFilter || "all"}
+                onValueChange={(val) => { setStatusFilter(val === "all" ? "" : (val as OrderStatus)); setPage(0); }}
+              >
+                <SelectTrigger data-testid="select-filter-status">
+                  <SelectValue placeholder="All Statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  {(Object.keys(STATUS_META) as OrderStatus[]).map((s) => (
+                    <SelectItem key={s} value={s}>{STATUS_META[s].label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -302,62 +508,53 @@ export default function OrderSubmissions() {
                     <TableHead>Location</TableHead>
                     <TableHead>Submitted By</TableHead>
                     <TableHead>Submitted At</TableHead>
-                    <TableHead>Fulfillment</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {orders.map((order) => (
-                    <TableRow key={order.id} data-testid={`row-order-${order.id}`}>
-                      <TableCell>{formatDate(order.orderDate)}</TableCell>
-                      <TableCell>
-                        <Badge className={ORDER_TYPE_COLORS[order.orderType] || ""} variant="secondary">
-                          {order.orderType}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{order.location}</TableCell>
-                      <TableCell>{order.submittedBy}</TableCell>
-                      <TableCell>{formatDateTime(order.submittedAt)}</TableCell>
-                      <TableCell data-testid={`cell-fulfillment-${order.id}`}>
-                        {hasSeasonalRequest(order) ? (
-                          order.fulfilledAt ? (
-                            <Badge variant="secondary" className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                              Fulfilled {formatDate(order.fulfilledAt)}
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                              Pending
-                            </Badge>
-                          )
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setSelectedOrder(order)}
-                            data-testid={`button-view-order-${order.id}`}
-                          >
-                            View
-                          </Button>
-                          {canEdit && (
+                  {orders.map((order) => {
+                    const st = statusForRow(order);
+                    return (
+                      <TableRow key={order.id} data-testid={`row-order-${order.id}`}>
+                        <TableCell>{formatDate(order.orderDate)}</TableCell>
+                        <TableCell>
+                          <Badge className={ORDER_TYPE_COLORS[order.orderType] || ""} variant="secondary">
+                            {order.orderType}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{order.location}</TableCell>
+                        <TableCell>{order.submittedBy}</TableCell>
+                        <TableCell>{formatDateTime(order.submittedAt)}</TableCell>
+                        <TableCell data-testid={`cell-status-${order.id}`}>
+                          <StatusBadge status={st} />
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => navigate(`/orders/edit/${order.id}`)}
-                              data-testid={`button-edit-order-${order.id}`}
+                              onClick={() => setSelectedOrder(order)}
+                              data-testid={`button-view-order-${order.id}`}
                             >
-                              <Pencil className="w-4 h-4 mr-1" />
-                              Edit
+                              View
                             </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                            {canEdit && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => navigate(`/orders/edit/${order.id}`)}
+                                data-testid={`button-edit-order-row-${order.id}`}
+                              >
+                                <Pencil className="w-4 h-4 mr-1" />
+                                Edit
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
 
@@ -394,10 +591,13 @@ export default function OrderSubmissions() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedOrder} onOpenChange={() => setSelectedOrder(null)}>
-        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+      <Dialog open={!!selectedOrder} onOpenChange={() => { setSelectedOrder(null); setDenyOpen(false); setDenyReason(""); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Order Details</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              Order #{selectedOrder?.id} Details
+              {selectedOrder && <StatusBadge status={statusForRow(selectedOrder)} />}
+            </DialogTitle>
           </DialogHeader>
           {selectedOrder && (
             <div className="space-y-4">
@@ -416,22 +616,42 @@ export default function OrderSubmissions() {
                 <div>{selectedOrder.submittedBy}</div>
                 <div className="text-muted-foreground">Submitted At</div>
                 <div>{formatDateTime(selectedOrder.submittedAt)}</div>
-                {hasSeasonalRequest(selectedOrder) && (
+
+                {selectedOrder.approvedAt && (
                   <>
-                    <div className="text-muted-foreground">Fulfillment</div>
-                    <div data-testid={`text-fulfillment-detail-${selectedOrder.id}`}>
-                      {selectedOrder.fulfilledAt ? (
-                        <span>
-                          Fulfilled {formatDateTime(selectedOrder.fulfilledAt)}
-                          {selectedOrder.fulfilledBy ? ` by ${selectedOrder.fulfilledBy}` : ""}
-                        </span>
-                      ) : (
-                        <span className="text-amber-700 dark:text-amber-400">Pending fulfillment</span>
-                      )}
+                    <div className="text-muted-foreground">Approved</div>
+                    <div data-testid={`text-approved-${selectedOrder.id}`}>
+                      {formatDateTime(selectedOrder.approvedAt)}
+                      {selectedOrder.approvedBy ? ` by ${selectedOrder.approvedBy}` : ""}
+                    </div>
+                  </>
+                )}
+                {selectedOrder.deniedAt && (
+                  <>
+                    <div className="text-muted-foreground">Denied</div>
+                    <div data-testid={`text-denied-${selectedOrder.id}`}>
+                      {formatDateTime(selectedOrder.deniedAt)}
+                      {selectedOrder.deniedBy ? ` by ${selectedOrder.deniedBy}` : ""}
+                    </div>
+                  </>
+                )}
+                {selectedOrder.fulfilledAt && (
+                  <>
+                    <div className="text-muted-foreground">Received</div>
+                    <div data-testid={`text-received-${selectedOrder.id}`}>
+                      {formatDateTime(selectedOrder.fulfilledAt)}
+                      {selectedOrder.fulfilledBy ? ` by ${selectedOrder.fulfilledBy}` : ""}
                     </div>
                   </>
                 )}
               </div>
+
+              {selectedOrder.denialReason && (
+                <div className="rounded border-l-4 border-rose-500 bg-rose-50 dark:bg-rose-950/40 p-3 text-sm" data-testid={`text-denial-reason-${selectedOrder.id}`}>
+                  <div className="font-medium mb-1">Denial reason</div>
+                  <div className="whitespace-pre-wrap">{selectedOrder.denialReason}</div>
+                </div>
+              )}
 
               {nonNullFields(selectedOrder).length > 0 && (
                 <>
@@ -452,45 +672,77 @@ export default function OrderSubmissions() {
                   <hr />
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Notes</p>
-                    <p className="text-sm">{selectedOrder.notes}</p>
+                    <p className="text-sm whitespace-pre-wrap">{selectedOrder.notes}</p>
                   </div>
                 </>
               )}
 
-              {(canEdit || canDelete) && (
+              <hr />
+              <div>
+                <div className="flex items-center gap-2 text-sm font-medium mb-2">
+                  <History className="w-4 h-4" />
+                  History
+                </div>
+                <AuditLog orderId={selectedOrder.id} />
+              </div>
+
+              {(canEdit || canDelete || canApprove || canReceive) && (
                 <>
                   <hr />
                   <div className="flex flex-col gap-2">
-                    {canEdit && hasSeasonalRequest(selectedOrder) && (
-                      selectedOrder.fulfilledAt ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          disabled={fulfillMutation.isPending}
-                          onClick={() => fulfillMutation.mutate({ id: selectedOrder.id, fulfilled: false })}
-                          data-testid={`button-unfulfill-order-${selectedOrder.id}`}
-                        >
-                          {fulfillMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageX className="w-4 h-4 mr-2" />}
-                          Mark as Not Fulfilled
-                        </Button>
-                      ) : (
+                    {canApprove && statusForRow(selectedOrder) === "submitted" && (
+                      <div className="grid grid-cols-2 gap-2">
                         <Button
                           variant="default"
                           size="sm"
-                          className="w-full"
-                          disabled={fulfillMutation.isPending}
-                          onClick={() => fulfillMutation.mutate({ id: selectedOrder.id, fulfilled: true })}
-                          data-testid={`button-fulfill-order-${selectedOrder.id}`}
+                          disabled={approveMutation.isPending || denyMutation.isPending}
+                          onClick={() => approveMutation.mutate(selectedOrder.id)}
+                          data-testid={`button-approve-order-${selectedOrder.id}`}
                         >
-                          {fulfillMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
-                          Mark as Fulfilled
+                          {approveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                          Approve
                         </Button>
-                      )
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          disabled={approveMutation.isPending || denyMutation.isPending}
+                          onClick={() => { setDenyReason(""); setDenyOpen(true); }}
+                          data-testid={`button-deny-order-${selectedOrder.id}`}
+                        >
+                          <XCircle className="w-4 h-4 mr-2" />
+                          Deny
+                        </Button>
+                      </div>
+                    )}
+                    {canReceive && statusForRow(selectedOrder) === "approved" && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="w-full"
+                        disabled={receiveMutation.isPending}
+                        onClick={() => receiveMutation.mutate({ id: selectedOrder.id, received: true })}
+                        data-testid={`button-receive-order-${selectedOrder.id}`}
+                      >
+                        {receiveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
+                        Mark as Received
+                      </Button>
+                    )}
+                    {canReceive && (statusForRow(selectedOrder) === "received" || statusForRow(selectedOrder) === "closed") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        disabled={receiveMutation.isPending}
+                        onClick={() => receiveMutation.mutate({ id: selectedOrder.id, received: false })}
+                        data-testid={`button-unreceive-order-${selectedOrder.id}`}
+                      >
+                        {receiveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageX className="w-4 h-4 mr-2" />}
+                        Undo Receive
+                      </Button>
                     )}
                     {canEdit && (
                       <Button
-                        variant="default"
+                        variant="outline"
                         size="sm"
                         className="w-full"
                         onClick={() => navigate(`/orders/edit/${selectedOrder.id}`)}
@@ -526,6 +778,39 @@ export default function OrderSubmissions() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={denyOpen} onOpenChange={(open) => { setDenyOpen(open); if (!open) setDenyReason(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deny order #{selectedOrder?.id}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label htmlFor="deny-reason">Reason (visible to the submitter)</Label>
+            <Textarea
+              id="deny-reason"
+              value={denyReason}
+              onChange={(e) => setDenyReason(e.target.value)}
+              rows={4}
+              placeholder="Explain why this order is being denied so the submitter can correct and re-submit."
+              data-testid="input-deny-reason"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDenyOpen(false); setDenyReason(""); }} data-testid="button-deny-cancel">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={denyMutation.isPending || denyReason.trim().length === 0}
+              onClick={() => selectedOrder && denyMutation.mutate({ id: selectedOrder.id, reason: denyReason.trim() })}
+              data-testid="button-deny-confirm"
+            >
+              {denyMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Deny order
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

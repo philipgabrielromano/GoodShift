@@ -106,16 +106,53 @@ export async function initOrdersTable(): Promise<void> {
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders'`
     );
     const colSet = new Set((cols as Array<{ COLUMN_NAME: string }>).map(c => c.COLUMN_NAME.toLowerCase()));
-    const ensureCol = async (name: string, ddl: string) => {
+    const ensureCol = async (name: string, ddl: string): Promise<boolean> => {
       if (!colSet.has(name.toLowerCase())) {
         await conn.query(`ALTER TABLE orders ADD COLUMN ${name} ${ddl}`);
+        colSet.add(name.toLowerCase());
         console.log(`[MySQL] Added orders.${name}`);
+        return true;
       }
+      return false;
     };
     await ensureCol("furniture_gaylords_requested", "INT DEFAULT NULL");
     await ensureCol("furniture_gaylords_returned", "INT DEFAULT NULL");
     await ensureCol("fulfilled_at", "DATETIME DEFAULT NULL");
     await ensureCol("fulfilled_by", "VARCHAR(255) DEFAULT NULL");
+
+    // Phase 1 order approval workflow
+    const statusJustAdded = await ensureCol(
+      "status",
+      "VARCHAR(20) NOT NULL DEFAULT 'submitted'",
+    );
+    await ensureCol("approved_at", "DATETIME DEFAULT NULL");
+    await ensureCol("approved_by", "VARCHAR(255) DEFAULT NULL");
+    await ensureCol("denied_at", "DATETIME DEFAULT NULL");
+    await ensureCol("denied_by", "VARCHAR(255) DEFAULT NULL");
+    await ensureCol("denial_reason", "TEXT DEFAULT NULL");
+
+    // Backfill: any pre-existing rows had no concept of status, so treat them
+    // as the legacy behavior — anything fulfilled is "received", everything
+    // else is treated as "approved" (because the old engine counted them all
+    // toward inventory). Only run on the migration that just added the column,
+    // so we don't keep clobbering live data on subsequent boots.
+    if (statusJustAdded) {
+      await conn.query(
+        "UPDATE orders SET status = 'received', approved_at = COALESCE(approved_at, fulfilled_at), approved_by = COALESCE(approved_by, fulfilled_by) WHERE fulfilled_at IS NOT NULL",
+      );
+      await conn.query(
+        "UPDATE orders SET status = 'approved', approved_at = COALESCE(approved_at, submitted_at), approved_by = COALESCE(approved_by, submitted_by) WHERE fulfilled_at IS NULL",
+      );
+      console.log("[MySQL] Backfilled orders.status (fulfilled→received, others→approved)");
+    }
+
+    // Helpful index for status filtering in the warehouse on-hand engine and
+    // the seasonal balance loaders.
+    try {
+      await conn.query("CREATE INDEX idx_orders_status ON orders(status)");
+    } catch {
+      /* index already exists */
+    }
   } finally {
     conn.release();
   }

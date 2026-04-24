@@ -991,6 +991,52 @@ export const trailerManifestItems = pgTable("trailer_manifest_items", {
   index("idx_trailer_manifest_items_manifest_id").on(table.manifestId),
 ]);
 
+// Order workflow status + audit log. Orders themselves live in MySQL (see
+// server/mysql.ts → orders); we only mirror the audit trail in Postgres so
+// existing reporting and admin queries can join against users and timestamps.
+export const ORDER_STATUSES = ["submitted", "approved", "denied", "received", "closed"] as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+// Statuses whose requested quantities should count against inventory
+// (warehouse on-hand engine, seasonal balance display, submit-time
+// validation). "submitted" intentionally excluded — pending orders are a soft
+// hold only and become a real commitment at approval time.
+export const ORDER_INVENTORY_AFFECTING_STATUSES: OrderStatus[] = ["approved", "received", "closed"];
+
+export const ORDER_EVENT_TYPES = [
+  "created",
+  "modified",
+  "approved",
+  "denied",
+  "received",
+  "unreceived",
+  "deleted",
+] as const;
+export type OrderEventType = (typeof ORDER_EVENT_TYPES)[number];
+
+export const orderEvents = pgTable("order_events", {
+  id: serial("id").primaryKey(),
+  orderId: integer("order_id").notNull(), // MySQL orders.id; no FK (cross-DB)
+  eventType: text("event_type").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
+  byUserId: integer("by_user_id"),
+  byUserName: text("by_user_name").notNull(),
+  note: text("note"),
+  changes: jsonb("changes"), // for modify events: { before: {...}, after: {...} }
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_order_events_order_id").on(table.orderId),
+  index("idx_order_events_created_at").on(table.createdAt),
+]);
+
+export const insertOrderEventSchema = createInsertSchema(orderEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertOrderEvent = z.infer<typeof insertOrderEventSchema>;
+export type OrderEvent = typeof orderEvents.$inferSelect;
+
 export const trailerManifestEvents = pgTable("trailer_manifest_events", {
   id: serial("id").primaryKey(),
   manifestId: integer("manifest_id").notNull(),
@@ -1518,6 +1564,8 @@ export const SYSTEM_FEATURES = [
   { category: "Orders", feature: "orders.view_all", label: "View All Orders", description: "View the full order history" },
   { category: "Orders", feature: "orders.edit", label: "Edit Orders", description: "Modify existing equipment orders" },
   { category: "Orders", feature: "orders.delete", label: "Delete Orders", description: "Permanently remove submitted orders" },
+  { category: "Orders", feature: "orders.approve", label: "Approve / Deny Orders", description: "Approve or deny submitted orders so they take effect on inventory" },
+  { category: "Orders", feature: "orders.receive", label: "Mark Orders Received", description: "Mark approved orders as physically received at the store" },
   // Credit Card Inspections
   { category: "Credit Card Inspections", feature: "credit_card_inspection.submit", label: "Submit Credit Card Inspections", description: "Submit credit card terminal inspection forms" },
   { category: "Credit Card Inspections", feature: "credit_card_inspection.view_all", label: "View All Credit Card Inspections", description: "View the full history of credit card inspections" },
@@ -1599,6 +1647,8 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "orders.view_all": ["admin", "ordering"],
   "orders.edit": ["admin"],
   "orders.delete": ["admin"],
+  "orders.approve": ["admin"],
+  "orders.receive": ["admin", "ordering"],
   "credit_card_inspection.submit": ["admin", "manager"],
   "credit_card_inspection.view_all": ["admin", "manager"],
   "credit_card_inspection.delete": ["admin"],

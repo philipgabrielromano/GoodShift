@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { mysqlPool } from "../mysql";
 import {
   ORDER_FIELD_TO_WAREHOUSE_ITEM,
+  ORDER_INVENTORY_AFFECTING_STATUSES,
   WAREHOUSE_INVENTORY_CATEGORIES,
   type Warehouse,
 } from "@shared/schema";
@@ -91,10 +92,16 @@ export async function computeWarehouseOnHand(
     }
     dateClause += " AND order_date <= ?";
     params.push(asOf);
+    // Phase 1 approval workflow: only orders that have actually been approved
+    // (or further along) move warehouse inventory. "submitted" orders are a
+    // soft hold that does NOT change on-hand counts until an approver acts.
+    const statusPlaceholders = ORDER_INVENTORY_AFFECTING_STATUSES.map(() => "?").join(",");
+    params.push(...ORDER_INVENTORY_AFFECTING_STATUSES);
     const sqlText = `
       SELECT ${fieldList}
       FROM orders
       WHERE location IN (${placeholders}) ${dateClause}
+        AND status IN (${statusPlaceholders})
     `;
     const [rows] = await mysqlPool.query<OrderRowMin[]>(sqlText, params);
     const row: any = rows[0] || {};

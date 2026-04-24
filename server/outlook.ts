@@ -978,3 +978,152 @@ export async function sendWarehouseVarianceCsvEmail(
     return { success: false, error: error?.message || String(error) };
   }
 }
+
+// --- Phase 1 order approval workflow notifications ---
+
+export interface OrderApprovedEmailData {
+  orderId: number;
+  orderDate: string;
+  orderType: string;
+  location: string;
+  approvedBy: string;
+  appUrl: string;
+}
+
+export async function sendOrderApprovedEmail(
+  toEmail: string,
+  data: OrderApprovedEmailData,
+): Promise<boolean> {
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for order approval');
+      return false;
+    }
+    const branding = await getBranding();
+    const orderDate = data.orderDate
+      ? new Date(data.orderDate).toLocaleDateString("en-US", { timeZone: "America/New_York" })
+      : "";
+    const bodyHtml = `
+      <p>Your order has been approved.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${orderDate}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.orderType, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Approved By:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.approvedBy, branding)}</td></tr>
+      </table>`;
+    const emailBody = renderEmailLayout({
+      type: "order_approved",
+      title: "Order Approved",
+      bodyHtml,
+      ctaLabel: "View Order",
+      ctaHref: `${data.appUrl}/orders`,
+      branding,
+    });
+    const subject = `${branding.appName}: Order Approved - ${data.orderType} - ${data.location}`;
+    const message = {
+      subject,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+    };
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent order approval email to ${toEmail}`);
+    await storage.createEmailLog({
+      type: "order_approved",
+      recipientEmail: toEmail,
+      subject,
+      status: "sent",
+      employeeName: data.approvedBy,
+      relatedId: data.orderId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return true;
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send order approval email:', error);
+    void storage.createEmailLog({
+      type: "order_approved",
+      recipientEmail: toEmail,
+      subject: `Order Approved`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.approvedBy,
+      relatedId: data.orderId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return false;
+  }
+}
+
+export interface OrderDeniedEmailData {
+  orderId: number;
+  orderDate: string;
+  orderType: string;
+  location: string;
+  deniedBy: string;
+  reason: string;
+  appUrl: string;
+}
+
+export async function sendOrderDeniedEmail(
+  toEmail: string,
+  data: OrderDeniedEmailData,
+): Promise<boolean> {
+  try {
+    const client = getGraphClient();
+    const senderEmail = process.env.HR_SENDER_EMAIL;
+    if (!senderEmail) {
+      console.error('[Outlook] HR_SENDER_EMAIL not configured for order denial');
+      return false;
+    }
+    const branding = await getBranding();
+    const orderDate = data.orderDate
+      ? new Date(data.orderDate).toLocaleDateString("en-US", { timeZone: "America/New_York" })
+      : "";
+    const reasonHtml = `<div style="background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 12px 16px; margin: 16px 0;"><strong>Reason:</strong><br>${htmlEscape(data.reason).replace(/\n/g, "<br>")}</div>`;
+    const bodyHtml = `
+      <p>Your order has been denied. Please review the reason below and re-submit if appropriate.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${orderDate}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.orderType, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
+        <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Denied By:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.deniedBy, branding)}</td></tr>
+      </table>
+      ${reasonHtml}`;
+    const emailBody = renderEmailLayout({
+      type: "order_denied",
+      title: "Order Denied",
+      bodyHtml,
+      ctaLabel: "View Order",
+      ctaHref: `${data.appUrl}/orders`,
+      branding,
+    });
+    const subject = `${branding.appName}: Order Denied - ${data.orderType} - ${data.location}`;
+    const message = {
+      subject,
+      body: { contentType: 'HTML', content: emailBody },
+      toRecipients: [{ emailAddress: { address: toEmail } }],
+    };
+    await client.api(`/users/${senderEmail}/sendMail`).post({ message });
+    console.log(`[Outlook] Sent order denial email to ${toEmail}`);
+    await storage.createEmailLog({
+      type: "order_denied",
+      recipientEmail: toEmail,
+      subject,
+      status: "sent",
+      employeeName: data.deniedBy,
+      relatedId: data.orderId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return true;
+  } catch (error: any) {
+    console.error('[Outlook] Failed to send order denial email:', error);
+    void storage.createEmailLog({
+      type: "order_denied",
+      recipientEmail: toEmail,
+      subject: `Order Denied`,
+      status: "failed",
+      error: error?.message || String(error),
+      employeeName: data.deniedBy,
+      relatedId: data.orderId,
+    }).catch(e => console.error("[Outlook] Failed to log email:", e));
+    return false;
+  }
+}

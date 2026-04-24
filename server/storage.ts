@@ -31,6 +31,7 @@ import {
   tractors, type Tractor, type InsertTractor,
   trailerManifestItems, type TrailerManifestItem,
   trailerManifestEvents, type TrailerManifestEvent,
+  orderEvents, type OrderEvent, type InsertOrderEvent,
   trailerManifestPhotos, type TrailerManifestPhoto, type InsertTrailerManifestPhoto,
   TRAILER_MANIFEST_CATEGORIES,
   warehouseInventoryCounts, type WarehouseInventoryCount, type InsertWarehouseInventoryCount,
@@ -127,6 +128,12 @@ export interface IStorage {
     user: { id: number; name: string };
   }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }>;
   getTrailerManifestEvents(manifestId: number): Promise<TrailerManifestEvent[]>;
+
+  // Order workflow audit log (cross-DB: orders live in MySQL, events in PG)
+  createOrderEvent(input: InsertOrderEvent): Promise<OrderEvent>;
+  getOrderEvents(orderId: number): Promise<OrderEvent[]>;
+  deleteOrderEvents(orderId: number): Promise<void>;
+
   getTrailerManifestPhotos(manifestId: number): Promise<TrailerManifestPhoto[]>;
   addTrailerManifestPhoto(input: InsertTrailerManifestPhoto, user: { id: number; name: string }): Promise<TrailerManifestPhoto>;
   deleteTrailerManifestPhoto(id: number): Promise<void>;
@@ -999,6 +1006,21 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(trailerManifestEvents)
       .where(eq(trailerManifestEvents.manifestId, manifestId))
       .orderBy(desc(trailerManifestEvents.createdAt));
+  }
+
+  async createOrderEvent(input: InsertOrderEvent): Promise<OrderEvent> {
+    const [row] = await db.insert(orderEvents).values(input).returning();
+    return row;
+  }
+
+  async getOrderEvents(orderId: number): Promise<OrderEvent[]> {
+    return await db.select().from(orderEvents)
+      .where(eq(orderEvents.orderId, orderId))
+      .orderBy(desc(orderEvents.createdAt));
+  }
+
+  async deleteOrderEvents(orderId: number): Promise<void> {
+    await db.delete(orderEvents).where(eq(orderEvents.orderId, orderId));
   }
 
   async getTrailerManifestPhotos(manifestId: number): Promise<TrailerManifestPhoto[]> {

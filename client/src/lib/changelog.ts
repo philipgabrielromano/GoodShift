@@ -8,9 +8,25 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.6.6";
+export const APP_VERSION = "3.7.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.7.0",
+    date: "2026-04-24",
+    title: "Order Approval Workflow",
+    changes: [
+      { type: "feature", description: "Orders now follow a real approval workflow: every new order starts as 'Submitted' and stays pending until an approver acts. Submitted orders no longer count against warehouse on-hand inventory until they're approved." },
+      { type: "feature", description: "Added 'Approve' and 'Deny' actions on the Order Submissions page. Denials require a written reason that is emailed to the original submitter so they know what to fix." },
+      { type: "feature", description: "Renamed 'Mark as Fulfilled' to 'Mark as Received' to reflect that it's the store confirming the order arrived. Approved orders move to 'Received' from there; the old fulfill/unfulfill API still works for any external integrations." },
+      { type: "feature", description: "Each order now has a full audit history visible in the order details — who created it, every modification (with field-level diffs), the approval/denial decision, and the receive event." },
+      { type: "feature", description: "New 'Status' filter on the Order Submissions page lets you quickly find pending requests, denied orders, or anything still waiting to be received." },
+      { type: "feature", description: "New permissions: 'Approve / Deny Orders' (admin by default) and 'Mark Orders Received' (admin + ordering by default). Existing 'Edit Orders' is unchanged." },
+      { type: "improvement", description: "Submitters get an email notification when their order is approved or denied, mirroring the existing confirmation and 'order received' notifications." },
+      { type: "improvement", description: "Seasonal balance display and submit-time validation now skip denied orders and continue to soft-hold pending requests so a store can't over-request against a deposit while approval is in flight." },
+      { type: "improvement", description: "Existing orders were backfilled automatically: anything previously fulfilled became 'Received', everything else became 'Approved' so nothing in the warehouse on-hand math changes for historical data." },
+    ],
+  },
   {
     version: "3.6.6",
     date: "2026-04-23",
