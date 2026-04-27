@@ -6,6 +6,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocations } from "@/hooks/use-locations";
+import { usePermissions } from "@/hooks/use-permissions";
 import { isValidLocationName } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -156,6 +157,11 @@ export default function OrderForm() {
   const today = new Date().toISOString().split("T")[0];
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: dbLocations } = useLocations();
+  const { can } = usePermissions();
+  // Anyone without orders.approve is store-scoped: they can only submit
+  // orders for THEIR assigned location(s). Admins/approvers see every store
+  // in the dropdown so they can fill in for any location if needed.
+  const isStoreScoped = !can("orders.approve") && authStatus?.user?.role !== "admin";
   const [, navigate] = useWouterLocation();
   const [isEditMatch, editParams] = useRoute<{ id: string }>("/orders/edit/:id");
   const editId = isEditMatch ? Number(editParams?.id) : null;
@@ -166,8 +172,14 @@ export default function OrderForm() {
     enabled: isEditMode,
   });
 
+  // Build the list of stores the dropdown is allowed to show. Store-scoped
+  // users only see their assigned stores; everyone else sees the full list.
+  // The server enforces the same rule, so even if this UI filter is bypassed
+  // the POST /api/orders call will reject a non-allowed location.
+  const userLocIdSet = new Set((authStatus?.user?.locationIds ?? []).map(String));
   const orderFormLocations = (dbLocations ?? [])
     .filter((l: any) => l.isActive && l.availableForOrderForm && isValidLocationName(l.name))
+    .filter((l: any) => !isStoreScoped || userLocIdSet.has(String(l.id)))
     .map((l: any) => ({ id: l.id, displayName: (l.orderFormName ?? l.name) as string }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 

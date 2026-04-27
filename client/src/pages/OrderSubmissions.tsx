@@ -313,8 +313,17 @@ export default function OrderSubmissions() {
   const [, navigate] = useWouterLocation();
 
   const { data: dbLocations } = useLocations();
+  // Pull locationIds out of the existing auth status query (already cached
+  // by usePermissions). Store-scoped users see only their stores in the
+  // filter dropdown; the server enforces the same rule on /api/orders.
+  const { data: authStatus } = useQuery<{ user?: { role?: string; locationIds?: string[] | null } | null }>({
+    queryKey: ["/api/auth/status"],
+  });
+  const isStoreScoped = !canApprove && authStatus?.user?.role !== "admin";
+  const userLocIdSet = new Set((authStatus?.user?.locationIds ?? []).map(String));
   const orderFormLocationNames = (dbLocations ?? [])
     .filter((l: any) => l.isActive && l.availableForOrderForm)
+    .filter((l: any) => !isStoreScoped || userLocIdSet.has(String(l.id)))
     .map((l: any) => (l.orderFormName ?? l.name) as string)
     .sort((a, b) => a.localeCompare(b));
 

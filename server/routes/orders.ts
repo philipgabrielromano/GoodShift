@@ -35,6 +35,35 @@ function getActor(req: { session?: any }): { id: number | null; name: string; em
   };
 }
 
+// Returns the list of `orders.location` strings (orderFormName ?? name) the
+// signed-in user is allowed to read/write. Returns `null` to mean
+// "no restriction" (admins and warehouse approvers see everything). Returns
+// an empty array for users who have no assigned stores at all — they should
+// see and touch nothing.
+//
+// Policy: anyone WITHOUT `orders.approve` is restricted to their own
+// assigned stores. Approvers (warehouse / transportation) can see and act
+// on every store's orders, which is required for the central approval and
+// receive-coordination flows.
+async function getUserAllowedLocationNames(
+  user: { role?: string; locationIds?: string[] | null } | null | undefined
+): Promise<string[] | null> {
+  if (!user || !user.role) return [];
+  if (user.role === "admin") return null;
+  if (await userHasFeature(user, "orders.approve")) return null;
+
+  const ids = (user.locationIds ?? []).filter(Boolean).map(String);
+  if (ids.length === 0) return [];
+
+  const idSet = new Set(ids);
+  const allLocations = await storage.getLocations();
+  const names = allLocations
+    .filter((l: any) => idSet.has(String(l.id)))
+    .map((l: any) => (l.orderFormName ?? l.name) as string);
+  // De-dupe in case orderFormName collides across rows.
+  return Array.from(new Set(names));
+}
+
 // Writes an audit row to the Postgres `order_events` table. State-change
 // callers (approve/deny/receive/unreceive) MUST `await` this so they can
 // surface a 500 if the audit write fails — we don't want a state change to
@@ -444,6 +473,16 @@ export function registerOrderRoutes(app: Express) {
     try {
       const parsed = orderSchema.parse(req.body);
       const actor = getActor(req);
+
+      // Store-scoped users (no orders.approve) can only submit orders for
+      // their own assigned store(s). Admins/approvers are unrestricted.
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && !allowedLocations.includes(parsed.location)) {
+        return res.status(403).json({
+          message: "You can only submit orders for your assigned store(s).",
+        });
+      }
+
       const { columns, values } = toSnakeColumns(parsed);
 
       columns.push("submitted_by");
@@ -553,46 +592,55 @@ export function registerOrderRoutes(app: Express) {
       const { startDate, endDate, location, orderType, status, limit, offset } = req.query;
       console.log("[Orders] GET /api/orders query:", JSON.stringify(req.query));
 
-      let query = "SELECT * FROM orders WHERE 1=1";
-      const params: (string | number)[] = [];
+      // Store-scoped users see only their assigned stores' orders.
+      // `null` = no restriction (admin / approver). `[]` = no assignments,
+      // so the user sees nothing (short-circuit with an empty page).
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && allowedLocations.length === 0) {
+        const pageLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
+        const pageOffset = Math.max(0, Number(offset) || 0);
+        return res.json({ orders: [], total: 0, limit: pageLimit, offset: pageOffset });
+      }
 
+      // Build the shared filter clauses ONCE so list and count stay in sync.
+      const filters: string[] = [];
+      const filterParams: (string | number)[] = [];
       if (startDate && typeof startDate === "string") {
-        query += " AND order_date >= ?";
-        params.push(startDate);
+        filters.push("order_date >= ?");
+        filterParams.push(startDate);
       }
       if (endDate && typeof endDate === "string") {
-        query += " AND order_date <= ?";
-        params.push(endDate);
+        filters.push("order_date <= ?");
+        filterParams.push(endDate);
       }
       if (location && typeof location === "string") {
-        query += " AND location = ?";
-        params.push(location);
+        filters.push("location = ?");
+        filterParams.push(location);
       }
       if (orderType && typeof orderType === "string") {
-        query += " AND order_type = ?";
-        params.push(orderType);
+        filters.push("order_type = ?");
+        filterParams.push(orderType);
       }
       if (status && typeof status === "string" && (ORDER_STATUSES as readonly string[]).includes(status)) {
-        query += " AND status = ?";
-        params.push(status);
+        filters.push("status = ?");
+        filterParams.push(status);
+      }
+      if (allowedLocations !== null) {
+        filters.push(`location IN (${allowedLocations.map(() => "?").join(", ")})`);
+        filterParams.push(...allowedLocations);
       }
 
-      query += " ORDER BY order_date DESC, submitted_at DESC";
+      const whereClause = filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
 
+      let query = `SELECT * FROM orders${whereClause} ORDER BY order_date DESC, submitted_at DESC`;
       const pageLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
       const pageOffset = Math.max(0, Number(offset) || 0);
       query += ` LIMIT ${Math.floor(pageLimit)} OFFSET ${Math.floor(pageOffset)}`;
 
-      const [rows] = await mysqlPool.execute<OrderRow[]>(query, params);
+      const [rows] = await mysqlPool.execute<OrderRow[]>(query, filterParams);
 
-      let countQuery = "SELECT COUNT(*) as total FROM orders WHERE 1=1";
-      const countParams: string[] = [];
-      if (startDate && typeof startDate === "string") { countQuery += " AND order_date >= ?"; countParams.push(startDate); }
-      if (endDate && typeof endDate === "string") { countQuery += " AND order_date <= ?"; countParams.push(endDate); }
-      if (location && typeof location === "string") { countQuery += " AND location = ?"; countParams.push(location); }
-      if (orderType && typeof orderType === "string") { countQuery += " AND order_type = ?"; countParams.push(orderType); }
-      if (status && typeof status === "string" && (ORDER_STATUSES as readonly string[]).includes(status)) { countQuery += " AND status = ?"; countParams.push(status); }
-      const [countRows] = await mysqlPool.execute<CountRow[]>(countQuery, countParams);
+      const countQuery = `SELECT COUNT(*) as total FROM orders${whereClause}`;
+      const [countRows] = await mysqlPool.execute<CountRow[]>(countQuery, filterParams);
       const total = countRows[0]?.total || 0;
 
       const camelRows = rows.map(toCamel);
@@ -608,17 +656,36 @@ export function registerOrderRoutes(app: Express) {
     try {
       const { location } = req.query;
       const filter = typeof location === "string" && location.trim() ? location.trim() : undefined;
-      // Single-location lookups are allowed for any submitter (they need it
-      // for inline form validation). Pulling balances across all stores is
-      // an aggregate view and requires `seasonal_inventory.view`.
+      const user = (req.session as Record<string, any>)?.user;
+      // Compute the user's store scope up-front so we can enforce it
+      // consistently in both the single-location and aggregate paths.
+      const allowedLocations = await getUserAllowedLocationNames(user);
+
       if (!filter) {
-        const user = (req.session as Record<string, { role?: string }>)?.user;
+        // Aggregate (all-stores) view: requires seasonal_inventory.view AND,
+        // if the caller is store-scoped, the result is trimmed to just their
+        // stores. This prevents a non-approver with seasonal_inventory.view
+        // from reading other stores' aggregate balances.
         const allowed = await userHasFeature(user, "seasonal_inventory.view");
         if (!allowed) {
           return res.status(403).json({ message: "Access denied" });
         }
+      } else {
+        // Single-location lookup (used by the order form for inline
+        // validation). Store-scoped users may only ask about their own
+        // stores' balances. Approvers / admins are unrestricted.
+        if (allowedLocations !== null && !allowedLocations.includes(filter)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
       }
-      const balances = await loadBalances(filter);
+      let balances = await loadBalances(filter);
+      // Trim aggregate results down to the caller's allowed stores when
+      // they're store-scoped. Cheap post-filter — there are ~50 stores at
+      // most so this is fine without pushing the filter into the SQL.
+      if (!filter && allowedLocations !== null) {
+        const allowedSet = new Set(allowedLocations);
+        balances = balances.filter(b => allowedSet.has(b.location));
+      }
       res.json({ balances });
     } catch (err) {
       console.error("[Orders] Error fetching seasonal balances:", err);
@@ -648,10 +715,19 @@ export function registerOrderRoutes(app: Express) {
       // approved → received transition atomic against concurrent
       // approve/deny/unreceive on the same row.
       const [rows] = await conn.execute<OrderRow[]>(
-        "SELECT id, status FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT id, status, location FROM orders WHERE id = ? FOR UPDATE",
         [id]
       );
       if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      // Only stores assigned to this order may receive it. Approvers /
+      // admins are unrestricted (allowedLocations === null).
+      const allowedRecvLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedRecvLocations !== null && !allowedRecvLocations.includes(rows[0].location as string)) {
         await conn.rollback();
         conn.release();
         conn = null;
@@ -803,10 +879,19 @@ export function registerOrderRoutes(app: Express) {
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
       const [rows] = await conn.execute<OrderRow[]>(
-        "SELECT id, status FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT id, status, location FROM orders WHERE id = ? FOR UPDATE",
         [id]
       );
       if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      // Same store-scope guard as receive — only the assigned store(s) can
+      // un-receive; admin/approver bypass via getUserAllowedLocationNames.
+      const allowedUnrecvLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedUnrecvLocations !== null && !allowedUnrecvLocations.includes(rows[0].location as string)) {
         await conn.rollback();
         conn.release();
         conn = null;
@@ -1165,6 +1250,22 @@ export function registerOrderRoutes(app: Express) {
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid order id" });
       }
+      // Cross-store leak guard: a non-approver shouldn't be able to read the
+      // audit trail of an order that belongs to a store they aren't assigned
+      // to. Cheap pre-check against the parent order's location.
+      const [orderRows] = await mysqlPool.execute<OrderRow[]>(
+        "SELECT location FROM orders WHERE id = ?",
+        [id]
+      );
+      if (orderRows.length === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && !allowedLocations.includes(orderRows[0].location as string)) {
+        // 404 (not 403) so we don't leak the existence of orders from other
+        // stores by status-code differentiation.
+        return res.status(404).json({ message: "Order not found" });
+      }
       const events = await storage.getOrderEvents(id);
       res.json(events);
     } catch (err) {
@@ -1177,6 +1278,11 @@ export function registerOrderRoutes(app: Express) {
     try {
       const [rows] = await mysqlPool.execute<OrderRow[]>("SELECT * FROM orders WHERE id = ?", [req.params.id]);
       if (rows.length === 0) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && !allowedLocations.includes(rows[0].location as string)) {
+        // 404, not 403 — same reasoning as above (don't leak existence).
         return res.status(404).json({ message: "Order not found" });
       }
       res.json(toCamel(rows[0]));
@@ -1212,6 +1318,22 @@ export function registerOrderRoutes(app: Express) {
       }
       const beforeRow = toCamel(existing[0]) as Record<string, any>;
       const beforeStatus = (existing[0].status as OrderStatus) || "submitted";
+
+      // Store-scope guard: edits must come from a user assigned to either
+      // the original store OR the new store (so they can't move an order
+      // out of their scope, and can't pull one in from someone else's).
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null) {
+        const beforeLoc = (existing[0].location as string) || "";
+        if (!allowedLocations.includes(beforeLoc) || !allowedLocations.includes(parsed.location)) {
+          await conn.rollback();
+          conn.release();
+          conn = null;
+          return res.status(403).json({
+            message: "You can only edit orders for your assigned store(s).",
+          });
+        }
+      }
 
       const balanceError = await validateSeasonalRequests(conn, parsed, id);
       if (balanceError) {
@@ -1283,9 +1405,16 @@ export function registerOrderRoutes(app: Express) {
       }
       const actor = getActor(req);
       const [rows] = await mysqlPool.execute<OrderRow[]>(
-        "SELECT id, status FROM orders WHERE id = ?",
+        "SELECT id, status, location FROM orders WHERE id = ?",
         [id]
       );
+      // Store-scope guard: a non-approver can only delete an order from a
+      // store they're assigned to. We return 404 (not 403) for cross-store
+      // attempts so we don't leak existence.
+      const allowedDelLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (rows.length > 0 && allowedDelLocations !== null && !allowedDelLocations.includes(rows[0].location as string)) {
+        return res.status(404).json({ message: "Order not found" });
+      }
       const fromStatus = (rows[0]?.status as OrderStatus | undefined) || null;
       const [result] = await mysqlPool.execute<ResultSetHeader>(
         "DELETE FROM orders WHERE id = ?",
