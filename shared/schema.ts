@@ -1003,6 +1003,40 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 // hold only and become a real commitment at approval time.
 export const ORDER_INVENTORY_AFFECTING_STATUSES: OrderStatus[] = ["approved", "received", "closed"];
 
+// Quantity columns the warehouse may adjust at approval time so the order
+// records what was *actually* sent rather than what was originally requested.
+// Both the client adjust dialog and the server approve endpoint use this
+// allowlist so they can never disagree on what is editable.
+//
+// Each entry is the camelCase field name. The MySQL column name is the same
+// string converted snake_case (e.g. apparelGaylordsRequested →
+// apparel_gaylords_requested). Display labels live in the client's
+// FIELD_LABELS map.
+export const ADJUSTABLE_ORDER_FIELDS = [
+  // Equipment requested
+  "totesRequested",
+  "durosRequested",
+  "blueBinsRequested",
+  "gaylordsRequested",
+  "palletsRequested",
+  "containersRequested",
+  // Raw / category gaylords requested
+  "apparelGaylordsRequested",
+  "waresGaylordsRequested",
+  "electricalGaylordsRequested",
+  "accessoriesGaylordsRequested",
+  "booksGaylordsRequested",
+  "shoesGaylordsRequested",
+  "furnitureGaylordsRequested",
+  // Seasonal saved-stock requested
+  "savedWinterRequested",
+  "savedSummerRequested",
+  "savedHalloweenRequested",
+  "savedChristmasRequested",
+] as const;
+export type AdjustableOrderField = (typeof ADJUSTABLE_ORDER_FIELDS)[number];
+export const ADJUSTABLE_ORDER_FIELDS_SET: ReadonlySet<string> = new Set(ADJUSTABLE_ORDER_FIELDS);
+
 export const ORDER_EVENT_TYPES = [
   "created",
   "modified",

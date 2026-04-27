@@ -988,6 +988,12 @@ export interface OrderApprovedEmailData {
   location: string;
   approvedBy: string;
   appUrl: string;
+  // Optional list of items the warehouse is actually shipping. When the
+  // approver adjusted any line, `originalValue` is set so the email can show
+  // "5 → 3" callouts; lines that weren't adjusted have `originalValue`
+  // omitted.
+  sentItems?: Array<{ label: string; value: number; originalValue?: number }>;
+  adjustmentReason?: string;
 }
 
 export async function sendOrderApprovedEmail(
@@ -1005,14 +1011,38 @@ export async function sendOrderApprovedEmail(
     const orderDate = data.orderDate
       ? new Date(data.orderDate).toLocaleDateString("en-US", { timeZone: "America/New_York" })
       : "";
+    // Render the per-item ship list when the approve route passed one.
+    // Lines whose original requested value differs from the approved value
+    // get a "(requested N)" callout so the store immediately sees what
+    // changed; unchanged lines just show the quantity.
+    const items = data.sentItems ?? [];
+    const hasAdjustments = items.some(it => it.originalValue !== undefined && it.originalValue !== it.value);
+    const itemRowsHtml = items.length > 0
+      ? `
+      <h3 style="margin: 16px 0 6px 0; font-size: 15px;">${hasAdjustments ? "What is being sent" : "Order Items"}</h3>
+      <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
+        ${items.map(it => {
+          const adjusted = it.originalValue !== undefined && it.originalValue !== it.value;
+          const valueCell = adjusted
+            ? `<span style="color: #b45309;">${it.value}</span> <span style="color: #6b7280; font-size: 12px;">(requested ${it.originalValue})</span>`
+            : `${it.value}`;
+          return `<tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>${htmlEscape(it.label)}:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${valueCell}</td></tr>`;
+        }).join("")}
+      </table>`
+      : "";
+    const reasonHtml = data.adjustmentReason && hasAdjustments
+      ? `<p style="margin: 0 0 12px 0;"><strong>Note from warehouse:</strong> ${htmlEscape(data.adjustmentReason)}</p>`
+      : "";
     const bodyHtml = `
-      <p>Your order has been approved.</p>
+      <p>Your order has been approved${hasAdjustments ? " with adjustments" : ""}.</p>
       <table style="width: 100%; border-collapse: collapse; margin: 0 0 16px 0;">
         <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${orderDate}</td></tr>
         <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.orderType, branding)}</td></tr>
         <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.location, branding)}</td></tr>
         <tr><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;"><strong>Approved By:</strong></td><td style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">${dv(data.approvedBy, branding)}</td></tr>
-      </table>`;
+      </table>
+      ${itemRowsHtml}
+      ${reasonHtml}`;
     const emailBody = renderEmailLayout({
       type: "order_approved",
       title: "Order Approved",

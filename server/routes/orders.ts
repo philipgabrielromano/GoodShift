@@ -13,7 +13,12 @@ import {
   type OrderNotificationEmailData,
 } from "../outlook";
 import { storage } from "../storage";
-import { ORDER_STATUSES, type OrderStatus } from "@shared/schema";
+import {
+  ORDER_STATUSES,
+  type OrderStatus,
+  ADJUSTABLE_ORDER_FIELDS,
+  ADJUSTABLE_ORDER_FIELDS_SET,
+} from "@shared/schema";
 
 // Statuses whose seasonal requests count toward the soft-hold balance shown
 // in the Order Form and enforced at submit time. Denied orders are dropped.
@@ -862,6 +867,18 @@ export function registerOrderRoutes(app: Express) {
   // Approve a submitted order. Re-validates seasonal balances at approval
   // time so two simultaneously-pending requests can't both be approved past
   // the on-deposit balance.
+  //
+  // Optional `adjustments` body lets the warehouse record what was actually
+  // shipped instead of what the store originally requested. Only fields
+  // listed in shared/schema.ts → ADJUSTABLE_ORDER_FIELDS are accepted; values
+  // must be non-negative integers and may be either lower or higher than the
+  // requested value. The adjusted columns are overwritten in place (Option A
+  // from the design discussion) and the originals get snapshotted into the
+  // audit event note so we can always see what changed.
+  const approveSchema = z.object({
+    adjustments: z.record(z.string(), z.number().int().min(0).max(99999)).optional(),
+    reason: z.string().trim().max(2000).optional(),
+  });
   app.post("/api/orders/:id/approve", requireFeatureAccess("orders.approve"), async (req, res) => {
     let conn: PoolConnection | null = null;
     try {
@@ -870,6 +887,16 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: "Invalid order id" });
       }
       const actor = getActor(req);
+      const body = approveSchema.parse(req.body ?? {});
+      const rawAdjustments = body.adjustments ?? {};
+
+      // Validate every adjustment field name against the allowlist *before*
+      // we touch the DB so a typo in the client never gets near a SQL UPDATE.
+      for (const k of Object.keys(rawAdjustments)) {
+        if (!ADJUSTABLE_ORDER_FIELDS_SET.has(k)) {
+          return res.status(400).json({ message: `Field "${k}" is not adjustable` });
+        }
+      }
 
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
@@ -894,15 +921,36 @@ export function registerOrderRoutes(app: Express) {
         });
       }
 
-      // Re-validate seasonal balances against everything else committed so
-      // we never approve into a deficit. We exclude this order from the
-      // baseline because it itself is the request being committed.
       const camel = toCamel(order) as Record<string, any>;
+
+      // Build the effective post-approval values: start from what the store
+      // requested, override anything the warehouse adjusted. Only keep
+      // entries that actually differ — equal values are no-ops we don't need
+      // to log or UPDATE.
+      const changedFields: Array<{ field: string; column: string; original: number; adjusted: number; label: string }> = [];
+      for (const [field, adjusted] of Object.entries(rawAdjustments)) {
+        const original = Number(camel[field] ?? 0) || 0;
+        if (adjusted === original) continue;
+        changedFields.push({
+          field,
+          column: field.replace(/[A-Z]/g, m => "_" + m.toLowerCase()),
+          original,
+          adjusted,
+          label: FIELD_LABELS[field] || field,
+        });
+      }
+
+      // Re-validate seasonal balances against the *adjusted* values so the
+      // warehouse can't approve more saved-stock than the store has on
+      // deposit even if they bumped the number up. We exclude this order
+      // from the baseline because it itself is the request being committed.
       const seasonalParsed: any = {
         location: String(camel.location || ""),
       };
       for (const c of SEASONAL_CATEGORIES) {
-        seasonalParsed[c.requestedField] = Number(camel[c.requestedField] || 0) || null;
+        const adj = changedFields.find(f => f.field === c.requestedField);
+        const value = adj ? adj.adjusted : Number(camel[c.requestedField] || 0);
+        seasonalParsed[c.requestedField] = value || null;
       }
       const balanceError = await validateSeasonalRequests(conn, seasonalParsed, id);
       if (balanceError) {
@@ -912,13 +960,45 @@ export function registerOrderRoutes(app: Express) {
         return res.status(422).json({ message: balanceError });
       }
 
-      await conn.execute<ResultSetHeader>(
-        "UPDATE orders SET status = 'approved', approved_at = NOW(), approved_by = ?, denied_at = NULL, denied_by = NULL, denial_reason = NULL WHERE id = ?",
-        [actor.name, id]
+      // Build a single UPDATE that flips status + writes any adjustments.
+      // Always include the status / approved_at / approved_by / denial-clear
+      // columns; tack adjustment columns on the end.
+      const setClauses = [
+        "status = 'approved'",
+        "approved_at = NOW()",
+        "approved_by = ?",
+        "denied_at = NULL",
+        "denied_by = NULL",
+        "denial_reason = NULL",
+        ...changedFields.map(f => `${f.column} = ?`),
+      ];
+      const params: (string | number)[] = [actor.name, ...changedFields.map(f => f.adjusted), id];
+      const [updateResult] = await conn.execute<ResultSetHeader>(
+        `UPDATE orders SET ${setClauses.join(", ")} WHERE id = ? AND status = 'submitted'`,
+        params
       );
+      // Defence-in-depth race guard: matches the same affectedRows check
+      // used by deny/receive/unreceive so a 0-row update can't silently
+      // succeed even if some future trigger or replica drift breaks the
+      // FOR UPDATE assumption.
+      if (updateResult.affectedRows === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
+      }
       await conn.commit();
       conn.release();
       conn = null;
+
+      // Build the audit-log note. For a no-adjustment approval we leave it
+      // null so the audit row stays compact; with adjustments we record a
+      // human-readable summary plus the optional warehouse reason.
+      let note: string | undefined;
+      if (changedFields.length > 0) {
+        const summary = changedFields.map(f => `${f.label}: ${f.original} → ${f.adjusted}`).join("; ");
+        note = body.reason ? `${summary} — ${body.reason}` : summary;
+      }
 
       // Await the audit write — if it fails the route returns 500 so the
       // operator sees a state-change without a history row, instead of a
@@ -930,14 +1010,33 @@ export function registerOrderRoutes(app: Express) {
         toStatus: "approved",
         byUserId: actor.id,
         byUserName: actor.name,
+        note,
       });
-      res.json({ message: "Order approved", status: "approved" });
+      res.json({
+        message: changedFields.length > 0 ? "Order approved with adjustments" : "Order approved",
+        status: "approved",
+        adjustedFields: changedFields.map(f => ({ field: f.field, original: f.original, adjusted: f.adjusted })),
+      });
 
-      // Notify submitter (best-effort, async).
+      // Notify submitter (best-effort, async). Build the per-line ship list
+      // from every requested column in the order, with originals attached
+      // for the lines the warehouse adjusted so the email shows "5 (requested 7)".
       void (async () => {
         try {
           const submittedBy = String(camel.submittedBy || "").trim();
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submittedBy)) return;
+          const sentItems: Array<{ label: string; value: number; originalValue?: number }> = [];
+          for (const field of ADJUSTABLE_ORDER_FIELDS) {
+            const original = Number(camel[field] ?? 0) || 0;
+            const adj = changedFields.find(f => f.field === field);
+            const value = adj ? adj.adjusted : original;
+            if (value <= 0 && original <= 0) continue;
+            sentItems.push({
+              label: FIELD_LABELS[field] || field,
+              value,
+              originalValue: adj ? original : undefined,
+            });
+          }
           await sendOrderApprovedEmail(submittedBy.toLowerCase(), {
             orderId: id,
             orderDate: String(camel.orderDate || ""),
@@ -945,6 +1044,8 @@ export function registerOrderRoutes(app: Express) {
             location: String(camel.location || ""),
             approvedBy: actor.name,
             appUrl: "https://goodshift.goodwillgoodskills.org",
+            sentItems,
+            adjustmentReason: body.reason,
           });
         } catch (e) {
           console.error("[Orders] Failed to send approval email:", e);
@@ -953,7 +1054,10 @@ export function registerOrderRoutes(app: Express) {
     } catch (err) {
       if (conn) {
         try { await conn.rollback(); } catch { /* ignore */ }
-        conn.release();
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("[Orders] Error approving order:", err);
       res.status(500).json({ message: "Failed to approve order" });

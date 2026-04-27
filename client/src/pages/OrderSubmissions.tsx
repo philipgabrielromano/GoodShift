@@ -28,7 +28,7 @@ import {
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
-import type { OrderEvent, OrderStatus } from "@shared/schema";
+import { ADJUSTABLE_ORDER_FIELDS, type OrderEvent, type OrderStatus } from "@shared/schema";
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -297,6 +297,12 @@ export default function OrderSubmissions() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [denyOpen, setDenyOpen] = useState(false);
   const [denyReason, setDenyReason] = useState("");
+  // Adjust-on-approve dialog: pre-filled with the original requested values,
+  // operator can edit any line up or down, optional reason text gets appended
+  // to the audit-log note.
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustValues, setAdjustValues] = useState<Record<string, number>>({});
+  const [adjustReason, setAdjustReason] = useState("");
   const pageSize = 25;
 
   const { can } = usePermissions();
@@ -347,12 +353,22 @@ export default function OrderSubmissions() {
   });
 
   const approveMutation = useMutation({
-    mutationFn: async (id: number) => {
-      await apiRequest("POST", `/api/orders/${id}/approve`);
+    mutationFn: async (vars: { id: number; adjustments?: Record<string, number>; reason?: string }) => {
+      const body: Record<string, unknown> = {};
+      if (vars.adjustments && Object.keys(vars.adjustments).length > 0) body.adjustments = vars.adjustments;
+      if (vars.reason && vars.reason.trim()) body.reason = vars.reason.trim();
+      await apiRequest("POST", `/api/orders/${vars.id}/approve`, body);
     },
-    onSuccess: () => {
-      toast({ title: "Order approved" });
+    onSuccess: (_data, vars) => {
+      toast({
+        title: vars.adjustments && Object.keys(vars.adjustments).length > 0
+          ? "Order approved with adjustments"
+          : "Order approved",
+      });
       setSelectedOrder(null);
+      setAdjustOpen(false);
+      setAdjustValues({});
+      setAdjustReason("");
       invalidateAll();
     },
     onError: (err: Error) => {
@@ -691,28 +707,53 @@ export default function OrderSubmissions() {
                   <hr />
                   <div className="flex flex-col gap-2">
                     {canApprove && statusForRow(selectedOrder) === "submitted" && (
-                      <div className="grid grid-cols-2 gap-2">
+                      <>
                         <Button
                           variant="default"
                           size="sm"
+                          className="w-full"
                           disabled={approveMutation.isPending || denyMutation.isPending}
-                          onClick={() => approveMutation.mutate(selectedOrder.id)}
+                          onClick={() => approveMutation.mutate({ id: selectedOrder.id })}
                           data-testid={`button-approve-order-${selectedOrder.id}`}
                         >
-                          {approveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                          Approve
+                          {approveMutation.isPending && !adjustOpen ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                          Approve as requested
                         </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={approveMutation.isPending || denyMutation.isPending}
-                          onClick={() => { setDenyReason(""); setDenyOpen(true); }}
-                          data-testid={`button-deny-order-${selectedOrder.id}`}
-                        >
-                          <XCircle className="w-4 h-4 mr-2" />
-                          Deny
-                        </Button>
-                      </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={approveMutation.isPending || denyMutation.isPending}
+                            onClick={() => {
+                              // Pre-fill the form with the requested values for
+                              // every adjustable field that has a non-zero
+                              // request — those are the only lines worth showing.
+                              const initial: Record<string, number> = {};
+                              for (const f of ADJUSTABLE_ORDER_FIELDS) {
+                                const v = Number((selectedOrder as any)[f] ?? 0) || 0;
+                                if (v > 0) initial[f] = v;
+                              }
+                              setAdjustValues(initial);
+                              setAdjustReason("");
+                              setAdjustOpen(true);
+                            }}
+                            data-testid={`button-adjust-order-${selectedOrder.id}`}
+                          >
+                            <Pencil className="w-4 h-4 mr-2" />
+                            Adjust & approve
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={approveMutation.isPending || denyMutation.isPending}
+                            onClick={() => { setDenyReason(""); setDenyOpen(true); }}
+                            data-testid={`button-deny-order-${selectedOrder.id}`}
+                          >
+                            <XCircle className="w-4 h-4 mr-2" />
+                            Deny
+                          </Button>
+                        </div>
+                      </>
                     )}
                     {canReceive && statusForRow(selectedOrder) === "approved" && (
                       <Button
@@ -809,6 +850,99 @@ export default function OrderSubmissions() {
             >
               {denyMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Deny order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={adjustOpen}
+        onOpenChange={(open) => {
+          setAdjustOpen(open);
+          if (!open) { setAdjustValues({}); setAdjustReason(""); }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Adjust quantities &amp; approve</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Edit any line where transportation is sending a different quantity than the store requested. Lines you don't change will be approved as-is.
+            </p>
+            {selectedOrder && Object.keys(adjustValues).length === 0 && (
+              <p className="text-sm text-muted-foreground italic" data-testid="text-no-adjustable">
+                This order has no adjustable line items — use "Approve as requested" instead.
+              </p>
+            )}
+            <div className="space-y-2">
+              {selectedOrder && ADJUSTABLE_ORDER_FIELDS.filter(f => f in adjustValues).map(field => {
+                const original = Number((selectedOrder as any)[field] ?? 0) || 0;
+                const current = adjustValues[field];
+                const changed = current !== original;
+                return (
+                  <div key={field} className="flex items-center justify-between gap-3">
+                    <Label htmlFor={`adjust-${field}`} className="text-sm flex-1">
+                      {FIELD_LABELS[field] || field}
+                      <span className="ml-2 text-xs text-muted-foreground">requested {original}</span>
+                    </Label>
+                    <Input
+                      id={`adjust-${field}`}
+                      type="number"
+                      min={0}
+                      step={1}
+                      className={`w-24 ${changed ? "border-amber-500 focus-visible:ring-amber-500" : ""}`}
+                      value={Number.isFinite(current) ? current : 0}
+                      onChange={(e) => {
+                        const v = Math.max(0, Math.floor(Number(e.target.value) || 0));
+                        setAdjustValues(prev => ({ ...prev, [field]: v }));
+                      }}
+                      data-testid={`input-adjust-${field}`}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="adjust-reason" className="text-sm">
+                Reason (optional)
+              </Label>
+              <Input
+                id="adjust-reason"
+                placeholder="e.g. Apparel gaylord short on hand"
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                data-testid="input-adjust-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => { setAdjustOpen(false); setAdjustValues({}); setAdjustReason(""); }}
+              data-testid="button-adjust-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              disabled={approveMutation.isPending || !selectedOrder || Object.keys(adjustValues).length === 0}
+              onClick={() => {
+                if (!selectedOrder) return;
+                // Only send the lines whose value actually differs from the
+                // original — server treats no-op entries as a status-only
+                // approval anyway, but trimming keeps the audit note clean.
+                const diffs: Record<string, number> = {};
+                for (const [field, value] of Object.entries(adjustValues)) {
+                  const original = Number((selectedOrder as any)[field] ?? 0) || 0;
+                  if (value !== original) diffs[field] = value;
+                }
+                approveMutation.mutate({ id: selectedOrder.id, adjustments: diffs, reason: adjustReason });
+              }}
+              data-testid="button-adjust-approve"
+            >
+              {approveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Approve order
             </Button>
           </DialogFooter>
         </DialogContent>
