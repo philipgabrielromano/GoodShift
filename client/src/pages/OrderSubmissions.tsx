@@ -160,7 +160,7 @@ const FIELD_LABELS: Record<string, string> = {
   bookGaylordsUsed: "Book Gaylords Used",
   shoeGaylordsUsed: "Shoe Gaylords Used",
   donors: "Donors",
-  isCentralProcessing: "Central Processing/Lee Harvard",
+  isCentralProcessing: "Central Processing",
   apparelProduction: "Apparel Production",
   waresProduction: "Wares Production",
 };

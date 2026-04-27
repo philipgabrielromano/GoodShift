@@ -628,7 +628,7 @@ export default function OrderForm() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">
-                  Are you entering production from Central Processing or Lee Harvard Store?
+                  Are you entering production from Central Processing?
                 </Label>
                 <RadioGroup
                   value={form.watch("isCentralProcessing") === true ? "yes" : form.watch("isCentralProcessing") === false ? "no" : ""}
