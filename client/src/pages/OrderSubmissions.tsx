@@ -187,7 +187,22 @@ const SKIP_KEYS = new Set([
 
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
-  const d = new Date(dateStr);
+  // order_date is a calendar date (MySQL DATE column), not a moment in time.
+  // mysql2 hands it back as a JS Date set to midnight UTC, which serializes
+  // as "2026-04-27T00:00:00.000Z". If we feed that to `new Date(...)` and
+  // then `.toLocaleDateString()`, midnight-UTC gets shifted into the
+  // previous calendar day in any negative-offset timezone (e.g. Eastern),
+  // so April 27 displays as April 26. Parse the YYYY-MM-DD prefix as
+  // local-time components instead so the displayed date matches what the
+  // user picked, regardless of viewer timezone.
+  const ymd = dateStr.slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!m) {
+    // Fallback for any unexpected format
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
