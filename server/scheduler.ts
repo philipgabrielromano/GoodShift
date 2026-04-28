@@ -121,8 +121,21 @@ async function syncEmployeesFromUKG(): Promise<void> {
   }
 }
 
+// Result returned by runTimeClockSync so callers (the scheduler AND now the
+// admin "manual sync" route) can surface counts to the UI / logs.
+export interface TimeClockSyncResult {
+  success: boolean;
+  fetched: number;
+  processed: number;
+  startDate: string;
+  endDate: string;
+  durationMs: number;
+  error?: string;
+  skippedDelete?: boolean;
+}
+
 // Shared core: fetch and upsert time clock data for the given date range.
-async function runTimeClockSync(startDate: string, endDate: string, label: string): Promise<void> {
+export async function runTimeClockSync(startDate: string, endDate: string, label: string): Promise<TimeClockSyncResult> {
   console.log(`[Scheduler] Time clock sync (${label}): ${startDate} → ${endDate}`);
   const syncStart = Date.now();
 
@@ -131,27 +144,29 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
   const apiError = ukgClient.getLastError();
   if (apiError) {
     console.error(`[Scheduler] UKG time clock API error (${label}):`, apiError);
+    const durationMs = Date.now() - syncStart;
     ukgClient.addSyncResult({
       timestamp: new Date().toISOString(),
       type: "timeclock",
       success: false,
       error: apiError,
-      durationMs: Date.now() - syncStart,
+      durationMs,
     });
-    return;
+    return { success: false, fetched: 0, processed: 0, startDate, endDate, durationMs, error: apiError };
   }
 
   if (timeClockData.length === 0) {
     console.log(`[Scheduler] No time clock data for ${label}`);
+    const durationMs = Date.now() - syncStart;
     ukgClient.addSyncResult({
       timestamp: new Date().toISOString(),
       type: "timeclock",
       success: true,
       timeRecordsFetched: 0,
       timeRecordsProcessed: 0,
-      durationMs: Date.now() - syncStart,
+      durationMs,
     });
-    return;
+    return { success: true, fetched: 0, processed: 0, startDate, endDate, durationMs };
   }
 
   console.log(`[Scheduler] Processing ${timeClockData.length} time clock entries (${label})...`);
@@ -258,14 +273,24 @@ async function runTimeClockSync(startDate: string, endDate: string, label: strin
 
   const upserted = await storage.upsertTimeClockEntries(entries);
   console.log(`[Scheduler] Time clock sync complete (${label}): ${upserted} entries processed`);
+  const durationMs = Date.now() - syncStart;
   ukgClient.addSyncResult({
     timestamp: new Date().toISOString(),
     type: "timeclock",
     success: true,
     timeRecordsFetched: timeClockData.length,
     timeRecordsProcessed: upserted,
-    durationMs: Date.now() - syncStart,
+    durationMs,
   });
+  return {
+    success: true,
+    fetched: timeClockData.length,
+    processed: upserted,
+    startDate,
+    endDate,
+    durationMs,
+    skippedDelete: skipDelete,
+  };
 }
 
 // Daily sync: 30-day lookback + 60 days future (catches retroactive edits)

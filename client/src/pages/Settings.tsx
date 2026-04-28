@@ -220,9 +220,13 @@ export default function Settings() {
     },
   });
 
-  const { data: ukgDiagnostics, refetch: refetchDiagnostics } = useQuery<UKGDiagnostics>({
+  // Diagnostics is loaded eagerly when the user has the sync feature so the
+  // compact "last sync" summary above the buttons can render immediately.
+  // Polling stays gated to when the user has actually expanded the
+  // diagnostics panel — no need to hammer the endpoint when it's collapsed.
+  const { data: ukgDiagnostics, refetch: refetchDiagnostics, isFetching: isDiagnosticsFetching } = useQuery<UKGDiagnostics>({
     queryKey: ["/api/ukg/diagnostics"],
-    enabled: canUkgSync && showDiagnostics,
+    enabled: canUkgSync,
     refetchInterval: showDiagnostics ? 30000 : false,
   });
 
@@ -254,20 +258,31 @@ export default function Settings() {
       const res = await apiRequest("POST", "/api/ukg/sync", { storeId });
       return res.json();
     },
-    onSuccess: (data: { imported: number; updated: number; errors: number; apiError?: string | null }) => {
+    onSuccess: (data: { imported: number; updated: number; deactivated?: number; errors: number; apiError?: string | null }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+      // Refresh diagnostics so the "Last sync" summary updates immediately
+      // after a manual sync — otherwise the admin has no signal that
+      // anything happened beyond the toast.
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/diagnostics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/status"] });
       if (data.apiError) {
         setUkgApiError(data.apiError);
-        toast({ 
+        toast({
           variant: "destructive",
-          title: "UKG API Error", 
-          description: "See error details below" 
+          title: "UKG API Error",
+          description: "See error details below",
         });
       } else {
         setUkgApiError(null);
-        toast({ 
-          title: "UKG Sync Complete", 
-          description: `Imported: ${data.imported}, Updated: ${data.updated}, Errors: ${data.errors}` 
+        const parts = [
+          `Imported: ${data.imported}`,
+          `Updated: ${data.updated}`,
+        ];
+        if (typeof data.deactivated === "number") parts.push(`Deactivated: ${data.deactivated}`);
+        if (data.errors > 0) parts.push(`Errors: ${data.errors}`);
+        toast({
+          title: "Employee Sync Complete",
+          description: parts.join(" · "),
         });
       }
     },
@@ -275,6 +290,66 @@ export default function Settings() {
       toast({ variant: "destructive", title: "Sync Failed", description: "Could not sync with UKG" });
     },
   });
+
+  // Manual time-clock (shift data) sync. Lets admins backfill a missed
+  // window — e.g. after the API password rotates or a multi-day outage,
+  // they don't have to wait for the next 24h scheduler tick.
+  const today = new Date().toISOString().split("T")[0];
+  const thirtyDaysAgo = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split("T")[0];
+  })();
+  const [timeClockStartDate, setTimeClockStartDate] = useState<string>(thirtyDaysAgo);
+  const [timeClockEndDate, setTimeClockEndDate] = useState<string>(today);
+
+  const syncTimeClock = useMutation({
+    mutationFn: async (input: { startDate: string; endDate: string }) => {
+      const res = await apiRequest("POST", "/api/ukg/sync-timeclock", input);
+      return res.json();
+    },
+    onSuccess: (data: { success: boolean; fetched: number; processed: number; startDate: string; endDate: string; durationMs: number; error?: string; skippedDelete?: boolean }) => {
+      // Surface the result both to the toast and to the diagnostics summary
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/diagnostics"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ukg/status"] });
+      if (data.success) {
+        setUkgApiError(null);
+        const safety = data.skippedDelete
+          ? " (safety check skipped delete — incoming data was less than half existing)"
+          : "";
+        toast({
+          title: "Time Clock Sync Complete",
+          description: `${data.startDate} → ${data.endDate}: fetched ${data.fetched}, processed ${data.processed} in ${(data.durationMs / 1000).toFixed(1)}s${safety}`,
+        });
+      } else {
+        setUkgApiError(data.error || "Time clock sync failed");
+        toast({
+          variant: "destructive",
+          title: "Time Clock Sync Failed",
+          description: data.error || "Unknown error — see diagnostics below",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Time Clock Sync Failed",
+        description: err.message || "Could not sync time clock data",
+      });
+    },
+  });
+
+  // Wraps refetchDiagnostics so the Refresh button gives visible feedback
+  // (icon spin + toast). Previously the click was silent and looked broken.
+  const handleRefreshDiagnostics = async () => {
+    const result = await refetchDiagnostics();
+    if (result.data) {
+      toast({
+        title: "Diagnostics refreshed",
+        description: `${result.data.recentApiCalls?.length ?? 0} recent calls · ${result.data.syncHistory?.length ?? 0} sync entries`,
+      });
+    }
+  };
 
   const testOutlook = useMutation({
     mutationFn: async () => {
@@ -704,6 +779,97 @@ export default function Settings() {
                 {syncUkg.isPending ? "Syncing..." : "Sync Employees from UKG"}
               </Button>
 
+              {/* Manual time-clock (shift) sync — backfill a date window
+                  without waiting for the daily scheduler. Critical for
+                  recovering from credential outages. */}
+              <div className="space-y-2 pt-2 border-t" data-testid="section-timeclock-sync">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">Time Clock (Shift Data) Sync</span>
+                  {ukgDiagnostics?.database?.timeClockEntryCount !== undefined && (
+                    <span className="text-xs text-muted-foreground" data-testid="text-timeclock-count">
+                      {ukgDiagnostics.database.timeClockEntryCount.toLocaleString()} entries in DB
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="timeclock-start" className="text-xs">From</Label>
+                    <Input
+                      id="timeclock-start"
+                      type="date"
+                      value={timeClockStartDate}
+                      onChange={(e) => setTimeClockStartDate(e.target.value)}
+                      className="w-40"
+                      data-testid="input-timeclock-start"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="timeclock-end" className="text-xs">To</Label>
+                    <Input
+                      id="timeclock-end"
+                      type="date"
+                      value={timeClockEndDate}
+                      onChange={(e) => setTimeClockEndDate(e.target.value)}
+                      className="w-40"
+                      data-testid="input-timeclock-end"
+                    />
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={() => syncTimeClock.mutate({ startDate: timeClockStartDate, endDate: timeClockEndDate })}
+                    disabled={syncTimeClock.isPending || !timeClockStartDate || !timeClockEndDate}
+                    data-testid="button-sync-timeclock"
+                  >
+                    <Clock className={`w-4 h-4 mr-2 ${syncTimeClock.isPending ? "animate-spin" : ""}`} />
+                    {syncTimeClock.isPending ? "Syncing..." : "Sync Time Clock"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Pull shift/punch records from UKG for the selected date range. Default is the last 30 days. Use this to backfill after a credential change or missed scheduler runs.
+                </p>
+              </div>
+
+              {/* Always-visible last-sync summary so admins immediately see
+                  whether automatic syncs are flowing without expanding the
+                  diagnostics panel. */}
+              {ukgDiagnostics && (() => {
+                const lastEmployee = ukgDiagnostics.syncHistory?.find(s => s.type === "employee" && s.success);
+                const lastTimeClock = ukgDiagnostics.syncHistory?.find(s => s.type === "timeclock" && s.success);
+                const lastAnyFail = ukgDiagnostics.syncHistory?.find(s => !s.success);
+                const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString() : "Never";
+                return (
+                  <div className="rounded border bg-muted/40 p-3 space-y-2 text-sm" data-testid="section-sync-summary">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Last Sync Summary</span>
+                      {lastAnyFail && (
+                        <Badge variant="outline" className="text-yellow-600 border-yellow-600 text-xs">
+                          Recent failure detected
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                      <div data-testid="summary-employee-sync">
+                        <span className="text-muted-foreground">Employees:</span>{" "}
+                        {lastEmployee
+                          ? `${fmt(lastEmployee.timestamp)} — fetched ${lastEmployee.employeesFetched ?? 0}, processed ${lastEmployee.employeesProcessed ?? 0}`
+                          : "No successful sync recorded"}
+                      </div>
+                      <div data-testid="summary-timeclock-sync">
+                        <span className="text-muted-foreground">Time clock:</span>{" "}
+                        {lastTimeClock
+                          ? `${fmt(lastTimeClock.timestamp)} — fetched ${lastTimeClock.timeRecordsFetched ?? 0}, processed ${lastTimeClock.timeRecordsProcessed ?? 0}`
+                          : "No successful sync recorded"}
+                      </div>
+                    </div>
+                    {lastAnyFail && (
+                      <div className="text-xs text-yellow-700 dark:text-yellow-400" data-testid="text-recent-failure">
+                        Most recent failure: {fmt(lastAnyFail.timestamp)} ({lastAnyFail.type}) — {lastAnyFail.error || "unknown error"}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {ukgApiError && (
                 <div className="p-3 bg-destructive/10 border border-destructive/30 rounded">
                   <p className="text-sm font-medium text-destructive">UKG API Error:</p>
@@ -820,11 +986,12 @@ export default function Settings() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => refetchDiagnostics()}
+                onClick={handleRefreshDiagnostics}
+                disabled={isDiagnosticsFetching}
                 data-testid="button-refresh-diagnostics"
               >
-                <RefreshCw className="w-4 h-4 mr-1" />
-                Refresh
+                <RefreshCw className={`w-4 h-4 mr-1 ${isDiagnosticsFetching ? "animate-spin" : ""}`} />
+                {isDiagnosticsFetching ? "Refreshing..." : "Refresh"}
               </Button>
             </div>
 

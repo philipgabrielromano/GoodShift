@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import { ukgClient } from "../ukg";
+import { runTimeClockSync } from "../scheduler";
 import { requireAuth, requireAdmin, requireFeatureAccess } from "../middleware";
 
 export function registerUKGRoutes(app: Express) {
@@ -184,6 +185,58 @@ export function registerUKGRoutes(app: Express) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
+    }
+  });
+
+  // Manual time-clock (shift data) sync. Lets an admin backfill a date
+  // range without waiting for the daily scheduler — essential after a
+  // credential rotation or a stretch of missed syncs (e.g. an expired
+  // password caused a multi-day gap that the next 30-day-lookback would
+  // eventually catch, but only at the next 24h tick).
+  // Validate not just the string shape but that the date is a real
+  // calendar date — regex alone would let "2026-99-99" through.
+  const dateString = (label: string) =>
+    z.string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, `${label} must be YYYY-MM-DD`)
+      .refine((s) => {
+        const d = new Date(`${s}T00:00:00Z`);
+        return !isNaN(d.getTime()) && d.toISOString().startsWith(s);
+      }, `${label} must be a valid calendar date`)
+      .optional();
+
+  const timeClockSyncBody = z.object({
+    startDate: dateString("startDate"),
+    endDate: dateString("endDate"),
+  }).default({});
+
+  app.post("/api/ukg/sync-timeclock", requireFeatureAccess("settings.ukg_sync"), async (req, res) => {
+    try {
+      if (!ukgClient.isConfigured()) {
+        return res.status(400).json({ success: false, message: "UKG is not configured" });
+      }
+      const parsed = timeClockSyncBody.parse(req.body ?? {});
+      // Default range: today-30 → today+60, matching the daily scheduler's
+      // window so a manual run is functionally equivalent to forcing the
+      // scheduled job.
+      const today = new Date();
+      const thirtyAgo = new Date(today); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+      const sixtyOut = new Date(today); sixtyOut.setDate(sixtyOut.getDate() + 60);
+      const startDate = parsed.startDate ?? thirtyAgo.toISOString().split("T")[0];
+      const endDate = parsed.endDate ?? sixtyOut.toISOString().split("T")[0];
+      if (startDate > endDate) {
+        return res.status(400).json({ success: false, message: "startDate must be on or before endDate" });
+      }
+      const result = await runTimeClockSync(startDate, endDate, "manual");
+      return res.json(result);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ success: false, message: err.errors[0].message });
+      }
+      console.error("[UKG] Manual time-clock sync failed:", err);
+      return res.status(500).json({
+        success: false,
+        message: err instanceof Error ? err.message : "Time clock sync failed",
+      });
     }
   });
 
