@@ -163,7 +163,7 @@ export default function CreditCardInspectionForm() {
                   <SelectValue placeholder="Select a location" />
                 </SelectTrigger>
                 <SelectContent>
-                  {locations.map(l => (
+                  {visibleLocations.map(l => (
                     <SelectItem key={l.id} value={String(l.id)} data-testid={`option-location-${l.id}`}>
                       {l.name}
                     </SelectItem>
