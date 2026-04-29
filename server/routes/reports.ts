@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
+import { isValidLocationName } from "@shared/locationFilters";
 
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG"];
 const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
@@ -43,7 +44,11 @@ export function registerReportRoutes(app: Express) {
         if (emp.location) locationSet.add(emp.location);
       }
 
-      let locationNames = Array.from(locationSet).sort();
+      // Drop placeholder names like "Location 13" before exposing this list to
+      // any client. Same rule the React pickers apply via @shared/locationFilters.
+      let locationNames = Array.from(locationSet)
+        .filter(isValidLocationName)
+        .sort();
 
       const allowedNames = await getAllowedLocationNames(user);
       if (allowedNames) {

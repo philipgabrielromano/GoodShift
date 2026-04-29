@@ -29,6 +29,7 @@ import {
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
+import { isOrderFormLocation } from "@/lib/utils";
 import { ADJUSTABLE_ORDER_FIELDS, type OrderEvent, type OrderStatus } from "@shared/schema";
 
 const ORDER_TYPES = [
@@ -346,7 +347,7 @@ export default function OrderSubmissions() {
   const isStoreScoped = !canApprove && authStatus?.user?.role !== "admin";
   const userLocIdSet = new Set((authStatus?.user?.locationIds ?? []).map(String));
   const orderFormLocationNames = (dbLocations ?? [])
-    .filter((l: any) => l.isActive && l.availableForOrderForm)
+    .filter(isOrderFormLocation)
     .filter((l: any) => !isStoreScoped || userLocIdSet.has(String(l.id)))
     .map((l: any) => (l.orderFormName ?? l.name) as string)
     .sort((a, b) => a.localeCompare(b));

@@ -7,7 +7,7 @@ import { useRoute, useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
-import { isValidLocationName } from "@/lib/utils";
+import { isOrderFormLocation } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -178,7 +178,7 @@ export default function OrderForm() {
   // the POST /api/orders call will reject a non-allowed location.
   const userLocIdSet = new Set((authStatus?.user?.locationIds ?? []).map(String));
   const orderFormLocations = (dbLocations ?? [])
-    .filter((l: any) => l.isActive && l.availableForOrderForm && isValidLocationName(l.name))
+    .filter(isOrderFormLocation)
     .filter((l: any) => !isStoreScoped || userLocIdSet.has(String(l.id)))
     .map((l: any) => ({ id: l.id, displayName: (l.orderFormName ?? l.name) as string }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -199,9 +199,10 @@ export default function OrderForm() {
     );
     if (assigned.length === 0) return "";
 
-    // Prefer assigned locations that are themselves order-form-eligible
+    // Prefer assigned locations that are themselves order-form-eligible.
+    // (We've already required `isActive` above, so the helper's full check applies.)
     const directMatch = assigned
-      .filter((loc: any) => loc.availableForOrderForm && isValidLocationName(loc.name))
+      .filter((loc: any) => isOrderFormLocation(loc))
       .map((loc: any) => (loc.orderFormName ?? loc.name) as string);
 
     // For assigned locations not in the order form, try fuzzy-matching by stripped suffix

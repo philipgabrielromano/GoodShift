@@ -5,15 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// Names to exclude from all location dropdowns / lists
-const EXCLUDED_LOCATION_NAMES = [
-  /^Location \d+$/,          // fallback placeholder names
-  /child\s+adol\s+beh/i,     // Child Adol Beh Health
-];
-
-export function isValidLocationName(name: string): boolean {
-  return !EXCLUDED_LOCATION_NAMES.some(pattern => pattern.test(name));
-}
+// Names to exclude from all location dropdowns / lists. The actual rules live
+// in @shared/locationFilters so the server can apply the same exclusions
+// (e.g. /api/reports/locations). Re-exported here so existing client imports
+// of `isValidLocationName` from "@/lib/utils" continue to work unchanged.
+import { isValidLocationName } from "@shared/locationFilters";
+export { isValidLocationName };
 
 export function isValidLocation(loc: { name: string; isActive?: boolean; formOnly?: boolean }): boolean {
   if (loc.isActive === false) return false;
@@ -27,6 +24,18 @@ export function isSchedulableLocation(loc: { name: string; isActive?: boolean; f
   if (!isValidLocation(loc)) return false;
   if (loc.availableForScheduling === false) return false;
   return true;
+}
+
+// Check for order-form-related dropdowns (OrderForm location picker, OrderSubmissions
+// location filter, anywhere else a user picks a destination for an order).
+// Mirrors `isSchedulableLocation` for the order side: must be active, must have the
+// per-location order-form flag turned on, and must not be a placeholder name.
+// Note: `formOnly` is intentionally NOT excluded here — those locations (e.g. ADCs
+// and warehouse-only entries) exist precisely so they can be picked on the order form.
+export function isOrderFormLocation(loc: { name: string; isActive?: boolean; availableForOrderForm?: boolean }): boolean {
+  if (!loc.isActive) return false;
+  if (!loc.availableForOrderForm) return false;
+  return isValidLocationName(loc.name);
 }
 
 // Holiday calculations
