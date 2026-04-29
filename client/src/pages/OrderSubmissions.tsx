@@ -481,6 +481,8 @@ export default function OrderSubmissions() {
     },
   });
 
+  const statusForRow = (o: Order): OrderStatus => (o.status as OrderStatus) || "submitted";
+
   const orders = data?.orders || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / pageSize);
@@ -499,8 +501,6 @@ export default function OrderSubmissions() {
         value: key === "isCentralProcessing" ? (val ? "Yes" : "No") : val,
       }));
   };
-
-  const statusForRow = (o: Order): OrderStatus => (o.status as OrderStatus) || "submitted";
 
   return (
     <div className="p-6">
