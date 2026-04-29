@@ -24,6 +24,7 @@ import {
   XCircle,
   Clock,
   History,
+  CheckCheck,
 } from "lucide-react";
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
@@ -318,6 +319,14 @@ export default function OrderSubmissions() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustValues, setAdjustValues] = useState<Record<string, number>>({});
   const [adjustReason, setAdjustReason] = useState("");
+  // Bulk-approve state. We open a confirmation dialog showing the count of
+  // currently-visible submitted orders before any DB writes happen.
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkResult, setBulkResult] = useState<null | {
+    approved: number;
+    attempted: number;
+    skipped: Array<{ id: number; location?: string; reason: string }>;
+  }>(null);
   const pageSize = 25;
 
   const { can } = usePermissions();
@@ -400,6 +409,39 @@ export default function OrderSubmissions() {
     },
   });
 
+  // Bulk approve all currently-visible submitted orders. The frontend
+  // sends explicit IDs (not filter params) so what the user is approving
+  // matches exactly what they see — no "you also approved 200 orders on
+  // page 2" surprises.
+  const bulkApproveMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await apiRequest("POST", "/api/orders/bulk-approve", { ids });
+      return res.json() as Promise<{
+        approved: number;
+        attempted: number;
+        approvedIds: number[];
+        skipped: Array<{ id: number; location?: string; reason: string }>;
+      }>;
+    },
+    onSuccess: (data) => {
+      setBulkConfirmOpen(false);
+      setBulkResult({ approved: data.approved, attempted: data.attempted, skipped: data.skipped });
+      const skippedCount = data.skipped.length;
+      toast({
+        title: skippedCount === 0
+          ? `Approved ${data.approved} order${data.approved === 1 ? "" : "s"}`
+          : `Approved ${data.approved} of ${data.attempted}`,
+        description: skippedCount > 0
+          ? `${skippedCount} skipped — details open in a dialog.`
+          : undefined,
+      });
+      invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Bulk approve failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   const denyMutation = useMutation({
     mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
       await apiRequest("POST", `/api/orders/${id}/deny`, { reason });
@@ -442,6 +484,12 @@ export default function OrderSubmissions() {
   const orders = data?.orders || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / pageSize);
+  // The bulk-approve button only acts on the orders currently visible on
+  // this page so the operator's intent matches what they see. If they
+  // want to approve more than one page worth, they paginate and click
+  // again (or widen the page size in the future).
+  const visibleSubmittedIds = orders.filter(o => statusForRow(o) === "submitted").map(o => o.id);
+  const canBulkApprove = canApprove && visibleSubmittedIds.length > 0;
 
   const nonNullFields = (order: Order) => {
     return Object.entries(order)
@@ -456,9 +504,27 @@ export default function OrderSubmissions() {
 
   return (
     <div className="p-6">
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
         <FileText className="w-7 h-7 text-primary" />
         <h1 className="text-2xl font-bold" data-testid="text-order-submissions-title">Order Submissions</h1>
+        {canApprove && (
+          <div className="ml-auto">
+            <Button
+              variant="default"
+              onClick={() => setBulkConfirmOpen(true)}
+              disabled={!canBulkApprove || bulkApproveMutation.isPending}
+              data-testid="button-bulk-approve"
+            >
+              <CheckCheck className="w-4 h-4 mr-2" />
+              Approve all submitted on this page
+              {visibleSubmittedIds.length > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center rounded-full bg-primary-foreground/20 px-2 py-0.5 text-xs font-semibold">
+                  {visibleSubmittedIds.length}
+                </span>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card className="mb-6">
@@ -968,6 +1034,72 @@ export default function OrderSubmissions() {
               {approveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Approve order
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk approve confirmation. Shows the exact count being approved
+          and warns that emails will go out. Result details (skipped
+          orders) are shown below the table once the request returns. */}
+      <Dialog open={bulkConfirmOpen} onOpenChange={(open) => { if (!bulkApproveMutation.isPending) setBulkConfirmOpen(open); }}>
+        <DialogContent data-testid="dialog-bulk-approve-confirm">
+          <DialogHeader>
+            <DialogTitle>Approve {visibleSubmittedIds.length} submitted order{visibleSubmittedIds.length === 1 ? "" : "s"}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 text-sm">
+            <p>
+              Each order will be approved with the quantities the store originally requested. The submitter of each order will be emailed.
+            </p>
+            <p className="text-muted-foreground">
+              Only orders currently visible on this page will be approved. Anything that fails seasonal-inventory validation will be skipped and listed for you afterward.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkConfirmOpen(false)} disabled={bulkApproveMutation.isPending} data-testid="button-bulk-approve-cancel">
+              Cancel
+            </Button>
+            <Button
+              onClick={() => bulkApproveMutation.mutate(visibleSubmittedIds)}
+              disabled={bulkApproveMutation.isPending || visibleSubmittedIds.length === 0}
+              data-testid="button-bulk-approve-confirm"
+            >
+              {bulkApproveMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              <CheckCheck className="w-4 h-4 mr-2" />
+              Approve {visibleSubmittedIds.length}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Result detail dialog: only opened automatically if there were
+          skipped orders so the operator can see exactly why each one
+          failed. A clean run just shows the toast and goes away. */}
+      <Dialog
+        open={!!bulkResult && bulkResult.skipped.length > 0}
+        onOpenChange={(open) => { if (!open) setBulkResult(null); }}
+      >
+        <DialogContent data-testid="dialog-bulk-approve-result">
+          <DialogHeader>
+            <DialogTitle>
+              Approved {bulkResult?.approved} of {bulkResult?.attempted} — {bulkResult?.skipped.length} skipped
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            <p className="text-sm text-muted-foreground">These orders were not approved:</p>
+            <ul className="space-y-2 text-sm" data-testid="list-bulk-skipped">
+              {bulkResult?.skipped.map((s) => (
+                <li key={s.id} className="rounded border bg-muted/40 p-2" data-testid={`skipped-${s.id}`}>
+                  <div className="font-medium">
+                    Order #{s.id}
+                    {s.location ? ` — ${s.location}` : ""}
+                  </div>
+                  <div className="text-muted-foreground">{s.reason}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setBulkResult(null)} data-testid="button-bulk-result-close">Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

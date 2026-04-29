@@ -1149,6 +1149,198 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
+  // ----- Bulk "approve as requested" -----
+  //
+  // Helper: approve a single order with no adjustments, in its own
+  // transaction, returning a structured result instead of throwing. This
+  // is intentionally a parallel implementation of the per-order /approve
+  // route's "as-requested" path rather than a shared extraction — we
+  // didn't want to refactor the heavily-exercised single-order route as
+  // part of adding a bulk action. Behaviour kept in lockstep:
+  //   * Locks the order row (FOR UPDATE)
+  //   * Rejects anything not in 'submitted'
+  //   * Re-validates seasonal balances (excluding the order itself)
+  //   * Flips status with the same race-guard affectedRows check
+  //   * Writes an `approved` audit event
+  //   * Fires the same submitter notification email best-effort async
+  async function approveOrderAsRequested(
+    id: number,
+    actor: ReturnType<typeof getActor>,
+  ): Promise<{ ok: true; location: string } | { ok: false; status: number; message: string; location?: string }> {
+    let conn: PoolConnection | null = null;
+    try {
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT * FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return { ok: false, status: 404, message: "Order not found" };
+      }
+      const order = rows[0];
+      const fromStatus = order.status as OrderStatus;
+      const camel = toCamel(order) as Record<string, any>;
+      const location = String(camel.location || "");
+      if (fromStatus !== "submitted") {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return {
+          ok: false,
+          status: 409,
+          location,
+          message: `Already ${fromStatus} — only submitted orders can be approved.`,
+        };
+      }
+
+      // Re-validate seasonal balances against the *original* requested
+      // values. Even with no adjustments this can fail if other orders
+      // submitted/approved in the meantime have consumed the location's
+      // seasonal deposit.
+      const seasonalParsed: any = { location };
+      for (const c of SEASONAL_CATEGORIES) {
+        const value = Number(camel[c.requestedField] || 0);
+        seasonalParsed[c.requestedField] = value || null;
+      }
+      const balanceError = await validateSeasonalRequests(conn, seasonalParsed, id);
+      if (balanceError) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return { ok: false, status: 422, location, message: balanceError };
+      }
+
+      const [updateResult] = await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET status = 'approved', approved_at = NOW(), approved_by = ?, denied_at = NULL, denied_by = NULL, denial_reason = NULL WHERE id = ? AND status = 'submitted'",
+        [actor.name, id]
+      );
+      if (updateResult.affectedRows === 0) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return { ok: false, status: 409, location, message: "Status changed before this request — try again." };
+      }
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      await logOrderEvent({
+        orderId: id,
+        eventType: "approved",
+        fromStatus,
+        toStatus: "approved",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
+
+      // Notify submitter (best-effort, async). Same shape as the
+      // single-order approve.
+      void (async () => {
+        try {
+          const submittedBy = String(camel.submittedBy || "").trim();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submittedBy)) return;
+          const sentItems: Array<{ label: string; value: number; originalValue?: number }> = [];
+          for (const field of ADJUSTABLE_ORDER_FIELDS) {
+            const value = Number(camel[field] ?? 0) || 0;
+            if (value <= 0) continue;
+            sentItems.push({ label: FIELD_LABELS[field] || field, value });
+          }
+          await sendOrderApprovedEmail(submittedBy.toLowerCase(), {
+            orderId: id,
+            orderDate: String(camel.orderDate || ""),
+            orderType: String(camel.orderType || ""),
+            location,
+            approvedBy: actor.name,
+            appUrl: "https://goodshift.goodwillgoodskills.org",
+            sentItems,
+          });
+        } catch (e) {
+          console.error("[Orders] Failed to send bulk-approval email:", e);
+        }
+      })();
+
+      return { ok: true, location };
+    } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      console.error(`[Orders] Bulk approve failed for order ${id}:`, err);
+      return {
+        ok: false,
+        status: 500,
+        message: err instanceof Error ? err.message : "Unexpected error",
+      };
+    }
+  }
+
+  // Cap the bulk size so a runaway client (or a future "approve all
+  // historical" misclick) can't lock the table for minutes. 500 is well
+  // above any realistic backlog and still completes in seconds.
+  const bulkApproveSchema = z.object({
+    ids: z.array(z.number().int().positive()).min(1, "No order IDs provided").max(500, "Too many orders in one request"),
+  });
+  app.post("/api/orders/bulk-approve", requireFeatureAccess("orders.approve"), async (req, res) => {
+    try {
+      const { ids } = bulkApproveSchema.parse(req.body ?? {});
+      const actor = getActor(req);
+      // Enforce the same store-scope policy as the read endpoint: a user
+      // without orders.approve already can't reach this route, but
+      // double-check here so a future permission change doesn't silently
+      // grant cross-location approval.
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+
+      // De-duplicate while preserving order so the result list lines up
+      // with what the operator clicked.
+      const uniqueIds = Array.from(new Set(ids));
+
+      const approved: number[] = [];
+      const skipped: Array<{ id: number; location?: string; reason: string }> = [];
+
+      for (const id of uniqueIds) {
+        // Defence-in-depth scope check — fetch the order's location
+        // before approval if the user is store-scoped and refuse anything
+        // outside their allowed list. (allowedLocations === null means
+        // unrestricted.)
+        if (allowedLocations !== null) {
+          const [rows] = await mysqlPool.execute<OrderRow[]>(
+            "SELECT location FROM orders WHERE id = ?",
+            [id]
+          );
+          const loc = rows[0]?.location;
+          if (!loc || !allowedLocations.includes(String(loc))) {
+            skipped.push({ id, reason: "Not allowed for your location scope" });
+            continue;
+          }
+        }
+
+        const result = await approveOrderAsRequested(id, actor);
+        if (result.ok) {
+          approved.push(id);
+        } else {
+          skipped.push({ id, location: result.location, reason: result.message });
+        }
+      }
+
+      res.json({
+        attempted: uniqueIds.length,
+        approved: approved.length,
+        approvedIds: approved,
+        skipped,
+      });
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      console.error("[Orders] Bulk approve failed:", err);
+      res.status(500).json({ message: "Bulk approve failed" });
+    }
+  });
+
   // Deny a submitted order. Requires a non-empty reason so the submitter
   // can see why their request was rejected.
   const denySchema = z.object({ reason: z.string().trim().min(1, "A reason is required").max(2000) });
