@@ -20,10 +20,12 @@ import {
   ADJUSTABLE_ORDER_FIELDS_SET,
 } from "@shared/schema";
 
-// Statuses whose seasonal requests count toward the soft-hold balance shown
-// in the Order Form and enforced at submit time. Denied orders are dropped.
-// "submitted" is included so a store cannot over-request even before an
-// approver acts — the approver sees a true picture of what is reserved.
+// Statuses whose seasonal requests count toward the soft-hold balance
+// displayed live in the Order Form (under each seasonal field) and on the
+// Seasonal Inventory page. Denied orders are dropped. "submitted" is
+// included so the on-screen Available number reflects pending requests
+// that an approver hasn't acted on yet — purely informational; the app
+// no longer blocks submit/edit/approve when a request exceeds the balance.
 const SEASONAL_HOLD_STATUSES: OrderStatus[] = ["submitted", "approved", "received", "closed"];
 
 function getActor(req: { session?: any }): { id: number | null; name: string; email: string | null } {
@@ -398,62 +400,6 @@ async function loadBalances(location?: string): Promise<LocationBalance[]> {
   }));
 }
 
-/**
- * Validate that this order's seasonal requests don't push the store
- * over the available balance. Returns null if OK, or a message if the
- * request must be rejected.
- *
- * `excludeOrderId` is set on edits so the order being modified is not
- * counted as part of the existing baseline (otherwise its old request
- * would double-count against the new one).
- */
-async function validateSeasonalRequests(
-  conn: PoolConnection,
-  parsed: OrderInput,
-  excludeOrderId: number | null
-): Promise<string | null> {
-  const hasAnyRequest = SEASONAL_CATEGORIES.some(c => {
-    const v = parsed[c.requestedField];
-    return typeof v === "number" && v > 0;
-  });
-  if (!hasAnyRequest) return null;
-
-  const selectCols = SEASONAL_CATEGORIES
-    .map(c => `COALESCE(SUM(${c.returnedCol}), 0) AS ret_${c.key}, COALESCE(SUM(${c.requestedCol}), 0) AS req_${c.key}`)
-    .join(", ");
-  // FOR UPDATE locks the rows being aggregated (within the active transaction)
-  // so a concurrent submitter for the same location must wait until this
-  // transaction commits, preventing two submits from each passing validation
-  // against stale aggregates and overdrawing the deposit. Denied orders are
-  // dropped; submitted/approved/received/closed all count as soft-held so a
-  // store cannot stack pending requests above their on-deposit balance.
-  const statusPlaceholders = SEASONAL_HOLD_STATUSES.map(() => "?").join(",");
-  const conds: string[] = ["location = ?", `status IN (${statusPlaceholders})`];
-  const params: (string | number)[] = [parsed.location, ...SEASONAL_HOLD_STATUSES];
-  if (excludeOrderId !== null) {
-    conds.push("id <> ?");
-    params.push(excludeOrderId);
-  }
-  const where = `WHERE ${conds.join(" AND ")}`;
-  const [rows] = await conn.execute<RowDataPacket[]>(
-    `SELECT ${selectCols} FROM orders ${where} FOR UPDATE`,
-    params
-  );
-  const agg = (rows[0] || {}) as Record<string, string | number | null>;
-
-  for (const c of SEASONAL_CATEGORIES) {
-    const newRequest = Number(parsed[c.requestedField] || 0);
-    if (newRequest <= 0) continue;
-    const onDeposit = Number(agg[`ret_${c.key}`] || 0);
-    const otherRequests = Number(agg[`req_${c.key}`] || 0);
-    const available = onDeposit - otherRequests;
-    if (newRequest > available) {
-      return `${parsed.location} only has ${available} ${c.label} on deposit (requested: ${newRequest}). Stores can only request back what they previously sent in.`;
-    }
-  }
-  return null;
-}
-
 function toCamel(row: RowDataPacket): Record<string, string | number | boolean | null> {
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, val] of Object.entries(row)) {
@@ -499,13 +445,10 @@ export function registerOrderRoutes(app: Express) {
 
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
-      const balanceError = await validateSeasonalRequests(conn, parsed, null);
-      if (balanceError) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(422).json({ message: balanceError });
-      }
+      // Seasonal "deposit/withdrawal" balance is informational only — stores
+      // are never blocked from requesting more than they have on deposit.
+      // The Order Form still shows the live Available number under each
+      // seasonal field so the operator can see they're over.
       const [result] = await conn.execute<ResultSetHeader>(
         `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders})`,
         values
@@ -949,9 +892,9 @@ export function registerOrderRoutes(app: Express) {
   app.post("/api/orders/:id/unreceive", requireFeatureAccess("orders.receive"), handleUnreceive);
   app.post("/api/orders/:id/unfulfill", requireFeatureAccess("orders.receive"), handleUnreceive);
 
-  // Approve a submitted order. Re-validates seasonal balances at approval
-  // time so two simultaneously-pending requests can't both be approved past
-  // the on-deposit balance.
+  // Approve a submitted order. Seasonal balance is informational only here
+  // — over-approval is allowed; the live balance shown in the Order Form
+  // is just a guide for the operator.
   //
   // Optional `adjustments` body lets the warehouse record what was actually
   // shipped instead of what the store originally requested. Only fields
@@ -1025,25 +968,10 @@ export function registerOrderRoutes(app: Express) {
         });
       }
 
-      // Re-validate seasonal balances against the *adjusted* values so the
-      // warehouse can't approve more saved-stock than the store has on
-      // deposit even if they bumped the number up. We exclude this order
-      // from the baseline because it itself is the request being committed.
-      const seasonalParsed: any = {
-        location: String(camel.location || ""),
-      };
-      for (const c of SEASONAL_CATEGORIES) {
-        const adj = changedFields.find(f => f.field === c.requestedField);
-        const value = adj ? adj.adjusted : Number(camel[c.requestedField] || 0);
-        seasonalParsed[c.requestedField] = value || null;
-      }
-      const balanceError = await validateSeasonalRequests(conn, seasonalParsed, id);
-      if (balanceError) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(422).json({ message: balanceError });
-      }
+      // Seasonal balance is informational only at approval time — the
+      // approver can adjust requested seasonal quantities without being
+      // blocked by deposit limits. Stores can over-request and warehouse
+      // staff can over-approve; the balance display is a guide, not a wall.
 
       // Build a single UPDATE that flips status + writes any adjustments.
       // Always include the status / approved_at / approved_by / denial-clear
@@ -1159,10 +1087,11 @@ export function registerOrderRoutes(app: Express) {
   // part of adding a bulk action. Behaviour kept in lockstep:
   //   * Locks the order row (FOR UPDATE)
   //   * Rejects anything not in 'submitted'
-  //   * Re-validates seasonal balances (excluding the order itself)
   //   * Flips status with the same race-guard affectedRows check
   //   * Writes an `approved` audit event
   //   * Fires the same submitter notification email best-effort async
+  //   * (No seasonal balance gate — over-approval is allowed; the live
+  //     "Available" balance in the Order Form is informational only.)
   async function approveOrderAsRequested(
     id: number,
     actor: ReturnType<typeof getActor>,
@@ -1197,22 +1126,10 @@ export function registerOrderRoutes(app: Express) {
         };
       }
 
-      // Re-validate seasonal balances against the *original* requested
-      // values. Even with no adjustments this can fail if other orders
-      // submitted/approved in the meantime have consumed the location's
-      // seasonal deposit.
-      const seasonalParsed: any = { location };
-      for (const c of SEASONAL_CATEGORIES) {
-        const value = Number(camel[c.requestedField] || 0);
-        seasonalParsed[c.requestedField] = value || null;
-      }
-      const balanceError = await validateSeasonalRequests(conn, seasonalParsed, id);
-      if (balanceError) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return { ok: false, status: 422, location, message: balanceError };
-      }
+      // Seasonal balance is informational only — bulk approval doesn't
+      // re-validate against the deposit either, matching the single-order
+      // approve route. The Order Form / Daily Route still surface live
+      // balances for human visibility.
 
       const [updateResult] = await conn.execute<ResultSetHeader>(
         "UPDATE orders SET status = 'approved', approved_at = NOW(), approved_by = ?, denied_at = NULL, denied_by = NULL, denial_reason = NULL WHERE id = ? AND status = 'submitted'",
@@ -1527,13 +1444,9 @@ export function registerOrderRoutes(app: Express) {
         }
       }
 
-      const balanceError = await validateSeasonalRequests(conn, parsed, id);
-      if (balanceError) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(422).json({ message: balanceError });
-      }
+      // Seasonal balance is informational only — edits are not blocked by
+      // the deposit ledger. The Order Form shows live Available numbers
+      // so the editor can see when they're going over.
 
       const fields: string[] = [];
       const values: (string | number | boolean | null)[] = [];

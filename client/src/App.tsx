@@ -22,6 +22,7 @@ import TaskAssignment from "@/pages/TaskAssignment";
 import Optimization from "@/pages/Optimization";
 import OrderForm from "@/pages/OrderForm";
 import OrderSubmissions from "@/pages/OrderSubmissions";
+import DailyRoute from "@/pages/DailyRoute";
 import SeasonalInventory from "@/pages/SeasonalInventory";
 import TrailerManifests from "@/pages/TrailerManifests";
 import TrailerManifestDetail from "@/pages/TrailerManifestDetail";
@@ -66,6 +67,7 @@ function Router() {
       <Route path="/orders/new" component={OrderForm} />
       <Route path="/orders/edit/:id" component={OrderForm} />
       <Route path="/orders" component={OrderSubmissions} />
+      <Route path="/daily-route" component={DailyRoute} />
       <Route path="/seasonal-inventory" component={SeasonalInventory} />
       <Route path="/trailer-manifests/:id" component={TrailerManifestDetail} />
       <Route path="/trailer-manifests" component={TrailerManifests} />

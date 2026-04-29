@@ -78,6 +78,7 @@ export function Navigation() {
     const logistics: NavItem[] = [];
     if (can("orders.submit")) logistics.push({ href: "/orders/new", label: "Order Form", icon: PackageOpen });
     if (can("orders.view_all")) logistics.push({ href: "/orders", label: "Order Submissions", icon: FileText });
+    if (can("orders.view_all")) logistics.push({ href: "/daily-route", label: "Daily Route", icon: MapPin });
     if (can("seasonal_inventory.view")) logistics.push({ href: "/seasonal-inventory", label: "Seasonal Inventory", icon: PackageOpen });
     if (can("trailer_manifest.view")) logistics.push({ href: "/trailer-manifests", label: "Trailer Manifest", icon: Truck });
     if (can("warehouse_inventory.view")) logistics.push({ href: "/warehouse-inventory", label: "Warehouse Inventory", icon: Warehouse });

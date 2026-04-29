@@ -28,6 +28,7 @@ import { registerRosterRoutes } from "./routes/roster";
 import { registerTaskAssignmentRoutes } from "./routes/task-assignments";
 import { registerOptimizationRoutes } from "./routes/optimization";
 import { registerOrderRoutes } from "./routes/orders";
+import { registerDailyRouteRoutes } from "./routes/dailyRoute";
 import { registerTrailerManifestRoutes } from "./routes/trailerManifests";
 import { registerTruckRouteRoutes } from "./routes/truckRoutes";
 import { registerTrailerRoutes } from "./routes/trailers";
@@ -1352,6 +1353,7 @@ export async function registerRoutes(
   registerOptimizationRoutes(app);
 
   registerOrderRoutes(app);
+  registerDailyRouteRoutes(app);
   registerTrailerManifestRoutes(app);
   registerTruckRouteRoutes(app);
   registerTrailerRoutes(app);

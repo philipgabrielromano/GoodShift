@@ -291,26 +291,11 @@ export default function OrderForm() {
       : 0;
     const adjustedAvailable = balance.available + ownPrior;
     const remaining = adjustedAvailable - requested;
-    // Only flag as "exceeds" when the user actually requested something positive.
-    // A request of 0 (or empty) should never block submit, even if the store is
-    // currently overdrawn (negative available) — they're not asking for more,
-    // so there's nothing to validate against. This matches the server-side rule.
-    const exceeds = requested > 0 && requested > adjustedAvailable;
-    const isOverdrawn = adjustedAvailable < 0;
-    let hint: string;
-    let hintTone: "muted" | "destructive";
-    if (exceeds) {
-      hint = isOverdrawn
-        ? `This store is overdrawn by ${Math.abs(adjustedAvailable)} ${label.toLowerCase()} — none can be requested until more are returned.`
-        : `Only ${adjustedAvailable} on deposit — request exceeds available by ${requested - adjustedAvailable}.`;
-      hintTone = "destructive";
-    } else if (isOverdrawn) {
-      hint = `Overdrawn by ${Math.abs(adjustedAvailable)} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}). Cannot request more in this category until returns catch up.`;
-      hintTone = "destructive";
-    } else {
-      hint = `Available: ${adjustedAvailable} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}, after this request ${remaining}).`;
-      hintTone = "muted";
-    }
+    // Seasonal balance is informational only — we never block submit even
+    // if the store is going over deposit. The hint just reports the live
+    // running balance so the operator can see they're over.
+    const hint = `Available: ${adjustedAvailable} (on deposit ${balance.onDeposit}, pending ${balance.pendingRequested - ownPrior}, after this request ${remaining}).`;
+    const hintTone: "muted" | "destructive" = "muted";
     return {
       season,
       field,
@@ -318,11 +303,9 @@ export default function OrderForm() {
       requested,
       hint,
       hintTone,
-      exceeds,
+      exceeds: false,
     };
   });
-
-  const seasonalBlocked = seasonalGuards.some(g => g.exceeds);
 
   const isTransfer = orderType === "Transfer and Receive";
   const isEndOfDay = orderType === "End of Day/Equipment Count";
@@ -679,16 +662,10 @@ export default function OrderForm() {
           </CardContent>
         </Card>
 
-        {isTransfer && seasonalBlocked && (
-          <p className="text-sm text-destructive" data-testid="text-seasonal-blocked">
-            One or more seasonal requests exceed what this store has on deposit. Adjust the highlighted values before submitting.
-          </p>
-        )}
-
         <Button
           type="submit"
           className="w-full md:w-auto"
-          disabled={submitMutation.isPending || (isTransfer && seasonalBlocked)}
+          disabled={submitMutation.isPending}
           data-testid="button-submit-order"
         >
           {submitMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
