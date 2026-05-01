@@ -343,23 +343,50 @@ export async function registerRoutes(
       // Get PAL entries from storage
       const palEntries = await storage.getPALEntries(startDate, endDate);
       
-      // Get employee data to map UKG IDs to employee records
-      const employees = await storage.getEmployees();
-      const employeeByUkgId = new Map(
-        employees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
+      // Get all employees to build lookup maps.
+      const allEmployees = await storage.getEmployees();
+      const allEmployeeByUkgId = new Map(
+        allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
       );
+
+      // Determine which UKG IDs the caller is permitted to see.
+      // Admins see everything; non-admins with assigned locations are scoped to
+      // those locations only (mirroring the filter in GET /api/employees).
+      const user = (req.session as any)?.user;
+      let allowedUkgIds: Set<string> | null = null; // null = no restriction
+      if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
+        const allLocations = await storage.getLocations();
+        const userLocationNames = allLocations
+          .filter(loc => user.locationIds.includes(String(loc.id)))
+          .map(loc => loc.name);
+        const scopedEmployees = allEmployees.filter(
+          emp => emp.location && userLocationNames.includes(emp.location)
+        );
+        allowedUkgIds = new Set(
+          scopedEmployees.filter(e => e.ukgEmployeeId).map(e => e.ukgEmployeeId as string)
+        );
+      }
       
-      // Enrich PAL entries with employee info
-      const enrichedEntries = palEntries.map(entry => {
-        const employee = employeeByUkgId.get(entry.ukgEmployeeId);
-        return {
-          ...entry,
-          employeeId: employee?.id || null,
-          employeeName: employee?.name || "Unknown",
-          // Convert total hours from minutes to hours
-          hoursDecimal: entry.totalHours / 60,
-        };
-      });
+      // Enrich PAL entries with employee info.
+      // - Admins see all entries (including unmapped UKG IDs) for full visibility.
+      // - Scoped non-admins only see entries whose UKG ID resolves to an employee
+      //   in their allowed locations; unmapped entries are excluded because the
+      //   location cannot be verified.
+      const enrichedEntries = palEntries
+        .filter(entry => {
+          if (allowedUkgIds === null) return true; // admin: allow all
+          return allowedUkgIds.has(entry.ukgEmployeeId);
+        })
+        .map(entry => {
+          const employee = allEmployeeByUkgId.get(entry.ukgEmployeeId);
+          return {
+            ...entry,
+            employeeId: employee?.id || null,
+            employeeName: employee?.name || "Unknown",
+            // Convert total hours from minutes to hours
+            hoursDecimal: entry.totalHours / 60,
+          };
+        });
       
       res.json(enrichedEntries);
     } catch (error) {
@@ -382,23 +409,50 @@ export async function registerRoutes(
       // Get unpaid time off entries from storage
       const unpaidEntries = await storage.getUnpaidTimeOffEntries(startDate, endDate);
       
-      // Get employee data to map UKG IDs to employee records
-      const employees = await storage.getEmployees();
-      const employeeByUkgId = new Map(
-        employees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
+      // Get all employees to build lookup maps.
+      const allEmployees = await storage.getEmployees();
+      const allEmployeeByUkgId = new Map(
+        allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
       );
+
+      // Determine which UKG IDs the caller is permitted to see.
+      // Admins see everything; non-admins with assigned locations are scoped to
+      // those locations only (mirroring the filter in GET /api/employees).
+      const user = (req.session as any)?.user;
+      let allowedUkgIds: Set<string> | null = null; // null = no restriction
+      if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
+        const allLocations = await storage.getLocations();
+        const userLocationNames = allLocations
+          .filter(loc => user.locationIds.includes(String(loc.id)))
+          .map(loc => loc.name);
+        const scopedEmployees = allEmployees.filter(
+          emp => emp.location && userLocationNames.includes(emp.location)
+        );
+        allowedUkgIds = new Set(
+          scopedEmployees.filter(e => e.ukgEmployeeId).map(e => e.ukgEmployeeId as string)
+        );
+      }
       
-      // Enrich entries with employee info
-      const enrichedEntries = unpaidEntries.map(entry => {
-        const employee = employeeByUkgId.get(entry.ukgEmployeeId);
-        return {
-          ...entry,
-          employeeId: employee?.id || null,
-          employeeName: employee?.name || "Unknown",
-          // Convert total hours from minutes to hours
-          hoursDecimal: entry.totalHours / 60,
-        };
-      });
+      // Enrich entries with employee info.
+      // - Admins see all entries (including unmapped UKG IDs) for full visibility.
+      // - Scoped non-admins only see entries whose UKG ID resolves to an employee
+      //   in their allowed locations; unmapped entries are excluded because the
+      //   location cannot be verified.
+      const enrichedEntries = unpaidEntries
+        .filter(entry => {
+          if (allowedUkgIds === null) return true; // admin: allow all
+          return allowedUkgIds.has(entry.ukgEmployeeId);
+        })
+        .map(entry => {
+          const employee = allEmployeeByUkgId.get(entry.ukgEmployeeId);
+          return {
+            ...entry,
+            employeeId: employee?.id || null,
+            employeeName: employee?.name || "Unknown",
+            // Convert total hours from minutes to hours
+            hoursDecimal: entry.totalHours / 60,
+          };
+        });
       
       res.json(enrichedEntries);
     } catch (error) {
