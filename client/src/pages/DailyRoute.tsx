@@ -1,12 +1,54 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Download, Calendar as CalendarIcon, MapPin } from "lucide-react";
+import { useLocations } from "@/hooks/use-locations";
+import { usePermissions } from "@/hooks/use-permissions";
+import { isValidLocation } from "@/lib/utils";
+import { getCsrfToken, queryClient } from "@/lib/queryClient";
+import { Loader2, Download, Calendar as CalendarIcon, MapPin, Truck } from "lucide-react";
+
+// Mirror of server FIELD_TO_MANIFEST_ITEM. Kept here only so the dialog
+// can show a live preview of which items will be pre-filled. The server is
+// the source of truth for what actually gets written.
+const FIELD_TO_MANIFEST_ITEM: Record<string, string> = {
+  totesRequested:               "Empty Totes",
+  durosRequested:               "Empty Duros",
+  blueBinsRequested:            "Empty Blue Bins",
+  gaylordsRequested:            "Empty Gaylords",
+  palletsRequested:             "Empty Pallets",
+  containersRequested:          "Empty Containers",
+  apparelGaylordsRequested:     "Empty Gaylords",
+  waresGaylordsRequested:       "Empty Gaylords",
+  electricalGaylordsRequested:  "Empty Gaylords",
+  accessoriesGaylordsRequested: "Empty Gaylords",
+  booksGaylordsRequested:       "Empty Gaylords",
+  shoesGaylordsRequested:       "Empty Gaylords",
+  furnitureGaylordsRequested:   "Empty Gaylords",
+};
+
+function aggregateGroupAsItems(group: { stops: { values: Record<string, number> }[] }): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const stop of group.stops) {
+    for (const [field, item] of Object.entries(FIELD_TO_MANIFEST_ITEM)) {
+      const v = Number(stop.values[field] ?? 0);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      out[item] = (out[item] ?? 0) + v;
+    }
+  }
+  return out;
+}
 
 interface DailyField {
   key: string;
@@ -51,6 +93,23 @@ export default function DailyRoute() {
   const [date, setDate] = useState<string>(todayInNY());
   const [exporting, setExporting] = useState(false);
   const { toast } = useToast();
+  const [, setNavLocation] = useLocation();
+  const { can } = usePermissions();
+  const canCreateManifests = can("trailer_manifest.edit");
+
+  // "Create manifest" dialog state. Stores which route the user clicked so
+  // the dialog can read its quantities + show a preview without re-querying.
+  const [manifestDialog, setManifestDialog] = useState<
+    | null
+    | { routeId: number; routeName: string; itemTotals: Record<string, number>; stopCount: number }
+  >(null);
+  const [manifestFromLocation, setManifestFromLocation] = useState("");
+
+  const { data: locationsList = [] } = useLocations();
+  const sortedLocations = locationsList
+    .slice()
+    .filter(isValidLocation)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const { data, isLoading, isFetching, error } = useQuery<DailyRouteData>({
     queryKey: ["/api/daily-route", { date }],
@@ -98,6 +157,69 @@ export default function DailyRoute() {
     }
     return out;
   }, [data]);
+
+  // Submit the "Create manifest" dialog. Uses raw fetch (rather than
+  // apiRequest) so we can read the body of a 409 response and surface the
+  // existing manifest's id to the operator instead of just an error string.
+  const createManifest = useMutation({
+    mutationFn: async (payload: { date: string; routeId: number; fromLocation: string }) => {
+      const csrf = await getCsrfToken();
+      const res = await fetch("/api/daily-route/create-manifest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(csrf ? { "CSRF-Token": csrf } : {}),
+        },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        return { kind: "duplicate" as const, existingManifestId: body.existingManifestId as number };
+      }
+      if (!res.ok) {
+        throw new Error(body?.message || `Create failed (${res.status})`);
+      }
+      return { kind: "created" as const, id: body.id as number };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
+      if (result.kind === "duplicate") {
+        const id = result.existingManifestId;
+        toast({
+          title: "Manifest already exists for this route and date",
+          description: "Opening the existing manifest…",
+        });
+        setManifestDialog(null);
+        setManifestFromLocation("");
+        if (id) setNavLocation(`/trailer-manifests/${id}`);
+        return;
+      }
+      toast({ title: "Trailer manifest created", description: "Item counts pre-filled from today's daily route." });
+      setManifestDialog(null);
+      setManifestFromLocation("");
+      setNavLocation(`/trailer-manifests/${result.id}`);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Could not create manifest",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const openManifestDialog = (group: DailyRouteGroup) => {
+    if (group.routeId === null) return;
+    const itemTotals = aggregateGroupAsItems(group);
+    setManifestDialog({
+      routeId: group.routeId,
+      routeName: group.routeName,
+      itemTotals,
+      stopCount: group.stops.length,
+    });
+    setManifestFromLocation("");
+  };
 
   const handleExport = async () => {
     setExporting(true);
@@ -184,15 +306,42 @@ export default function DailyRoute() {
               )}
             </CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
-              {data?.groups.map(g => (
-                <Badge
-                  key={`${g.routeId ?? "unrouted"}`}
-                  variant={g.routeId === null ? "destructive" : "secondary"}
-                  data-testid={`badge-route-${g.routeId ?? "unrouted"}`}
-                >
-                  {g.routeName} · {g.stops.length}
-                </Badge>
-              ))}
+              {data?.groups.map(g => {
+                const itemTotals = g.routeId === null ? {} : aggregateGroupAsItems(g);
+                const totalQty = Object.values(itemTotals).reduce((s, n) => s + n, 0);
+                const canCreate = g.routeId !== null && totalQty > 0;
+                return (
+                  <div
+                    key={`${g.routeId ?? "unrouted"}`}
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <Badge
+                      variant={g.routeId === null ? "destructive" : "secondary"}
+                      data-testid={`badge-route-${g.routeId ?? "unrouted"}`}
+                    >
+                      {g.routeName} · {g.stops.length}
+                    </Badge>
+                    {g.routeId !== null && canCreateManifests && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2 text-xs"
+                        disabled={!canCreate || createManifest.isPending}
+                        onClick={() => openManifestDialog(g)}
+                        title={
+                          canCreate
+                            ? "Create a trailer manifest pre-filled with this route's totals"
+                            : "No equipment quantities on this route to put on a manifest"
+                        }
+                        data-testid={`button-create-manifest-route-${g.routeId}`}
+                      >
+                        <Truck className="w-3 h-3 mr-1" />
+                        Create manifest
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </CardHeader>
@@ -270,6 +419,128 @@ export default function DailyRoute() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog
+        open={manifestDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setManifestDialog(null);
+            setManifestFromLocation("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md" data-testid="dialog-create-manifest">
+          <DialogHeader>
+            <DialogTitle>Create manifest from route</DialogTitle>
+            <DialogDescription>
+              {manifestDialog
+                ? `Pre-fills item counts from ${manifestDialog.stopCount} stop${manifestDialog.stopCount === 1 ? "" : "s"} on ${manifestDialog.routeName} for ${date}. Trailer and driver are left blank for you to fill in later.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {manifestDialog && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="manifest-from-location">From location *</Label>
+                <Select value={manifestFromLocation} onValueChange={setManifestFromLocation}>
+                  <SelectTrigger id="manifest-from-location" data-testid="select-manifest-from-location">
+                    <SelectValue placeholder="Select origin (warehouse)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sortedLocations.map(l => (
+                      <SelectItem
+                        key={l.id}
+                        value={l.name}
+                        data-testid={`select-manifest-from-option-${l.id}`}
+                      >
+                        {l.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">To</Label>
+                <p className="text-sm" data-testid="text-manifest-to-preview">
+                  {manifestDialog.routeName}{" "}
+                  <span className="text-muted-foreground">(route)</span>
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Items being pre-filled</Label>
+                {Object.keys(manifestDialog.itemTotals).length === 0 ? (
+                  <p className="text-sm text-muted-foreground" data-testid="text-manifest-no-items">
+                    No equipment quantities on this route — nothing to pre-fill.
+                  </p>
+                ) : (
+                  <ul className="text-sm border rounded-md divide-y" data-testid="list-manifest-items-preview">
+                    {Object.entries(manifestDialog.itemTotals)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([itemName, qty]) => (
+                        <li
+                          key={itemName}
+                          className="flex justify-between px-3 py-1.5"
+                          data-testid={`row-manifest-item-${itemName}`}
+                        >
+                          <span>{itemName}</span>
+                          <span className="font-medium tabular-nums">{qty}</span>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setManifestDialog(null);
+                setManifestFromLocation("");
+              }}
+              data-testid="button-cancel-create-manifest"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!manifestDialog) return;
+                if (!manifestFromLocation.trim()) {
+                  toast({
+                    title: "Pick a From location",
+                    description: "We need to know which warehouse the trailer is leaving from.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                createManifest.mutate({
+                  date,
+                  routeId: manifestDialog.routeId,
+                  fromLocation: manifestFromLocation.trim(),
+                });
+              }}
+              disabled={
+                !manifestDialog ||
+                !manifestFromLocation ||
+                createManifest.isPending ||
+                Object.keys(manifestDialog?.itemTotals ?? {}).length === 0
+              }
+              data-testid="button-confirm-create-manifest"
+            >
+              {createManifest.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Truck className="w-4 h-4 mr-2" />
+              )}
+              Create manifest
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

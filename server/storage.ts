@@ -119,6 +119,15 @@ export interface IStorage {
     note?: string;
     user: { id: number; name: string };
   }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }>;
+  createTrailerManifestFromDailyRoute(input: {
+    forDate: string; // YYYY-MM-DD (NY-local)
+    fromLocation: string;
+    toLocation: string;
+    routeId: number;
+    notes?: string | null;
+    itemQuantities: Record<string, number>; // itemName -> qty (>=0)
+    user: { id: number; name: string };
+  }): Promise<{ created?: TrailerManifest; existingManifestId?: number }>;
   setTrailerManifestItemQty(input: {
     manifestId: number;
     groupName: string;
@@ -703,6 +712,115 @@ export class DatabaseStorage implements IStorage {
       await db.insert(trailerManifestItems).values(itemRows);
     }
     return created;
+  }
+
+  // Create a manifest from one day's daily-route data. Two key differences
+  // vs. createTrailerManifest:
+  //   1. Item quantities are seeded directly (not zero) using the per-route
+  //      aggregates the caller computed from the daily-route matrix.
+  //   2. We refuse to create a duplicate for the same (routeId, forDate)
+  //      pair — the daily-route screen treats one route per day as one
+  //      truck. The duplicate check uses the manifest's createdAt date in
+  //      America/New_York to match how the daily-route picker presents
+  //      "today" to operators.
+  async createTrailerManifestFromDailyRoute(input: {
+    forDate: string;
+    fromLocation: string;
+    toLocation: string;
+    routeId: number;
+    notes?: string | null;
+    itemQuantities: Record<string, number>;
+    user: { id: number; name: string };
+  }): Promise<{ created?: TrailerManifest; existingManifestId?: number }> {
+    // Validate route exists up front so we don't create + then have to roll
+    // back if it doesn't.
+    const [route] = await db
+      .select({ id: truckRoutes.id })
+      .from(truckRoutes)
+      .where(eq(truckRoutes.id, input.routeId));
+    if (!route) throw new Error(`Unknown routeId: ${input.routeId}`);
+
+    // Pre-flight duplicate check (fast path so the common case returns the
+    // existing id without burning a transaction). The DB-level partial
+    // unique index on (routeId, serviceDate) is the authoritative guard
+    // against the race between this read and the insert below.
+    const preExisting = await db
+      .select({ id: trailerManifests.id })
+      .from(trailerManifests)
+      .where(
+        and(
+          eq(trailerManifests.routeId, input.routeId),
+          eq(trailerManifests.serviceDate, input.forDate),
+        ),
+      )
+      .limit(1);
+    if (preExisting.length > 0) {
+      return { existingManifestId: preExisting[0].id };
+    }
+
+    try {
+      return await db.transaction(async (tx) => {
+        const [created] = await tx
+          .insert(trailerManifests)
+          .values({
+            fromLocation: input.fromLocation,
+            toLocation: input.toLocation,
+            routeId: input.routeId,
+            serviceDate: input.forDate,
+            trailerNumber: null,
+            driverUserId: null,
+            driverName: null,
+            status: "loading",
+            notes: input.notes ?? null,
+            createdById: input.user.id,
+            createdByName: input.user.name,
+          })
+          .returning();
+
+        // Seed every category item. Use the supplied quantity if present;
+        // otherwise 0 so the manifest detail page still renders the full
+        // matrix and the operator can fill in anything we couldn't derive
+        // from the daily-route fields.
+        const itemRows = TRAILER_MANIFEST_CATEGORIES.flatMap(cat =>
+          cat.items.map(name => ({
+            manifestId: created.id,
+            groupName: cat.group,
+            itemName: name,
+            qty: Math.max(0, Math.floor(Number(input.itemQuantities[name] ?? 0))),
+          })),
+        );
+        if (itemRows.length > 0) {
+          await tx.insert(trailerManifestItems).values(itemRows);
+        }
+
+        return { created };
+      });
+    } catch (err: any) {
+      // Race: another request inserted the same (routeId, serviceDate) pair
+      // between our pre-flight check and the insert. Postgres raises
+      // unique_violation (SQLSTATE 23505); look up the winner and report
+      // it as a duplicate instead of as a failure.
+      const isUniqueViolation =
+        err?.code === "23505" ||
+        err?.cause?.code === "23505" ||
+        (typeof err?.message === "string" && err.message.includes("uniq_trailer_manifests_route_service_date"));
+      if (isUniqueViolation) {
+        const winner = await db
+          .select({ id: trailerManifests.id })
+          .from(trailerManifests)
+          .where(
+            and(
+              eq(trailerManifests.routeId, input.routeId),
+              eq(trailerManifests.serviceDate, input.forDate),
+            ),
+          )
+          .limit(1);
+        if (winner.length > 0) {
+          return { existingManifestId: winner[0].id };
+        }
+      }
+      throw err;
+    }
   }
 
   async updateTrailerManifest(id: number, input: Partial<InsertTrailerManifest>): Promise<TrailerManifest> {

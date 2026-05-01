@@ -1,6 +1,6 @@
 
 import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real, jsonb } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -579,8 +579,6 @@ export type InsertEmailLog = z.infer<typeof insertEmailLogSchema>;
 
 // === CHAT TABLES FOR AI INTEGRATION ===
 
-import { sql } from "drizzle-orm";
-
 export const conversations = pgTable("conversations", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -964,6 +962,11 @@ export const trailerManifests = pgTable("trailer_manifests", {
   fromLocation: text("from_location").notNull(),
   toLocation: text("to_location").notNull(),
   routeId: integer("route_id"),
+  // Service date the manifest is "for" (YYYY-MM-DD). Set when the manifest
+  // is generated from a daily route so we can enforce one-per-route-per-day
+  // regardless of when it was actually clicked. Nullable for manually
+  // created manifests that aren't tied to a specific daily-route date.
+  serviceDate: date("service_date"),
   trailerNumber: text("trailer_number"),
   driverUserId: integer("driver_user_id"),
   driverName: text("driver_name"),
@@ -979,6 +982,13 @@ export const trailerManifests = pgTable("trailer_manifests", {
 }, (table) => [
   index("idx_trailer_manifests_status").on(table.status),
   index("idx_trailer_manifests_created_at").on(table.createdAt),
+  // Partial unique index: at most one manifest per (routeId, serviceDate)
+  // when both are set. Manually created manifests (with no serviceDate or
+  // no routeId) are excluded from the constraint so they remain
+  // unrestricted.
+  uniqueIndex("uniq_trailer_manifests_route_service_date")
+    .on(table.routeId, table.serviceDate)
+    .where(sql`${table.routeId} IS NOT NULL AND ${table.serviceDate} IS NOT NULL`),
 ]);
 
 export const trailerManifestItems = pgTable("trailer_manifest_items", {

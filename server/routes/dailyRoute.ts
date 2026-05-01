@@ -1,8 +1,10 @@
-import type { Express, Response } from "express";
+import type { Express, Request, Response } from "express";
 import type { RowDataPacket } from "mysql2";
 import ExcelJS from "exceljs";
+import { z } from "zod";
 import { mysqlPool } from "../mysql";
 import { requireFeatureAccess } from "../middleware";
+import { storage } from "../storage";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { truckRoutes, truckRouteLocations, locations } from "@shared/schema";
@@ -408,6 +410,76 @@ export function registerDailyRouteRoutes(app: Express) {
     },
   );
 
+  // POST /api/daily-route/create-manifest
+  // Body: { date, routeId, fromLocation, notes? }
+  // Pre-fills a trailer manifest from one route's aggregated daily-route
+  // data. Refuses to create a duplicate when a manifest for the same
+  // (routeId, date) already exists; the response includes the existing
+  // manifest's id so the client can link to it.
+  app.post(
+    "/api/daily-route/create-manifest",
+    requireFeatureAccess("trailer_manifest.edit"),
+    async (req, res) => {
+      try {
+        const user = getSessionUser(req);
+        if (!user) return res.status(401).json({ message: "Authentication required" });
+
+        const parsed = createManifestSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: parsed.error.errors[0].message });
+        }
+        const { date, routeId, fromLocation, notes } = parsed.data;
+
+        // Reload the same data the screen uses so quantities can never drift
+        // between what the operator sees and what gets written.
+        const data = await loadDailyRouteData(date);
+        const group = data.groups.find(g => g.routeId === routeId);
+        if (!group) {
+          return res.status(400).json({
+            message: "That route has no orders on this date — nothing to put on a manifest.",
+          });
+        }
+
+        const itemQuantities = aggregateRouteAsManifestItems(group);
+        const totalQty = Object.values(itemQuantities).reduce((s, n) => s + n, 0);
+        if (totalQty === 0) {
+          return res.status(400).json({
+            message: "That route has no equipment quantities on this date — nothing to pre-fill.",
+          });
+        }
+
+        const result = await storage.createTrailerManifestFromDailyRoute({
+          forDate: date,
+          fromLocation,
+          // The route is the destination as a whole; the manifest's free-text
+          // toLocation gets the route's name so list views read naturally
+          // (e.g. "Cleveland Warehouse → Lakewood Route"). Individual stops
+          // are still recoverable via the routeId / route detail page.
+          toLocation: group.routeName,
+          routeId,
+          notes: notes ?? null,
+          itemQuantities,
+          user,
+        });
+
+        if (result.existingManifestId) {
+          return res.status(409).json({
+            message: "A trailer manifest for this route and date already exists.",
+            existingManifestId: result.existingManifestId,
+          });
+        }
+
+        return res.status(201).json({ id: result.created!.id });
+      } catch (err: any) {
+        if (typeof err?.message === "string" && err.message.startsWith("Unknown routeId")) {
+          return res.status(400).json({ message: err.message });
+        }
+        console.error("[DailyRoute] Create manifest error:", err);
+        res.status(500).json({ message: "Failed to create manifest from daily route" });
+      }
+    },
+  );
+
   app.get(
     "/api/daily-route/export",
     requireFeatureAccess("orders.view_all"),
@@ -439,6 +511,59 @@ export function registerDailyRouteRoutes(app: Express) {
       }
     },
   );
+}
+
+// Mapping from daily-route field keys to trailer-manifest item names. Only
+// fields we can map confidently are listed — production / seasonal / donor
+// rows have no clean equivalent in TRAILER_MANIFEST_CATEGORIES, so we
+// deliberately leave them unmapped (the manifest detail page exposes every
+// item for the operator to fill in by hand).
+//
+// Multiple daily-route fields can map to the same manifest item (e.g. all
+// the per-category gaylord requests sum into "Empty Gaylords"). The
+// aggregator below honors that automatically.
+const FIELD_TO_MANIFEST_ITEM: Record<string, string> = {
+  totesRequested:               "Empty Totes",
+  durosRequested:               "Empty Duros",
+  blueBinsRequested:            "Empty Blue Bins",
+  gaylordsRequested:            "Empty Gaylords",
+  palletsRequested:             "Empty Pallets",
+  containersRequested:          "Empty Containers",
+  apparelGaylordsRequested:     "Empty Gaylords",
+  waresGaylordsRequested:       "Empty Gaylords",
+  electricalGaylordsRequested:  "Empty Gaylords",
+  accessoriesGaylordsRequested: "Empty Gaylords",
+  booksGaylordsRequested:       "Empty Gaylords",
+  shoesGaylordsRequested:       "Empty Gaylords",
+  furnitureGaylordsRequested:   "Empty Gaylords",
+};
+
+// Sum every stop's per-field quantities for one route group, then translate
+// into manifest item names. Returns {itemName: qty}. Only items with a
+// non-zero total are included so the caller can show a meaningful preview.
+function aggregateRouteAsManifestItems(group: DailyRouteGroup): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const stop of group.stops) {
+    for (const [fieldKey, manifestItem] of Object.entries(FIELD_TO_MANIFEST_ITEM)) {
+      const v = Number(stop.values[fieldKey] ?? 0);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      totals[manifestItem] = (totals[manifestItem] ?? 0) + v;
+    }
+  }
+  return totals;
+}
+
+const createManifestSchema = z.object({
+  date: z.string().regex(DATE_RE, "date must be YYYY-MM-DD"),
+  routeId: z.number().int().positive(),
+  fromLocation: z.string().trim().min(1, "fromLocation is required").max(200),
+  notes: z.string().trim().max(500).nullable().optional(),
+});
+
+function getSessionUser(req: Request): { id: number; name: string } | null {
+  const u = (req.session as any)?.user;
+  if (!u) return null;
+  return { id: u.id, name: u.name || u.email || "Unknown" };
 }
 
 // Keep the helper accessible for other routes (e.g., a future
