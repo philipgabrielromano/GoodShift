@@ -9,8 +9,28 @@ export function registerShiftTradeRoutes(app: Express) {
   // GET /api/shift-trades - List shift trades (filter by employeeId, status)
   app.get("/api/shift-trades", requireFeatureAccess("shift_trades.view"), async (req: Request, res: Response) => {
     try {
-      const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+      const sessionUser = (req.session as any)?.user;
+      const { userHasFeature } = await import("../middleware");
+      const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
+
       const status = req.query.status as string | undefined;
+      let employeeId: number | undefined;
+
+      if (isManagerOrAdmin) {
+        // Managers can filter by any employeeId or see all
+        employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
+      } else {
+        // Regular employees: scope to their own employee record
+        const allEmployees = await storage.getEmployees();
+        const callerEmployee = allEmployees.find(e =>
+          e.email && sessionUser?.email && e.email.toLowerCase() === sessionUser.email.toLowerCase()
+        );
+        if (!callerEmployee) {
+          return res.json([]);
+        }
+        employeeId = callerEmployee.id;
+      }
+
       const trades = await storage.getShiftTrades({ employeeId, status });
       res.json(trades);
     } catch (error) {
@@ -24,6 +44,21 @@ export function registerShiftTradeRoutes(app: Express) {
     try {
       const trade = await storage.getShiftTrade(Number(req.params.id));
       if (!trade) return res.status(404).json({ message: "Trade not found" });
+
+      const sessionUser = (req.session as any)?.user;
+      const { userHasFeature } = await import("../middleware");
+      const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
+
+      if (!isManagerOrAdmin) {
+        const allEmployees = await storage.getEmployees();
+        const callerEmployee = allEmployees.find(e =>
+          e.email && sessionUser?.email && e.email.toLowerCase() === sessionUser.email.toLowerCase()
+        );
+        if (!callerEmployee || (trade.requesterId !== callerEmployee.id && trade.responderId !== callerEmployee.id)) {
+          return res.status(403).json({ message: "You do not have access to this trade" });
+        }
+      }
+
       res.json(trade);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch trade" });
@@ -31,7 +66,7 @@ export function registerShiftTradeRoutes(app: Express) {
   });
 
   // POST /api/shift-trades - Create a new trade request
-  app.post("/api/shift-trades", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/shift-trades", requireFeatureAccess("shift_trades.view"), async (req: Request, res: Response) => {
     try {
       const { requesterShiftId, responderShiftId, requesterNote } = req.body;
 
@@ -42,6 +77,16 @@ export function registerShiftTradeRoutes(app: Express) {
 
       if (!requesterShift || !responderShift) {
         return res.status(400).json({ message: "One or both shifts not found" });
+      }
+
+      // Validate that the session user owns the requester shift
+      const sessionUser = (req.session as any)?.user;
+      const allEmployees = await storage.getEmployees();
+      const callerEmployee = allEmployees.find(e =>
+        e.email && sessionUser?.email && e.email.toLowerCase() === sessionUser.email.toLowerCase()
+      );
+      if (!callerEmployee || requesterShift.employeeId !== callerEmployee.id) {
+        return res.status(403).json({ message: "You can only create trade requests for your own shifts" });
       }
 
       // Get both employees
