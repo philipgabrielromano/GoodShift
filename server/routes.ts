@@ -1138,6 +1138,10 @@ export async function registerRoutes(
         if (input.availableForScheduling !== undefined) {
           return res.status(403).json({ message: "Only admins can change scheduling availability for a location" });
         }
+        // Roster targets visibility is admin-only (mirrors scheduling)
+        if (input.availableForRosterTargets !== undefined) {
+          return res.status(403).json({ message: "Only admins can change Roster Targets availability for a location" });
+        }
         // Warehouse routing affects on-hand calculations across all warehouses;
         // restrict to admins only.
         if (input.warehouseAssignment !== undefined) {

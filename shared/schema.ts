@@ -229,6 +229,7 @@ export const locations = pgTable("locations", {
   orderFormName: text("order_form_name"), // Optional alias used in the Order Form dropdown (when null, falls back to name)
   availableForScheduling: boolean("available_for_scheduling").notNull().default(true), // Whether this location appears in scheduling, roster, task assignment, and optimization pickers
   schedulingName: text("scheduling_name"), // Optional alias used in scheduling/roster/task-assignment dropdowns (when null, falls back to name)
+  availableForRosterTargets: boolean("available_for_roster_targets").notNull().default(true), // Whether this location appears in the Roster Targets page dropdown (independent of general scheduling availability)
   warehouseAssignment: text("warehouse_assignment"), // 'cleveland' | 'canton' | null — which warehouse this store's orders draw from / return to
 });
 

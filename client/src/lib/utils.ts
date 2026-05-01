@@ -26,6 +26,16 @@ export function isSchedulableLocation(loc: { name: string; isActive?: boolean; f
   return true;
 }
 
+// Stricter check for the Roster Targets page dropdown.
+// A location must already be schedulable, and the per-location Roster Targets
+// flag must not be explicitly turned off. Defaults to true when undefined so
+// existing locations remain visible after the column is added.
+export function isRosterTargetLocation(loc: { name: string; isActive?: boolean; formOnly?: boolean; availableForScheduling?: boolean; availableForRosterTargets?: boolean }): boolean {
+  if (!isSchedulableLocation(loc)) return false;
+  if (loc.availableForRosterTargets === false) return false;
+  return true;
+}
+
 // Check for order-form-related dropdowns (OrderForm location picker, OrderSubmissions
 // location filter, anywhere else a user picks a destination for an order).
 // Mirrors `isSchedulableLocation` for the order side: must be active, must have the
