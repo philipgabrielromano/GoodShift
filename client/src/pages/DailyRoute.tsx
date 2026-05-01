@@ -123,24 +123,43 @@ export default function DailyRoute() {
     },
   });
 
-  // Flatten stops once for column rendering and also build the per-row totals.
-  const flat = useMemo(() => {
-    if (!data) return { stops: [] as Array<{ groupIdx: number; stop: DailyStop }>, groups: [] };
-    const stops: Array<{ groupIdx: number; stop: DailyStop }> = [];
-    data.groups.forEach((g, gi) => g.stops.forEach(s => stops.push({ groupIdx: gi, stop: s })));
-    return { stops, groups: data.groups };
+  // Aggregate stops by location: one row per location, summing equipment
+  // quantities across any orders that hit that location on this date. Route
+  // grouping is intentionally collapsed — operators want a single location
+  // × equipment grid, not a per-route breakdown.
+  const locationRows = useMemo(() => {
+    if (!data) return [] as Array<{ locationName: string; values: Record<string, number> }>;
+    const byName = new Map<string, { locationName: string; values: Record<string, number> }>();
+    const order: string[] = [];
+    for (const g of data.groups) {
+      for (const stop of g.stops) {
+        const existing = byName.get(stop.locationName);
+        if (existing) {
+          for (const [k, v] of Object.entries(stop.values)) {
+            existing.values[k] = (existing.values[k] ?? 0) + Number(v ?? 0);
+          }
+        } else {
+          byName.set(stop.locationName, {
+            locationName: stop.locationName,
+            values: { ...stop.values },
+          });
+          order.push(stop.locationName);
+        }
+      }
+    }
+    return order.map(n => byName.get(n)!);
   }, [data]);
 
-  const totalCols = flat.stops.length;
-  // The page always renders the routes structure once loaded, but "has data"
-  // is gated on whether any approved orders exist for this date — that's
-  // what controls the empty-state copy and the export button. Without this
-  // check, a day with zero orders would still show a populated grid of
-  // route stops (all blanks) and let the user export an empty workbook.
+  // The page always renders the table once loaded, but "has data" is gated
+  // on whether any approved orders exist for this date — that's what
+  // controls the empty-state copy and the export button. Without this
+  // check, a day with zero orders would still show a populated (all blank)
+  // grid and let the user export an empty workbook.
   const hasOrders = (data?.totalOrders ?? 0) > 0;
-  const hasAny = totalCols > 0 && hasOrders;
+  const hasAny = locationRows.length > 0 && hasOrders;
 
-  // Group fields by category to render section headers in the table.
+  // Group fields by category to render category band headers spanning their
+  // equipment columns.
   const sections = useMemo(() => {
     if (!data) return [] as Array<{ category: string; fields: DailyField[] }>;
     const out: Array<{ category: string; fields: DailyField[] }> = [];
@@ -155,6 +174,9 @@ export default function DailyRoute() {
     }
     return out;
   }, [data]);
+
+  // Flat field list in render order — used for body cells and footer totals.
+  const allFields = useMemo(() => sections.flatMap(s => s.fields), [sections]);
 
   // Submit the "Create manifest" dialog. Uses raw fetch (rather than
   // apiRequest) so we can read the body of a 409 response and surface the
@@ -258,7 +280,7 @@ export default function DailyRoute() {
             Daily Route
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Approved Transfer-and-Receive orders for the selected date, grouped by route.
+            Approved Transfer-and-Receive orders for the selected date, by location.
           </p>
         </div>
         <div className="flex items-end gap-3">
@@ -361,27 +383,24 @@ export default function DailyRoute() {
             <div className="overflow-auto border rounded-md">
               <table className="w-full text-sm border-collapse">
                 <thead>
-                  {/* Route band */}
+                  {/* Category band: each category name spans its equipment columns */}
                   <tr className="bg-muted">
                     <th
-                      className="sticky left-0 bg-muted z-20 text-left px-3 py-2 border-b border-r min-w-[12rem]"
+                      className="sticky left-0 bg-muted z-20 text-left px-3 py-2 border-b border-r min-w-[14rem]"
                       rowSpan={2}
                     >
-                      Item
+                      Location
                     </th>
-                    {flat.groups.map((g) => {
-                      if (g.stops.length === 0) return null;
-                      return (
-                        <th
-                          key={`grp-${g.routeId ?? "u"}`}
-                          colSpan={g.stops.length}
-                          className={`text-center px-3 py-2 border-b border-l font-semibold ${g.routeId === null ? "bg-destructive/10 text-destructive" : ""}`}
-                          data-testid={`header-route-${g.routeId ?? "unrouted"}`}
-                        >
-                          {g.routeName}
-                        </th>
-                      );
-                    })}
+                    {sections.map(section => (
+                      <th
+                        key={`cat-${section.category}`}
+                        colSpan={section.fields.length}
+                        className="text-center px-3 py-2 border-b border-l font-semibold"
+                        data-testid={`header-category-${section.category}`}
+                      >
+                        {section.category}
+                      </th>
+                    ))}
                     <th
                       className="sticky right-0 bg-muted z-20 text-center px-3 py-2 border-b border-l min-w-[5rem]"
                       rowSpan={2}
@@ -389,23 +408,89 @@ export default function DailyRoute() {
                       Total
                     </th>
                   </tr>
-                  {/* Store names */}
+                  {/* Equipment columns */}
                   <tr className="bg-muted/60">
-                    {flat.stops.map((entry) => (
+                    {allFields.map(field => (
                       <th
-                        key={`stop-${entry.groupIdx}-${entry.stop.locationName}-${entry.stop.orderId ?? "x"}`}
+                        key={`field-${field.key}`}
                         className="text-center px-3 py-2 border-b border-l font-medium text-xs whitespace-nowrap"
-                        data-testid={`header-store-${entry.stop.locationName}`}
+                        data-testid={`header-field-${field.key}`}
                       >
-                        {entry.stop.locationName}
+                        {field.label}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {sections.map(section => (
-                    <SectionRows key={section.category} section={section} flatStops={flat.stops} totalCols={totalCols} />
-                  ))}
+                  {locationRows.map(row => {
+                    let rowTotal = 0;
+                    return (
+                      <tr
+                        key={`loc-${row.locationName}`}
+                        className="hover:bg-muted/20"
+                        data-testid={`row-location-${row.locationName}`}
+                      >
+                        <td className="sticky left-0 bg-card z-10 px-3 py-1.5 border-b border-r font-medium whitespace-nowrap">
+                          {row.locationName}
+                        </td>
+                        {allFields.map(field => {
+                          const v = Number(row.values[field.key] ?? 0);
+                          rowTotal += v;
+                          return (
+                            <td
+                              key={`cell-${row.locationName}-${field.key}`}
+                              className="text-right tabular-nums px-3 py-1.5 border-b border-l"
+                              data-testid={`cell-${row.locationName}-${field.key}`}
+                            >
+                              {v === 0 ? "" : v}
+                            </td>
+                          );
+                        })}
+                        <td
+                          className="sticky right-0 bg-card z-10 text-right tabular-nums font-semibold px-3 py-1.5 border-b border-l"
+                          data-testid={`cell-total-${row.locationName}`}
+                        >
+                          {rowTotal === 0 ? "" : rowTotal}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {/* Footer: totals per equipment column + grand total */}
+                  <tr className="bg-muted/60 font-semibold">
+                    <td className="sticky left-0 bg-muted/60 z-10 px-3 py-2 border-t border-r">
+                      Total
+                    </td>
+                    {(() => {
+                      let grand = 0;
+                      const cells = allFields.map(field => {
+                        const sum = locationRows.reduce(
+                          (s, r) => s + Number(r.values[field.key] ?? 0),
+                          0,
+                        );
+                        grand += sum;
+                        return (
+                          <td
+                            key={`foot-${field.key}`}
+                            className="text-right tabular-nums px-3 py-2 border-t border-l"
+                            data-testid={`footer-total-${field.key}`}
+                          >
+                            {sum === 0 ? "" : sum}
+                          </td>
+                        );
+                      });
+                      return (
+                        <>
+                          {cells}
+                          <td
+                            className="sticky right-0 bg-muted/60 z-10 text-right tabular-nums px-3 py-2 border-t border-l"
+                            data-testid="footer-total-grand"
+                          >
+                            {grand === 0 ? "" : grand}
+                          </td>
+                        </>
+                      );
+                    })()}
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -543,58 +628,3 @@ export default function DailyRoute() {
   );
 }
 
-function SectionRows({
-  section,
-  flatStops,
-  totalCols,
-}: {
-  section: { category: string; fields: DailyField[] };
-  flatStops: Array<{ groupIdx: number; stop: DailyStop }>;
-  totalCols: number;
-}) {
-  return (
-    <>
-      <tr className="bg-muted/30">
-        <td
-          className="sticky left-0 bg-muted/30 z-10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b"
-          colSpan={totalCols + 2}
-        >
-          {section.category}
-        </td>
-      </tr>
-      {section.fields.map(field => {
-        let rowTotal = 0;
-        const cells = flatStops.map(entry => {
-          const v = entry.stop.values[field.key] ?? 0;
-          rowTotal += v;
-          return v;
-        });
-        return (
-          <tr key={field.key} className="hover:bg-muted/20" data-testid={`row-item-${field.key}`}>
-            <td className="sticky left-0 bg-card z-10 px-3 py-1.5 border-b border-r font-medium whitespace-nowrap">
-              {field.label}
-            </td>
-            {flatStops.map((entry, i) => {
-              const v = cells[i];
-              return (
-                <td
-                  key={`cell-${field.key}-${entry.groupIdx}-${entry.stop.locationName}-${entry.stop.orderId ?? i}`}
-                  className={`text-right px-3 py-1.5 border-b border-l tabular-nums ${v === 0 ? "text-muted-foreground/40" : ""}`}
-                  data-testid={`cell-${field.key}-${entry.stop.locationName}`}
-                >
-                  {v === 0 ? "" : v}
-                </td>
-              );
-            })}
-            <td
-              className={`sticky right-0 bg-card z-10 text-right px-3 py-1.5 border-b border-l font-semibold tabular-nums ${rowTotal === 0 ? "text-muted-foreground/40" : ""}`}
-              data-testid={`total-${field.key}`}
-            >
-              {rowTotal === 0 ? "" : rowTotal}
-            </td>
-          </tr>
-        );
-      })}
-    </>
-  );
-}

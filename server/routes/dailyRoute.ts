@@ -260,41 +260,68 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
     views: [{ state: "frozen", xSplit: 1, ySplit: 3 }],
   });
 
-  // Flatten stops so each store gets its own column. We also remember which
-  // column starts/ends each route so we can write the route header row across
-  // them.
-  const flatStops: Array<{ groupIdx: number; stop: DailyStop }> = [];
-  const groupCols: Array<{ groupIdx: number; startCol: number; endCol: number; routeName: string }> = [];
+  // Aggregate stops by location: one row per location, summing equipment
+  // quantities across any orders that hit that location on the date. Route
+  // grouping is intentionally collapsed — operators want a single
+  // location × equipment grid, not a per-route breakdown.
+  type LocRow = { locationName: string; values: Record<string, number> };
+  const byName = new Map<string, LocRow>();
+  const locationOrder: string[] = [];
+  for (const g of data.groups) {
+    for (const stop of g.stops) {
+      const existing = byName.get(stop.locationName);
+      if (existing) {
+        for (const [k, v] of Object.entries(stop.values)) {
+          existing.values[k] = (existing.values[k] ?? 0) + Number(v ?? 0);
+        }
+      } else {
+        byName.set(stop.locationName, {
+          locationName: stop.locationName,
+          values: { ...stop.values },
+        });
+        locationOrder.push(stop.locationName);
+      }
+    }
+  }
+  const locationRows: LocRow[] = locationOrder.map(n => byName.get(n)!);
 
-  let cursor = 2; // col 1 = item label
-  data.groups.forEach((g, gi) => {
-    if (g.stops.length === 0) return;
-    const startCol = cursor;
-    g.stops.forEach(s => {
-      flatStops.push({ groupIdx: gi, stop: s });
-      cursor += 1;
-    });
-    groupCols.push({ groupIdx: gi, startCol, endCol: cursor - 1, routeName: g.routeName });
-  });
-  const totalCol = cursor;
+  // Group fields by category so we can write category band headers that
+  // span their equipment columns (matches the GUI layout).
+  const sections: Array<{ category: string; fields: DailyField[] }> = [];
+  {
+    let current: { category: string; fields: DailyField[] } | null = null;
+    for (const f of data.fields) {
+      if (!current || current.category !== f.category) {
+        current = { category: f.category, fields: [f] };
+        sections.push(current);
+      } else {
+        current.fields.push(f);
+      }
+    }
+  }
+  const allFields = sections.flatMap(s => s.fields);
+  const totalCol = 2 + allFields.length; // col 1 = Location, then one col per field, then Total
 
   // Row 1: Title
   ws.getCell(1, 1).value = `Daily Route — ${data.date}`;
   ws.getCell(1, 1).font = { bold: true, size: 14 };
   ws.mergeCells(1, 1, 1, Math.max(totalCol, 1));
 
-  // Row 2: Route header band (each route's name spans its store columns).
+  // Row 2: Category band — each category name spans its equipment columns.
   // We apply fill + borders to every cell in the merged range, not just the
-  // top-left, because exceljs only renders the visible border on individual
-  // cells — not the conceptual range — so without this the right edge of a
-  // multi-store route band ends up missing.
-  groupCols.forEach(g => {
-    const cell = ws.getCell(2, g.startCol);
-    cell.value = g.routeName;
+  // top-left, because exceljs only renders borders on individual cells —
+  // not the conceptual merged range — so without this the right edge of a
+  // multi-column category band ends up missing.
+  let cursor = 2;
+  for (const section of sections) {
+    const startCol = cursor;
+    const endCol = cursor + section.fields.length - 1;
+    const cell = ws.getCell(2, startCol);
+    cell.value = section.category;
     cell.font = { bold: true };
     cell.alignment = { horizontal: "center" };
-    if (g.endCol > g.startCol) ws.mergeCells(2, g.startCol, 2, g.endCol);
-    for (let c = g.startCol; c <= g.endCol; c += 1) {
+    if (endCol > startCol) ws.mergeCells(2, startCol, 2, endCol);
+    for (let c = startCol; c <= endCol; c += 1) {
       const cc = ws.getCell(2, c);
       cc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
       cc.border = {
@@ -302,8 +329,10 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
         left: { style: "thin" }, right: { style: "thin" },
       };
     }
-  });
-  if (totalCol > 1) {
+    cursor = endCol + 1;
+  }
+  // Style the Total cell on row 2 to match the band.
+  if (allFields.length > 0) {
     const tc = ws.getCell(2, totalCol);
     tc.value = "";
     tc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
@@ -313,12 +342,12 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
     };
   }
 
-  // Row 3: Column headers (Item | each store name | Total)
-  ws.getCell(3, 1).value = "Item";
+  // Row 3: Column headers (Location | each equipment field | Total)
+  ws.getCell(3, 1).value = "Location";
   ws.getCell(3, 1).font = { bold: true };
-  flatStops.forEach((entry, i) => {
+  allFields.forEach((field, i) => {
     const c = ws.getCell(3, 2 + i);
-    c.value = entry.stop.locationName;
+    c.value = field.label;
     c.font = { bold: true };
     c.alignment = { horizontal: "center", wrapText: true };
   });
@@ -326,29 +355,16 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
   ws.getCell(3, totalCol).font = { bold: true };
   ws.getCell(3, totalCol).alignment = { horizontal: "center" };
 
-  // Item rows. Render in the same category order as DAILY_FIELDS (the array
-  // is intentionally ordered). Track per-store running totals so we can
-  // emit a "Grand Total" row at the bottom.
-  const colTotals: number[] = flatStops.map(() => 0);
+  // Body: one row per location. Track per-equipment running totals so we
+  // can emit a "Grand Total" row at the bottom.
+  const colTotals: number[] = allFields.map(() => 0);
   let grandTotal = 0;
   let row = 4;
-  let lastCategory = "";
-  for (const field of data.fields) {
-    if (field.category !== lastCategory) {
-      // Category divider row
-      const catCell = ws.getCell(row, 1);
-      catCell.value = field.category;
-      catCell.font = { bold: true, italic: true };
-      catCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
-      if (totalCol > 1) ws.mergeCells(row, 1, row, totalCol);
-      row += 1;
-      lastCategory = field.category;
-    }
-
-    ws.getCell(row, 1).value = field.label;
+  for (const locRow of locationRows) {
+    ws.getCell(row, 1).value = locRow.locationName;
     let rowTotal = 0;
-    flatStops.forEach((entry, i) => {
-      const v = entry.stop.values[field.key] ?? 0;
+    allFields.forEach((field, i) => {
+      const v = Number(locRow.values[field.key] ?? 0);
       const cell = ws.getCell(row, 2 + i);
       cell.value = v === 0 ? null : v;
       cell.alignment = { horizontal: "right" };
@@ -364,14 +380,14 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
   }
 
   // Grand totals row (bold, light-gray fill, top border) so the operator
-  // can sight-read truck totals per store and overall in a single glance.
-  if (flatStops.length > 0) {
+  // can sight-read totals per equipment column and overall in a glance.
+  if (locationRows.length > 0) {
     const labelCell = ws.getCell(row, 1);
     labelCell.value = "Total";
     labelCell.font = { bold: true };
     labelCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
     labelCell.border = { top: { style: "medium" } };
-    flatStops.forEach((_, i) => {
+    allFields.forEach((_, i) => {
       const cell = ws.getCell(row, 2 + i);
       const v = colTotals[i];
       cell.value = v === 0 ? null : v;
@@ -390,7 +406,7 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
 
   // Column widths
   ws.getColumn(1).width = 28;
-  for (let i = 0; i < flatStops.length; i++) ws.getColumn(2 + i).width = 14;
+  for (let i = 0; i < allFields.length; i++) ws.getColumn(2 + i).width = 14;
   ws.getColumn(totalCol).width = 12;
 
   return wb;
