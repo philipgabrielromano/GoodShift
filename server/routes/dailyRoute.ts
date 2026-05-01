@@ -82,6 +82,7 @@ interface DailyStop {
   locationName: string;      // shown in column header
   orderId: number | null;    // null if no order from this stop today
   values: Record<string, number>; // fieldKey -> qty (0 if missing)
+  notes: string;             // joined notes from all of this stop's orders ("" if none)
 }
 
 interface DailyRouteGroup {
@@ -163,7 +164,7 @@ async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
   // excluded because the operator only routes what's actually going out.
   const requestedCols = DAILY_FIELDS.map(f => f.snake).join(", ");
   const sql = `
-    SELECT id, location, status, ${requestedCols}
+    SELECT id, location, status, notes, ${requestedCols}
     FROM orders
     WHERE order_date = ?
       AND order_type = 'Transfer and Receive'
@@ -176,19 +177,25 @@ async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
   // has multiple approved Transfer-and-Receive orders for the same day, sum
   // the requested values so the matrix shows the combined draw on the truck.
   // We retain the original (display) name so unrouted rows show the human
-  // form rather than the lower-cased key.
-  const ordersByLocation = new Map<string, { displayName: string; ids: number[]; values: Record<string, number> }>();
+  // form rather than the lower-cased key. Notes from multiple orders at the
+  // same location are joined with " | " so the operator sees every comment.
+  const ordersByLocation = new Map<
+    string,
+    { displayName: string; ids: number[]; values: Record<string, number>; notes: string[] }
+  >();
   for (const row of rows) {
     const display = String(row.location || "").trim();
     const key = normalizeKey(display);
     if (!key) continue;
     let bucket = ordersByLocation.get(key);
     if (!bucket) {
-      bucket = { displayName: display, ids: [], values: {} };
+      bucket = { displayName: display, ids: [], values: {}, notes: [] };
       for (const f of DAILY_FIELDS) bucket.values[f.key] = 0;
       ordersByLocation.set(key, bucket);
     }
     bucket.ids.push(Number(row.id));
+    const noteRaw = typeof row.notes === "string" ? row.notes.trim() : "";
+    if (noteRaw) bucket.notes.push(noteRaw);
     for (const f of DAILY_FIELDS) {
       const raw = row[f.snake];
       const n = typeof raw === "number" ? raw : raw == null ? 0 : Number(raw);
@@ -218,6 +225,7 @@ async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
         // qty, so this is fine.
         orderId: bucket?.ids[0] ?? null,
         values,
+        notes: bucket?.notes.join(" | ") ?? "",
       };
     });
     groups.push({ routeId: route.id, routeName: route.name, stops });
@@ -236,6 +244,7 @@ async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
       locationName: bucket.displayName,
       orderId: bucket.ids[0],
       values,
+      notes: bucket.notes.join(" | "),
     });
   });
   unrouted.sort((a, b) => a.locationName.localeCompare(b.locationName));
@@ -263,21 +272,26 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
   // Aggregate stops by location: one row per location, summing equipment
   // quantities across any orders that hit that location on the date. Route
   // grouping is intentionally collapsed — operators want a single
-  // location × equipment grid, not a per-route breakdown.
-  type LocRow = { locationName: string; values: Record<string, number> };
+  // location × equipment grid, not a per-route breakdown. Notes from any
+  // stop sharing a location name are concatenated (de-duped) so the
+  // operator never loses a comment.
+  type LocRow = { locationName: string; values: Record<string, number>; notes: string[] };
   const byName = new Map<string, LocRow>();
   const locationOrder: string[] = [];
   for (const g of data.groups) {
     for (const stop of g.stops) {
       const existing = byName.get(stop.locationName);
+      const stopNote = (stop.notes ?? "").trim();
       if (existing) {
         for (const [k, v] of Object.entries(stop.values)) {
           existing.values[k] = (existing.values[k] ?? 0) + Number(v ?? 0);
         }
+        if (stopNote && !existing.notes.includes(stopNote)) existing.notes.push(stopNote);
       } else {
         byName.set(stop.locationName, {
           locationName: stop.locationName,
           values: { ...stop.values },
+          notes: stopNote ? [stopNote] : [],
         });
         locationOrder.push(stop.locationName);
       }
@@ -301,11 +315,12 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
   }
   const allFields = sections.flatMap(s => s.fields);
   const totalCol = 2 + allFields.length; // col 1 = Location, then one col per field, then Total
+  const notesCol = totalCol + 1;          // last column = free-text Notes from the order(s)
 
   // Row 1: Title
   ws.getCell(1, 1).value = `Daily Route — ${data.date}`;
   ws.getCell(1, 1).font = { bold: true, size: 14 };
-  ws.mergeCells(1, 1, 1, Math.max(totalCol, 1));
+  ws.mergeCells(1, 1, 1, Math.max(notesCol, 1));
 
   // Row 2: Category band — each category name spans its equipment columns.
   // We apply fill + borders to every cell in the merged range, not just the
@@ -331,18 +346,20 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
     }
     cursor = endCol + 1;
   }
-  // Style the Total cell on row 2 to match the band.
+  // Style the Total + Notes cells on row 2 to match the band.
   if (allFields.length > 0) {
-    const tc = ws.getCell(2, totalCol);
-    tc.value = "";
-    tc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
-    tc.border = {
-      top: { style: "thin" }, bottom: { style: "thin" },
-      left: { style: "thin" }, right: { style: "thin" },
-    };
+    for (const c of [totalCol, notesCol]) {
+      const tc = ws.getCell(2, c);
+      tc.value = "";
+      tc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
+      tc.border = {
+        top: { style: "thin" }, bottom: { style: "thin" },
+        left: { style: "thin" }, right: { style: "thin" },
+      };
+    }
   }
 
-  // Row 3: Column headers (Location | each equipment field | Total)
+  // Row 3: Column headers (Location | each equipment field | Total | Notes)
   ws.getCell(3, 1).value = "Location";
   ws.getCell(3, 1).font = { bold: true };
   allFields.forEach((field, i) => {
@@ -354,6 +371,9 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
   ws.getCell(3, totalCol).value = "Total";
   ws.getCell(3, totalCol).font = { bold: true };
   ws.getCell(3, totalCol).alignment = { horizontal: "center" };
+  ws.getCell(3, notesCol).value = "Notes";
+  ws.getCell(3, notesCol).font = { bold: true };
+  ws.getCell(3, notesCol).alignment = { horizontal: "center" };
 
   // Body: one row per location. Track per-equipment running totals so we
   // can emit a "Grand Total" row at the bottom.
@@ -375,6 +395,10 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
     tc.value = rowTotal === 0 ? null : rowTotal;
     tc.font = { bold: true };
     tc.alignment = { horizontal: "right" };
+    const noteCell = ws.getCell(row, notesCol);
+    const joined = locRow.notes.join(" | ");
+    noteCell.value = joined ? joined : null;
+    noteCell.alignment = { horizontal: "left", wrapText: true, vertical: "top" };
     grandTotal += rowTotal;
     row += 1;
   }
@@ -402,12 +426,18 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
     gtc.alignment = { horizontal: "right" };
     gtc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
     gtc.border = { top: { style: "medium" } };
+    // Match the styling on the Notes cell so the footer band looks contiguous.
+    const ntc = ws.getCell(row, notesCol);
+    ntc.value = null;
+    ntc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
+    ntc.border = { top: { style: "medium" } };
   }
 
   // Column widths
   ws.getColumn(1).width = 28;
   for (let i = 0; i < allFields.length; i++) ws.getColumn(2 + i).width = 14;
   ws.getColumn(totalCol).width = 12;
+  ws.getColumn(notesCol).width = 48; // notes can be long — give them room
 
   return wb;
 }

@@ -61,6 +61,7 @@ interface DailyStop {
   locationName: string;
   orderId: number | null;
   values: Record<string, number>;
+  notes?: string;
 }
 
 interface DailyRouteGroup {
@@ -126,22 +127,28 @@ export default function DailyRoute() {
   // Aggregate stops by location: one row per location, summing equipment
   // quantities across any orders that hit that location on this date. Route
   // grouping is intentionally collapsed — operators want a single location
-  // × equipment grid, not a per-route breakdown.
-  const locationRows = useMemo(() => {
-    if (!data) return [] as Array<{ locationName: string; values: Record<string, number> }>;
-    const byName = new Map<string, { locationName: string; values: Record<string, number> }>();
+  // × equipment grid, not a per-route breakdown. Notes from any stop sharing
+  // a location name are concatenated (de-duped) so the operator never loses
+  // a comment.
+  type LocRow = { locationName: string; values: Record<string, number>; notes: string[] };
+  const locationRows = useMemo<LocRow[]>(() => {
+    if (!data) return [];
+    const byName = new Map<string, LocRow>();
     const order: string[] = [];
     for (const g of data.groups) {
       for (const stop of g.stops) {
         const existing = byName.get(stop.locationName);
+        const stopNote = (stop.notes ?? "").trim();
         if (existing) {
           for (const [k, v] of Object.entries(stop.values)) {
             existing.values[k] = (existing.values[k] ?? 0) + Number(v ?? 0);
           }
+          if (stopNote && !existing.notes.includes(stopNote)) existing.notes.push(stopNote);
         } else {
           byName.set(stop.locationName, {
             locationName: stop.locationName,
             values: { ...stop.values },
+            notes: stopNote ? [stopNote] : [],
           });
           order.push(stop.locationName);
         }
@@ -402,10 +409,16 @@ export default function DailyRoute() {
                       </th>
                     ))}
                     <th
-                      className="sticky right-0 bg-muted z-20 text-center px-3 py-2 border-b border-l min-w-[5rem]"
+                      className="bg-muted text-center px-3 py-2 border-b border-l min-w-[5rem]"
                       rowSpan={2}
                     >
                       Total
+                    </th>
+                    <th
+                      className="sticky right-0 bg-muted z-20 text-left px-3 py-2 border-b border-l min-w-[16rem]"
+                      rowSpan={2}
+                    >
+                      Notes
                     </th>
                   </tr>
                   {/* Equipment columns */}
@@ -447,10 +460,16 @@ export default function DailyRoute() {
                           );
                         })}
                         <td
-                          className="sticky right-0 bg-card z-10 text-right tabular-nums font-semibold px-3 py-1.5 border-b border-l"
+                          className="bg-card text-right tabular-nums font-semibold px-3 py-1.5 border-b border-l"
                           data-testid={`cell-total-${row.locationName}`}
                         >
                           {rowTotal === 0 ? "" : rowTotal}
+                        </td>
+                        <td
+                          className="sticky right-0 bg-card z-10 text-left text-xs px-3 py-1.5 border-b border-l align-top whitespace-pre-wrap break-words min-w-[16rem] max-w-[24rem]"
+                          data-testid={`cell-notes-${row.locationName}`}
+                        >
+                          {row.notes.length > 0 ? row.notes.join(" | ") : ""}
                         </td>
                       </tr>
                     );
@@ -482,11 +501,15 @@ export default function DailyRoute() {
                         <>
                           {cells}
                           <td
-                            className="sticky right-0 bg-muted/60 z-10 text-right tabular-nums px-3 py-2 border-t border-l"
+                            className="bg-muted/60 text-right tabular-nums px-3 py-2 border-t border-l"
                             data-testid="footer-total-grand"
                           >
                             {grand === 0 ? "" : grand}
                           </td>
+                          <td
+                            className="sticky right-0 bg-muted/60 z-10 px-3 py-2 border-t border-l"
+                            aria-hidden="true"
+                          />
                         </>
                       );
                     })()}
