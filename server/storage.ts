@@ -2062,9 +2062,15 @@ export class DatabaseStorage implements IStorage {
   async getRosterConsolidatedReport(): Promise<{ locationId: number; locationName: string; totalTargetFte: number | null; totalActualFte: number | null; fteVariance: number | null; vacancyRate: number | null }[]> {
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
+    // Mirrors the Roster page's `isRosterTargetLocation` filter: active,
+    // not form-only, available for scheduling, and available for roster targets.
+    // Excludes the same placeholder/junk names handled by `isValidLocation`.
     const locRows = await db.execute(sql`
       SELECT id, name FROM locations
       WHERE is_active = true
+        AND form_only = false
+        AND available_for_scheduling = true
+        AND available_for_roster_targets = true
         AND name !~ '^Location [0-9]'
         AND name NOT ILIKE '%child%adol%beh%'
       ORDER BY name
