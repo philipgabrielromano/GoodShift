@@ -30,6 +30,7 @@ export const EMAIL_TYPES: EmailTypeMeta[] = [
   { id: "trailer_in_transit",  label: "Trailer In Transit",        description: "Sent to destination stores when a trailer manifest departs.",     defaultHeaderColor: "#E9992F" },
   { id: "driver_inspection",   label: "Driver Inspection Alert",   description: "Sent to maintenance when a driver flags repair items.",            defaultHeaderColor: "#DF4E51" },
   { id: "warehouse_variance",  label: "Warehouse Variance CSV",    description: "Sent to ops/audit with the variance CSV from a warehouse count.", defaultHeaderColor: "#00539F" },
+  { id: "first_aid_notification", label: "First Aid Replenishment", description: "Sent to the First Aid distribution list when a store submits a First Aid order.", defaultHeaderColor: "#DF4E51" },
 ];
 
 const DEFAULT_HEADER_COLORS: Record<EmailTypeId, string> = EMAIL_TYPES.reduce((acc, t) => {

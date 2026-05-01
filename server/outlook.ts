@@ -201,9 +201,10 @@ export async function sendOrderNotificationEmail(
       ${fieldsHtml ? `<h3 style="margin: 16px 0 8px; font-size: 14px; color: #374151;">Order Details</h3><table style="width: 100%; border-collapse: collapse;">${fieldsHtml}</table>` : ""}
       ${notesHtml}`;
 
+    const isFirstAid = data.orderType === "First Aid";
     const emailBody = renderEmailLayout({
-      type: "order_submitted",
-      title: "New Order Submitted",
+      type: isFirstAid ? "first_aid_notification" : "order_submitted",
+      title: isFirstAid ? "First Aid Replenishment Request" : "New Order Submitted",
       bodyHtml,
       ctaLabel: "View Orders",
       ctaHref: `${data.appUrl}/orders`,
@@ -211,7 +212,9 @@ export async function sendOrderNotificationEmail(
     });
 
     const message = {
-      subject: `GoodShift: New ${data.orderType} Order - ${data.location}`,
+      subject: isFirstAid
+        ? `GoodShift: First Aid Replenishment Request - ${data.location}`
+        : `GoodShift: New ${data.orderType} Order - ${data.location}`,
       body: { contentType: 'HTML', content: emailBody },
       toRecipients: [{ emailAddress: { address: toEmail } }],
       ccRecipients: toEmail.toLowerCase() !== ALWAYS_CC_EMAIL.toLowerCase() ? [{ emailAddress: { address: ALWAYS_CC_EMAIL } }] : [],
@@ -232,7 +235,9 @@ export async function sendOrderNotificationEmail(
     void storage.createEmailLog({
       type: "order_submission",
       recipientEmail: toEmail,
-      subject: `GoodShift: New ${data.orderType} Order - ${data.location}`,
+      subject: data.orderType === "First Aid"
+        ? `GoodShift: First Aid Replenishment Request - ${data.location}`
+        : `GoodShift: New ${data.orderType} Order - ${data.location}`,
       status: "failed",
       error: error?.message || String(error),
       employeeName: data.submittedBy,

@@ -107,6 +107,7 @@ export const EMAIL_TYPE_IDS = [
   "trailer_in_transit",
   "driver_inspection",
   "warehouse_variance",
+  "first_aid_notification",
 ] as const;
 export type EmailTypeId = typeof EMAIL_TYPE_IDS[number];
 

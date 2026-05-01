@@ -2,7 +2,7 @@ import { renderEmailLayout, dv, type ResolvedBranding } from "./emailBranding";
 import type { EmailTypeId } from "@shared/schema";
 
 /**
- * Returns rendered HTML for any of the 9 email types using believable sample
+ * Returns rendered HTML for any of the 10 email types using believable sample
  * data. Used by the Settings preview pane so admins can see exactly how each
  * template will look with the current branding.
  */
@@ -136,6 +136,28 @@ export function renderSampleEmail(type: EmailTypeId, branding: ResolvedBranding,
           <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Net variance:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;color:#dc2626;font-weight:600;">-12 (abs 18)</td></tr>
         </table>`;
       return renderEmailLayout({ type, title: "Cleveland Warehouse Count Variance", bodyHtml, ctaLabel: "Open Count in GoodShift", ctaHref: `${appUrl}/warehouse-inventory/123`, branding, footerText: "Sent by Marcus Chen from GoodShift. The CSV header includes the same metadata shown above." });
+    }
+    case "first_aid_notification": {
+      const fields = [
+        { label: "Sterile Band-Aids", value: 24 },
+        { label: "Medical Exam Gloves", value: 50 },
+        { label: "Antiseptic (no alcohol)", value: 6 },
+        { label: "Burn Treatment", value: 4 },
+        { label: "Instant Cold Pack", value: 8 },
+        { label: "Spill Kit (BBP/Vomit)", value: 2 },
+      ];
+      const fieldsHtml = fields.map(f => `<tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${f.label}</td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv(f.value, branding)}</td></tr>`).join("");
+      const bodyHtml = `
+        <p>A store has submitted a <strong>First Aid replenishment</strong> request. Please prepare the items below for delivery to the requesting location.</p>
+        <table style="width:100%;border-collapse:collapse;margin:0 0 16px 0;">
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">April 22, 2026</td></tr>
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv("First Aid", branding)}</td></tr>
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv("Wheeling Store", branding)}</td></tr>
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Submitted By:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv("Maria Lopez", branding)}</td></tr>
+        </table>
+        <h3 style="margin:16px 0 8px;font-size:14px;color:#374151;">Items Requested</h3>
+        <table style="width:100%;border-collapse:collapse;">${fieldsHtml}</table>`;
+      return renderEmailLayout({ type, title: "First Aid Replenishment Request", bodyHtml, ctaLabel: "View Order", ctaHref: `${appUrl}/orders`, branding });
     }
   }
 }
