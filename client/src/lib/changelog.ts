@@ -8,9 +8,37 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.7.0";
+export const APP_VERSION = "3.8.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.0",
+    date: "2026-05-01",
+    title: "Daily Routes, First Aid Orders & Locations Redesign",
+    changes: [
+      { type: "feature", description: "New Daily Routes page (Logistics → Daily Routes) for planning each day's truck runs. Lay out which stores get visited on which route, add notes, and export the whole day to Excel for the drivers." },
+      { type: "improvement", description: "Daily Routes are grouped by location instead of by route, so it's easy to see at a glance which stores are scheduled and on which run — and the Excel export matches the on-screen layout." },
+      { type: "improvement", description: "Each day in Daily Routes now has a notes section that prints into the Excel export, so drivers see special instructions alongside their stops." },
+      { type: "feature", description: "Trailer manifests can now be created directly from the Daily Routes page — pick a route, the origin warehouse and destination stores carry over automatically." },
+      { type: "improvement", description: "New manifests now only allow a warehouse as the origin location, which prevents accidentally building a manifest that starts from a store." },
+      { type: "feature", description: "New 'First Aid' order type for tracking essential first-aid supplies separately from donation/inventory orders, with its own form, submissions list, and approval workflow." },
+      { type: "feature", description: "First Aid replenishment requests now send an email notification to the configured first-aid contact when a request is submitted." },
+      { type: "feature", description: "Locations page redesigned: the admin table is now a slim five-column view (Name · Weekly Hrs · Warehouse · Status · Where it appears) with a search box and a side drawer for editing the rest of the details — no more horizontal scrolling." },
+      { type: "feature", description: "New per-location 'Available for Roster Targets' toggle on the Locations page. Stores you turn off here disappear from the Roster page's location dropdown and from the Consolidated FTE Report, without affecting Scheduling visibility." },
+      { type: "feature", description: "New 'Approve All on Page' action on the Order Submissions page. When you've filtered to a batch of submitted orders, you can approve every one currently visible in a single click." },
+      { type: "improvement", description: "Warehouse staff can now adjust order quantities before approving an order, so a manageable order can go through immediately instead of being denied and re-submitted." },
+      { type: "feature", description: "New 'Sync Now' button for the UKG time clock sync, plus clearer status text showing the last successful sync and any errors. You no longer need to wait for the scheduled hourly sync to pull fresh punches." },
+      { type: "improvement", description: "Order form and submission labels were updated to remove a specific store reference, so the wording reads correctly for every location." },
+      { type: "improvement", description: "Placeholder location names (\"Location 1\", child/adolescent behavioral entries, etc.) are now consistently hidden from every dropdown and report across the app." },
+      { type: "fix", description: "Fixed the Order Submissions page going blank after loading in certain filter combinations." },
+      { type: "fix", description: "Fixed the location dropdown on the Credit Card Inspection form not honoring the user's assigned locations." },
+      { type: "fix", description: "Submitted order dates now display correctly regardless of the viewer's timezone — no more 'submitted yesterday' on a date that was actually today." },
+      { type: "security", description: "Order access is now restricted to a user's assigned store locations end-to-end. Non-admins can no longer see or modify orders for stores they aren't assigned to." },
+      { type: "security", description: "Closed two authorization gaps in the shift trade workflow that could let a user respond to or cancel a trade that wasn't theirs." },
+      { type: "security", description: "Tightened privacy on attendance and time-off data so non-admin users only see records for employees they're permitted to view." },
+      { type: "security", description: "Patched a postcss dependency vulnerability (GHSA-qx2v-qp2m-jg93)." },
+    ],
+  },
   {
     version: "3.7.0",
     date: "2026-04-24",
