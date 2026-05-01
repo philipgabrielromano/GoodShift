@@ -120,6 +120,27 @@ export async function initOrdersTable(): Promise<void> {
     await ensureCol("fulfilled_at", "DATETIME DEFAULT NULL");
     await ensureCol("fulfilled_by", "VARCHAR(255) DEFAULT NULL");
 
+    // First Aid order type (per-item replenishment counts). Each item is a
+    // single INT column — the new "First Aid" order type uses these instead
+    // of the equipment columns above.
+    await ensureCol("first_aid_guide", "INT DEFAULT NULL");
+    await ensureCol("cpr_mask", "INT DEFAULT NULL");
+    await ensureCol("scissors", "INT DEFAULT NULL");
+    await ensureCol("tweezers", "INT DEFAULT NULL");
+    await ensureCol("medical_exam_gloves", "INT DEFAULT NULL");
+    await ensureCol("antibiotic_treatment", "INT DEFAULT NULL");
+    await ensureCol("antiseptic", "INT DEFAULT NULL");
+    await ensureCol("burn_treatment", "INT DEFAULT NULL");
+    await ensureCol("sterile_bandaids", "INT DEFAULT NULL");
+    await ensureCol("medical_tape", "INT DEFAULT NULL");
+    await ensureCol("triangular_sling", "INT DEFAULT NULL");
+    await ensureCol("absorbent_compress", "INT DEFAULT NULL");
+    await ensureCol("sterile_pads", "INT DEFAULT NULL");
+    await ensureCol("sting_bite_ampules", "INT DEFAULT NULL");
+    await ensureCol("stop_bleed_kit", "INT DEFAULT NULL");
+    await ensureCol("instant_cold_pack", "INT DEFAULT NULL");
+    await ensureCol("spill_kit", "INT DEFAULT NULL");
+
     // Phase 1 order approval workflow
     const statusJustAdded = await ensureCol(
       "status",

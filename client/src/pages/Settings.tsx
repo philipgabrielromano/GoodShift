@@ -80,6 +80,7 @@ export default function Settings() {
   const [selectedStore, setSelectedStore] = useState<string>("");
   const [hrEmail, setHrEmail] = useState<string>("");
   const [orderEmails, setOrderEmails] = useState<string>("");
+  const [firstAidEmails, setFirstAidEmails] = useState<string>("");
   const [driverInspectionEmails, setDriverInspectionEmails] = useState<string>("");
   const [warehouseVarianceEmailsCleveland, setWarehouseVarianceEmailsCleveland] = useState<string>("");
   const [warehouseVarianceEmailsCanton, setWarehouseVarianceEmailsCanton] = useState<string>("");
@@ -99,6 +100,12 @@ export default function Settings() {
       setOrderEmails(settings.orderNotificationEmails);
     }
   }, [settings?.orderNotificationEmails]);
+
+  useEffect(() => {
+    if (settings?.firstAidNotificationEmails) {
+      setFirstAidEmails(settings.firstAidNotificationEmails);
+    }
+  }, [settings?.firstAidNotificationEmails]);
 
   useEffect(() => {
     if (settings?.driverInspectionEmails) {
@@ -408,6 +415,22 @@ export default function Settings() {
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Order notification emails updated" });
+          },
+          onError: () => {
+            toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
+          }
+        }
+      );
+    }
+  };
+
+  const saveFirstAidEmails = () => {
+    if (settings) {
+      updateSettings.mutate(
+        { ...settings, firstAidNotificationEmails: firstAidEmails || null },
+        {
+          onSuccess: () => {
+            toast({ title: "Settings Saved", description: "First Aid notification emails updated" });
           },
           onError: () => {
             toast({ variant: "destructive", title: "Save Failed", description: "Could not save settings" });
@@ -1289,6 +1312,42 @@ export default function Settings() {
               </span>
             </div>
           )}
+
+          <div className="pt-6 border-t space-y-2">
+            <Label htmlFor="first-aid-emails">First Aid Order Notifications</Label>
+            <p className="text-sm text-muted-foreground">
+              Recipients for "First Aid" order submissions. The submitter is always emailed automatically; these recipients are notified in addition.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="first-aid-emails"
+                type="text"
+                placeholder="safety@company.com, facilities@company.com"
+                value={firstAidEmails}
+                onChange={(e) => setFirstAidEmails(e.target.value)}
+                className="flex-1"
+                data-testid="input-first-aid-notification-emails"
+              />
+              <Button
+                onClick={saveFirstAidEmails}
+                disabled={updateSettings.isPending}
+                data-testid="button-save-first-aid-emails"
+              >
+                {updateSettings.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Separate multiple email addresses with commas.
+            </p>
+            {settings?.firstAidNotificationEmails && (
+              <div className="flex items-center gap-2 text-sm pt-1">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <span className="text-muted-foreground">
+                  First Aid notifications configured for: <span className="font-medium text-foreground">{settings.firstAidNotificationEmails.split(',').map(e => e.trim()).filter(e => e).join(', ')}</span>
+                </span>
+              </div>
+            )}
+          </div>
 
           <div className="pt-6 border-t space-y-2">
             <Label htmlFor="driver-inspection-emails">Driver Inspection Repair Alerts</Label>

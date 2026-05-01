@@ -95,7 +95,7 @@ async function logOrderEvent(args: {
 
 const nonNegInt = z.number().int().min(0).nullable().optional();
 
-const ORDER_TYPES = ["Transfer and Receive", "End of Day/Equipment Count", "Donors", "Supplemental production"] as const;
+const ORDER_TYPES = ["Transfer and Receive", "End of Day/Equipment Count", "Donors", "Supplemental production", "First Aid"] as const;
 type OrderType = typeof ORDER_TYPES[number];
 
 const orderSchema = z.object({
@@ -166,6 +166,25 @@ const orderSchema = z.object({
   isCentralProcessing: z.boolean().nullable().optional(),
   apparelProduction: nonNegInt,
   waresProduction: nonNegInt,
+  // First Aid items (per-item replenishment counts for the "First Aid"
+  // order type). All optional; omitted columns stay NULL.
+  firstAidGuide: nonNegInt,
+  cprMask: nonNegInt,
+  scissors: nonNegInt,
+  tweezers: nonNegInt,
+  medicalExamGloves: nonNegInt,
+  antibioticTreatment: nonNegInt,
+  antiseptic: nonNegInt,
+  burnTreatment: nonNegInt,
+  sterileBandaids: nonNegInt,
+  medicalTape: nonNegInt,
+  triangularSling: nonNegInt,
+  absorbentCompress: nonNegInt,
+  sterilePads: nonNegInt,
+  stingBiteAmpules: nonNegInt,
+  stopBleedKit: nonNegInt,
+  instantColdPack: nonNegInt,
+  spillKit: nonNegInt,
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -256,6 +275,24 @@ const FIELD_LABELS: Record<string, string> = {
   bookGaylordsUsed: "Book Gaylords Used", shoeGaylordsUsed: "Shoe Gaylords Used",
   donors: "Donors", isCentralProcessing: "Central Processing",
   apparelProduction: "Apparel Production", waresProduction: "Wares Production",
+  // First Aid items
+  firstAidGuide: "First Aid Guide",
+  cprMask: "CPR Mask (disposable)",
+  scissors: "Scissors",
+  tweezers: "Tweezers",
+  medicalExamGloves: "Medical Exam Gloves",
+  antibioticTreatment: "Antibiotic Treatment",
+  antiseptic: "Antiseptic (no alcohol)",
+  burnTreatment: "Burn Treatment",
+  sterileBandaids: "Sterile Band-Aids",
+  medicalTape: "Medical Tape",
+  triangularSling: "Triangular Sling",
+  absorbentCompress: "Absorbent Compress",
+  sterilePads: "Sterile Pads",
+  stingBiteAmpules: "Sting & Bite Ampules",
+  stopBleedKit: "Stop the Bleed Kit",
+  instantColdPack: "Instant Cold Pack",
+  spillKit: "Spill Kit (BBP/Vomit)",
 };
 
 const SKIP_KEYS = new Set(["orderDate", "orderType", "location", "notes"]);
@@ -328,6 +365,24 @@ const CAMEL_TO_SNAKE: Record<keyof OrderInput, string> = {
   isCentralProcessing: "is_central_processing",
   apparelProduction: "apparel_production",
   waresProduction: "wares_production",
+  // First Aid items
+  firstAidGuide: "first_aid_guide",
+  cprMask: "cpr_mask",
+  scissors: "scissors",
+  tweezers: "tweezers",
+  medicalExamGloves: "medical_exam_gloves",
+  antibioticTreatment: "antibiotic_treatment",
+  antiseptic: "antiseptic",
+  burnTreatment: "burn_treatment",
+  sterileBandaids: "sterile_bandaids",
+  medicalTape: "medical_tape",
+  triangularSling: "triangular_sling",
+  absorbentCompress: "absorbent_compress",
+  sterilePads: "sterile_pads",
+  stingBiteAmpules: "sting_bite_ampules",
+  stopBleedKit: "stop_bleed_kit",
+  instantColdPack: "instant_cold_pack",
+  spillKit: "spill_kit",
   notes: "notes",
 };
 
@@ -499,18 +554,32 @@ export function registerOrderRoutes(app: Express) {
             console.log(`[Orders] Sent order confirmation to submitter: ${submitterEmail}`);
           }
 
-          const NOTIFY_TYPES = new Set(["Transfer and Receive", "End of Day/Equipment Count"]);
-          if (NOTIFY_TYPES.has(parsed.orderType)) {
+          // Notification recipients depend on order type:
+          //  - "First Aid" pulls from the dedicated firstAidNotificationEmails
+          //    setting so the safety/facilities team can be notified without
+          //    spamming the general logistics distro.
+          //  - Transfer and End-of-Day use the existing generic order list.
+          //  - Donors and Supplemental Production are submitter-only (no
+          //    extra recipients).
+          const GENERIC_NOTIFY_TYPES = new Set([
+            "Transfer and Receive",
+            "End of Day/Equipment Count",
+          ]);
+          let emailList: string | null | undefined;
+          if (parsed.orderType === "First Aid") {
             const settings = await storage.getGlobalSettings();
-            const emailList = settings?.orderNotificationEmails;
-            if (emailList) {
-              const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e && e !== submitterEmail?.toLowerCase());
-              for (const email of recipients) {
-                await sendOrderNotificationEmail(email, emailData);
-              }
-              if (recipients.length > 0) {
-                console.log(`[Orders] Sent order notification to ${recipients.length} recipient(s)`);
-              }
+            emailList = settings?.firstAidNotificationEmails;
+          } else if (GENERIC_NOTIFY_TYPES.has(parsed.orderType)) {
+            const settings = await storage.getGlobalSettings();
+            emailList = settings?.orderNotificationEmails;
+          }
+          if (emailList) {
+            const recipients = emailList.split(",").map(e => e.trim().toLowerCase()).filter(e => e && e !== submitterEmail?.toLowerCase());
+            for (const email of recipients) {
+              await sendOrderNotificationEmail(email, emailData);
+            }
+            if (recipients.length > 0) {
+              console.log(`[Orders] Sent ${parsed.orderType} notification to ${recipients.length} recipient(s)`);
             }
           }
         } catch (err) {

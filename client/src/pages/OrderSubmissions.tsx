@@ -37,6 +37,7 @@ const ORDER_TYPES = [
   "End of Day/Equipment Count",
   "Donors",
   "Supplemental production",
+  "First Aid",
 ];
 
 const ORDER_TYPE_COLORS: Record<string, string> = {
@@ -44,6 +45,7 @@ const ORDER_TYPE_COLORS: Record<string, string> = {
   "End of Day/Equipment Count": "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200",
   "Donors": "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
   "Supplemental production": "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  "First Aid": "bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-200",
 };
 
 const STATUS_META: Record<OrderStatus, { label: string; className: string; Icon: typeof Clock }> = {
@@ -165,6 +167,24 @@ const FIELD_LABELS: Record<string, string> = {
   isCentralProcessing: "Central Processing",
   apparelProduction: "Apparel Production",
   waresProduction: "Wares Production",
+  // First Aid items
+  firstAidGuide: "First Aid Guide",
+  cprMask: "CPR Mask (disposable)",
+  scissors: "Scissors",
+  tweezers: "Tweezers",
+  medicalExamGloves: "Medical Exam Gloves",
+  antibioticTreatment: "Antibiotic Treatment",
+  antiseptic: "Antiseptic (no alcohol)",
+  burnTreatment: "Burn Treatment",
+  sterileBandaids: "Sterile Band-Aids",
+  medicalTape: "Medical Tape",
+  triangularSling: "Triangular Sling",
+  absorbentCompress: "Absorbent Compress",
+  sterilePads: "Sterile Pads",
+  stingBiteAmpules: "Sting & Bite Ampules",
+  stopBleedKit: "Stop the Bleed Kit",
+  instantColdPack: "Instant Cold Pack",
+  spillKit: "Spill Kit (BBP/Vomit)",
 };
 
 // Fields shown in the header section of the dialog. Everything else (the

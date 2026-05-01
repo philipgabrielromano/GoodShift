@@ -22,6 +22,7 @@ const ORDER_TYPES = [
   "End of Day/Equipment Count",
   "Donors",
   "Supplemental production",
+  "First Aid",
 ] as const;
 
 type OrderType = typeof ORDER_TYPES[number];
@@ -95,6 +96,24 @@ const formSchema = z.object({
   isCentralProcessing: z.boolean().nullable().optional(),
   apparelProduction: z.number().nullable().optional(),
   waresProduction: z.number().nullable().optional(),
+  // First Aid items
+  firstAidGuide: z.number().nullable().optional(),
+  cprMask: z.number().nullable().optional(),
+  scissors: z.number().nullable().optional(),
+  tweezers: z.number().nullable().optional(),
+  medicalExamGloves: z.number().nullable().optional(),
+  antibioticTreatment: z.number().nullable().optional(),
+  antiseptic: z.number().nullable().optional(),
+  burnTreatment: z.number().nullable().optional(),
+  sterileBandaids: z.number().nullable().optional(),
+  medicalTape: z.number().nullable().optional(),
+  triangularSling: z.number().nullable().optional(),
+  absorbentCompress: z.number().nullable().optional(),
+  sterilePads: z.number().nullable().optional(),
+  stingBiteAmpules: z.number().nullable().optional(),
+  stopBleedKit: z.number().nullable().optional(),
+  instantColdPack: z.number().nullable().optional(),
+  spillKit: z.number().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
 
@@ -145,6 +164,29 @@ const SEASONAL_REQUEST_FIELDS = [
   { season: "summer" as const, field: "savedSummerRequested" as const, label: "Summer" },
   { season: "halloween" as const, field: "savedHalloweenRequested" as const, label: "Halloween" },
   { season: "christmas" as const, field: "savedChristmasRequested" as const, label: "Christmas" },
+];
+
+// First Aid items are rendered as a single grid when the "First Aid" order
+// type is selected. The order, labels, and testIds match the supplier list
+// the safety team uses to restock kits.
+const FIRST_AID_FIELDS = [
+  { field: "firstAidGuide" as const, label: "First Aid Guide", testId: "input-first-aid-guide" },
+  { field: "cprMask" as const, label: "CPR Mask (disposable)", testId: "input-cpr-mask" },
+  { field: "scissors" as const, label: "Scissors", testId: "input-scissors" },
+  { field: "tweezers" as const, label: "Tweezers", testId: "input-tweezers" },
+  { field: "medicalExamGloves" as const, label: "Medical Exam Gloves", testId: "input-medical-exam-gloves" },
+  { field: "antibioticTreatment" as const, label: "Antibiotic Treatment", testId: "input-antibiotic-treatment" },
+  { field: "antiseptic" as const, label: "Antiseptic (no alcohol)", testId: "input-antiseptic" },
+  { field: "burnTreatment" as const, label: "Burn Treatment", testId: "input-burn-treatment" },
+  { field: "sterileBandaids" as const, label: "Sterile Band-Aids", testId: "input-sterile-bandaids" },
+  { field: "medicalTape" as const, label: "Medical Tape", testId: "input-medical-tape" },
+  { field: "triangularSling" as const, label: "Triangular Sling", testId: "input-triangular-sling" },
+  { field: "absorbentCompress" as const, label: "Absorbent Compress", testId: "input-absorbent-compress" },
+  { field: "sterilePads" as const, label: "Sterile Pads", testId: "input-sterile-pads" },
+  { field: "stingBiteAmpules" as const, label: "Sting & Bite Ampules", testId: "input-sting-bite-ampules" },
+  { field: "stopBleedKit" as const, label: "Stop the Bleed Kit", testId: "input-stop-bleed-kit" },
+  { field: "instantColdPack" as const, label: "Instant Cold Pack", testId: "input-instant-cold-pack" },
+  { field: "spillKit" as const, label: "Spill Kit (BBP/Vomit)", testId: "input-spill-kit" },
 ];
 
 interface AuthStatus {
@@ -312,6 +354,7 @@ export default function OrderForm() {
   const isEndOfDay = orderType === "End of Day/Equipment Count";
   const isDonors = orderType === "Donors";
   const isSupplemental = orderType === "Supplemental production";
+  const isFirstAid = orderType === "First Aid";
   const isOutletLocation = location === "Outlet Canton" || location === "Outlet Cleveland";
 
   const submitMutation = useMutation({
@@ -646,6 +689,30 @@ export default function OrderForm() {
                   <NumberField label="Wares Production" value={form.watch("waresProduction")} onChange={(v) => form.setValue("waresProduction", v)} testId="input-wares-production" />
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {isFirstAid && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">First Aid Items</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Enter the quantity of each item you need restocked. Leave blank for items you don't need.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {FIRST_AID_FIELDS.map(({ field, label, testId }) => (
+                  <NumberField
+                    key={field}
+                    label={label}
+                    value={form.watch(field)}
+                    onChange={(v) => form.setValue(field, v)}
+                    testId={testId}
+                  />
+                ))}
+              </div>
             </CardContent>
           </Card>
         )}

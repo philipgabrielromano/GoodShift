@@ -71,6 +71,11 @@ export const globalSettings = pgTable("global_settings", {
   hrNotificationEmail: text("hr_notification_email"),
   // Order notification emails (comma-separated)
   orderNotificationEmails: text("order_notification_emails"),
+  // First Aid order notification emails (comma-separated). Used only when an
+  // order with `order_type = 'First Aid'` is submitted, so the people who
+  // restock first-aid kits can be notified separately from the routine
+  // logistics distribution list.
+  firstAidNotificationEmails: text("first_aid_notification_emails"),
   // Driver inspection repair-alert emails (comma-separated)
   driverInspectionEmails: text("driver_inspection_emails"),
   // Warehouse variance CSV email recipients per warehouse (comma-separated).

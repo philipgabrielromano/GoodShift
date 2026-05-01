@@ -708,7 +708,7 @@ export async function registerRoutes(
     const settings = await storage.getGlobalSettings();
     if (!settings) return res.json(settings);
     if (user?.role !== "admin") {
-      const { ukgApiUrl, ukgUsername, ukgPassword, hrNotificationEmail, orderNotificationEmails, driverInspectionEmails, warehouseVarianceEmailsCleveland, warehouseVarianceEmailsCanton, ...safeSettings } = settings;
+      const { ukgApiUrl, ukgUsername, ukgPassword, hrNotificationEmail, orderNotificationEmails, firstAidNotificationEmails, driverInspectionEmails, warehouseVarianceEmailsCleveland, warehouseVarianceEmailsCanton, ...safeSettings } = settings;
       return res.json(safeSettings);
     }
     res.json(settings);
