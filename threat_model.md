@@ -28,12 +28,13 @@ Assumptions for future scans:
 - **Express API to Object Storage** — uploaded files cross from application logic into private storage and back through `/objects/*`. Access control must be enforced at both upload and download time.
 - **Express API to external services** — UKG, Azure AD/MSAL, Microsoft Graph/Outlook, weather APIs, and other integrations are trusted only through explicit credential handling, output validation, and least-privilege usage.
 - **Public vs authenticated vs privileged users** — some endpoints are public (login/bootstrap), most are authenticated, and many should be limited further by role, feature permission, location assignment, or management hierarchy.
+- **Built-in roles, custom roles, and UI permission hints** — custom roles are a production feature, and frontend `accessibleFeatures` or client-side filtering must never be treated as a security boundary.
 - **Production vs dev-only code** — `client/`, `server/`, `shared/`, migrations, and integration code are production-scope; `artifacts/mockup-sandbox/`, tests, and helper scripts are normally out of scope unless linked into runtime behavior.
 
 ## Scan Anchors
 
 - **Production entrypoints:** `server/index.ts`, `server/routes.ts`, `server/routes/*.ts`, `server/auth.ts`, `server/middleware.ts`
-- **Highest-risk areas:** auth/session handling in `server/auth.ts`; feature authorization in `server/middleware.ts`; HR/scheduling APIs in `server/routes.ts`, `server/routes/coaching.ts`, `server/routes/occurrences.ts`; file handling in `server/replit_integrations/object_storage/*`; MySQL-backed order routes in `server/routes/orders.ts`
+- **Highest-risk areas:** auth/session handling in `server/auth.ts`; feature authorization in `server/middleware.ts`; HR/scheduling APIs in `server/routes.ts`, `server/routes/coaching.ts`, `server/routes/occurrences.ts`, `server/routes/shift-trades.ts`, `server/routes/ukg.ts`; file handling in `server/replit_integrations/object_storage/*`; MySQL-backed order routes in `server/routes/orders.ts`
 - **Public surfaces:** `/health`, `/api/public/login-info`, Microsoft login/callback routes, and any object/file-serving routes reachable without auth
 - **Authenticated/privileged surfaces:** nearly all `/api/*` routes, especially settings, users, employees, schedules, orders, attendance/coaching, warehouse inventory, and inspection modules
 - **Dev-only areas to ignore unless proven reachable:** `artifacts/mockup-sandbox/`, `test/`, most utility scripts under `scripts/`
