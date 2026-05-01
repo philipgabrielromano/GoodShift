@@ -949,9 +949,15 @@ after(async () => {
   await new Promise<void>((resolve, reject) =>
     server.close((err) => (err ? reject(err) : resolve())),
   );
-  // Drain DB pool so the test process can exit cleanly.
+  // Drain both DB pools so the test process can exit cleanly. Postgres is
+  // used by most of the app; MySQL is used by the order routes that
+  // buildTestApp() registers via registerOrderRoutes. Without ending the
+  // MySQL pool the node test runner hangs at exit (its idle connections
+  // keep the event loop alive), which previously caused post-merge to
+  // time out with a "river CANCEL" error.
   const { pool } = await import("../server/db");
-  await pool.end();
+  const { mysqlPool } = await import("../server/mysql");
+  await Promise.all([pool.end(), mysqlPool.end()]);
 });
 
 // ---------------------------------------------------------------------------
