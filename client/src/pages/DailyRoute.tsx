@@ -13,10 +13,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
-import { isValidLocation } from "@/lib/utils";
 import { getCsrfToken, queryClient } from "@/lib/queryClient";
+import { WAREHOUSES, WAREHOUSE_LABELS } from "@shared/schema";
 import { Loader2, Download, Calendar as CalendarIcon, MapPin, Truck } from "lucide-react";
 
 // Mirror of server FIELD_TO_MANIFEST_ITEM. Kept here only so the dialog
@@ -105,11 +104,10 @@ export default function DailyRoute() {
   >(null);
   const [manifestFromLocation, setManifestFromLocation] = useState("");
 
-  const { data: locationsList = [] } = useLocations();
-  const sortedLocations = locationsList
-    .slice()
-    .filter(isValidLocation)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  // Origin must be a warehouse (Cleveland or Canton). Stores never originate
+  // a manifest — the route is always Warehouse → stops, so the dropdown is
+  // intentionally limited to the two warehouses.
+  const warehouseOptions = WAREHOUSES.map(w => ({ value: WAREHOUSE_LABELS[w], label: WAREHOUSE_LABELS[w] }));
 
   const { data, isLoading, isFetching, error } = useQuery<DailyRouteData>({
     queryKey: ["/api/daily-route", { date }],
@@ -445,16 +443,16 @@ export default function DailyRoute() {
                 <Label htmlFor="manifest-from-location">From location *</Label>
                 <Select value={manifestFromLocation} onValueChange={setManifestFromLocation}>
                   <SelectTrigger id="manifest-from-location" data-testid="select-manifest-from-location">
-                    <SelectValue placeholder="Select origin (warehouse)" />
+                    <SelectValue placeholder="Select warehouse" />
                   </SelectTrigger>
                   <SelectContent>
-                    {sortedLocations.map(l => (
+                    {warehouseOptions.map(opt => (
                       <SelectItem
-                        key={l.id}
-                        value={l.name}
-                        data-testid={`select-manifest-from-option-${l.id}`}
+                        key={opt.value}
+                        value={opt.value}
+                        data-testid={`select-manifest-from-option-${opt.value.toLowerCase()}`}
                       >
-                        {l.name}
+                        {opt.label}
                       </SelectItem>
                     ))}
                   </SelectContent>

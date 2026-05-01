@@ -7,7 +7,12 @@ import { requireFeatureAccess } from "../middleware";
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { truckRoutes, truckRouteLocations, locations } from "@shared/schema";
+import { truckRoutes, truckRouteLocations, locations, WAREHOUSES, WAREHOUSE_LABELS } from "@shared/schema";
+
+// Allowed origin labels for manifests created from a daily route. The route
+// is always Warehouse → store stops, so only the two warehouses are valid
+// "From" locations. Kept as a Set for O(1) membership checks.
+const WAREHOUSE_LOCATION_LABELS = new Set<string>(WAREHOUSES.map(w => WAREHOUSE_LABELS[w]));
 
 // All "requested" fields the order form collects, grouped for the matrix
 // rows. Order is meaningful (it's how rows render top-to-bottom in both the
@@ -556,7 +561,16 @@ function aggregateRouteAsManifestItems(group: DailyRouteGroup): Record<string, n
 const createManifestSchema = z.object({
   date: z.string().regex(DATE_RE, "date must be YYYY-MM-DD"),
   routeId: z.number().int().positive(),
-  fromLocation: z.string().trim().min(1, "fromLocation is required").max(200),
+  fromLocation: z
+    .string()
+    .trim()
+    .min(1, "fromLocation is required")
+    .max(200)
+    // Defense in depth: the client only offers warehouse options, but reject
+    // anything else here too so a hand-crafted POST can't bypass it.
+    .refine(v => WAREHOUSE_LOCATION_LABELS.has(v), {
+      message: `fromLocation must be one of: ${Array.from(WAREHOUSE_LOCATION_LABELS).join(", ")}`,
+    }),
   notes: z.string().trim().max(500).nullable().optional(),
 });
 
