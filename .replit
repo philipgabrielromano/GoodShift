@@ -26,6 +26,10 @@ localPort = 23637
 externalPort = 5000
 
 [[ports]]
+localPort = 23638
+externalPort = 6000
+
+[[ports]]
 localPort = 63050
 externalPort = 3000
 
@@ -70,7 +74,7 @@ integrations = ["javascript_openai_ai_integrations:2.0.0", "javascript_object_st
 
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 180000
+timeoutMs = 300000
 
 [userenv]
 
