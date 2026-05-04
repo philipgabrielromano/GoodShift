@@ -48,10 +48,6 @@ const DAILY_FIELDS: DailyField[] = [
   { key: "savedHalloweenRequested",  snake: "saved_halloween_requested",  label: "Saved Halloween",  category: "Seasonal" },
   { key: "savedChristmasRequested",  snake: "saved_christmas_requested",  label: "Saved Christmas",  category: "Seasonal" },
 
-  // Production / donors
-  { key: "apparelProduction", snake: "apparel_production", label: "Apparel Production", category: "Production" },
-  { key: "waresProduction",   snake: "wares_production",   label: "Wares Production",   category: "Production" },
-  { key: "donors",            snake: "donors",             label: "Donors",             category: "Production" },
 ];
 
 interface DailyRouteOrderRow extends RowDataPacket {
