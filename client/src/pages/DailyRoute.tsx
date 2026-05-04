@@ -392,37 +392,30 @@ export default function DailyRoute() {
                 <thead>
                   {/* Category band: each category name spans its equipment columns */}
                   <tr className="bg-muted">
-                    <th
-                      className="sticky left-0 bg-muted z-20 text-left px-3 py-2 border-b border-r min-w-[14rem]"
-                      rowSpan={2}
-                    >
+                    <th className="sticky left-0 bg-muted z-20 text-left px-3 py-1 border-b border-r min-w-[14rem] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Location
                     </th>
                     {sections.map(section => (
                       <th
                         key={`cat-${section.category}`}
                         colSpan={section.fields.length}
-                        className="text-center px-3 py-2 border-b border-l font-semibold"
+                        className="text-center px-3 py-1 border-b border-l font-semibold"
                         data-testid={`header-category-${section.category}`}
                       >
                         {section.category}
                       </th>
                     ))}
-                    <th
-                      className="bg-muted text-center px-3 py-2 border-b border-l min-w-[5rem]"
-                      rowSpan={2}
-                    >
+                    <th className="bg-muted text-center px-3 py-1 border-b border-l min-w-[5rem] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Total
                     </th>
-                    <th
-                      className="sticky right-0 bg-muted z-20 text-left px-3 py-2 border-b border-l min-w-[16rem]"
-                      rowSpan={2}
-                    >
+                    <th className="sticky right-0 bg-muted z-20 text-left px-3 py-1 border-b border-l min-w-[16rem] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Notes
                     </th>
                   </tr>
-                  {/* Equipment columns */}
+                  {/* Equipment columns — Location / Total / Notes get an empty
+                      sub-header so they don't need rowSpan (which breaks sticky) */}
                   <tr className="bg-muted/60">
+                    <th className="sticky left-0 bg-muted/60 z-20 border-b border-r" aria-hidden="true" />
                     {allFields.map(field => (
                       <th
                         key={`field-${field.key}`}
@@ -432,6 +425,8 @@ export default function DailyRoute() {
                         {field.label}
                       </th>
                     ))}
+                    <th className="bg-muted/60 border-b border-l" aria-hidden="true" />
+                    <th className="sticky right-0 bg-muted/60 z-20 border-b border-l" aria-hidden="true" />
                   </tr>
                 </thead>
                 <tbody>
