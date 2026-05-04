@@ -8,9 +8,24 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.0";
+export const APP_VERSION = "3.8.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.1",
+    date: "2026-05-04",
+    title: "Schedule Audit Report & Daily Route Manifest Improvements",
+    changes: [
+      { type: "feature", description: "New Schedule Audit report (Reports → Schedule Audit) shows how scheduled hours are distributed across job codes as a percentage of total hours for any store and week. Color-coded stacked bars give leadership an at-a-glance view of labor allocation — quickly spot if too many hours are going to cashiering or any other role." },
+      { type: "feature", description: "Schedule Audit supports multi-week analysis: select 1, 2, 4, 8, or 13 weeks and the report shows each week's breakdown plus an average row, so you can identify allocation trends over time." },
+      { type: "improvement", description: "Manifests can now be created from the Daily Route page without selecting a specific route. A new 'Create Manifest' button in the header opens the drawer showing all ordered items for the day — pick the items, quantities, and destination, regardless of route assignment." },
+      { type: "improvement", description: "Daily Route manifest drawer redesigned as a side-panel Sheet instead of a dialog. Shows all items with checkboxes and editable quantities, and supports filtering by route or viewing all routes at once." },
+      { type: "improvement", description: "Route badges on the Daily Route page now show inline manifest status (status label and trailer number) when a manifest already exists for that route and date." },
+      { type: "improvement", description: "After creating a manifest from the Daily Route page, you stay on the page with a toast notification linking to the new manifest — no more navigating away." },
+      { type: "improvement", description: "Removed the Production column (Apparel Production, Wares Production, Donors) from the Daily Route table and Excel export to reduce clutter." },
+      { type: "fix", description: "Fixed overlapping headers on the Daily Route sheet display." },
+    ],
+  },
   {
     version: "3.8.0",
     date: "2026-05-01",
