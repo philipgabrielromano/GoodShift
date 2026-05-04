@@ -124,10 +124,14 @@ export interface IStorage {
     fromLocation: string;
     toLocation: string;
     routeId: number;
+    trailerNumber?: string | null;
+    driverUserId?: number | null;
+    driverName?: string | null;
     notes?: string | null;
     itemQuantities: Record<string, number>; // itemName -> qty (>=0)
     user: { id: number; name: string };
   }): Promise<{ created?: TrailerManifest; existingManifestId?: number }>;
+  getTrailerManifestsByServiceDate(date: string): Promise<{ id: number; routeId: number | null; status: string; trailerNumber: string | null; driverName: string | null }[]>;
   setTrailerManifestItemQty(input: {
     manifestId: number;
     groupName: string;
@@ -723,11 +727,27 @@ export class DatabaseStorage implements IStorage {
   //      truck. The duplicate check uses the manifest's createdAt date in
   //      America/New_York to match how the daily-route picker presents
   //      "today" to operators.
+  async getTrailerManifestsByServiceDate(date: string): Promise<{ id: number; routeId: number | null; status: string; trailerNumber: string | null; driverName: string | null }[]> {
+    return db
+      .select({
+        id: trailerManifests.id,
+        routeId: trailerManifests.routeId,
+        status: trailerManifests.status,
+        trailerNumber: trailerManifests.trailerNumber,
+        driverName: trailerManifests.driverName,
+      })
+      .from(trailerManifests)
+      .where(eq(trailerManifests.serviceDate, date));
+  }
+
   async createTrailerManifestFromDailyRoute(input: {
     forDate: string;
     fromLocation: string;
     toLocation: string;
     routeId: number;
+    trailerNumber?: string | null;
+    driverUserId?: number | null;
+    driverName?: string | null;
     notes?: string | null;
     itemQuantities: Record<string, number>;
     user: { id: number; name: string };
@@ -767,9 +787,9 @@ export class DatabaseStorage implements IStorage {
             toLocation: input.toLocation,
             routeId: input.routeId,
             serviceDate: input.forDate,
-            trailerNumber: null,
-            driverUserId: null,
-            driverName: null,
+            trailerNumber: input.trailerNumber ?? null,
+            driverUserId: input.driverUserId ?? null,
+            driverName: input.driverName ?? null,
             status: "loading",
             notes: input.notes ?? null,
             createdById: input.user.id,

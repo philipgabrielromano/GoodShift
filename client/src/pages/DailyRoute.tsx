@@ -1,26 +1,23 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useCurrentUser, useUsersBasic } from "@/hooks/use-users";
 import { getCsrfToken, queryClient } from "@/lib/queryClient";
 import { WAREHOUSES, WAREHOUSE_LABELS } from "@shared/schema";
-import { Loader2, Download, Calendar as CalendarIcon, MapPin, Truck } from "lucide-react";
+import type { Trailer } from "@shared/schema";
+import { Loader2, Download, Calendar as CalendarIcon, MapPin, Truck, ExternalLink, Check } from "lucide-react";
 
-// Mirror of server FIELD_TO_MANIFEST_ITEM. Kept here only so the dialog
-// can show a live preview of which items will be pre-filled. The server is
-// the source of truth for what actually gets written.
 const FIELD_TO_MANIFEST_ITEM: Record<string, string> = {
   totesRequested:               "Empty Totes",
   durosRequested:               "Empty Duros",
@@ -77,9 +74,21 @@ interface DailyRouteData {
   totalOrders: number;
 }
 
-// Today in America/New_York, formatted YYYY-MM-DD. We default the picker to
-// the operator's local "today" rather than UTC so a 10pm-EST visit doesn't
-// flip to tomorrow.
+interface ExistingManifest {
+  id: number;
+  routeId: number | null;
+  status: string;
+  trailerNumber: string | null;
+  driverName: string | null;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  loading: "Loading",
+  in_transit: "In Transit",
+  delivered: "Delivered",
+  closed: "Closed",
+};
+
 function todayInNY(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -93,29 +102,27 @@ export default function DailyRoute() {
   const [date, setDate] = useState<string>(todayInNY());
   const [exporting, setExporting] = useState(false);
   const { toast } = useToast();
-  const [, setNavLocation] = useLocation();
   const { can } = usePermissions();
   const canCreateManifests = can("trailer_manifest.edit");
 
-  // "Create manifest" dialog state. Stores which route the user clicked so
-  // the dialog can read its quantities + show a preview without re-querying.
-  const [manifestDialog, setManifestDialog] = useState<
-    | null
-    | { routeId: number; routeName: string; itemTotals: Record<string, number>; stopCount: number }
-  >(null);
-  const [manifestFromLocation, setManifestFromLocation] = useState("");
+  const [drawerRoute, setDrawerRoute] = useState<DailyRouteGroup | null>(null);
+  const [formWarehouse, setFormWarehouse] = useState("");
+  const [formTrailer, setFormTrailer] = useState("");
+  const [formDriver, setFormDriver] = useState("");
 
-  // Origin must be a warehouse (Cleveland or Canton). Stores never originate
-  // a manifest — the route is always Warehouse → stops, so the dropdown is
-  // intentionally limited to the two warehouses.
   const warehouseOptions = WAREHOUSES.map(w => ({ value: WAREHOUSE_LABELS[w], label: WAREHOUSE_LABELS[w] }));
+
+  const { data: trailers = [] } = useQuery<Trailer[]>({ queryKey: ["/api/trailers"], enabled: canCreateManifests });
+  const activeTrailers = trailers.filter(t => t.isActive);
+
+  const { data: currentUser } = useCurrentUser();
+  const currentUserId = currentUser?.user?.id;
+  const { data: pickerUsers = [] } = useUsersBasic();
 
   const { data, isLoading, isFetching, error } = useQuery<DailyRouteData>({
     queryKey: ["/api/daily-route", { date }],
     queryFn: async () => {
-      const res = await fetch(`/api/daily-route?date=${encodeURIComponent(date)}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/daily-route?date=${encodeURIComponent(date)}`, { credentials: "include" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || `Failed to load (${res.status})`);
@@ -124,12 +131,29 @@ export default function DailyRoute() {
     },
   });
 
-  // Aggregate stops by location: one row per location, summing equipment
-  // quantities across any orders that hit that location on this date. Route
-  // grouping is intentionally collapsed — operators want a single location
-  // × equipment grid, not a per-route breakdown. Notes from any stop sharing
-  // a location name are concatenated (de-duped) so the operator never loses
-  // a comment.
+  const { data: existingManifests = [] } = useQuery<ExistingManifest[]>({
+    queryKey: ["/api/daily-route/manifests", { date }],
+    queryFn: async () => {
+      const res = await fetch(`/api/daily-route/manifests?date=${encodeURIComponent(date)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const manifestByRouteId = useMemo(() => {
+    const map = new Map<number, ExistingManifest>();
+    for (const m of existingManifests) {
+      if (m.routeId != null) map.set(m.routeId, m);
+    }
+    return map;
+  }, [existingManifests]);
+
+  useEffect(() => {
+    if (drawerRoute && currentUserId && !formDriver) {
+      setFormDriver(String(currentUserId));
+    }
+  }, [drawerRoute, currentUserId, formDriver]);
+
   type LocRow = { locationName: string; values: Record<string, number>; notes: string[] };
   const locationRows = useMemo<LocRow[]>(() => {
     if (!data) return [];
@@ -157,16 +181,9 @@ export default function DailyRoute() {
     return order.map(n => byName.get(n)!);
   }, [data]);
 
-  // The page always renders the table once loaded, but "has data" is gated
-  // on whether any approved orders exist for this date — that's what
-  // controls the empty-state copy and the export button. Without this
-  // check, a day with zero orders would still show a populated (all blank)
-  // grid and let the user export an empty workbook.
   const hasOrders = (data?.totalOrders ?? 0) > 0;
   const hasAny = locationRows.length > 0 && hasOrders;
 
-  // Group fields by category to render category band headers spanning their
-  // equipment columns.
   const sections = useMemo(() => {
     if (!data) return [] as Array<{ category: string; fields: DailyField[] }>;
     const out: Array<{ category: string; fields: DailyField[] }> = [];
@@ -182,14 +199,36 @@ export default function DailyRoute() {
     return out;
   }, [data]);
 
-  // Flat field list in render order — used for body cells and footer totals.
   const allFields = useMemo(() => sections.flatMap(s => s.fields), [sections]);
 
-  // Submit the "Create manifest" dialog. Uses raw fetch (rather than
-  // apiRequest) so we can read the body of a 409 response and surface the
-  // existing manifest's id to the operator instead of just an error string.
+  const drawerItemTotals = useMemo(() => {
+    if (!drawerRoute) return {};
+    return aggregateGroupAsItems(drawerRoute);
+  }, [drawerRoute]);
+
+  const openDrawer = (group: DailyRouteGroup) => {
+    if (group.routeId === null) return;
+    setDrawerRoute(group);
+    setFormWarehouse("");
+    setFormTrailer("");
+    setFormDriver(currentUserId ? String(currentUserId) : "");
+  };
+
+  const closeDrawer = () => {
+    setDrawerRoute(null);
+    setFormWarehouse("");
+    setFormTrailer("");
+    setFormDriver("");
+  };
+
   const createManifest = useMutation({
-    mutationFn: async (payload: { date: string; routeId: number; fromLocation: string }) => {
+    mutationFn: async (payload: {
+      date: string;
+      routeId: number;
+      fromLocation: string;
+      trailerNumber?: string | null;
+      driverUserId?: number | null;
+    }) => {
       const csrf = await getCsrfToken();
       const res = await fetch("/api/daily-route/create-manifest", {
         method: "POST",
@@ -211,21 +250,34 @@ export default function DailyRoute() {
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/daily-route/manifests", { date }] });
       if (result.kind === "duplicate") {
-        const id = result.existingManifestId;
         toast({
-          title: "Manifest already exists for this route and date",
-          description: "Opening the existing manifest…",
+          title: "Manifest already exists",
+          description: (
+            <span>
+              A manifest for this route and date already exists.{" "}
+              <a href={`/trailer-manifests/${result.existingManifestId}`} className="underline font-medium">
+                Open it →
+              </a>
+            </span>
+          ),
         });
-        setManifestDialog(null);
-        setManifestFromLocation("");
-        if (id) setNavLocation(`/trailer-manifests/${id}`);
+        closeDrawer();
         return;
       }
-      toast({ title: "Trailer manifest created", description: "Item counts pre-filled from today's daily route." });
-      setManifestDialog(null);
-      setManifestFromLocation("");
-      setNavLocation(`/trailer-manifests/${result.id}`);
+      toast({
+        title: "Manifest created",
+        description: (
+          <span>
+            Items pre-filled from today's route.{" "}
+            <a href={`/trailer-manifests/${result.id}`} className="underline font-medium">
+              Open manifest →
+            </a>
+          </span>
+        ),
+      });
+      closeDrawer();
     },
     onError: (err: any) => {
       toast({
@@ -236,16 +288,23 @@ export default function DailyRoute() {
     },
   });
 
-  const openManifestDialog = (group: DailyRouteGroup) => {
-    if (group.routeId === null) return;
-    const itemTotals = aggregateGroupAsItems(group);
-    setManifestDialog({
-      routeId: group.routeId,
-      routeName: group.routeName,
-      itemTotals,
-      stopCount: group.stops.length,
+  const handleCreateManifest = () => {
+    if (!drawerRoute || drawerRoute.routeId === null) return;
+    if (!formWarehouse.trim()) {
+      toast({
+        title: "Pick a From location",
+        description: "We need to know which warehouse the trailer is leaving from.",
+        variant: "destructive",
+      });
+      return;
+    }
+    createManifest.mutate({
+      date,
+      routeId: drawerRoute.routeId,
+      fromLocation: formWarehouse.trim(),
+      trailerNumber: formTrailer && formTrailer !== "__none__" ? formTrailer.trim() : null,
+      driverUserId: formDriver && formDriver !== "__none__" ? Number(formDriver) : null,
     });
-    setManifestFromLocation("");
   };
 
   const handleExport = async () => {
@@ -334,6 +393,7 @@ export default function DailyRoute() {
             </CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
               {data?.groups.map(g => {
+                const existing = g.routeId != null ? manifestByRouteId.get(g.routeId) : undefined;
                 const itemTotals = g.routeId === null ? {} : aggregateGroupAsItems(g);
                 const totalQty = Object.values(itemTotals).reduce((s, n) => s + n, 0);
                 const canCreate = g.routeId !== null && totalQty > 0;
@@ -348,23 +408,36 @@ export default function DailyRoute() {
                     >
                       {g.routeName} · {g.stops.length}
                     </Badge>
-                    {g.routeId !== null && canCreateManifests && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 px-2 text-xs"
-                        disabled={!canCreate || createManifest.isPending}
-                        onClick={() => openManifestDialog(g)}
-                        title={
-                          canCreate
-                            ? "Create a trailer manifest pre-filled with this route's totals"
-                            : "No equipment quantities on this route to put on a manifest"
-                        }
-                        data-testid={`button-create-manifest-route-${g.routeId}`}
+                    {existing ? (
+                      <Link
+                        href={`/trailer-manifests/${existing.id}`}
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 hover:underline"
+                        data-testid={`link-manifest-${g.routeId}`}
                       >
-                        <Truck className="w-3 h-3 mr-1" />
-                        Create manifest
-                      </Button>
+                        <Check className="w-3 h-3" />
+                        Manifest: {STATUS_LABELS[existing.status] ?? existing.status}
+                        {existing.trailerNumber && ` · #${existing.trailerNumber}`}
+                        <ExternalLink className="w-2.5 h-2.5 ml-0.5" />
+                      </Link>
+                    ) : (
+                      g.routeId !== null && canCreateManifests && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          disabled={!canCreate || createManifest.isPending}
+                          onClick={() => openDrawer(g)}
+                          title={
+                            canCreate
+                              ? "Create a trailer manifest pre-filled with this route's totals"
+                              : "No equipment quantities on this route to put on a manifest"
+                          }
+                          data-testid={`button-create-manifest-route-${g.routeId}`}
+                        >
+                          <Truck className="w-3 h-3 mr-1" />
+                          Create manifest
+                        </Button>
+                      )
                     )}
                   </div>
                 );
@@ -390,7 +463,6 @@ export default function DailyRoute() {
             <div className="overflow-auto border rounded-md">
               <table className="w-full text-sm border-collapse">
                 <thead>
-                  {/* Category band: each category name spans its equipment columns */}
                   <tr className="bg-muted">
                     <th className="sticky left-0 bg-muted z-20 text-left px-3 py-1 border-b border-r min-w-[14rem] text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Location
@@ -412,8 +484,6 @@ export default function DailyRoute() {
                       Notes
                     </th>
                   </tr>
-                  {/* Equipment columns — Location / Total / Notes get an empty
-                      sub-header so they don't need rowSpan (which breaks sticky) */}
                   <tr className="bg-muted/60">
                     <th className="sticky left-0 bg-muted/60 z-20 border-b border-r" aria-hidden="true" />
                     {allFields.map(field => (
@@ -469,7 +539,6 @@ export default function DailyRoute() {
                       </tr>
                     );
                   })}
-                  {/* Footer: totals per equipment column + grand total */}
                   <tr className="bg-muted/60 font-semibold">
                     <td className="sticky left-0 bg-muted/60 z-10 px-3 py-2 border-t border-r">
                       Total
@@ -521,128 +590,133 @@ export default function DailyRoute() {
         </CardContent>
       </Card>
 
-      <Dialog
-        open={manifestDialog !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setManifestDialog(null);
-            setManifestFromLocation("");
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md" data-testid="dialog-create-manifest">
-          <DialogHeader>
-            <DialogTitle>Create manifest from route</DialogTitle>
-            <DialogDescription>
-              {manifestDialog
-                ? `Pre-fills item counts from ${manifestDialog.stopCount} stop${manifestDialog.stopCount === 1 ? "" : "s"} on ${manifestDialog.routeName} for ${date}. Trailer and driver are left blank for you to fill in later.`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
+      <Sheet open={drawerRoute !== null} onOpenChange={(open) => { if (!open) closeDrawer(); }}>
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          {drawerRoute && (
+            <>
+              <SheetHeader className="text-left">
+                <SheetTitle data-testid="text-manifest-drawer-title">
+                  Create manifest — {drawerRoute.routeName}
+                </SheetTitle>
+                <SheetDescription>
+                  Pre-fills item counts from {drawerRoute.stops.length} stop{drawerRoute.stops.length === 1 ? "" : "s"} on {date}. Fill in the trailer and driver, then hit Create.
+                </SheetDescription>
+              </SheetHeader>
 
-          {manifestDialog && (
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <Label htmlFor="manifest-from-location">From location *</Label>
-                <Select value={manifestFromLocation} onValueChange={setManifestFromLocation}>
-                  <SelectTrigger id="manifest-from-location" data-testid="select-manifest-from-location">
-                    <SelectValue placeholder="Select warehouse" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {warehouseOptions.map(opt => (
-                      <SelectItem
-                        key={opt.value}
-                        value={opt.value}
-                        data-testid={`select-manifest-from-option-${opt.value.toLowerCase()}`}
-                      >
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">To</Label>
-                <p className="text-sm" data-testid="text-manifest-to-preview">
-                  {manifestDialog.routeName}{" "}
-                  <span className="text-muted-foreground">(route)</span>
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Items being pre-filled</Label>
-                {Object.keys(manifestDialog.itemTotals).length === 0 ? (
-                  <p className="text-sm text-muted-foreground" data-testid="text-manifest-no-items">
-                    No equipment quantities on this route — nothing to pre-fill.
-                  </p>
-                ) : (
-                  <ul className="text-sm border rounded-md divide-y" data-testid="list-manifest-items-preview">
-                    {Object.entries(manifestDialog.itemTotals)
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([itemName, qty]) => (
-                        <li
-                          key={itemName}
-                          className="flex justify-between px-3 py-1.5"
-                          data-testid={`row-manifest-item-${itemName}`}
-                        >
-                          <span>{itemName}</span>
-                          <span className="font-medium tabular-nums">{qty}</span>
-                        </li>
+              <div className="space-y-5 py-6">
+                <div className="space-y-1.5">
+                  <Label htmlFor="manifest-warehouse">From warehouse *</Label>
+                  <Select value={formWarehouse} onValueChange={setFormWarehouse}>
+                    <SelectTrigger id="manifest-warehouse" data-testid="select-manifest-warehouse">
+                      <SelectValue placeholder="Select warehouse" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {warehouseOptions.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                       ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          )}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setManifestDialog(null);
-                setManifestFromLocation("");
-              }}
-              data-testid="button-cancel-create-manifest"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (!manifestDialog) return;
-                if (!manifestFromLocation.trim()) {
-                  toast({
-                    title: "Pick a From location",
-                    description: "We need to know which warehouse the trailer is leaving from.",
-                    variant: "destructive",
-                  });
-                  return;
-                }
-                createManifest.mutate({
-                  date,
-                  routeId: manifestDialog.routeId,
-                  fromLocation: manifestFromLocation.trim(),
-                });
-              }}
-              disabled={
-                !manifestDialog ||
-                !manifestFromLocation ||
-                createManifest.isPending ||
-                Object.keys(manifestDialog?.itemTotals ?? {}).length === 0
-              }
-              data-testid="button-confirm-create-manifest"
-            >
-              {createManifest.isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Truck className="w-4 h-4 mr-2" />
-              )}
-              Create manifest
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                <div className="space-y-1.5">
+                  <Label htmlFor="manifest-trailer">Trailer</Label>
+                  <Select value={formTrailer} onValueChange={setFormTrailer}>
+                    <SelectTrigger id="manifest-trailer" data-testid="select-manifest-trailer">
+                      <SelectValue placeholder="Select trailer (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— None —</SelectItem>
+                      {activeTrailers.map(t => (
+                        <SelectItem key={t.id} value={t.number}>
+                          {t.number}{t.notes ? ` — ${t.notes}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Can be assigned later on the manifest detail page.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="manifest-driver">Driver</Label>
+                  <Select value={formDriver} onValueChange={setFormDriver}>
+                    <SelectTrigger id="manifest-driver" data-testid="select-manifest-driver">
+                      <SelectValue placeholder="Select driver (optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— None —</SelectItem>
+                      {pickerUsers.map(u => (
+                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Defaults to you. Can be changed later.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">To</Label>
+                  <p className="text-sm" data-testid="text-manifest-to">
+                    {drawerRoute.routeName}{" "}
+                    <span className="text-muted-foreground">(route)</span>
+                  </p>
+                </div>
+
+                <div className="rounded-md border">
+                  <div className="px-3 py-2 border-b bg-muted/50">
+                    <Label className="text-xs font-medium text-muted-foreground">Items being pre-filled</Label>
+                  </div>
+                  {Object.keys(drawerItemTotals).length === 0 ? (
+                    <p className="text-sm text-muted-foreground px-3 py-3" data-testid="text-manifest-no-items">
+                      No equipment quantities on this route.
+                    </p>
+                  ) : (
+                    <ul className="divide-y" data-testid="list-manifest-items-preview">
+                      {Object.entries(drawerItemTotals)
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([itemName, qty]) => (
+                          <li
+                            key={itemName}
+                            className="flex justify-between px-3 py-1.5 text-sm"
+                            data-testid={`row-manifest-item-${itemName}`}
+                          >
+                            <span>{itemName}</span>
+                            <span className="font-medium tabular-nums">{qty}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+
+              <SheetFooter className="flex-row gap-2">
+                <Button variant="outline" onClick={closeDrawer} className="flex-1" data-testid="button-cancel-create-manifest">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateManifest}
+                  disabled={
+                    !formWarehouse ||
+                    createManifest.isPending ||
+                    Object.keys(drawerItemTotals).length === 0
+                  }
+                  className="flex-1"
+                  data-testid="button-confirm-create-manifest"
+                >
+                  {createManifest.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Truck className="w-4 h-4 mr-2" />
+                  )}
+                  Create manifest
+                </Button>
+              </SheetFooter>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
-

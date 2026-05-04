@@ -479,7 +479,7 @@ export function registerDailyRouteRoutes(app: Express) {
         if (!parsed.success) {
           return res.status(400).json({ message: parsed.error.errors[0].message });
         }
-        const { date, routeId, fromLocation, notes } = parsed.data;
+        const { date, routeId, fromLocation, trailerNumber, driverUserId, notes } = parsed.data;
 
         // Reload the same data the screen uses so quantities can never drift
         // between what the operator sees and what gets written.
@@ -499,15 +499,20 @@ export function registerDailyRouteRoutes(app: Express) {
           });
         }
 
+        let driverName: string | null = null;
+        if (driverUserId) {
+          const driverUser = await storage.getUser(driverUserId);
+          driverName = driverUser?.name ?? driverUser?.email ?? null;
+        }
+
         const result = await storage.createTrailerManifestFromDailyRoute({
           forDate: date,
           fromLocation,
-          // The route is the destination as a whole; the manifest's free-text
-          // toLocation gets the route's name so list views read naturally
-          // (e.g. "Cleveland Warehouse → Lakewood Route"). Individual stops
-          // are still recoverable via the routeId / route detail page.
           toLocation: group.routeName,
           routeId,
+          trailerNumber: trailerNumber ?? null,
+          driverUserId: driverUserId ?? null,
+          driverName,
           notes: notes ?? null,
           itemQuantities,
           user,
@@ -527,6 +532,24 @@ export function registerDailyRouteRoutes(app: Express) {
         }
         console.error("[DailyRoute] Create manifest error:", err);
         res.status(500).json({ message: "Failed to create manifest from daily route" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/daily-route/manifests",
+    requireFeatureAccess("orders.view_all"),
+    async (req, res) => {
+      try {
+        const date = String(req.query.date || "").trim();
+        if (!DATE_RE.test(date)) {
+          return res.status(400).json({ message: "date must be YYYY-MM-DD" });
+        }
+        const manifests = await storage.getTrailerManifestsByServiceDate(date);
+        res.json(manifests);
+      } catch (err) {
+        console.error("[DailyRoute] Manifests lookup error:", err);
+        res.status(500).json({ message: "Failed to look up manifests for date" });
       }
     },
   );
@@ -612,11 +635,11 @@ const createManifestSchema = z.object({
     .trim()
     .min(1, "fromLocation is required")
     .max(200)
-    // Defense in depth: the client only offers warehouse options, but reject
-    // anything else here too so a hand-crafted POST can't bypass it.
     .refine(v => WAREHOUSE_LOCATION_LABELS.has(v), {
       message: `fromLocation must be one of: ${Array.from(WAREHOUSE_LOCATION_LABELS).join(", ")}`,
     }),
+  trailerNumber: z.string().trim().max(100).nullable().optional().transform(v => v === "__none__" ? null : v),
+  driverUserId: z.number().int().positive().nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
 });
 
