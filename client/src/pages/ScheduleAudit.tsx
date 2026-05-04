@@ -41,6 +41,12 @@ const JOB_COLORS: Record<string, string> = {
   ECOPAS: "#D946EF",
 };
 
+const PRODUCTION_CODES = new Set(["APPROC", "DONPRI"]);
+
+function isProductionCode(code: string): boolean {
+  return PRODUCTION_CODES.has(getCanonicalJobCode(code));
+}
+
 function getJobColor(code: string): string {
   const canonical = getCanonicalJobCode(code);
   return JOB_COLORS[canonical] ?? "#6B7280";
@@ -415,6 +421,34 @@ export default function ScheduleAudit() {
                       })}
                     </TableRow>
                   ))}
+                  <TableRow className="border-t-2 bg-muted/40 font-semibold" data-testid="row-production-subtotal">
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-sm shrink-0 bg-gradient-to-r from-[#3B82F6] to-[#22C55E]" />
+                        Production %
+                      </div>
+                    </TableCell>
+                    {displayRows.map(row => {
+                      const prodHours = row.jobCodes
+                        .filter(jc => isProductionCode(jc.code))
+                        .reduce((sum, jc) => sum + jc.hours, 0);
+                      const prodPct = row.totalHours > 0
+                        ? Math.round((prodHours / row.totalHours) * 10000) / 100
+                        : 0;
+                      return (
+                        <TableCell
+                          key={row.weekStart}
+                          className="text-right tabular-nums"
+                          data-testid={`text-production-pct-${row.weekStart}`}
+                        >
+                          {prodHours.toFixed(1)}h
+                          <span className="text-muted-foreground ml-1 text-xs">
+                            ({prodPct.toFixed(1)}%)
+                          </span>
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
                   <TableRow className="border-t-2 font-semibold">
                     <TableCell>Total</TableCell>
                     {displayRows.map(row => (
