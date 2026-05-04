@@ -475,24 +475,26 @@ export function registerDailyRouteRoutes(app: Express) {
         if (!parsed.success) {
           return res.status(400).json({ message: parsed.error.errors[0].message });
         }
-        const { date, routeId, fromLocation, trailerNumber, driverUserId, notes } = parsed.data;
+        const { date, routeId, fromLocation, toLocation, trailerNumber, driverUserId, itemQuantities, notes } = parsed.data;
 
-        // Reload the same data the screen uses so quantities can never drift
-        // between what the operator sees and what gets written.
-        const data = await loadDailyRouteData(date);
-        const group = data.groups.find(g => g.routeId === routeId);
-        if (!group) {
+        const filteredItems: Record<string, number> = {};
+        for (const [name, qty] of Object.entries(itemQuantities ?? {})) {
+          if (qty > 0) filteredItems[name] = qty;
+        }
+        if (Object.keys(filteredItems).length === 0) {
           return res.status(400).json({
-            message: "That route has no orders on this date — nothing to put on a manifest.",
+            message: "At least one item must have a quantity greater than 0.",
           });
         }
 
-        const itemQuantities = aggregateRouteAsManifestItems(group);
-        const totalQty = Object.values(itemQuantities).reduce((s, n) => s + n, 0);
-        if (totalQty === 0) {
-          return res.status(400).json({
-            message: "That route has no equipment quantities on this date — nothing to pre-fill.",
-          });
+        let resolvedToLocation = toLocation;
+        if (routeId) {
+          const data = await loadDailyRouteData(date);
+          const group = data.groups.find(g => g.routeId === routeId);
+          if (group) resolvedToLocation = resolvedToLocation || group.routeName;
+        }
+        if (!resolvedToLocation) {
+          return res.status(400).json({ message: "A destination (To) is required." });
         }
 
         let driverName: string | null = null;
@@ -504,13 +506,13 @@ export function registerDailyRouteRoutes(app: Express) {
         const result = await storage.createTrailerManifestFromDailyRoute({
           forDate: date,
           fromLocation,
-          toLocation: group.routeName,
-          routeId,
+          toLocation: resolvedToLocation,
+          routeId: routeId ?? null,
           trailerNumber: trailerNumber ?? null,
           driverUserId: driverUserId ?? null,
           driverName,
           notes: notes ?? null,
-          itemQuantities,
+          itemQuantities: filteredItems,
           user,
         });
 
@@ -625,7 +627,7 @@ function aggregateRouteAsManifestItems(group: DailyRouteGroup): Record<string, n
 
 const createManifestSchema = z.object({
   date: z.string().regex(DATE_RE, "date must be YYYY-MM-DD"),
-  routeId: z.number().int().positive(),
+  routeId: z.number().int().positive().nullable().optional(),
   fromLocation: z
     .string()
     .trim()
@@ -634,8 +636,10 @@ const createManifestSchema = z.object({
     .refine(v => WAREHOUSE_LOCATION_LABELS.has(v), {
       message: `fromLocation must be one of: ${Array.from(WAREHOUSE_LOCATION_LABELS).join(", ")}`,
     }),
+  toLocation: z.string().trim().min(1).max(200).optional(),
   trailerNumber: z.string().trim().max(100).nullable().optional().transform(v => v === "__none__" ? null : v),
   driverUserId: z.number().int().positive().nullable().optional(),
+  itemQuantities: z.record(z.string(), z.number().int().min(0)),
   notes: z.string().trim().max(500).nullable().optional(),
 });
 

@@ -123,7 +123,7 @@ export interface IStorage {
     forDate: string; // YYYY-MM-DD (NY-local)
     fromLocation: string;
     toLocation: string;
-    routeId: number;
+    routeId: number | null;
     trailerNumber?: string | null;
     driverUserId?: number | null;
     driverName?: string | null;
@@ -744,7 +744,7 @@ export class DatabaseStorage implements IStorage {
     forDate: string;
     fromLocation: string;
     toLocation: string;
-    routeId: number;
+    routeId: number | null;
     trailerNumber?: string | null;
     driverUserId?: number | null;
     driverName?: string | null;
@@ -752,30 +752,26 @@ export class DatabaseStorage implements IStorage {
     itemQuantities: Record<string, number>;
     user: { id: number; name: string };
   }): Promise<{ created?: TrailerManifest; existingManifestId?: number }> {
-    // Validate route exists up front so we don't create + then have to roll
-    // back if it doesn't.
-    const [route] = await db
-      .select({ id: truckRoutes.id })
-      .from(truckRoutes)
-      .where(eq(truckRoutes.id, input.routeId));
-    if (!route) throw new Error(`Unknown routeId: ${input.routeId}`);
+    if (input.routeId != null) {
+      const [route] = await db
+        .select({ id: truckRoutes.id })
+        .from(truckRoutes)
+        .where(eq(truckRoutes.id, input.routeId));
+      if (!route) throw new Error(`Unknown routeId: ${input.routeId}`);
 
-    // Pre-flight duplicate check (fast path so the common case returns the
-    // existing id without burning a transaction). The DB-level partial
-    // unique index on (routeId, serviceDate) is the authoritative guard
-    // against the race between this read and the insert below.
-    const preExisting = await db
-      .select({ id: trailerManifests.id })
-      .from(trailerManifests)
-      .where(
-        and(
-          eq(trailerManifests.routeId, input.routeId),
-          eq(trailerManifests.serviceDate, input.forDate),
-        ),
-      )
-      .limit(1);
-    if (preExisting.length > 0) {
-      return { existingManifestId: preExisting[0].id };
+      const preExisting = await db
+        .select({ id: trailerManifests.id })
+        .from(trailerManifests)
+        .where(
+          and(
+            eq(trailerManifests.routeId, input.routeId),
+            eq(trailerManifests.serviceDate, input.forDate),
+          ),
+        )
+        .limit(1);
+      if (preExisting.length > 0) {
+        return { existingManifestId: preExisting[0].id };
+      }
     }
 
     try {
@@ -785,7 +781,7 @@ export class DatabaseStorage implements IStorage {
           .values({
             fromLocation: input.fromLocation,
             toLocation: input.toLocation,
-            routeId: input.routeId,
+            routeId: input.routeId ?? null,
             serviceDate: input.forDate,
             trailerNumber: input.trailerNumber ?? null,
             driverUserId: input.driverUserId ?? null,
@@ -824,7 +820,7 @@ export class DatabaseStorage implements IStorage {
         err?.code === "23505" ||
         err?.cause?.code === "23505" ||
         (typeof err?.message === "string" && err.message.includes("uniq_trailer_manifests_route_service_date"));
-      if (isUniqueViolation) {
+      if (isUniqueViolation && input.routeId != null) {
         const winner = await db
           .select({ id: trailerManifests.id })
           .from(trailerManifests)

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -16,7 +17,7 @@ import { useCurrentUser, useUsersBasic } from "@/hooks/use-users";
 import { getCsrfToken, queryClient } from "@/lib/queryClient";
 import { WAREHOUSES, WAREHOUSE_LABELS } from "@shared/schema";
 import type { Trailer } from "@shared/schema";
-import { Loader2, Download, Calendar as CalendarIcon, MapPin, Truck, ExternalLink, Check } from "lucide-react";
+import { Loader2, Download, Calendar as CalendarIcon, MapPin, Truck, ExternalLink, Check, Plus } from "lucide-react";
 
 const FIELD_TO_MANIFEST_ITEM: Record<string, string> = {
   totesRequested:               "Empty Totes",
@@ -34,9 +35,9 @@ const FIELD_TO_MANIFEST_ITEM: Record<string, string> = {
   furnitureGaylordsRequested:   "Empty Gaylords",
 };
 
-function aggregateGroupAsItems(group: { stops: { values: Record<string, number> }[] }): Record<string, number> {
+function aggregateStopsAsItems(stops: { values: Record<string, number> }[]): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const stop of group.stops) {
+  for (const stop of stops) {
     for (const [field, item] of Object.entries(FIELD_TO_MANIFEST_ITEM)) {
       const v = Number(stop.values[field] ?? 0);
       if (!Number.isFinite(v) || v <= 0) continue;
@@ -82,6 +83,12 @@ interface ExistingManifest {
   driverName: string | null;
 }
 
+interface ItemRow {
+  name: string;
+  checked: boolean;
+  qty: number;
+}
+
 const STATUS_LABELS: Record<string, string> = {
   loading: "Loading",
   in_transit: "In Transit",
@@ -105,10 +112,13 @@ export default function DailyRoute() {
   const { can } = usePermissions();
   const canCreateManifests = can("trailer_manifest.edit");
 
-  const [drawerRoute, setDrawerRoute] = useState<DailyRouteGroup | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [formRoute, setFormRoute] = useState<string>("__all__");
   const [formWarehouse, setFormWarehouse] = useState("");
   const [formTrailer, setFormTrailer] = useState("");
   const [formDriver, setFormDriver] = useState("");
+  const [formToLocation, setFormToLocation] = useState("");
+  const [formItems, setFormItems] = useState<ItemRow[]>([]);
 
   const warehouseOptions = WAREHOUSES.map(w => ({ value: WAREHOUSE_LABELS[w], label: WAREHOUSE_LABELS[w] }));
 
@@ -148,11 +158,94 @@ export default function DailyRoute() {
     return map;
   }, [existingManifests]);
 
-  useEffect(() => {
-    if (drawerRoute && currentUserId && !formDriver) {
-      setFormDriver(String(currentUserId));
+  const routedGroups = useMemo(() => {
+    if (!data) return [];
+    return data.groups.filter(g => g.routeId !== null);
+  }, [data]);
+
+  const allItemTotals = useMemo(() => {
+    if (!data) return {};
+    const allStops = data.groups.flatMap(g => g.stops);
+    return aggregateStopsAsItems(allStops);
+  }, [data]);
+
+  const perRouteItemTotals = useMemo(() => {
+    const map = new Map<number, Record<string, number>>();
+    if (!data) return map;
+    for (const g of data.groups) {
+      if (g.routeId !== null) {
+        map.set(g.routeId, aggregateStopsAsItems(g.stops));
+      }
     }
-  }, [drawerRoute, currentUserId, formDriver]);
+    return map;
+  }, [data]);
+
+  const buildItemRows = useCallback((source: Record<string, number>): ItemRow[] => {
+    return Object.entries(source)
+      .filter(([, qty]) => qty > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, qty]) => ({ name, checked: true, qty }));
+  }, []);
+
+  const openDrawer = useCallback((preselectedRouteId?: number) => {
+    const routeKey = preselectedRouteId != null ? String(preselectedRouteId) : "__all__";
+    setFormRoute(routeKey);
+    setFormWarehouse("");
+    setFormTrailer("");
+    setFormDriver(currentUserId ? String(currentUserId) : "");
+    setFormToLocation("");
+
+    if (preselectedRouteId != null) {
+      const routeTotals = perRouteItemTotals.get(preselectedRouteId) ?? {};
+      setFormItems(buildItemRows(routeTotals));
+    } else {
+      setFormItems(buildItemRows(allItemTotals));
+    }
+    setDrawerOpen(true);
+  }, [currentUserId, allItemTotals, perRouteItemTotals, buildItemRows]);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+    setFormRoute("__all__");
+    setFormWarehouse("");
+    setFormTrailer("");
+    setFormDriver("");
+    setFormToLocation("");
+    setFormItems([]);
+  }, []);
+
+  const handleRouteChange = useCallback((value: string) => {
+    setFormRoute(value);
+    setFormToLocation("");
+    if (value === "__all__") {
+      setFormItems(buildItemRows(allItemTotals));
+    } else {
+      const rid = Number(value);
+      const routeTotals = perRouteItemTotals.get(rid) ?? {};
+      setFormItems(buildItemRows(routeTotals));
+    }
+  }, [allItemTotals, perRouteItemTotals, buildItemRows]);
+
+  const toggleItem = useCallback((index: number) => {
+    setFormItems(prev => prev.map((item, i) =>
+      i === index ? { ...item, checked: !item.checked } : item
+    ));
+  }, []);
+
+  const updateItemQty = useCallback((index: number, newQty: number) => {
+    setFormItems(prev => prev.map((item, i) =>
+      i === index ? { ...item, qty: Math.max(0, newQty) } : item
+    ));
+  }, []);
+
+  const selectedRoute = useMemo(() => {
+    if (formRoute === "__all__" || !data) return null;
+    return data.groups.find(g => g.routeId === Number(formRoute)) ?? null;
+  }, [formRoute, data]);
+
+  const selectedItemCount = useMemo(() => {
+    return formItems.filter(i => i.checked && i.qty > 0).length;
+  }, [formItems]);
 
   type LocRow = { locationName: string; values: Record<string, number>; notes: string[] };
   const locationRows = useMemo<LocRow[]>(() => {
@@ -201,33 +294,15 @@ export default function DailyRoute() {
 
   const allFields = useMemo(() => sections.flatMap(s => s.fields), [sections]);
 
-  const drawerItemTotals = useMemo(() => {
-    if (!drawerRoute) return {};
-    return aggregateGroupAsItems(drawerRoute);
-  }, [drawerRoute]);
-
-  const openDrawer = (group: DailyRouteGroup) => {
-    if (group.routeId === null) return;
-    setDrawerRoute(group);
-    setFormWarehouse("");
-    setFormTrailer("");
-    setFormDriver(currentUserId ? String(currentUserId) : "");
-  };
-
-  const closeDrawer = () => {
-    setDrawerRoute(null);
-    setFormWarehouse("");
-    setFormTrailer("");
-    setFormDriver("");
-  };
-
   const createManifest = useMutation({
     mutationFn: async (payload: {
       date: string;
-      routeId: number;
+      routeId?: number | null;
       fromLocation: string;
+      toLocation?: string;
       trailerNumber?: string | null;
       driverUserId?: number | null;
+      itemQuantities: Record<string, number>;
     }) => {
       const csrf = await getCsrfToken();
       const res = await fetch("/api/daily-route/create-manifest", {
@@ -270,7 +345,7 @@ export default function DailyRoute() {
         title: "Manifest created",
         description: (
           <span>
-            Items pre-filled from today's route.{" "}
+            {selectedItemCount} item{selectedItemCount === 1 ? "" : "s"} added.{" "}
             <a href={`/trailer-manifests/${result.id}`} className="underline font-medium">
               Open manifest →
             </a>
@@ -289,7 +364,6 @@ export default function DailyRoute() {
   });
 
   const handleCreateManifest = () => {
-    if (!drawerRoute || drawerRoute.routeId === null) return;
     if (!formWarehouse.trim()) {
       toast({
         title: "Pick a From location",
@@ -298,12 +372,42 @@ export default function DailyRoute() {
       });
       return;
     }
+
+    const itemQuantities: Record<string, number> = {};
+    for (const item of formItems) {
+      if (item.checked && item.qty > 0) {
+        itemQuantities[item.name] = item.qty;
+      }
+    }
+    if (Object.keys(itemQuantities).length === 0) {
+      toast({
+        title: "No items selected",
+        description: "Check at least one item to include on the manifest.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const routeId = formRoute !== "__all__" ? Number(formRoute) : null;
+    const toLocation = selectedRoute?.routeName || formToLocation.trim() || undefined;
+
+    if (!routeId && !toLocation) {
+      toast({
+        title: "Destination required",
+        description: "Enter a destination or pick a specific route.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     createManifest.mutate({
       date,
-      routeId: drawerRoute.routeId,
+      routeId,
       fromLocation: formWarehouse.trim(),
+      toLocation,
       trailerNumber: formTrailer && formTrailer !== "__none__" ? formTrailer.trim() : null,
       driverUserId: formDriver && formDriver !== "__none__" ? Number(formDriver) : null,
+      itemQuantities,
     });
   };
 
@@ -364,9 +468,21 @@ export default function DailyRoute() {
               />
             </div>
           </div>
+          {canCreateManifests && hasAny && (
+            <Button
+              variant="default"
+              onClick={() => openDrawer()}
+              disabled={createManifest.isPending}
+              data-testid="button-create-manifest-general"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Create Manifest
+            </Button>
+          )}
           <Button
             onClick={handleExport}
             disabled={exporting || isLoading || !hasAny}
+            variant="outline"
             data-testid="button-export-daily-route"
           >
             {exporting ? (
@@ -394,9 +510,6 @@ export default function DailyRoute() {
             <div className="flex items-center gap-2 flex-wrap">
               {data?.groups.map(g => {
                 const existing = g.routeId != null ? manifestByRouteId.get(g.routeId) : undefined;
-                const itemTotals = g.routeId === null ? {} : aggregateGroupAsItems(g);
-                const totalQty = Object.values(itemTotals).reduce((s, n) => s + n, 0);
-                const canCreate = g.routeId !== null && totalQty > 0;
                 return (
                   <div
                     key={`${g.routeId ?? "unrouted"}`}
@@ -425,13 +538,8 @@ export default function DailyRoute() {
                           variant="outline"
                           size="sm"
                           className="h-6 px-2 text-xs"
-                          disabled={!canCreate || createManifest.isPending}
-                          onClick={() => openDrawer(g)}
-                          title={
-                            canCreate
-                              ? "Create a trailer manifest pre-filled with this route's totals"
-                              : "No equipment quantities on this route to put on a manifest"
-                          }
+                          disabled={createManifest.isPending}
+                          onClick={() => openDrawer(g.routeId!)}
                           data-testid={`button-create-manifest-route-${g.routeId}`}
                         >
                           <Truck className="w-3 h-3 mr-1" />
@@ -590,131 +698,191 @@ export default function DailyRoute() {
         </CardContent>
       </Card>
 
-      <Sheet open={drawerRoute !== null} onOpenChange={(open) => { if (!open) closeDrawer(); }}>
-        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-          {drawerRoute && (
-            <>
-              <SheetHeader className="text-left">
-                <SheetTitle data-testid="text-manifest-drawer-title">
-                  Create manifest — {drawerRoute.routeName}
-                </SheetTitle>
-                <SheetDescription>
-                  Pre-fills item counts from {drawerRoute.stops.length} stop{drawerRoute.stops.length === 1 ? "" : "s"} on {date}. Fill in the trailer and driver, then hit Create.
-                </SheetDescription>
-              </SheetHeader>
+      <Sheet open={drawerOpen} onOpenChange={(open) => { if (!open) closeDrawer(); }}>
+        <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle data-testid="text-manifest-drawer-title">
+              Create Manifest
+            </SheetTitle>
+            <SheetDescription>
+              Select items from the daily orders to include on the manifest. Optionally filter by route.
+            </SheetDescription>
+          </SheetHeader>
 
-              <div className="space-y-5 py-6">
-                <div className="space-y-1.5">
-                  <Label htmlFor="manifest-warehouse">From warehouse *</Label>
-                  <Select value={formWarehouse} onValueChange={setFormWarehouse}>
-                    <SelectTrigger id="manifest-warehouse" data-testid="select-manifest-warehouse">
-                      <SelectValue placeholder="Select warehouse" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {warehouseOptions.map(opt => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+          <div className="space-y-5 py-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="manifest-route">Route (optional)</Label>
+              <Select value={formRoute} onValueChange={handleRouteChange}>
+                <SelectTrigger id="manifest-route" data-testid="select-manifest-route">
+                  <SelectValue placeholder="All routes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All routes</SelectItem>
+                  {routedGroups.map(g => (
+                    <SelectItem key={g.routeId} value={String(g.routeId!)}>
+                      {g.routeName} ({g.stops.length} stop{g.stops.length === 1 ? "" : "s"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Filter items by route or leave on "All routes" to see everything.
+              </p>
+            </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="manifest-trailer">Trailer</Label>
-                  <Select value={formTrailer} onValueChange={setFormTrailer}>
-                    <SelectTrigger id="manifest-trailer" data-testid="select-manifest-trailer">
-                      <SelectValue placeholder="Select trailer (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">— None —</SelectItem>
-                      {activeTrailers.map(t => (
-                        <SelectItem key={t.id} value={t.number}>
-                          {t.number}{t.notes ? ` — ${t.notes}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Can be assigned later on the manifest detail page.
-                  </p>
-                </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="manifest-warehouse">From warehouse *</Label>
+              <Select value={formWarehouse} onValueChange={setFormWarehouse}>
+                <SelectTrigger id="manifest-warehouse" data-testid="select-manifest-warehouse">
+                  <SelectValue placeholder="Select warehouse" />
+                </SelectTrigger>
+                <SelectContent>
+                  {warehouseOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="manifest-driver">Driver</Label>
-                  <Select value={formDriver} onValueChange={setFormDriver}>
-                    <SelectTrigger id="manifest-driver" data-testid="select-manifest-driver">
-                      <SelectValue placeholder="Select driver (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">— None —</SelectItem>
-                      {pickerUsers.map(u => (
-                        <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Defaults to you. Can be changed later.
-                  </p>
-                </div>
+            {selectedRoute ? (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">To</Label>
+                <p className="text-sm" data-testid="text-manifest-to">
+                  {selectedRoute.routeName}{" "}
+                  <span className="text-muted-foreground">(route)</span>
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label htmlFor="manifest-to-location">To (destination) *</Label>
+                <Input
+                  id="manifest-to-location"
+                  value={formToLocation}
+                  onChange={(e) => setFormToLocation(e.target.value)}
+                  placeholder="e.g. Canton, Cleveland East"
+                  data-testid="input-manifest-to-location"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required when no route is selected. Pick a route above to auto-fill.
+                </p>
+              </div>
+            )}
 
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">To</Label>
-                  <p className="text-sm" data-testid="text-manifest-to">
-                    {drawerRoute.routeName}{" "}
-                    <span className="text-muted-foreground">(route)</span>
-                  </p>
-                </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="manifest-trailer">Trailer</Label>
+              <Select value={formTrailer} onValueChange={setFormTrailer}>
+                <SelectTrigger id="manifest-trailer" data-testid="select-manifest-trailer">
+                  <SelectValue placeholder="Select trailer (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— None —</SelectItem>
+                  {activeTrailers.map(t => (
+                    <SelectItem key={t.id} value={t.number}>
+                      {t.number}{t.notes ? ` — ${t.notes}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-                <div className="rounded-md border">
-                  <div className="px-3 py-2 border-b bg-muted/50">
-                    <Label className="text-xs font-medium text-muted-foreground">Items being pre-filled</Label>
-                  </div>
-                  {Object.keys(drawerItemTotals).length === 0 ? (
-                    <p className="text-sm text-muted-foreground px-3 py-3" data-testid="text-manifest-no-items">
-                      No equipment quantities on this route.
-                    </p>
-                  ) : (
-                    <ul className="divide-y" data-testid="list-manifest-items-preview">
-                      {Object.entries(drawerItemTotals)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([itemName, qty]) => (
-                          <li
-                            key={itemName}
-                            className="flex justify-between px-3 py-1.5 text-sm"
-                            data-testid={`row-manifest-item-${itemName}`}
-                          >
-                            <span>{itemName}</span>
-                            <span className="font-medium tabular-nums">{qty}</span>
-                          </li>
-                        ))}
-                    </ul>
-                  )}
+            <div className="space-y-1.5">
+              <Label htmlFor="manifest-driver">Driver</Label>
+              <Select value={formDriver} onValueChange={setFormDriver}>
+                <SelectTrigger id="manifest-driver" data-testid="select-manifest-driver">
+                  <SelectValue placeholder="Select driver (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— None —</SelectItem>
+                  {pickerUsers.map(u => (
+                    <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-md border">
+              <div className="px-3 py-2 border-b bg-muted/50 flex items-center justify-between">
+                <Label className="text-xs font-medium text-muted-foreground">
+                  Items ({selectedItemCount} of {formItems.length} selected)
+                </Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => setFormItems(prev => prev.map(i => ({ ...i, checked: true })))}
+                    data-testid="button-select-all-items"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:underline"
+                    onClick={() => setFormItems(prev => prev.map(i => ({ ...i, checked: false })))}
+                    data-testid="button-deselect-all-items"
+                  >
+                    Deselect all
+                  </button>
                 </div>
               </div>
+              {formItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground px-3 py-3" data-testid="text-manifest-no-items">
+                  No equipment quantities on {formRoute === "__all__" ? "any route" : "this route"} for this date.
+                </p>
+              ) : (
+                <ul className="divide-y" data-testid="list-manifest-items">
+                  {formItems.map((item, idx) => (
+                    <li
+                      key={item.name}
+                      className="flex items-center gap-3 px-3 py-2"
+                      data-testid={`row-manifest-item-${item.name}`}
+                    >
+                      <Checkbox
+                        checked={item.checked}
+                        onCheckedChange={() => toggleItem(idx)}
+                        data-testid={`checkbox-item-${item.name}`}
+                      />
+                      <span className={`flex-1 text-sm ${!item.checked ? "text-muted-foreground line-through" : ""}`}>
+                        {item.name}
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={item.qty}
+                        onChange={(e) => updateItemQty(idx, parseInt(e.target.value) || 0)}
+                        className="w-20 h-8 text-right tabular-nums text-sm"
+                        disabled={!item.checked}
+                        data-testid={`input-qty-${item.name}`}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
 
-              <SheetFooter className="flex-row gap-2">
-                <Button variant="outline" onClick={closeDrawer} className="flex-1" data-testid="button-cancel-create-manifest">
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreateManifest}
-                  disabled={
-                    !formWarehouse ||
-                    createManifest.isPending ||
-                    Object.keys(drawerItemTotals).length === 0
-                  }
-                  className="flex-1"
-                  data-testid="button-confirm-create-manifest"
-                >
-                  {createManifest.isPending ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Truck className="w-4 h-4 mr-2" />
-                  )}
-                  Create manifest
-                </Button>
-              </SheetFooter>
-            </>
-          )}
+          <SheetFooter className="flex-row gap-2">
+            <Button variant="outline" onClick={closeDrawer} className="flex-1" data-testid="button-cancel-create-manifest">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateManifest}
+              disabled={
+                !formWarehouse ||
+                createManifest.isPending ||
+                selectedItemCount === 0 ||
+                (!selectedRoute && !formToLocation.trim())
+              }
+              className="flex-1"
+              data-testid="button-confirm-create-manifest"
+            >
+              {createManifest.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Truck className="w-4 h-4 mr-2" />
+              )}
+              Create manifest
+            </Button>
+          </SheetFooter>
         </SheetContent>
       </Sheet>
     </div>
