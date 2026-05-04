@@ -667,7 +667,8 @@ export function registerOccurrenceRoutes(app: Express) {
         const endDate = now.toISOString().split('T')[0];
         const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
         const activeOccurrences = occurrences.filter(o => o.status === 'active');
-        const totalPoints = activeOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
+        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+        const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
         
         if (totalPoints === 0) {
           return res.status(400).json({ message: "Cannot grant perfect attendance bonus - employee has no occurrences to reduce" });
