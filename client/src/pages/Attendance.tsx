@@ -285,14 +285,19 @@ export default function Attendance() {
       autoTable(doc, {
         startY: startY + 4,
         head: [["Date", "Type", "Points", "Reason", "Status", "Notes"]],
-        body: allOccs.map((o: any) => [
-          o.occurrenceDate,
-          o.occurrenceType === "half" ? "Half (0.5)" : o.occurrenceType === "ncns" ? "NCNS (1.0)" : "Full (1.0)",
-          (o.occurrenceValue / 100).toFixed(1),
-          getReasonLabel(o.reason),
-          o.status === "retracted" ? "Retracted" : "Active",
-          o.notes || "",
-        ]),
+        body: allOccs.map((o: any) => {
+          let status = o.status === "retracted" ? "Retracted" : "Active";
+          if (o.isConsecutiveSickness) status = "Consecutive Illness (not counted)";
+          else if (o.isFmla) status = "FMLA (not counted)";
+          return [
+            o.occurrenceDate,
+            o.occurrenceType === "half" ? "Half (0.5)" : o.occurrenceType === "ncns" ? "NCNS (1.0)" : "Full (1.0)",
+            (o.occurrenceValue / 100).toFixed(1),
+            getReasonLabel(o.reason),
+            status,
+            o.notes || "",
+          ];
+        }),
         styles: { fontSize: 8 },
         headStyles: { fillColor: [41, 128, 185] },
         bodyStyles: { textColor: [0, 0, 0] },
@@ -772,6 +777,16 @@ export default function Attendance() {
                                   >
                                     {getOccurrenceTypeLabel(occurrence.occurrenceType)}
                                   </Badge>
+                                  {occurrence.isConsecutiveSickness && !isRetracted && (
+                                    <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                      Consecutive Illness
+                                    </Badge>
+                                  )}
+                                  {occurrence.isFmla && !isRetracted && (
+                                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                                      FMLA
+                                    </Badge>
+                                  )}
                                   {isRetracted && (
                                     <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                                       Retracted
@@ -805,8 +820,11 @@ export default function Attendance() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                                <span className={`text-xs sm:text-sm font-medium ${isRetracted ? 'line-through text-muted-foreground' : ''}`}>
+                                <span className={`text-xs sm:text-sm font-medium ${isRetracted ? 'line-through text-muted-foreground' : (occurrence.isFmla || occurrence.isConsecutiveSickness) ? 'text-muted-foreground' : ''}`}>
                                   {(occurrence.occurrenceValue / 100).toFixed(1)}
+                                  {!isRetracted && (occurrence.isFmla || occurrence.isConsecutiveSickness) && (
+                                    <span className="text-[10px] sm:text-xs ml-0.5">(n/c)</span>
+                                  )}
                                 </span>
                                 {canManageOccurrences && !isRetracted && (
                                   <Button
