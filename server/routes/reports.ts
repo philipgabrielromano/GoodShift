@@ -357,4 +357,100 @@ export function registerReportRoutes(app: Express) {
       res.status(500).json({ error: "Failed to generate variance report" });
     }
   });
+
+  // ========== SCHEDULE AUDIT ==========
+  // Shows scheduled hours by job code as a percentage of total hours per week
+  app.get("/api/reports/schedule-audit", requireFeatureAccess("reports.schedule_audit"), async (req: Request, res: Response) => {
+    try {
+      const weekStartsParam = req.query.weekStarts as string;
+      const locationFilter = req.query.location as string | undefined;
+      const user = (req.session as any)?.user;
+
+      if (!weekStartsParam) {
+        return res.status(400).json({ error: "weekStarts query parameter is required" });
+      }
+
+      const weekStarts = weekStartsParam.split(",").map(s => s.trim()).filter(Boolean);
+      if (weekStarts.length === 0 || weekStarts.length > 26) {
+        return res.status(400).json({ error: "Provide between 1 and 26 week start dates" });
+      }
+
+      const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+      for (const ws of weekStarts) {
+        if (!datePattern.test(ws) || isNaN(new Date(ws + "T00:00:00").getTime())) {
+          return res.status(400).json({ error: `Invalid date format: ${ws}. Use YYYY-MM-DD.` });
+        }
+      }
+
+      const allEmployees = await storage.getEmployees();
+      const employeeMap = new Map(allEmployees.map(e => [e.id, e]));
+
+      const allowedNames = await getAllowedLocationNames(user);
+      if (locationFilter && allowedNames && !allowedNames.has(locationFilter)) {
+        return res.json({ weeks: [] });
+      }
+
+      const allowedEmployeeIds = new Set<number>();
+      for (const emp of allEmployees) {
+        if (!emp.isActive) continue;
+        if (locationFilter) {
+          if (emp.location === locationFilter) allowedEmployeeIds.add(emp.id);
+        } else if (allowedNames) {
+          if (emp.location && allowedNames.has(emp.location)) allowedEmployeeIds.add(emp.id);
+        } else if (user.role === "admin") {
+          allowedEmployeeIds.add(emp.id);
+        }
+      }
+
+      if (allowedEmployeeIds.size === 0) {
+        return res.json({ weeks: [] });
+      }
+
+      const parsedWeeks = weekStarts.map(ws => {
+        const start = new Date(ws + "T00:00:00");
+        const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return { ws, start, end };
+      });
+
+      const minDate = new Date(Math.min(...parsedWeeks.map(w => w.start.getTime())));
+      const maxDate = new Date(Math.max(...parsedWeeks.map(w => w.end.getTime())));
+
+      const allShifts = await storage.getShifts(minDate, maxDate);
+
+      const weeks = parsedWeeks.map(({ ws, start, end }) => {
+        const weekShifts = allShifts.filter(s => {
+          if (!allowedEmployeeIds.has(s.employeeId)) return false;
+          const shiftStart = new Date(s.startTime);
+          return shiftStart >= start && shiftStart < end;
+        });
+
+        const hoursByCode: Record<string, number> = {};
+        let totalHours = 0;
+
+        for (const shift of weekShifts) {
+          const emp = employeeMap.get(shift.employeeId);
+          if (!emp) continue;
+          const code = shift.crossTrainedRole || emp.jobTitle;
+          const hours = (new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / 3600000;
+          hoursByCode[code] = (hoursByCode[code] || 0) + hours;
+          totalHours += hours;
+        }
+
+        const jobCodes = Object.entries(hoursByCode)
+          .map(([code, hours]) => ({
+            code,
+            hours: Math.round(hours * 100) / 100,
+            percentage: totalHours > 0 ? Math.round((hours / totalHours) * 10000) / 100 : 0,
+          }))
+          .sort((a, b) => b.hours - a.hours);
+
+        return { weekStart: ws, totalHours: Math.round(totalHours * 100) / 100, jobCodes };
+      });
+
+      res.json({ weeks });
+    } catch (err) {
+      console.error("Error generating schedule audit:", err);
+      res.status(500).json({ error: "Failed to generate schedule audit" });
+    }
+  });
 }

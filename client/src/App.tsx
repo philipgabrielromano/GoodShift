@@ -16,6 +16,7 @@ import Changelog from "@/pages/Changelog";
 import ShiftTrades from "@/pages/ShiftTrades";
 import OccurrenceReport from "@/pages/OccurrenceReport";
 import VarianceReport from "@/pages/VarianceReport";
+import ScheduleAudit from "@/pages/ScheduleAudit";
 import Coaching from "@/pages/Coaching";
 import Roster from "@/pages/Roster";
 import TaskAssignment from "@/pages/TaskAssignment";
@@ -60,6 +61,7 @@ function Router() {
       <Route path="/trades" component={ShiftTrades} />
       <Route path="/reports/occurrences" component={OccurrenceReport} />
       <Route path="/reports/variance" component={VarianceReport} />
+      <Route path="/reports/schedule-audit" component={ScheduleAudit} />
       <Route path="/coaching" component={Coaching} />
       <Route path="/roster" component={Roster} />
       <Route path="/tasks" component={TaskAssignment} />

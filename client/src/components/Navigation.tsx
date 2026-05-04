@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle,
   LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare,
   UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck,
-  Warehouse, CreditCard, Package, Boxes, ExternalLink, Search, ChevronRight, Network,
+  Warehouse, CreditCard, Package, Boxes, ExternalLink, Search, ChevronRight, Network, PieChart,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -105,6 +105,7 @@ export function Navigation() {
     if (can("reports.occurrences")) reports.push({ href: "/reports/occurrences", label: "Occurrence Report", icon: ClipboardList });
     if (can("reports.variance")) reports.push({ href: "/reports/variance", label: "Variance Report", icon: FileBarChart });
     if (can("reports.roster")) reports.push({ href: "/roster", label: "Roster Targets", icon: UsersRound });
+    if (can("reports.schedule_audit")) reports.push({ href: "/reports/schedule-audit", label: "Schedule Audit", icon: PieChart });
     if (reports.length) built.push({ id: "reports", label: "Reports", items: reports });
 
     const configuration: NavItem[] = [];

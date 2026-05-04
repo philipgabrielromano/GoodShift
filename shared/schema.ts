@@ -1650,6 +1650,7 @@ export const SYSTEM_FEATURES = [
   { category: "Reports", feature: "reports.occurrences", label: "Occurrence Reports", description: "Run HR / occurrence reports" },
   { category: "Reports", feature: "reports.variance", label: "Variance Reports", description: "View schedule vs. actual variance reports" },
   { category: "Reports", feature: "reports.roster", label: "Roster Reports", description: "View roster target reports" },
+  { category: "Reports", feature: "reports.schedule_audit", label: "Schedule Audit", description: "View labor allocation by job code across schedule weeks" },
   // Configuration
   { category: "Configuration", feature: "locations.view", label: "View Locations", description: "See store location details" },
   { category: "Configuration", feature: "locations.edit", label: "Manage Locations", description: "Create, edit, and delete store locations and budgets" },
@@ -1731,6 +1732,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "reports.occurrences": ["admin", "manager"],
   "reports.variance": ["admin", "manager"],
   "reports.roster": ["admin", "manager", "optimizer"],
+  "reports.schedule_audit": ["admin", "manager"],
   // Configuration
   "locations.view": ["admin", "manager", "optimizer"],
   "locations.edit": ["admin", "manager"],
@@ -1765,7 +1767,7 @@ export const LEGACY_FEATURE_EXPANSIONS: Record<string, string[]> = {
   driver_inspection: ["driver_inspection.submit", "driver_inspection.view_all", "driver_inspection.resolve_repairs"],
   trailer_manifest: ["trailer_manifest.view", "trailer_manifest.edit"],
   warehouse_inventory: ["warehouse_inventory.view", "warehouse_inventory.edit", "warehouse_inventory.finalize", "warehouse_inventory.transfer"],
-  reports: ["reports.occurrences", "reports.variance", "reports.roster"],
+  reports: ["reports.occurrences", "reports.variance", "reports.roster", "reports.schedule_audit"],
   locations: ["locations.view", "locations.edit"],
   // NOTE: intentionally excludes settings.permissions — that is a privileged
   // capability that must be granted explicitly, never inherited from a legacy
