@@ -8,56 +8,46 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PieChart, TrendingUp, Clock } from "lucide-react";
 import { usePermissions } from "@/hooks/use-permissions";
-import { isSchedulableLocation } from "@/lib/utils";
+import { isSchedulableLocation, getCanonicalJobCode, getJobTitle } from "@/lib/utils";
 import type { Location } from "@shared/schema";
 
-const JOB_CODE_LABELS: Record<string, string> = {
-  APPROC: "Apparel Processor",
-  CASHSLS: "Cashier",
-  DONDOOR: "Donor Greeter",
-  DONPRI: "Donation Pricing",
-  SLSFLR: "Sales Floor",
-  ALTSTLD: "Alt. Store Lead",
-  STLDWKR: "Team Lead",
-  STASSTSP: "Asst. Manager",
-  STSUPER: "Store Manager",
-  APWV: "Apparel Proc. (WV)",
-  CSHSLSWV: "Cashier (WV)",
-  WVDON: "Donor Greeter (WV)",
-  DONPRWV: "Donation Pricing (WV)",
-  WVLDWRK: "Team Lead (WV)",
-  WVSTAST: "Asst. Manager (WV)",
-  WVSTMNG: "Store Manager (WV)",
-  OUTCP: "Outlet Clothing Proc.",
-  OUTMH: "Outlet Material Handler",
-  OUTSHS: "Outlet Sales",
-  OUTAM: "Outlet Asst. Manager",
-  OUTMGR: "Outlet Manager",
-  EBCLK: "eBooks Clerk",
-  ECOMSL: "eComm Sales Lister",
-  ECSHIP: "eComm Shipper",
-  ECOMCOMP: "eComm Computer/Tech",
-  ECOMJSE: "eComm Jr. Seller",
-  ECOMJSO: "eComm Jr. Sorter",
-  EASSIS: "eComm Assistant",
-  ECMCOMLD: "eComm Commerce Lead",
-  ECQCS: "eComm QC Specialist",
-  EPROCOOR: "eComm Processor",
-  ECCUST: "eComm Custodian",
-  ECOMDIR: "eComm Director",
-  ECOPAS: "eComm Ops Asst.",
+const JOB_COLORS: Record<string, string> = {
+  STSUPER: "#9333EA",
+  STASSTSP: "#F97316",
+  STLDWKR: "#84CC16",
+  CASHSLS: "#EC4899",
+  APPROC: "#3B82F6",
+  DONPRI: "#22C55E",
+  DONDOOR: "#F472B6",
+  SLSFLR: "#0EA5E9",
+  ALTSTLD: "#A855F7",
+  EBCLK: "#14B8A6",
+  OUTCP: "#3B82F6",
+  OUTMH: "#F59E0B",
+  OUTSHS: "#8B5CF6",
+  OUTAM: "#F97316",
+  OUTMGR: "#9333EA",
+  ECOMDIR: "#9333EA",
+  ECMCOMLD: "#F97316",
+  EASSIS: "#84CC16",
+  ECOMSL: "#06B6D4",
+  ECSHIP: "#8B5CF6",
+  ECOMCOMP: "#14B8A6",
+  ECOMJSE: "#F59E0B",
+  ECOMJSO: "#EF4444",
+  ECQCS: "#10B981",
+  EPROCOOR: "#6366F1",
+  ECCUST: "#78716C",
+  ECOPAS: "#D946EF",
 };
 
-const PALETTE = [
-  "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899",
-  "#06b6d4", "#f97316", "#84cc16", "#14b8a6", "#ef4444",
-  "#6366f1", "#d946ef", "#0ea5e9", "#a855f7", "#22c55e",
-  "#e11d48", "#0891b2", "#65a30d", "#7c3aed", "#db2777",
-  "#2563eb", "#059669", "#d97706", "#9333ea", "#f472b6",
-];
+function getJobColor(code: string): string {
+  const canonical = getCanonicalJobCode(code);
+  return JOB_COLORS[canonical] ?? "#6B7280";
+}
 
 function getLabel(code: string): string {
-  return JOB_CODE_LABELS[code] ?? code;
+  return getJobTitle(code) || code;
 }
 
 function getSundayStart(dateStr: string): string {
@@ -169,8 +159,8 @@ export default function ScheduleAudit() {
       .map(([code]) => code);
 
     const colorMap: Record<string, string> = {};
-    sorted.forEach((code, i) => {
-      colorMap[code] = PALETTE[i % PALETTE.length];
+    sorted.forEach((code) => {
+      colorMap[code] = getJobColor(code);
     });
 
     return { allJobCodes: sorted, codeColorMap: colorMap };
