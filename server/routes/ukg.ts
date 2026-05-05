@@ -149,9 +149,17 @@ export function registerUKGRoutes(app: Express) {
             // Do not overwrite location if UKG returned null/empty — this happens when
             // OrgLevel1 data is missing or partially loaded, and would erase manually
             // assigned store locations from the database.
+            // Preserve maxWeeklyHours unless the employee's employment type changed
+            // (e.g. part-time → full-time), in which case apply UKG's new default.
             const updateData = { ...appEmployee };
             if (!updateData.location) {
               delete updateData.location;
+            }
+            const employmentTypeChanged = updateData.employmentType &&
+              existingByUkgId.employmentType &&
+              updateData.employmentType !== existingByUkgId.employmentType;
+            if (!employmentTypeChanged) {
+              delete updateData.maxWeeklyHours;
             }
             await storage.updateEmployee(existingByUkgId.id, updateData);
             updated++;
