@@ -219,74 +219,123 @@ class UKGClient {
 
   private async apiRequest<T>(endpoint: string, method = "GET", timeoutMs = 60000): Promise<T | null> {
     const url = `${this.baseUrl}${endpoint}`;
-    console.log(`UKG: ${method} ${url}`);
-    const startTime = Date.now();
+    const maxAttempts = 3;
+    let lastTransientError: string | null = null;
+    // Shared deadline across all retry attempts so total wall-clock cannot exceed timeoutMs.
+    const overallDeadline = Date.now() + timeoutMs;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const remaining = overallDeadline - Date.now();
+      if (remaining <= 0) {
+        this.lastError = lastTransientError ?? `API timeout after ${timeoutMs}ms`;
+        console.error(`UKG: deadline exceeded for ${url}`);
+        return null;
+      }
 
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: this.getAuthHeaders(),
-        signal: controller.signal,
-      });
+      console.log(`UKG: ${method} ${url}${attempt > 1 ? ` (retry ${attempt - 1}/${maxAttempts - 1})` : ""}`);
+      const startTime = Date.now();
 
-      clearTimeout(timeoutId);
-      const durationMs = Date.now() - startTime;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), remaining);
 
-      const responseText = await response.text();
-      console.log("UKG: API response status:", response.status);
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: this.getAuthHeaders(),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        this.lastError = `API error (${response.status}): ${responseText.slice(0, 300)}`;
+        clearTimeout(timeoutId);
+        const durationMs = Date.now() - startTime;
+
+        const responseText = await response.text();
+        console.log("UKG: API response status:", response.status);
+
+        if (!response.ok) {
+          // Transient: 5xx server errors, 429 (throttled), 408 (request timeout).
+          // All other 4xx are client errors and not retryable.
+          const isTransient = response.status >= 500 || response.status === 429 || response.status === 408;
+          const errMsg = `API error (${response.status}): ${responseText.slice(0, 300)}`;
+          this.addDiagnostic({
+            timestamp: new Date().toISOString(),
+            endpoint, method, status: response.status,
+            success: false, message: `HTTP ${response.status}`, durationMs,
+          });
+          if (isTransient && attempt < maxAttempts) {
+            lastTransientError = errMsg;
+            const desired = 500 * Math.pow(2, attempt - 1);
+            const backoffMs = Math.max(0, Math.min(desired, overallDeadline - Date.now() - 100));
+            if (backoffMs <= 0) {
+              this.lastError = errMsg;
+              return null;
+            }
+            console.warn(`UKG: HTTP ${response.status}, retrying in ${backoffMs}ms`);
+            await new Promise(r => setTimeout(r, backoffMs));
+            continue;
+          }
+          this.lastError = errMsg;
+          return null;
+        }
+
         this.addDiagnostic({
           timestamp: new Date().toISOString(),
           endpoint, method, status: response.status,
-          success: false, message: `HTTP ${response.status}`, durationMs,
+          success: true, message: "OK", durationMs,
         });
-        return null;
-      }
 
-      this.addDiagnostic({
-        timestamp: new Date().toISOString(),
-        endpoint, method, status: response.status,
-        success: true, message: "OK", durationMs,
-      });
+        // Success — clear any prior error so callers can trust getLastError()
+        this.lastError = null;
 
-      if (!responseText.trim()) {
-        return { value: [] } as unknown as T;
-      }
+        if (!responseText.trim()) {
+          return { value: [] } as unknown as T;
+        }
 
-      try {
-        return JSON.parse(responseText) as T;
-      } catch {
-        this.lastError = `Invalid JSON: ${responseText.slice(0, 200)}`;
-        return null;
-      }
-    } catch (error: unknown) {
-      clearTimeout(timeoutId);
-      const durationMs = Date.now() - startTime;
-      if (error instanceof Error && error.name === "AbortError") {
-        this.lastError = `API timeout after ${timeoutMs}ms`;
-        console.error(`UKG API timeout: ${url}`);
-        this.addDiagnostic({
-          timestamp: new Date().toISOString(),
-          endpoint, method, status: null,
-          success: false, message: `Timeout after ${timeoutMs}ms`, durationMs,
-        });
-      } else {
-        const message = error instanceof Error ? error.message : String(error);
-        this.lastError = `API exception: ${message}`;
-        console.error("UKG API error:", message);
+        try {
+          return JSON.parse(responseText) as T;
+        } catch {
+          this.lastError = `Invalid JSON: ${responseText.slice(0, 200)}`;
+          return null;
+        }
+      } catch (error: unknown) {
+        clearTimeout(timeoutId);
+        const durationMs = Date.now() - startTime;
+        const isAbort = error instanceof Error && error.name === "AbortError";
+        const message = isAbort
+          ? `API timeout after ${timeoutMs}ms`
+          : (error instanceof Error ? error.message : String(error));
+        const errMsg = isAbort ? message : `API exception: ${message}`;
+
         this.addDiagnostic({
           timestamp: new Date().toISOString(),
           endpoint, method, status: null,
           success: false, message, durationMs,
         });
+
+        // Network errors (fetch failed, ECONNRESET, timeouts) are transient — retry.
+        // Don't retry abort/timeout if the overall deadline is exhausted.
+        const deadlineLeft = overallDeadline - Date.now();
+        if (attempt < maxAttempts && deadlineLeft > 100) {
+          lastTransientError = errMsg;
+          const desired = 500 * Math.pow(2, attempt - 1);
+          const backoffMs = Math.max(0, Math.min(desired, deadlineLeft - 100));
+          console.warn(`UKG ${isAbort ? "timeout" : "network error"}: ${message}, retrying in ${backoffMs}ms`);
+          await new Promise(r => setTimeout(r, backoffMs));
+          continue;
+        }
+
+        if (isAbort) {
+          console.error(`UKG API timeout: ${url}`);
+        } else {
+          console.error("UKG API error:", message);
+        }
+        this.lastError = errMsg;
+        return null;
       }
-      return null;
     }
+
+    // Should be unreachable, but be safe.
+    this.lastError = lastTransientError ?? "API request exhausted retries";
+    return null;
   }
 
   private async fetchAllPaginated<T>(endpoint: string): Promise<T[]> {
@@ -449,6 +498,10 @@ class UKGClient {
       return [];
     }
 
+    // Clear any stale error from prior unrelated calls so getLastError()
+    // accurately reflects this operation's outcome.
+    this.lastError = null;
+
     console.log(`UKG: Fetching time clock data from ${startDate} to ${endDate}`);
 
     try {
@@ -472,12 +525,22 @@ class UKGClient {
         const endpoint = `/Time?$filter=${encodeURIComponent(filter)}&$top=${pageSize}&$skip=${skip}`;
         const result = await this.apiRequest<ODataResponse>(endpoint);
 
-        if (!result?.value || result.value.length === 0) {
+        // Distinguish "request failed" (null) from "no more data" (empty value).
+        // Without this check, a mid-pagination network failure would silently
+        // return partial data and the caller would think the sync succeeded.
+        if (result === null) {
+          const partialErr = this.lastError ?? "Unknown pagination failure";
+          this.lastError = `Time clock pagination failed at skip=${skip} (fetched ${allRecords.length} so far): ${partialErr}`;
+          console.error(`UKG: ${this.lastError}`);
+          return [];
+        }
+
+        if (!result.value || result.value.length === 0) {
           hasMore = false;
         } else {
           allRecords.push(...result.value);
           console.log(`UKG: Fetched ${result.value.length} time records (total: ${allRecords.length})`);
-          
+
           if (result.value.length < pageSize) {
             hasMore = false;
           } else {
