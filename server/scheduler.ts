@@ -245,34 +245,44 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
   const incomingPaycodeIds = [...new Set(timeClockData.map(e => e.paycodeId || 0))];
   console.log(`[Scheduler] Paycode IDs in incoming data (${label}):`, incomingPaycodeIds);
 
-  const existingCount = await storage.getTimeClockEntryCountForRange(startDate, endDate);
-  const incomingCount = aggregatedMap.size;
-  const skipDelete = existingCount > 0 && incomingCount < existingCount * 0.5;
+  const entries: InsertTimeClockEntry[] = Array.from(aggregatedMap.values());
+  console.log(`[Scheduler] Aggregated to ${entries.length} unique employee/date combinations (${label})`);
 
-  if (skipDelete) {
-    console.warn(
-      `[Scheduler] Safety check: incoming data (${incomingCount} entries) is less than 50% of existing data ` +
-      `(${existingCount} entries) for ${startDate} → ${endDate} (${label}). Skipping delete to prevent accidental mass wipe. ` +
-      `Proceeding with upsert only.`
-    );
-  } else {
-    const deleted = await storage.deleteTimeClockEntries(startDate, endDate, incomingPaycodeIds);
-    console.log(`[Scheduler] Cleared ${deleted} existing entries (paycodes: ${incomingPaycodeIds.join(', ')}) for ${startDate} → ${endDate} (${label})`);
+  // NOTE: We intentionally do NOT delete time_clock_entries by date range.
+  // The table has a UNIQUE INDEX on (ukg_employee_id, work_date) and the
+  // upsert below uses onConflictDoUpdate against that key, so existing rows
+  // for the same (employee, date) are correctly replaced. A range-based
+  // delete would destroy any (employee, date) row that UKG transiently
+  // omits from its paginated response — for example a terminated employee's
+  // historical punch — which previously caused total time-clock counts to
+  // drift downward by thousands of rows per sync.
+  //
+  // For time_clock_punches we DO need to delete — that table has no unique
+  // key and individual punches need replacement when UKG revises a day's
+  // punches — but we now scope the delete to ONLY the (employee, date)
+  // pairs actually present in the new batch, never the full date range.
+  //
+  // Important: derive keys from the aggregated employee/date set, not from
+  // rawPunches. If UKG now reports a day for an employee with NO punches
+  // (e.g. a paycode correction that removed clock punches, or a PTO-only
+  // day), we still need to clear that day's stale punches — but rawPunches
+  // alone wouldn't include the key.
+  const incomingPunchKeys = Array.from(aggregatedMap.values()).map(e => ({
+    ukgEmployeeId: e.ukgEmployeeId,
+    workDate: e.workDate,
+  }));
+
+  if (incomingPunchKeys.length > 0) {
+    const deletedPunches = await storage.deleteTimeClockPunchesByKeys(incomingPunchKeys);
+    console.log(`[Scheduler] Replaced punches for ${incomingPunchKeys.length} employee/date pairs (deleted ${deletedPunches} stale rows) (${label})`);
   }
-
   if (rawPunches.length > 0) {
-    if (!skipDelete) {
-      await storage.deleteTimeClockPunches(startDate, endDate, incomingPaycodeIds);
-    }
     const punchCount = await storage.insertTimeClockPunches(rawPunches);
     console.log(`[Scheduler] Stored ${punchCount} individual punch records (${label})`);
   }
 
-  const entries: InsertTimeClockEntry[] = Array.from(aggregatedMap.values());
-  console.log(`[Scheduler] Aggregated to ${entries.length} unique employee/date combinations (${label})`);
-
   const upserted = await storage.upsertTimeClockEntries(entries);
-  console.log(`[Scheduler] Time clock sync complete (${label}): ${upserted} entries processed`);
+  console.log(`[Scheduler] Time clock sync complete (${label}): ${upserted} entries upserted (existing rows for absent employee/dates preserved)`);
   const durationMs = Date.now() - syncStart;
   ukgClient.addSyncResult({
     timestamp: new Date().toISOString(),
@@ -289,7 +299,7 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
     startDate,
     endDate,
     durationMs,
-    skippedDelete: skipDelete,
+    skippedDelete: false,
   };
 }
 

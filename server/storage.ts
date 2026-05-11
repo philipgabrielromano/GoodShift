@@ -212,6 +212,7 @@ export interface IStorage {
   getTimeClockPunches(startDate: string, endDate: string): Promise<TimeClockPunch[]>;
   insertTimeClockPunches(punches: InsertTimeClockPunch[]): Promise<number>;
   deleteTimeClockPunches(startDate: string, endDate: string, paycodeIds?: number[]): Promise<void>;
+  deleteTimeClockPunchesByKeys(keys: { ukgEmployeeId: string; workDate: string }[]): Promise<number>;
 
   // Schedule Templates
   getScheduleTemplates(): Promise<ScheduleTemplate[]>;
@@ -1952,6 +1953,31 @@ export class DatabaseStorage implements IStorage {
     }
     await db.delete(timeClockPunches)
       .where(and(...conditions));
+  }
+
+  // Delete punches only for the specific (ukgEmployeeId, workDate) pairs given.
+  // Used by the time-clock sync so we replace punches for days/employees that
+  // ARE in the new batch without touching any other historical data — this
+  // prevents data loss when UKG transiently drops records from a paginated
+  // response. Processed in chunks because PostgreSQL caps parameter counts
+  // per query (~65k); each pair uses 2 params.
+  async deleteTimeClockPunchesByKeys(keys: { ukgEmployeeId: string; workDate: string }[]): Promise<number> {
+    if (keys.length === 0) return 0;
+    let deleted = 0;
+    const chunkSize = 1000; // 2000 params per chunk, well under PG's limit
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const result = await db.delete(timeClockPunches)
+        .where(or(
+          ...chunk.map(k => and(
+            eq(timeClockPunches.ukgEmployeeId, k.ukgEmployeeId),
+            eq(timeClockPunches.workDate, k.workDate),
+          )!)
+        ))
+        .returning({ id: timeClockPunches.id });
+      deleted += result.length;
+    }
+    return deleted;
   }
 
   // Schedule Templates
