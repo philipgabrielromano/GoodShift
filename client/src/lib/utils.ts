@@ -49,9 +49,20 @@ export function isOrderFormLocation(loc: { name: string; isActive?: boolean; ava
 }
 
 // Holiday calculations
+//
+// Two kinds of holidays:
+//  - Closed: store is closed (Easter, Thanksgiving, Christmas).
+//  - Paid:   store is OPEN, but full-time employees with 30+ days of service
+//            receive 8 hours of holiday pay (New Year's, MLK, Memorial Day,
+//            Juneteenth, Independence Day, Labor Day, Thanksgiving Day, Day
+//            After Thanksgiving, Christmas Day). Thanksgiving and Christmas
+//            appear in BOTH lists — closed AND paid.
+// Keep this in sync with server/holidays.ts.
 export interface Holiday {
   date: Date;
   name: string;
+  isClosed?: boolean;
+  isPaid?: boolean;
 }
 
 // Calculate Easter Sunday using the Anonymous Gregorian algorithm
@@ -87,30 +98,87 @@ function calculateThanksgiving(year: number): Date {
   return new Date(year, 10, firstThursday + 21);
 }
 
-// Get all holidays for a given year
-export function getHolidaysForYear(year: number): Holiday[] {
-  return [
-    { date: calculateEaster(year), name: "Easter" },
-    { date: calculateThanksgiving(year), name: "Thanksgiving" },
-    { date: new Date(year, 11, 25), name: "Christmas" },
-  ];
+// Get nth occurrence of a day of week in a month (1-indexed)
+function getNthDayOfWeekInMonth(year: number, month: number, dayOfWeek: number, n: number): Date {
+  const firstOfMonth = new Date(year, month, 1);
+  const firstDayOfWeek = firstOfMonth.getDay();
+  let daysUntilTarget = dayOfWeek - firstDayOfWeek;
+  if (daysUntilTarget < 0) daysUntilTarget += 7;
+  const nthOccurrence = 1 + daysUntilTarget + (n - 1) * 7;
+  return new Date(year, month, nthOccurrence);
 }
 
-// Check if a date is a holiday (returns holiday name or null)
-export function isHoliday(date: Date): string | null {
-  const year = date.getFullYear();
-  const holidays = getHolidaysForYear(year);
-  
+// Get last occurrence of a day of week in a month
+function getLastDayOfWeekInMonth(year: number, month: number, dayOfWeek: number): Date {
+  const lastOfMonth = new Date(year, month + 1, 0);
+  const lastDayOfWeek = lastOfMonth.getDay();
+  let daysDiff = lastDayOfWeek - dayOfWeek;
+  if (daysDiff < 0) daysDiff += 7;
+  return new Date(year, month, lastOfMonth.getDate() - daysDiff);
+}
+
+// Get all holidays for a given year, merged so a date that's both closed AND
+// paid (Thanksgiving, Christmas) appears once with both flags set.
+export function getHolidaysForYear(year: number): Holiday[] {
+  const thanksgiving = calculateThanksgiving(year);
+  const dayAfterThanksgiving = new Date(year, 10, thanksgiving.getDate() + 1);
+  const merged = new Map<string, Holiday>();
+  const add = (h: Holiday) => {
+    const key = `${h.date.getFullYear()}-${h.date.getMonth()}-${h.date.getDate()}`;
+    const existing = merged.get(key);
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        isClosed: existing.isClosed || h.isClosed,
+        isPaid: existing.isPaid || h.isPaid,
+      });
+    } else {
+      merged.set(key, h);
+    }
+  };
+  // Closed
+  add({ date: calculateEaster(year), name: "Easter", isClosed: true });
+  add({ date: thanksgiving, name: "Thanksgiving", isClosed: true, isPaid: true });
+  add({ date: new Date(year, 11, 25), name: "Christmas", isClosed: true, isPaid: true });
+  // Paid (store open, holiday pay for eligible full-time)
+  add({ date: new Date(year, 0, 1), name: "New Year's Day", isPaid: true });
+  add({ date: getNthDayOfWeekInMonth(year, 0, 1, 3), name: "MLK Jr. Birthday", isPaid: true });
+  add({ date: getLastDayOfWeekInMonth(year, 4, 1), name: "Memorial Day", isPaid: true });
+  add({ date: new Date(year, 5, 19), name: "Juneteenth", isPaid: true });
+  add({ date: new Date(year, 6, 4), name: "Independence Day", isPaid: true });
+  add({ date: getNthDayOfWeekInMonth(year, 8, 1, 1), name: "Labor Day", isPaid: true });
+  add({ date: dayAfterThanksgiving, name: "Day After Thanksgiving", isPaid: true });
+  return Array.from(merged.values()).sort((a, b) => a.date.getTime() - b.date.getTime());
+}
+
+// Look up the holiday object for a given date (or null). Use this when the
+// caller needs to know whether the store is closed vs. just a paid holiday.
+export function getHolidayInfo(date: Date): Holiday | null {
+  const holidays = getHolidaysForYear(date.getFullYear());
   for (const holiday of holidays) {
     if (
       holiday.date.getFullYear() === date.getFullYear() &&
       holiday.date.getMonth() === date.getMonth() &&
       holiday.date.getDate() === date.getDate()
     ) {
-      return holiday.name;
+      return holiday;
     }
   }
   return null;
+}
+
+// Check if a date is a holiday (returns name or null). Returns ANY holiday —
+// closed or paid. Callers that need to differentiate should use
+// getHolidayInfo() instead.
+export function isHoliday(date: Date): string | null {
+  return getHolidayInfo(date)?.name ?? null;
+}
+
+// Check if a date is a CLOSED holiday (store closed). Returns name or null.
+// Use this for "store is closed" UI banners and validator coverage checks.
+export function isClosedHoliday(date: Date): string | null {
+  const info = getHolidayInfo(date);
+  return info?.isClosed ? info.name : null;
 }
 
 // Get all holidays that fall within a date range

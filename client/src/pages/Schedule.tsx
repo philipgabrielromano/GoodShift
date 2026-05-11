@@ -4,7 +4,7 @@ import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { cn, getJobTitle, isHoliday, getCanonicalJobCode, isValidLocation, isSchedulableLocation } from "@/lib/utils";
+import { cn, getJobTitle, getHolidayInfo, getCanonicalJobCode, isValidLocation, isSchedulableLocation } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -1562,7 +1562,9 @@ export default function Schedule() {
               const day = mobileDay;
               const dayEST = toZonedTime(day, TIMEZONE);
               const dayDateStr = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
-              const holidayName = isHoliday(dayEST);
+              const holidayInfo = getHolidayInfo(dayEST);
+              const holidayName = holidayInfo?.name ?? null;
+              const isClosedDay = !!holidayInfo?.isClosed;
               const dateKey = formatInTimeZone(day, TIMEZONE, "yyyy-MM-dd");
               const weather = weatherByDate.get(dateKey);
 
@@ -1599,8 +1601,15 @@ export default function Schedule() {
               return (
                 <div>
                   {holidayName && (
-                    <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm font-semibold text-center">
-                      CLOSED - {holidayName}
+                    <div
+                      className={cn(
+                        "px-4 py-2 text-sm font-semibold text-center",
+                        isClosedDay
+                          ? "bg-destructive/10 text-destructive"
+                          : "bg-primary/10 text-primary"
+                      )}
+                    >
+                      {isClosedDay ? `CLOSED - ${holidayName}` : `PAID HOLIDAY - ${holidayName}`}
                     </div>
                   )}
                   <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/10">
@@ -1775,15 +1784,18 @@ export default function Schedule() {
                   const dateKey = dayDateStr;
                   const weather = weatherByDate.get(dateKey);
                   
-                  // Check if this day is a holiday
-                  const holidayName = isHoliday(dayEST);
+                  // Check if this day is a holiday (closed or paid)
+                  const holidayInfo = getHolidayInfo(dayEST);
+                  const holidayName = holidayInfo?.name ?? null;
+                  const isClosedDay = !!holidayInfo?.isClosed;
                   
                   return (
                     <div 
                       key={day.toString()} 
                       className={cn(
                         "p-2 text-center border-r cursor-pointer hover-elevate transition-colors",
-                        holidayName && "bg-destructive/10"
+                        isClosedDay && "bg-destructive/10",
+                        holidayName && !isClosedDay && "bg-primary/10"
                       )}
                       onClick={() => {
                         setGanttSelectedDate(day);
@@ -1801,8 +1813,14 @@ export default function Schedule() {
                       </div>
                       {/* Holiday indicator */}
                       {holidayName && (
-                        <div className="mt-1 text-[10px] font-semibold text-destructive" data-testid={`holiday-${formatInTimeZone(day, TIMEZONE, "EEE")}`}>
-                          CLOSED - {holidayName}
+                        <div
+                          className={cn(
+                            "mt-1 text-[10px] font-semibold",
+                            isClosedDay ? "text-destructive" : "text-primary"
+                          )}
+                          data-testid={`holiday-${formatInTimeZone(day, TIMEZONE, "EEE")}`}
+                        >
+                          {isClosedDay ? `CLOSED - ${holidayName}` : `PAID - ${holidayName}`}
                         </div>
                       )}
                       {/* Weather forecast */}

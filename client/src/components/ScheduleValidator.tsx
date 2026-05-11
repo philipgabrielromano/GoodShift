@@ -20,7 +20,7 @@ function formatTimeET(date: Date): string {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState } from "react";
-import { cn, getJobTitle, isHoliday } from "@/lib/utils";
+import { cn, getJobTitle, isClosedHoliday } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
@@ -203,9 +203,10 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
     const managersRequired = settings.managersRequired ?? 1;
     
     weekDays.forEach(day => {
-      // Skip coverage checks on holidays - store is closed
-      const holidayName = isHoliday(day);
-      if (holidayName) return;
+      // Skip coverage checks only on CLOSED holidays — store is open on
+      // paid holidays (Memorial Day, Juneteenth, etc.) so coverage still matters.
+      const closedHolidayName = isClosedHoliday(day);
+      if (closedHolidayName) return;
       
       const dayShifts = filteredShifts.filter(s => isSameDay(s.startTime, day));
       const isSunday = day.getDay() === 0;
@@ -579,17 +580,19 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       }
     });
 
-    // Check 9: Holiday shifts (store is closed on Easter, Thanksgiving, Christmas)
+    // Check 9: Holiday shifts (store is closed on Easter, Thanksgiving, Christmas).
+    // Only flag CLOSED holidays — paid holidays (Memorial Day, Juneteenth,
+    // Independence Day, etc.) are normal working days for the store.
     filteredShifts.forEach(shift => {
       const shiftDate = new Date(shift.startTime);
-      const holidayName = isHoliday(shiftDate);
-      if (holidayName) {
+      const closedHolidayName = isClosedHoliday(shiftDate);
+      if (closedHolidayName) {
         const emp = filteredEmployees.find(e => e.id === shift.employeeId);
         const empName = emp?.name || "Unknown";
         newIssues.push({
           type: "error",
           category: "conflicts",
-          message: `${empName} is scheduled on ${holidayName} (store is closed)`
+          message: `${empName} is scheduled on ${closedHolidayName} (store is closed)`
         });
       }
     });
