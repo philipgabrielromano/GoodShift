@@ -8,9 +8,20 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.1";
+export const APP_VERSION = "3.8.2";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.2",
+    date: "2026-05-11",
+    title: "Paid Holiday Visibility & Time Clock Sync Safety",
+    changes: [
+      { type: "feature", description: "Paid holiday credit is now visible on the weekly schedule. Eligible full-time employees show a small \"+8h holiday\" badge next to their max-hours label during weeks that contain a paid holiday, and the right-column weekly total includes those hours so the number always matches what the system counts toward their cap." },
+      { type: "improvement", description: "The manual schedule validator now accounts for paid holiday hours when checking weekly maximums. If a full-time employee would go over their cap once the 8h holiday credit is added, the warning spells out the breakdown (e.g. \"40.0h + 8h paid holiday = 48.0h, Max: 40h\") so it's clear why the schedule is over." },
+      { type: "improvement", description: "Paid holidays and store-closed holidays are now shown distinctly on the schedule — paid holidays appear with their own indicator even when the store is open, so managers can see which dates carry a holiday-pay credit at a glance." },
+      { type: "fix", description: "Fixed a UKG time clock sync bug that could remove historical punches. The sync no longer deletes records outside the active sync window; only the punches actually being refreshed are replaced, protecting older time clock history from accidental loss." },
+    ],
+  },
   {
     version: "3.8.1",
     date: "2026-05-04",
