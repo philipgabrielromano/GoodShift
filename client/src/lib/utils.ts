@@ -198,6 +198,50 @@ export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
   return holidays;
 }
 
+// Check if an employee is eligible for paid holiday hours.
+// Mirrors server/holidays.ts isEligibleForPaidHoliday — keep in sync.
+// Rule: full-time AND 30+ days of service as of the holiday date.
+export function isEligibleForPaidHoliday(
+  hireDate: string | Date | null | undefined,
+  holidayDate: Date,
+  employmentType: string | null | undefined
+): boolean {
+  if (employmentType !== "Full-Time") return false;
+  if (!hireDate) return false;
+  let hireDateObj: Date;
+  if (typeof hireDate === "string") {
+    // Accept either 'YYYY-MM-DD' (Drizzle date) or full ISO timestamps.
+    hireDateObj = /^\d{4}-\d{2}-\d{2}$/.test(hireDate)
+      ? new Date(hireDate + "T00:00:00")
+      : new Date(hireDate);
+  } else {
+    hireDateObj = hireDate;
+  }
+  if (isNaN(hireDateObj.getTime())) return false;
+  const daysSinceHire = Math.floor(
+    (holidayDate.getTime() - hireDateObj.getTime()) / (1000 * 60 * 60 * 24)
+  );
+  return daysSinceHire >= 30;
+}
+
+// Total paid-holiday hours an employee will receive in the given week (8 per
+// eligible paid holiday). Use this to extend max-hours validation and to
+// surface the credit in the schedule UI so managers can see which FT
+// employees have an implicit holiday-pay credit baked into their week.
+export function getPaidHolidayHoursForEmployee(
+  weekStart: Date,
+  weekEnd: Date,
+  hireDate: string | Date | null | undefined,
+  employmentType: string | null | undefined
+): number {
+  const paidHolidays = getHolidaysInRange(weekStart, weekEnd).filter(h => h.isPaid);
+  let total = 0;
+  for (const h of paidHolidays) {
+    if (isEligibleForPaidHoliday(hireDate, h.date, employmentType)) total += 8;
+  }
+  return total;
+}
+
 export const JOB_CODE_TITLES: Record<string, string> = {
   // Standard job codes
   APPROC: "Apparel Processor",

@@ -20,7 +20,7 @@ function formatTimeET(date: Date): string {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState } from "react";
-import { cn, getJobTitle, isClosedHoliday } from "@/lib/utils";
+import { cn, getJobTitle, isClosedHoliday, getPaidHolidayHoursForEmployee } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 // Calculate paid hours (subtract 30-min unpaid lunch for shifts 6+ hours)
@@ -149,6 +149,10 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       : prevWeekShifts;
     
     // Check 1: Employee max hours
+    // Mirror auto-generator behavior: paid holiday hours (8 per eligible paid
+    // holiday) count toward the employee's weekly total. Without this, a
+    // manually-built Memorial Day week would let an FT employee get scheduled
+    // for their full 40h on top of the 8h holiday credit (effectively 48h).
     filteredEmployees.forEach(emp => {
       const empShifts = filteredShifts.filter(s => s.employeeId === emp.id);
       const hours = empShifts.reduce((acc, s) => {
@@ -158,12 +162,20 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       }, 0);
       
       totalWeeklyHours += hours;
+
+      // Match server-generator week boundary: [weekStart, weekStart + 7 days].
+      const holidayHours = getPaidHolidayHoursForEmployee(
+        weekDays[0], addDays(weekDays[0], 7), emp.hireDate, emp.employmentType,
+      );
+      const effectiveHours = hours + holidayHours;
       
-      if (hours > emp.maxWeeklyHours) {
+      if (effectiveHours > emp.maxWeeklyHours) {
         newIssues.push({
           type: "error",
           category: "hours",
-          message: `${emp.name} is scheduled for ${hours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
+          message: holidayHours > 0
+            ? `${emp.name} is scheduled for ${hours.toFixed(1)}h + ${holidayHours}h paid holiday = ${effectiveHours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
+            : `${emp.name} is scheduled for ${hours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
         });
       }
     });

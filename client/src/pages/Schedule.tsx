@@ -4,7 +4,7 @@ import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
 import { ChevronLeft, ChevronRight, Plus, MapPin, ChevronDown, ChevronRight as ChevronRightIcon, GripVertical, Trash2, CalendarClock, Copy, Save, FileDown, Droplets, Thermometer, Send, EyeOff, AlertTriangle, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { cn, getJobTitle, getHolidayInfo, getCanonicalJobCode, isValidLocation, isSchedulableLocation } from "@/lib/utils";
+import { cn, getJobTitle, getHolidayInfo, getPaidHolidayHoursForEmployee, getCanonicalJobCode, isValidLocation, isSchedulableLocation } from "@/lib/utils";
 import { useShifts } from "@/hooks/use-shifts";
 import { useEmployees } from "@/hooks/use-employees";
 import { useLocations } from "@/hooks/use-locations";
@@ -1940,7 +1940,14 @@ export default function Schedule() {
                         if (palEntry) palHoursForEmp += palEntry.hoursDecimal;
                       }
                       
-                      const totalHours = shiftHours + palHoursForEmp;
+                      // Paid holiday credit: 8h per paid holiday this week for
+                      // eligible FT employees (30+ days service). Mirrors what
+                      // the auto-generator pre-counts toward the weekly cap so
+                      // managers can see the implicit credit.
+                      const paidHolidayHoursForEmp = getPaidHolidayHoursForEmployee(
+                        weekStart, addDays(weekStart, 7), emp.hireDate, emp.employmentType,
+                      );
+                      const totalHours = shiftHours + palHoursForEmp + paidHolidayHoursForEmp;
                       const isFT = (emp.maxWeeklyHours || 40) >= 32;
                       const isMaxed = totalHours >= (emp.maxWeeklyHours || 40);
                       
@@ -1962,6 +1969,15 @@ export default function Schedule() {
                             <span className="text-xs text-muted-foreground" data-testid={`text-max-hours-${emp.id}`}>
                               {emp.maxWeeklyHours || 40}h max, {isFT ? "FT" : "PT"}
                             </span>
+                            {paidHolidayHoursForEmp > 0 && (
+                              <span
+                                className="ml-1 inline-flex items-center px-1.5 py-0.5 text-[10px] font-semibold text-primary bg-primary/10 rounded"
+                                title={`${paidHolidayHoursForEmp}h paid holiday credit included in weekly total`}
+                                data-testid={`badge-holiday-credit-${emp.id}`}
+                              >
+                                +{paidHolidayHoursForEmp}h holiday
+                              </span>
+                            )}
                           </div>
                         </div>
                         
