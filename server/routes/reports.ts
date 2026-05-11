@@ -169,7 +169,7 @@ export function registerReportRoutes(app: Express) {
 
       const allowedNames = await getAllowedLocationNames(user);
       if (locationFilter && allowedNames && !allowedNames.has(locationFilter)) {
-        return res.json({ earlyClockIns: [], lateClockOuts: [], longLunches: [], missedPunches: [] });
+        return res.json({ earlyClockIns: [], lateClockIns: [], lateClockOuts: [], longLunches: [], missedPunches: [] });
       }
       let allowedEmployeeIds = new Set<number>();
       for (const emp of allEmployees) {
@@ -206,6 +206,15 @@ export function registerReportRoutes(app: Express) {
       }
 
       const earlyClockIns: Array<{
+        employeeName: string;
+        location: string;
+        date: string;
+        scheduledStart: string;
+        actualClockIn: string;
+        varianceMinutes: number;
+      }> = [];
+
+      const lateClockIns: Array<{
         employeeName: string;
         location: string;
         date: string;
@@ -288,7 +297,8 @@ export function registerReportRoutes(app: Express) {
 
         if (sortedPunches.length === 0) continue;
 
-        // Check early clock-in (first punch)
+        // Check early/late clock-in (first punch). Positive diffMinutes here =
+        // employee punched BEFORE scheduled start (early); negative = AFTER (late).
         const firstPunchIn = sortedPunches[0].clockIn;
         if (firstPunchIn) {
           const punchInTime = new Date(firstPunchIn);
@@ -302,6 +312,15 @@ export function registerReportRoutes(app: Express) {
               scheduledStart: shiftStart.toISOString(),
               actualClockIn: firstPunchIn,
               varianceMinutes: diffMinutes,
+            });
+          } else if (diffMinutes <= -5) {
+            lateClockIns.push({
+              employeeName: emp.name,
+              location: emp.location || "Unknown",
+              date: shiftDate,
+              scheduledStart: shiftStart.toISOString(),
+              actualClockIn: firstPunchIn,
+              varianceMinutes: -diffMinutes,
             });
           }
         }
@@ -348,6 +367,7 @@ export function registerReportRoutes(app: Express) {
 
       res.json({
         earlyClockIns: earlyClockIns.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
+        lateClockIns: lateClockIns.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
         lateClockOuts: lateClockOuts.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
         longLunches: longLunches.sort((a, b) => b.varianceMinutes - a.varianceMinutes),
         missedPunches: missedPunches.sort((a, b) => b.missingCount - a.missingCount || a.employeeName.localeCompare(b.employeeName)),
