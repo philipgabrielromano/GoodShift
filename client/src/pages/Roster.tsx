@@ -52,7 +52,7 @@ const JOB_CODE_LABELS: Record<string, string> = {
   WVLDWRK: "Team Lead (WV)",
   WVSTAST: "Assistant Manager (WV)",
   WVSTMNG: "Store Manager (WV)",
-  OUTCP: "Outlet Clothing Processor",
+  OUTCP: "Outlet Cashier",
   OUTMH: "Outlet Material Handler",
   OUTSHS: "Outlet Sales/Softlines",
   OUTAM: "Outlet Asst. Manager",

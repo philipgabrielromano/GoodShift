@@ -148,7 +148,7 @@ export const RETAIL_JOB_CODES = [
   "WVLDWRK",   // Team Lead (WV)
   // Outlet store job codes
   "OUTAM",     // Outlet Assistant Manager
-  "OUTCP",     // Outlet Clothing Processor
+  "OUTCP",     // Outlet Cashier
   "OUTMGR",    // Outlet Manager
   "OUTMH",     // Outlet Material Handler
   "OUTSHS",    // Outlet Sales/Softlines
