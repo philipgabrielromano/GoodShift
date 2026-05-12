@@ -54,7 +54,7 @@ const JOB_CODE_LABELS: Record<string, string> = {
   WVSTMNG: "Store Manager (WV)",
   OUTCP: "Outlet Cashier",
   OUTMH: "Outlet Material Handler",
-  OUTSHS: "Outlet Sales/Softlines",
+  OUTSHS: "Outlet Salvage Handler",
   OUTAM: "Outlet Asst. Manager",
   OUTMGR: "Outlet Manager",
   EBCLK: "eBooks Clerk",

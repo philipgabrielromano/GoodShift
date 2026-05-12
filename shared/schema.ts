@@ -151,7 +151,7 @@ export const RETAIL_JOB_CODES = [
   "OUTCP",     // Outlet Cashier
   "OUTMGR",    // Outlet Manager
   "OUTMH",     // Outlet Material Handler
-  "OUTSHS",    // Outlet Sales/Softlines
+  "OUTSHS",    // Outlet Salvage Handler
   // Bookstore job codes
   "ALTSTLD",   // Alternative Store Lead
   // eBooks job codes
