@@ -250,6 +250,7 @@ export interface IStorage {
   getOccurrenceAdjustments(employeeId: number, startDate: string, endDate: string): Promise<OccurrenceAdjustment[]>;
   getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]>;
   getAllOccurrenceAdjustmentsForYear(year: number): Promise<OccurrenceAdjustment[]>;
+  getOccurrenceAdjustmentById(id: number): Promise<OccurrenceAdjustment | undefined>;
   createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
   retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment>;
   
@@ -2247,6 +2248,12 @@ export class DatabaseStorage implements IStorage {
   async getAllOccurrenceAdjustmentsForYear(year: number): Promise<OccurrenceAdjustment[]> {
     return await db.select().from(occurrenceAdjustments)
       .where(eq(occurrenceAdjustments.calendarYear, year));
+  }
+
+  async getOccurrenceAdjustmentById(id: number): Promise<OccurrenceAdjustment | undefined> {
+    const [row] = await db.select().from(occurrenceAdjustments)
+      .where(eq(occurrenceAdjustments.id, id));
+    return row;
   }
 
   async createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment> {

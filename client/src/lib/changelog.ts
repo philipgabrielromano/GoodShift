@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.2";
+export const APP_VERSION = "3.8.3";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.3",
+    date: "2026-05-13",
+    title: "Backdate Attendance Adjustments",
+    changes: [
+      { type: "feature", description: "Attendance adjustments (Covered Unscheduled Shift and Perfect Attendance bonus) now have a 'Date Earned' picker so historical adjustments can be recorded against the correct calendar year. The 1-per-year limit applies to whichever year the adjustment is dated to, not just the current year, so prior-year backfills no longer use up an employee's current-year allotment." },
+      { type: "improvement", description: "When backdating to a prior year, the dialog shows a small notice confirming which year the adjustment will count toward." },
+      { type: "improvement", description: "Perfect Attendance bonus now checks for occurrences in the 12 months ending on the bonus's own date (instead of the rolling window from today), so a valid historical bonus isn't blocked by an employee's current clean record." },
+    ],
+  },
   {
     version: "3.8.2",
     date: "2026-05-11",

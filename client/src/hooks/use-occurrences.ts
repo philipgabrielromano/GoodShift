@@ -122,6 +122,7 @@ export function useCreateOccurrenceAdjustment() {
       adjustmentType: string;
       notes?: string;
       calendarYear?: number;
+      adjustmentDate?: string;
     }) => {
       const res = await apiRequest("POST", "/api/occurrence-adjustments", data);
       return res.json();

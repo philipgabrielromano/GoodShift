@@ -113,8 +113,10 @@ export default function Attendance() {
   const [adjustmentDialogOpen, setAdjustmentDialogOpen] = useState(false);
   const [adjustmentType, setAdjustmentType] = useState<string>("");
   const [adjustmentNotes, setAdjustmentNotes] = useState("");
-  
+  const [adjustmentDate, setAdjustmentDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
+
   const [perfectAttendanceDialogOpen, setPerfectAttendanceDialogOpen] = useState(false);
+  const [perfectAttendanceDate, setPerfectAttendanceDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
 
   const [correctiveDialogOpen, setCorrectiveDialogOpen] = useState(false);
   const [correctiveActionType, setCorrectiveActionType] = useState<'warning' | 'final_warning' | 'termination' | null>(null);
@@ -160,19 +162,23 @@ export default function Attendance() {
   };
 
   const handleAddAdjustment = async () => {
-    if (!selectedEmployeeId || !adjustmentType) return;
+    if (!selectedEmployeeId || !adjustmentType || !adjustmentDate) return;
     
     try {
+      const year = parseInt(adjustmentDate.slice(0, 4), 10);
       await createAdjustment.mutateAsync({
         employeeId: selectedEmployeeId,
         adjustmentValue: -100,
         adjustmentType,
-        notes: adjustmentNotes || undefined
+        notes: adjustmentNotes || undefined,
+        adjustmentDate,
+        calendarYear: year,
       });
       toast({ title: "Adjustment added", description: "The adjustment has been recorded." });
       setAdjustmentDialogOpen(false);
       setAdjustmentType("");
       setAdjustmentNotes("");
+      setAdjustmentDate(format(new Date(), "yyyy-MM-dd"));
     } catch (error: any) {
       toast({ 
         title: "Error", 
@@ -183,17 +189,21 @@ export default function Attendance() {
   };
 
   const handleGrantPerfectAttendance = async () => {
-    if (!selectedEmployeeId) return;
+    if (!selectedEmployeeId || !perfectAttendanceDate) return;
     
     try {
+      const year = parseInt(perfectAttendanceDate.slice(0, 4), 10);
       await createAdjustment.mutateAsync({
         employeeId: selectedEmployeeId,
         adjustmentValue: -100,
         adjustmentType: 'perfect_attendance',
-        notes: '90-day perfect attendance bonus'
+        notes: '90-day perfect attendance bonus',
+        adjustmentDate: perfectAttendanceDate,
+        calendarYear: year,
       });
       toast({ title: "Perfect Attendance Granted", description: "The -1.0 perfect attendance bonus has been applied." });
       setPerfectAttendanceDialogOpen(false);
+      setPerfectAttendanceDate(format(new Date(), "yyyy-MM-dd"));
     } catch (error: any) {
       toast({ 
         title: "Error", 
@@ -1034,6 +1044,22 @@ export default function Attendance() {
               </p>
             </div>
             <div className="space-y-2">
+              <Label htmlFor="adjustmentDate">Date Earned</Label>
+              <Input
+                id="adjustmentDate"
+                type="date"
+                value={adjustmentDate}
+                max={format(new Date(), "yyyy-MM-dd")}
+                onChange={(e) => setAdjustmentDate(e.target.value)}
+                data-testid="input-adjustment-date"
+              />
+              {adjustmentDate && parseInt(adjustmentDate.slice(0, 4), 10) !== new Date().getFullYear() && (
+                <p className="text-xs text-orange-600 dark:text-orange-400">
+                  Backdating to {adjustmentDate.slice(0, 4)} — counts toward that year's 1-per-year limit.
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="adjustmentNotes">Notes (optional)</Label>
               <Textarea
                 id="adjustmentNotes"
@@ -1075,6 +1101,22 @@ export default function Attendance() {
             <p className="text-sm text-muted-foreground">
               This can only be granted once per calendar year.
             </p>
+            <div className="space-y-2">
+              <Label htmlFor="perfectAttendanceDate">Date Earned</Label>
+              <Input
+                id="perfectAttendanceDate"
+                type="date"
+                value={perfectAttendanceDate}
+                max={format(new Date(), "yyyy-MM-dd")}
+                onChange={(e) => setPerfectAttendanceDate(e.target.value)}
+                data-testid="input-perfect-attendance-date"
+              />
+              {perfectAttendanceDate && parseInt(perfectAttendanceDate.slice(0, 4), 10) !== new Date().getFullYear() && (
+                <p className="text-xs text-orange-600 dark:text-orange-400">
+                  Backdating to {perfectAttendanceDate.slice(0, 4)} — counts toward that year's perfect-attendance limit.
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPerfectAttendanceDialogOpen(false)}>

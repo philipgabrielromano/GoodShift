@@ -344,9 +344,7 @@ export function registerOccurrenceRoutes(app: Express) {
         return res.status(400).json({ message: "Retraction reason is required" });
       }
 
-      const currentYear = new Date().getFullYear();
-      const allAdj = await storage.getAllOccurrenceAdjustmentsForYear(currentYear);
-      const targetAdj = allAdj.find(a => a.id === id);
+      const targetAdj = await storage.getOccurrenceAdjustmentById(id);
       if (!targetAdj) {
         return res.status(404).json({ message: "Adjustment not found" });
       }
@@ -634,7 +632,7 @@ export function registerOccurrenceRoutes(app: Express) {
     try {
       const user = (req.session as any)?.user;
       
-      const { employeeId, adjustmentValue, adjustmentType, notes, calendarYear } = req.body;
+      const { employeeId, adjustmentValue, adjustmentType, notes, calendarYear, adjustmentDate } = req.body;
       
       if (!employeeId || adjustmentValue === undefined || !adjustmentType) {
         return res.status(400).json({ message: "employeeId, adjustmentValue, and adjustmentType are required" });
@@ -646,7 +644,31 @@ export function registerOccurrenceRoutes(app: Express) {
       }
       
       const now = new Date();
-      const year = calendarYear || now.getFullYear();
+      const todayStr = now.toISOString().split('T')[0];
+
+      // Validate optional adjustmentDate (YYYY-MM-DD); reject future and invalid dates
+      let effectiveDate = todayStr;
+      if (adjustmentDate !== undefined && adjustmentDate !== null && adjustmentDate !== '') {
+        if (typeof adjustmentDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(adjustmentDate)) {
+          return res.status(400).json({ message: "adjustmentDate must be in YYYY-MM-DD format" });
+        }
+        // Reject calendar-invalid dates like 2023-02-31 by parsing and round-tripping
+        const parsed = new Date(adjustmentDate + 'T00:00:00Z');
+        if (isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== adjustmentDate) {
+          return res.status(400).json({ message: "adjustmentDate is not a valid calendar date" });
+        }
+        if (adjustmentDate > todayStr) {
+          return res.status(400).json({ message: "adjustmentDate cannot be in the future" });
+        }
+        effectiveDate = adjustmentDate;
+      }
+
+      // Derive calendar year from adjustmentDate when not explicitly provided
+      const dateYear = parseInt(effectiveDate.slice(0, 4), 10);
+      const year = calendarYear || dateYear;
+      if (year !== dateYear) {
+        return res.status(400).json({ message: "calendarYear must match the year of adjustmentDate" });
+      }
       
       // Get existing adjustments for the year
       const existingAdjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, year);
@@ -660,29 +682,32 @@ export function registerOccurrenceRoutes(app: Express) {
           return res.status(400).json({ message: "Perfect attendance bonus has already been used this year (limit: 1 per year)" });
         }
         
-        // Check if employee has occurrences to reduce (don't waste the bonus)
-        const oneYearAgo = new Date(now);
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-        const startDate = oneYearAgo.toISOString().split('T')[0];
-        const endDate = now.toISOString().split('T')[0];
+        // Check if employee has occurrences to reduce (don't waste the bonus).
+        // For backdated bonuses, look at the 12 months ending on the adjustment date,
+        // not the rolling window from "now".
+        const windowEnd = new Date(effectiveDate + 'T00:00:00Z');
+        const windowStart = new Date(windowEnd);
+        windowStart.setUTCFullYear(windowStart.getUTCFullYear() - 1);
+        const startDate = windowStart.toISOString().split('T')[0];
+        const endDate = effectiveDate;
         const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
         const activeOccurrences = occurrences.filter(o => o.status === 'active');
         const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
         const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
         
         if (totalPoints === 0) {
-          return res.status(400).json({ message: "Cannot grant perfect attendance bonus - employee has no occurrences to reduce" });
+          return res.status(400).json({ message: "Cannot grant perfect attendance bonus - employee has no occurrences to reduce in the 12 months prior to this date" });
         }
       } else {
         const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
         if (manualAdjustments.length >= 1) {
-          return res.status(400).json({ message: "Employee has already used their adjustment for this year" });
+          return res.status(400).json({ message: `Employee has already used their adjustment for ${year}` });
         }
       }
       
       const adjustment = await storage.createOccurrenceAdjustment({
         employeeId,
-        adjustmentDate: now.toISOString().split('T')[0],
+        adjustmentDate: effectiveDate,
         adjustmentValue,
         adjustmentType,
         notes: notes || null,
