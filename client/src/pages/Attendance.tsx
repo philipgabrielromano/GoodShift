@@ -163,9 +163,18 @@ export default function Attendance() {
 
   const handleAddAdjustment = async () => {
     if (!selectedEmployeeId || !adjustmentType || !adjustmentDate) return;
-    
+
+    const year = parseInt(adjustmentDate.slice(0, 4), 10);
+    if (adjustmentType === 'perfect_attendance' && year !== 2025) {
+      toast({
+        title: "Date must be in 2025",
+        description: "Perfect Attendance backfill is only allowed for dates in 2025.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
-      const year = parseInt(adjustmentDate.slice(0, 4), 10);
       await createAdjustment.mutateAsync({
         employeeId: selectedEmployeeId,
         adjustmentValue: -100,
@@ -1037,10 +1046,11 @@ export default function Attendance() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unscheduled_shift">Covered Unscheduled Shift</SelectItem>
+                  <SelectItem value="perfect_attendance">Perfect Attendance (backfill only)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                For perfect attendance (90 days), use the separate "Grant Perfect Attendance" button when eligible.
+                "Perfect Attendance" here is for backfilling 2025 records only — for current-year bonuses, use the "Grant Perfect Attendance" button when eligible.
               </p>
             </div>
             <div className="space-y-2">
@@ -1056,6 +1066,11 @@ export default function Attendance() {
               {adjustmentDate && parseInt(adjustmentDate.slice(0, 4), 10) !== new Date().getFullYear() && (
                 <p className="text-xs text-orange-600 dark:text-orange-400">
                   Backdating to {adjustmentDate.slice(0, 4)} — counts toward that year's 1-per-year limit.
+                </p>
+              )}
+              {adjustmentType === 'perfect_attendance' && adjustmentDate && parseInt(adjustmentDate.slice(0, 4), 10) !== 2025 && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Perfect Attendance backfill requires a date in 2025.
                 </p>
               )}
             </div>
@@ -1076,7 +1091,12 @@ export default function Attendance() {
             </Button>
             <Button 
               onClick={handleAddAdjustment} 
-              disabled={!adjustmentType || createAdjustment.isPending}
+              disabled={
+                !adjustmentType ||
+                !adjustmentDate ||
+                createAdjustment.isPending ||
+                (adjustmentType === 'perfect_attendance' && parseInt(adjustmentDate.slice(0, 4), 10) !== 2025)
+              }
               data-testid="button-confirm-adjustment"
             >
               {createAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.3";
+export const APP_VERSION = "3.8.4";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.4",
+    date: "2026-05-13",
+    title: "Perfect Attendance 2025 Backfill",
+    changes: [
+      { type: "improvement", description: "The Add Adjustment dialog now includes 'Perfect Attendance' as a type option, but it can only be submitted when the Date Earned is in 2025. This is for one-time backfilling of 2025 perfect attendance bonuses; for current-year bonuses, continue to use the 'Grant Perfect Attendance' button." },
+    ],
+  },
   {
     version: "3.8.3",
     date: "2026-05-13",
