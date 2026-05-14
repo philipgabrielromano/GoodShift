@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Target, BarChart3, TrendingUp, TrendingDown, Minus, Globe } from "lucide-react";
+import { Loader2, Target, BarChart3, TrendingUp, TrendingDown, Minus, Globe, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import type { RosterTarget } from "@shared/schema";
@@ -138,6 +138,18 @@ export default function Roster() {
     },
     enabled: !!selectedLocationId,
   });
+
+  type ConsolidatedSortKey = "location" | "target" | "actual" | "variance" | "vacancy" | "status";
+  const [consolidatedSortKey, setConsolidatedSortKey] = useState<ConsolidatedSortKey>("location");
+  const [consolidatedSortDir, setConsolidatedSortDir] = useState<"asc" | "desc">("asc");
+  const toggleConsolidatedSort = (key: ConsolidatedSortKey) => {
+    if (consolidatedSortKey === key) {
+      setConsolidatedSortDir(d => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setConsolidatedSortKey(key);
+      setConsolidatedSortDir(key === "location" ? "asc" : "desc");
+    }
+  };
 
   const { data: consolidatedRows = [], isLoading: consolidatedLoading } = useQuery<ConsolidatedRow[]>({
     queryKey: ["/api/roster-consolidated"],
@@ -425,6 +437,43 @@ export default function Roster() {
           {/* ── CONSOLIDATED TAB ─────────────────────────────────── */}
           <TabsContent value="consolidated" className="mt-4">
             {(() => {
+              const statusRank = (r: ConsolidatedRow): number => {
+                if (r.totalTargetFte === null) return 0; // No Targets
+                const v = r.vacancyRate ?? 0;
+                if (v > 5) return 3; // Below Target
+                if (v <= 0) return 1; // On Track
+                return 2; // Near Target
+              };
+              const sortedConsolidatedRows = consolidatedRows.slice().sort((a, b) => {
+                const dir = consolidatedSortDir === "asc" ? 1 : -1;
+                const nullsLast = (av: number | null, bv: number | null) => {
+                  if (av === null && bv === null) return 0;
+                  if (av === null) return 1;
+                  if (bv === null) return -1;
+                  return (av - bv) * dir;
+                };
+                switch (consolidatedSortKey) {
+                  case "location":
+                    return a.locationName.localeCompare(b.locationName) * dir;
+                  case "target":
+                    return nullsLast(a.totalTargetFte, b.totalTargetFte);
+                  case "actual":
+                    return nullsLast(a.totalActualFte, b.totalActualFte);
+                  case "variance":
+                    return nullsLast(a.fteVariance, b.fteVariance);
+                  case "vacancy":
+                    return nullsLast(a.vacancyRate, b.vacancyRate);
+                  case "status":
+                    return (statusRank(a) - statusRank(b)) * dir
+                      || a.locationName.localeCompare(b.locationName);
+                }
+              });
+              const SortIcon = ({ k }: { k: ConsolidatedSortKey }) => {
+                if (consolidatedSortKey !== k) return <ArrowUpDown className="inline w-3 h-3 ml-1 opacity-40" />;
+                return consolidatedSortDir === "asc"
+                  ? <ArrowUp className="inline w-3 h-3 ml-1" />
+                  : <ArrowDown className="inline w-3 h-3 ml-1" />;
+              };
               const withData = consolidatedRows.filter(r => r.totalTargetFte !== null || r.totalActualFte !== null);
               const grandTargetFte = Math.round(withData.reduce((s, r) => s + (r.totalTargetFte ?? 0), 0) * 100) / 100;
               const grandActualFte = Math.round(withData.reduce((s, r) => s + (r.totalActualFte ?? 0), 0) * 100) / 100;
@@ -493,16 +542,40 @@ export default function Roster() {
                           <table className="w-full text-sm">
                             <thead className="bg-muted/50">
                               <tr>
-                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Location</th>
-                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Target FTE</th>
-                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actual FTE</th>
-                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Variance</th>
-                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Vacancy Rate</th>
-                                <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
+                                <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                                  <button type="button" onClick={() => toggleConsolidatedSort("location")} className="hover:text-foreground" data-testid="sort-consolidated-location">
+                                    Location<SortIcon k="location" />
+                                  </button>
+                                </th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                                  <button type="button" onClick={() => toggleConsolidatedSort("target")} className="hover:text-foreground" data-testid="sort-consolidated-target">
+                                    Target FTE<SortIcon k="target" />
+                                  </button>
+                                </th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                                  <button type="button" onClick={() => toggleConsolidatedSort("actual")} className="hover:text-foreground" data-testid="sort-consolidated-actual">
+                                    Actual FTE<SortIcon k="actual" />
+                                  </button>
+                                </th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                                  <button type="button" onClick={() => toggleConsolidatedSort("variance")} className="hover:text-foreground" data-testid="sort-consolidated-variance">
+                                    Variance<SortIcon k="variance" />
+                                  </button>
+                                </th>
+                                <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                                  <button type="button" onClick={() => toggleConsolidatedSort("vacancy")} className="hover:text-foreground" data-testid="sort-consolidated-vacancy">
+                                    Vacancy Rate<SortIcon k="vacancy" />
+                                  </button>
+                                </th>
+                                <th className="px-4 py-3 text-center font-medium text-muted-foreground">
+                                  <button type="button" onClick={() => toggleConsolidatedSort("status")} className="hover:text-foreground" data-testid="sort-consolidated-status">
+                                    Status<SortIcon k="status" />
+                                  </button>
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
-                              {consolidatedRows.map((row, i) => (
+                              {sortedConsolidatedRows.map((row, i) => (
                                 <tr
                                   key={row.locationId}
                                   className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}

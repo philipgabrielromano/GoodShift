@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.5";
+export const APP_VERSION = "3.8.6";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.6",
+    date: "2026-05-14",
+    title: "Sortable All Locations Roster Report",
+    changes: [
+      { type: "improvement", description: "On the Roster Targets 'All Locations' tab, every column header is now clickable to sort the consolidated FTE report — including Status, so you can quickly group all 'Below Target' stores at the top. Click again to flip the direction; an arrow shows the active sort column." },
+    ],
+  },
   {
     version: "3.8.5",
     date: "2026-05-14",
