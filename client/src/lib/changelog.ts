@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.4";
+export const APP_VERSION = "3.8.5";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.5",
+    date: "2026-05-14",
+    title: "Attendance Inactive Employee Filter Fix",
+    changes: [
+      { type: "fix", description: "Fixed a bug where the 'Show inactive employees' toggle on the Attendance page only listed people hired in the current calendar year. It now shows all inactive (terminated) employees the user has access to, matching the behavior of the Coaching page." },
+    ],
+  },
   {
     version: "3.8.4",
     date: "2026-05-13",
