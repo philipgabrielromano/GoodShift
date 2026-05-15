@@ -117,12 +117,21 @@ export function registerReportRoutes(app: Express) {
             return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
           });
         } else {
+          // No per-title visibility configured. Fall back to hierarchy.
+          // managerLevel === 0 means either no matching employee record, OR a
+          // title outside the recognized store hierarchy (e.g. DM/Director).
+          // In that case the user has feature access + location scope already,
+          // so don't apply a peer-exclusion filter that would zero out the report.
           const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-          filteredEmployees = filteredEmployees.filter(e => {
-            if (managerEmployee && e.id === managerEmployee.id) return false;
-            if (managerLevel >= 3) return true;
-            return getHierarchyLevel(e.jobTitle) < managerLevel;
-          });
+          if (managerLevel > 0 && managerLevel < 3) {
+            filteredEmployees = filteredEmployees.filter(e => {
+              if (managerEmployee && e.id === managerEmployee.id) return false;
+              return getHierarchyLevel(e.jobTitle) < managerLevel;
+            });
+          } else if (managerEmployee) {
+            // Still hide the user's own row from their report.
+            filteredEmployees = filteredEmployees.filter(e => e.id !== managerEmployee.id);
+          }
         }
       }
 

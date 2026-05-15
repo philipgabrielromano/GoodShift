@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.7";
+export const APP_VERSION = "3.8.8";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.8",
+    date: "2026-05-14",
+    title: "Occurrence Report Visibility — DM/Director Fallback",
+    changes: [
+      { type: "fix", description: "Follow-up: even with no per-job-title visibility configured, district managers and directors will now see employees in their assigned stores on the Occurrence Report. Previously an unrecognized job title (anything outside store manager / assistant / lead) caused the report to come back empty. Location scope and feature permissions still apply." },
+    ],
+  },
   {
     version: "3.8.7",
     date: "2026-05-14",
