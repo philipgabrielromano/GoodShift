@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.6";
+export const APP_VERSION = "3.8.7";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.7",
+    date: "2026-05-14",
+    title: "Occurrence Report Visibility Fix for DMs/Directors",
+    changes: [
+      { type: "fix", description: "Fixed a bug where district managers and directors saw an empty Occurrence Report even for stores they were assigned to. The report now respects the same per-job-title visibility settings used by Coaching and Attendance, so anyone an admin has granted visibility to will now show up in the report. Also fixes 'Show inactive' on the report to no longer require a current-year hire date." },
+    ],
+  },
   {
     version: "3.8.6",
     date: "2026-05-14",

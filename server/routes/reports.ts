@@ -3,7 +3,7 @@ import { storage } from "../storage";
 import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
 import { isValidLocationName } from "@shared/locationFilters";
 
-const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG"];
+const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
 const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
 const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK"];
 
@@ -14,6 +14,16 @@ function getHierarchyLevel(jobTitle: string | null): number {
   if (ASST_MANAGER_TITLES.includes(upper)) return 2;
   if (TEAM_LEAD_TITLES.includes(upper)) return 1;
   return 0;
+}
+
+// Per-job-title visibility override (configured by admins). Mirrors the
+// helper used by Coaching/Attendance so DMs/Directors granted visibility
+// into store roles via this table see the same employees here.
+async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined): Promise<Set<string> | null> {
+  if (!viewerJobTitle) return null;
+  const titles = await storage.getVisibleJobTitlesFor(viewerJobTitle);
+  if (!titles || titles.length === 0) return null;
+  return new Set(titles.map(t => t.toUpperCase()));
 }
 
 // Helper to resolve user's locationIds (numeric IDs) to location names
@@ -75,7 +85,7 @@ export function registerReportRoutes(app: Express) {
 
       const currentYear = new Date().getFullYear();
       let filteredEmployees = showInactive
-        ? allEmployees.filter(e => !e.isActive && e.hireDate && new Date(e.hireDate).getFullYear() === currentYear)
+        ? allEmployees.filter(e => !e.isActive)
         : allEmployees.filter(e => e.isActive);
 
       const allowedNames = await getAllowedLocationNames(user);
@@ -90,17 +100,27 @@ export function registerReportRoutes(app: Express) {
         );
       }
 
-      // Hierarchy filtering - same-level peers cannot see each other.
-      // Applies to any non-admin user (built-in or custom role) granted
-      // reports.occurrences feature access.
+      // Visibility filtering - same pattern as Coaching/Attendance.
+      // Applies to any non-admin, non-viewer user (built-in or custom role)
+      // granted reports.occurrences feature access.
       if (user.role !== "admin" && user.role !== "viewer") {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-        if (managerLevel < 3) {
+
+        // Per-job-title visibility (configured by admin) overrides hierarchy.
+        // This is what lets DMs/Directors see store-level employees.
+        const visibleTitleSet = await getVisibleJobTitleSet(managerEmployee?.jobTitle);
+        if (visibleTitleSet) {
           filteredEmployees = filteredEmployees.filter(e => {
             if (managerEmployee && e.id === managerEmployee.id) return false;
+            return !!e.jobTitle && visibleTitleSet.has(e.jobTitle.toUpperCase());
+          });
+        } else {
+          const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+          filteredEmployees = filteredEmployees.filter(e => {
+            if (managerEmployee && e.id === managerEmployee.id) return false;
+            if (managerLevel >= 3) return true;
             return getHierarchyLevel(e.jobTitle) < managerLevel;
           });
         }
