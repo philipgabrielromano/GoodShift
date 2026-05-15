@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.8";
+export const APP_VERSION = "3.8.9";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.9",
+    date: "2026-05-14",
+    title: "Group Occurrence Report by Store",
+    changes: [
+      { type: "improvement", description: "When 'All Locations' is selected on the Occurrence Report, employees are now grouped under a header for each store (with employee count), making it easy to scan one location at a time. Within each store group, employees are still sorted by total points, highest first." },
+    ],
+  },
   {
     version: "3.8.8",
     date: "2026-05-14",

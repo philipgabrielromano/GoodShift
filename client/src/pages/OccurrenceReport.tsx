@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Link } from "wouter";
@@ -68,6 +68,20 @@ export default function OccurrenceReport() {
     ? [...occurrences].sort((a, b) => b.totalPoints - a.totalPoints)
     : [];
 
+  const groupByStore = selectedLocation === "all";
+  const groupedData: { location: string; rows: OccurrenceRow[] }[] = (() => {
+    if (!groupByStore) return [{ location: "", rows: sortedData }];
+    const map = new Map<string, OccurrenceRow[]>();
+    for (const row of sortedData) {
+      const key = row.location || "Unknown";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(row);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([location, rows]) => ({ location, rows }));
+  })();
+
   return (
     <div className="p-3 sm:p-6 lg:p-10 space-y-4 sm:space-y-8 max-w-[1200px] mx-auto">
       <div>
@@ -136,31 +150,46 @@ export default function OccurrenceReport() {
           ) : (
             <>
               {/* Mobile card layout */}
-              <div className="sm:hidden space-y-2">
-                {sortedData.map((row) => (
-                  <div
-                    key={row.employeeId}
-                    className={`p-2.5 rounded border ${getRowHighlight(row.totalPoints)}`}
-                    data-testid={`row-occurrence-${row.employeeId}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <Link href={`/attendance?employeeId=${row.employeeId}`}>
-                          <p className="font-medium text-sm truncate text-primary hover:underline cursor-pointer" data-testid={`link-employee-name-${row.employeeId}`}>
-                            {row.employeeName}
-                          </p>
-                        </Link>
-                        <p className="text-[10px] text-muted-foreground" data-testid={`text-job-title-${row.employeeId}`}>
-                          {getJobTitle(row.jobTitle)} &middot; {row.location}
-                        </p>
+              <div className="sm:hidden space-y-4">
+                {groupedData.map((group) => (
+                  <div key={group.location || "single"} className="space-y-2">
+                    {groupByStore && (
+                      <div
+                        className="flex items-center justify-between px-1 pt-1"
+                        data-testid={`group-header-mobile-${group.location}`}
+                      >
+                        <h3 className="font-semibold text-sm">{group.location}</h3>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {group.rows.length}
+                        </Badge>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {getThresholdBadge(row.totalPoints)}
-                        <span className="font-bold text-sm" data-testid={`text-total-points-${row.employeeId}`}>
-                          {row.totalPoints.toFixed(1)}
-                        </span>
+                    )}
+                    {group.rows.map((row) => (
+                      <div
+                        key={row.employeeId}
+                        className={`p-2.5 rounded border ${getRowHighlight(row.totalPoints)}`}
+                        data-testid={`row-occurrence-${row.employeeId}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <Link href={`/attendance?employeeId=${row.employeeId}`}>
+                              <p className="font-medium text-sm truncate text-primary hover:underline cursor-pointer" data-testid={`link-employee-name-${row.employeeId}`}>
+                                {row.employeeName}
+                              </p>
+                            </Link>
+                            <p className="text-[10px] text-muted-foreground" data-testid={`text-job-title-${row.employeeId}`}>
+                              {getJobTitle(row.jobTitle)}{!groupByStore && ` · ${row.location}`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {getThresholdBadge(row.totalPoints)}
+                            <span className="font-bold text-sm" data-testid={`text-total-points-${row.employeeId}`}>
+                              {row.totalPoints.toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -172,41 +201,60 @@ export default function OccurrenceReport() {
                     <TableRow>
                       <TableHead>Employee Name</TableHead>
                       <TableHead>Job Title</TableHead>
-                      <TableHead>Location</TableHead>
+                      {!groupByStore && <TableHead>Location</TableHead>}
                       <TableHead>Employment Type</TableHead>
                       <TableHead className="text-right">Total Points</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sortedData.map((row) => (
-                      <TableRow
-                        key={row.employeeId}
-                        className={getRowHighlight(row.totalPoints)}
-                        data-testid={`row-occurrence-desktop-${row.employeeId}`}
-                      >
-                        <TableCell className="font-medium" data-testid={`text-employee-name-${row.employeeId}`}>
-                          <Link href={`/attendance?employeeId=${row.employeeId}`}>
-                            <span className="text-primary hover:underline cursor-pointer" data-testid={`link-employee-name-desktop-${row.employeeId}`}>
-                              {row.employeeName}
-                            </span>
-                          </Link>
-                        </TableCell>
-                        <TableCell data-testid={`text-job-title-${row.employeeId}`}>
-                          {getJobTitle(row.jobTitle)}
-                        </TableCell>
-                        <TableCell data-testid={`text-location-${row.employeeId}`}>
-                          {row.location}
-                        </TableCell>
-                        <TableCell data-testid={`text-employment-type-${row.employeeId}`}>
-                          {row.employmentType}
-                        </TableCell>
-                        <TableCell className="text-right" data-testid={`text-total-points-${row.employeeId}`}>
-                          <div className="flex items-center justify-end gap-2">
-                            {getThresholdBadge(row.totalPoints)}
-                            <span className="font-bold">{row.totalPoints.toFixed(1)}</span>
-                          </div>
-                        </TableCell>
-                      </TableRow>
+                    {groupedData.map((group) => (
+                      <Fragment key={`group-${group.location || "single"}`}>
+                        {groupByStore && (
+                          <TableRow
+                            className="bg-muted/50 hover:bg-muted/50"
+                            data-testid={`group-header-${group.location}`}
+                          >
+                            <TableCell colSpan={4} className="font-semibold py-2">
+                              {group.location}
+                            </TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground py-2">
+                              {group.rows.length} {group.rows.length === 1 ? "employee" : "employees"}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {group.rows.map((row) => (
+                          <TableRow
+                            key={row.employeeId}
+                            className={getRowHighlight(row.totalPoints)}
+                            data-testid={`row-occurrence-desktop-${row.employeeId}`}
+                          >
+                            <TableCell className="font-medium" data-testid={`text-employee-name-${row.employeeId}`}>
+                              <Link href={`/attendance?employeeId=${row.employeeId}`}>
+                                <span className="text-primary hover:underline cursor-pointer" data-testid={`link-employee-name-desktop-${row.employeeId}`}>
+                                  {row.employeeName}
+                                </span>
+                              </Link>
+                            </TableCell>
+                            <TableCell data-testid={`text-job-title-${row.employeeId}`}>
+                              {getJobTitle(row.jobTitle)}
+                            </TableCell>
+                            {!groupByStore && (
+                              <TableCell data-testid={`text-location-${row.employeeId}`}>
+                                {row.location}
+                              </TableCell>
+                            )}
+                            <TableCell data-testid={`text-employment-type-${row.employeeId}`}>
+                              {row.employmentType}
+                            </TableCell>
+                            <TableCell className="text-right" data-testid={`text-total-points-${row.employeeId}`}>
+                              <div className="flex items-center justify-end gap-2">
+                                {getThresholdBadge(row.totalPoints)}
+                                <span className="font-bold">{row.totalPoints.toFixed(1)}</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>
