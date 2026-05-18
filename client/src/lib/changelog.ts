@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.9";
+export const APP_VERSION = "3.8.10";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.10",
+    date: "2026-05-14",
+    title: "Backfill Past Attendance Adjustments",
+    changes: [
+      { type: "improvement", description: "Clarified the Add Adjustment dialog to make it obvious you can backfill past attendance deductions for record-keeping (including any year, not just 2025). Removed the 2025-only restriction on Perfect Attendance backfill so you can record past bonuses for any prior year. Standard limits still apply: 1 Covered Unscheduled Shift and 1 Perfect Attendance per calendar year." },
+    ],
+  },
   {
     version: "3.8.9",
     date: "2026-05-14",

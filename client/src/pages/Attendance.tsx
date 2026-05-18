@@ -165,14 +165,6 @@ export default function Attendance() {
     if (!selectedEmployeeId || !adjustmentType || !adjustmentDate) return;
 
     const year = parseInt(adjustmentDate.slice(0, 4), 10);
-    if (adjustmentType === 'perfect_attendance' && year !== 2025) {
-      toast({
-        title: "Date must be in 2025",
-        description: "Perfect Attendance backfill is only allowed for dates in 2025.",
-        variant: "destructive",
-      });
-      return;
-    }
 
     try {
       await createAdjustment.mutateAsync({
@@ -1036,7 +1028,7 @@ export default function Attendance() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              An adjustment reduces the employee's occurrence tally by 1.0. Employees can earn up to 1 adjustment per calendar year.
+              Each adjustment reduces the employee's occurrence tally by 1.0. Set the <strong>Date Earned</strong> to record an adjustment in a prior year (e.g. 2025) for record-keeping. Standard limits still apply per calendar year: <strong>1 Covered Unscheduled Shift</strong> and <strong>1 Perfect Attendance</strong> per year.
             </p>
             <div className="space-y-2">
               <Label>Adjustment Type</Label>
@@ -1046,11 +1038,11 @@ export default function Attendance() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unscheduled_shift">Covered Unscheduled Shift</SelectItem>
-                  <SelectItem value="perfect_attendance">Perfect Attendance (backfill only)</SelectItem>
+                  <SelectItem value="perfect_attendance">Perfect Attendance (backfill)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                "Perfect Attendance" here is for backfilling 2025 records only — for current-year bonuses, use the "Grant Perfect Attendance" button when eligible.
+                For current-year Perfect Attendance bonuses earned through 90 days clean, use the "Grant Perfect Attendance" button on the employee row when eligible. This backfill option is for recording past Perfect Attendance bonuses.
               </p>
             </div>
             <div className="space-y-2">
@@ -1066,11 +1058,6 @@ export default function Attendance() {
               {adjustmentDate && parseInt(adjustmentDate.slice(0, 4), 10) !== new Date().getFullYear() && (
                 <p className="text-xs text-orange-600 dark:text-orange-400">
                   Backdating to {adjustmentDate.slice(0, 4)} — counts toward that year's 1-per-year limit.
-                </p>
-              )}
-              {adjustmentType === 'perfect_attendance' && adjustmentDate && parseInt(adjustmentDate.slice(0, 4), 10) !== 2025 && (
-                <p className="text-xs text-red-600 dark:text-red-400">
-                  Perfect Attendance backfill requires a date in 2025.
                 </p>
               )}
             </div>
@@ -1094,8 +1081,7 @@ export default function Attendance() {
               disabled={
                 !adjustmentType ||
                 !adjustmentDate ||
-                createAdjustment.isPending ||
-                (adjustmentType === 'perfect_attendance' && parseInt(adjustmentDate.slice(0, 4), 10) !== 2025)
+                createAdjustment.isPending
               }
               data-testid="button-confirm-adjustment"
             >
