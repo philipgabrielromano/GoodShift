@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.12";
+export const APP_VERSION = "3.8.13";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.13",
+    date: "2026-05-14",
+    title: "Prior-Year Adjustments Now Reduce Current Tally When In-Window",
+    changes: [
+      { type: "fix", description: "Fixed the net tally math so an adjustment dated in a prior year (e.g. a 2025 backfill) still reduces the current rolling 12-month tally if its Date Earned falls inside the rolling window — same rule already used for occurrences. The 1-per-calendar-year cap is unaffected. In the Adjustments list, prior-year-but-in-window entries are now flagged with a blue 'YYYY backfill · counts now' badge; entries fully outside the rolling window remain dashed and struck-through." },
+    ],
+  },
   {
     version: "3.8.12",
     date: "2026-05-14",

@@ -870,18 +870,20 @@ export default function Attendance() {
                 <Card>
                   <CardHeader>
                     <CardTitle>Adjustments</CardTitle>
-                    <CardDescription>Full history. Only the current year ({new Date().getFullYear()}) counts toward this year's tally.</CardDescription>
+                    <CardDescription>Full history. Adjustments inside the rolling 12-month window reduce the current net tally.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
                       {summary.adjustments.map((adjustment) => {
                         const isRetracted = adjustment.status === 'retracted';
+                        const outsideWindow = adjustment.adjustmentDate < summary.periodStart;
+                        const adjYear = adjustment.calendarYear ?? new Date(adjustment.adjustmentDate).getFullYear();
                         const currentYear = new Date().getFullYear();
-                        const priorYear = (adjustment.calendarYear ?? new Date(adjustment.adjustmentDate).getFullYear()) !== currentYear;
+                        const priorYear = adjYear !== currentYear;
                         return (
                           <div 
                             key={adjustment.id} 
-                            className={`p-2 sm:p-3 rounded border ${isRetracted ? 'bg-muted/30 opacity-60' : priorYear ? 'bg-muted/20 border-dashed' : 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'}`}
+                            className={`p-2 sm:p-3 rounded border ${isRetracted ? 'bg-muted/30 opacity-60' : outsideWindow ? 'bg-muted/20 border-dashed' : 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'}`}
                             data-testid={`adjustment-${adjustment.id}`}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -892,7 +894,7 @@ export default function Attendance() {
                                   </div>
                                   <Badge 
                                     variant="outline"
-                                    className={isRetracted ? 'line-through' : priorYear ? 'text-muted-foreground' : 'text-green-600 border-green-600'}
+                                    className={isRetracted ? 'line-through' : outsideWindow ? 'text-muted-foreground' : 'text-green-600 border-green-600'}
                                   >
                                     {adjustment.adjustmentType === 'perfect_attendance' ? 'Perfect Attend.' : 'Covered Shift'}
                                   </Badge>
@@ -901,9 +903,14 @@ export default function Attendance() {
                                       Retracted
                                     </Badge>
                                   )}
-                                  {priorYear && !isRetracted && (
+                                  {outsideWindow && !isRetracted && (
                                     <Badge variant="outline" className="text-xs text-muted-foreground">
-                                      {adjustment.calendarYear ?? new Date(adjustment.adjustmentDate).getFullYear()} backfill
+                                      Outside 12-mo window
+                                    </Badge>
+                                  )}
+                                  {priorYear && !outsideWindow && !isRetracted && (
+                                    <Badge variant="outline" className="text-xs text-blue-600 border-blue-600">
+                                      {adjYear} backfill · counts now
                                     </Badge>
                                   )}
                                 </div>
@@ -917,7 +924,7 @@ export default function Attendance() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                                <span className={`text-xs sm:text-sm font-medium ${isRetracted ? 'line-through text-muted-foreground' : priorYear ? 'text-muted-foreground' : 'text-green-600'}`}>
+                                <span className={`text-xs sm:text-sm font-medium ${isRetracted || outsideWindow ? 'line-through text-muted-foreground' : 'text-green-600'}`}>
                                   {(adjustment.adjustmentValue / 100).toFixed(1)}
                                 </span>
                                 {canManageOccurrences && !isRetracted && (

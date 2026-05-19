@@ -394,23 +394,30 @@ export function registerOccurrenceRoutes(app: Express) {
       const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
       const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
-      // Get ALL adjustments for full history display, plus the current-year
-      // subset for tally math and the 1-per-year cap calculations.
+      // Get ALL adjustments for full history display. Two separate buckets:
+      //   - currentYearAdjustments → 1-per-year cap math
+      //   - windowAdjustments      → impact on the rolling 12-month tally
+      // An adjustment dated in a prior year that's still inside the rolling
+      // window (e.g. backfilled to 2025-11 while viewing in 2026-05) should
+      // reduce the current net tally just like occurrences in the same window.
       const currentYear = now.getFullYear();
       const allAdjustmentsEver = await storage.getOccurrenceAdjustments(employeeId, '1900-01-01', endDate);
-      const adjustments = allAdjustmentsEver.filter(a => a.calendarYear === currentYear);
+      const currentYearAdjustments = allAdjustmentsEver.filter(a => a.calendarYear === currentYear);
+      const windowAdjustments = allAdjustmentsEver.filter(a =>
+        a.adjustmentDate >= startDate && a.adjustmentDate <= endDate
+      );
       
-      // Separate manual adjustments (unscheduled_shift) from perfect attendance adjustments
-      // Active adjustments are used for tallies
-      const activeManualAdjustments = adjustments.filter(a => a.adjustmentType !== 'perfect_attendance' && a.status === 'active');
-      const activePerfectAttendanceAdjustments = adjustments.filter(a => a.adjustmentType === 'perfect_attendance' && a.status === 'active');
-      const manualAdjustmentTotal = activeManualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+      // Active adjustments inside the rolling window drive the tally math.
+      const activeWindowManualAdjustments = windowAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance' && a.status === 'active');
+      const activeWindowPerfectAttendanceAdjustments = windowAdjustments.filter(a => a.adjustmentType === 'perfect_attendance' && a.status === 'active');
+      const manualAdjustmentTotal = activeWindowManualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+      const perfectAttendanceValue = activeWindowPerfectAttendanceAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
       
-      // Perfect attendance: can only happen once per calendar year
-      const perfectAttendanceUsedThisYear = activePerfectAttendanceAdjustments.length > 0;
-      const perfectAttendanceValue = perfectAttendanceUsedThisYear 
-        ? activePerfectAttendanceAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100
-        : 0;
+      // Active current-year adjustments drive the 1-per-year cap and the
+      // "perfect attendance used this year" flag (which gates the bonus button).
+      const activeCurrentYearManualAdjustments = currentYearAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance' && a.status === 'active');
+      const activeCurrentYearPerfectAttendanceAdjustments = currentYearAdjustments.filter(a => a.adjustmentType === 'perfect_attendance' && a.status === 'active');
+      const perfectAttendanceUsedThisYear = activeCurrentYearPerfectAttendanceAdjustments.length > 0;
       
       // Check eligibility for perfect attendance (90 days without occurrences)
       const yearStart = `${currentYear}-01-01`;
@@ -463,7 +470,7 @@ export function registerOccurrenceRoutes(app: Express) {
         periodEnd: endDate,
         totalOccurrences: totalPoints,
         adjustmentsThisYear: totalAdjustment,
-        adjustmentsRemaining: 1 - activeManualAdjustments.length,
+        adjustmentsRemaining: 1 - activeCurrentYearManualAdjustments.length,
         netTally,
         occurrenceCount: activeOccurrences.length,
         occurrences: sortedOccurrences, // Full history (active + retracted, all years) for display
