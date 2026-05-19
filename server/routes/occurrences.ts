@@ -394,9 +394,11 @@ export function registerOccurrenceRoutes(app: Express) {
       const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
       const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
-      // Get adjustments for the current calendar year
+      // Get ALL adjustments for full history display, plus the current-year
+      // subset for tally math and the 1-per-year cap calculations.
       const currentYear = now.getFullYear();
-      const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
+      const allAdjustmentsEver = await storage.getOccurrenceAdjustments(employeeId, '1900-01-01', endDate);
+      const adjustments = allAdjustmentsEver.filter(a => a.calendarYear === currentYear);
       
       // Separate manual adjustments (unscheduled_shift) from perfect attendance adjustments
       // Active adjustments are used for tallies
@@ -464,8 +466,10 @@ export function registerOccurrenceRoutes(app: Express) {
         adjustmentsRemaining: 1 - activeManualAdjustments.length,
         netTally,
         occurrenceCount: activeOccurrences.length,
-        occurrences: sortedOccurrences, // Include all occurrences (active + retracted) for history
-        adjustments: adjustments, // Include all adjustments (active + retracted) for display
+        occurrences: sortedOccurrences, // Full history (active + retracted, all years) for display
+        adjustments: [...allAdjustmentsEver].sort((a, b) =>
+          new Date(b.adjustmentDate).getTime() - new Date(a.adjustmentDate).getTime()
+        ), // Full history (active + retracted, all years), most recent first
         perfectAttendanceBonus: perfectAttendanceUsedThisYear,
         perfectAttendanceBonusValue: perfectAttendanceValue,
         perfectAttendanceUsed: perfectAttendanceUsedThisYear ? 1 : 0,

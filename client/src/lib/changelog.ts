@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.11";
+export const APP_VERSION = "3.8.12";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.12",
+    date: "2026-05-14",
+    title: "Show Past Adjustments in Attendance History",
+    changes: [
+      { type: "fix", description: "The Adjustments card on the employee Attendance page now shows backfilled prior-year adjustments (e.g. 2025) alongside current-year ones. Prior-year rows are marked with a dashed border, a 'YYYY backfill' badge, and a muted point value so it's clear they don't count toward this year's tally. The 1-per-year cap math still applies only to the current calendar year." },
+    ],
+  },
   {
     version: "3.8.11",
     date: "2026-05-14",
