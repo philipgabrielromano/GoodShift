@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.10";
+export const APP_VERSION = "3.8.11";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.11",
+    date: "2026-05-14",
+    title: "Full Attendance History on Employee Page",
+    changes: [
+      { type: "improvement", description: "The Occurrence History list on the Attendance page now shows every occurrence on record for an employee, not just the last 12 months. Entries older than the rolling 12-month window are shown with a dashed border, an 'Outside 12-mo window' badge, and a struck-through point value so it's clear they don't count toward the current tally. The Total Occurrences and Net Tally numbers still use the rolling 12-month window — only the display is expanded." },
+    ],
+  },
   {
     version: "3.8.10",
     date: "2026-05-14",

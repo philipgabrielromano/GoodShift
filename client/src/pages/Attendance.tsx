@@ -758,22 +758,23 @@ export default function Attendance() {
                 <CardHeader>
                   <CardTitle>Occurrence History</CardTitle>
                   <CardDescription>
-                    {format(new Date(summary.periodStart), "MMM d, yyyy")} - {format(new Date(summary.periodEnd), "MMM d, yyyy")}
+                    Full history. Only entries from {format(new Date(summary.periodStart), "MMM d, yyyy")} – {format(new Date(summary.periodEnd), "MMM d, yyyy")} count toward the rolling 12-month tally.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {summary.occurrences.length === 0 ? (
                     <p className="text-muted-foreground text-center py-8">
-                      No occurrences in the last 12 months.
+                      No occurrences on record.
                     </p>
                   ) : (
                     <div className="space-y-2">
                       {summary.occurrences.map((occurrence) => {
                         const isRetracted = occurrence.status === 'retracted';
+                        const outsideWindow = occurrence.occurrenceDate < summary.periodStart;
                         return (
                           <div 
                             key={occurrence.id} 
-                            className={`p-2 sm:p-3 rounded border ${isRetracted ? 'bg-muted/30 opacity-60' : 'bg-muted/50'}`}
+                            className={`p-2 sm:p-3 rounded border ${isRetracted ? 'bg-muted/30 opacity-60' : outsideWindow ? 'bg-muted/20 border-dashed' : 'bg-muted/50'}`}
                             data-testid={`occurrence-${occurrence.id}`}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -801,6 +802,11 @@ export default function Attendance() {
                                   {isRetracted && (
                                     <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                                       Retracted
+                                    </Badge>
+                                  )}
+                                  {outsideWindow && !isRetracted && (
+                                    <Badge variant="outline" className="text-xs text-muted-foreground">
+                                      Outside 12-mo window
                                     </Badge>
                                   )}
                                 </div>
@@ -831,7 +837,7 @@ export default function Attendance() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                                <span className={`text-xs sm:text-sm font-medium ${isRetracted ? 'line-through text-muted-foreground' : (occurrence.isFmla || occurrence.isConsecutiveSickness) ? 'text-muted-foreground' : ''}`}>
+                                <span className={`text-xs sm:text-sm font-medium ${isRetracted || outsideWindow ? 'line-through text-muted-foreground' : (occurrence.isFmla || occurrence.isConsecutiveSickness) ? 'text-muted-foreground' : ''}`}>
                                   {(occurrence.occurrenceValue / 100).toFixed(1)}
                                   {!isRetracted && (occurrence.isFmla || occurrence.isConsecutiveSickness) && (
                                     <span className="text-[10px] sm:text-xs ml-0.5">(n/c)</span>

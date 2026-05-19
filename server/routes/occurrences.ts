@@ -381,8 +381,12 @@ export function registerOccurrenceRoutes(app: Express) {
       const startDate = oneYearAgo.toISOString().split('T')[0];
       const endDate = now.toISOString().split('T')[0];
       
-      // Get active (non-retracted) occurrences in the rolling 12-month window
-      const allOccurrences = await storage.getOccurrences(employeeId, startDate, endDate);
+      // Fetch every occurrence for this employee so the page can show full
+      // history. The rolling 12-month window is still used for the tally math.
+      const allOccurrencesEver = await storage.getOccurrences(employeeId, '1900-01-01', endDate);
+      const allOccurrences = allOccurrencesEver.filter(o =>
+        o.occurrenceDate >= startDate && o.occurrenceDate <= endDate
+      );
       const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
       
       // Calculate total points (stored as integers x100, so divide by 100)
@@ -441,8 +445,10 @@ export function registerOccurrenceRoutes(app: Express) {
       // Net tally = total occurrences + adjustments (adjustments are negative values)
       const netTally = Math.max(0, totalPoints + totalAdjustment);
       
-      // Sort all occurrences by date (most recent first) for display
-      const sortedOccurrences = [...allOccurrences].sort((a, b) => 
+      // Sort the FULL history (most recent first) for display. The page shows
+      // every occurrence ever recorded, even though the tally above only counts
+      // the rolling 12-month window.
+      const sortedOccurrences = [...allOccurrencesEver].sort((a, b) => 
         new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
       );
       
