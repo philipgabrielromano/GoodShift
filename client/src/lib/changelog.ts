@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.13";
+export const APP_VERSION = "3.8.14";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.14",
+    date: "2026-05-20",
+    title: "HR Users Can Now See Coaching Logs for Assigned Stores",
+    changes: [
+      { type: "fix", description: "Fixed Coaching Logs visibility for HR users (and any role with a job title not in the standard store-manager / asst-manager / team-lead hierarchy). HR previously saw an empty list because their job title resolved to an unknown hierarchy level, which the filter then read as 'show no one'. They now see all employees and coaching logs for the stores they're assigned to — same scoping rule used for the Occurrence Report fix. The 'cannot create/modify log for someone above your level' guards still apply to team leads and assistant managers." },
+    ],
+  },
   {
     version: "3.8.13",
     date: "2026-05-14",

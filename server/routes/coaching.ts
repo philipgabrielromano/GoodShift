@@ -120,7 +120,11 @@ export function registerCoachingRoutes(app: Express) {
 
         const visible = filtered.filter(e => {
           if (managerEmployee && e.id === managerEmployee.id) return false;
-          if (managerLevel >= 3) return true;
+          // Unknown titles (level 0, e.g. HR, district-level roles) and store-
+          // manager-and-above (level >= 3) see everyone within their allowed
+          // locations. The numeric-level restriction only applies to known
+          // sub-store roles (team lead / asst manager, levels 1-2).
+          if (managerLevel === 0 || managerLevel >= 3) return true;
           const empLevel = getHierarchyLevel(e.jobTitle);
           return empLevel < managerLevel;
         });
@@ -199,7 +203,9 @@ export function registerCoachingRoutes(app: Express) {
             if (!includeInactive && !e.isActive) return false;
             if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
             if (managerEmployee && e.id === managerEmployee.id) return false;
-            if (managerLevel >= 3) return true;
+            // Unknown titles (level 0, e.g. HR) and store-manager-and-above
+            // (level >= 3) see everyone within their allowed locations.
+            if (managerLevel === 0 || managerLevel >= 3) return true;
             return getHierarchyLevel(e.jobTitle) < managerLevel;
           }).map(e => e.id)
         );
@@ -269,7 +275,10 @@ export function registerCoachingRoutes(app: Express) {
             }
           } else {
             const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-            if (managerLevel < 3) {
+            // Only apply level-gate for known sub-store roles (team lead / asst
+            // manager). Unknown titles (HR etc.) and store-manager-and-above
+            // are already constrained by the location check above.
+            if (managerLevel >= 1 && managerLevel < 3) {
               const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
               if (empLevel >= managerLevel) {
                 return res.status(403).json({ message: "Cannot create coaching log for employees at or above your level" });
@@ -375,7 +384,9 @@ export function registerCoachingRoutes(app: Express) {
             }
           } else {
             const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-            if (managerLevel < 3) {
+            // Only apply level-gate for known sub-store roles. Unknown titles
+            // (HR etc.) are already constrained by the location check above.
+            if (managerLevel >= 1 && managerLevel < 3) {
               const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
               if (empLevel >= managerLevel) {
                 return res.status(403).json({ message: "Cannot modify coaching log for this employee" });
