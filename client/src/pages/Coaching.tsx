@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { Fragment, useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { usePermissions } from "@/hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -257,7 +257,27 @@ export default function Coaching() {
     employeeName: employeeMap.get(log.employeeId)?.name || "Unknown",
     employeeJobTitle: employeeMap.get(log.employeeId)?.jobTitle || "",
     employeeLocation: employeeMap.get(log.employeeId)?.location || "",
-  })).filter(log => filterLocation === "all" || log.employeeLocation === filterLocation);
+  }))
+    .filter(log => filterLocation === "all" || log.employeeLocation === filterLocation)
+    .sort((a, b) => {
+      const da = a.date ? new Date(a.date + "T00:00:00").getTime() : new Date(a.createdAt).getTime();
+      const db = b.date ? new Date(b.date + "T00:00:00").getTime() : new Date(b.createdAt).getTime();
+      return db - da;
+    });
+
+  const showLocationGroups = filterLocation === "all" && locations.length > 1;
+  const groupedLogs: { location: string; logs: typeof enrichedLogs }[] = (() => {
+    if (!showLocationGroups) return [{ location: "", logs: enrichedLogs }];
+    const map = new Map<string, typeof enrichedLogs>();
+    for (const log of enrichedLogs) {
+      const key = log.employeeLocation || "Unassigned";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(log);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([location, logs]) => ({ location, logs }));
+  })();
 
   const filteredFormEmployees = employees?.filter(e => filterLocation === "all" || e.location === filterLocation);
 
@@ -552,30 +572,43 @@ export default function Coaching() {
           ) : (
             <>
               {/* Mobile card layout */}
-              <div className="sm:hidden space-y-2">
-                {enrichedLogs.map(log => (
-                  <div
-                    key={log.id}
-                    data-testid={`row-coaching-log-${log.id}`}
-                    className="p-2.5 rounded border bg-muted/50 cursor-pointer hover-elevate"
-                    onClick={() => setDetailLog(log)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate" data-testid={`text-employee-name-${log.id}`}>{log.employeeName}</p>
-                        <p className="text-[10px] text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
+              <div className="sm:hidden space-y-4">
+                {groupedLogs.map(group => (
+                  <div key={group.location || "__all__"} className="space-y-2">
+                    {showLocationGroups && (
+                      <div
+                        className="flex items-center justify-between sticky top-0 bg-background/95 backdrop-blur z-10 py-1 border-b"
+                        data-testid={`group-header-mobile-${group.location}`}
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.location}</p>
+                        <span className="text-[10px] text-muted-foreground">{group.logs.length}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {log.attachmentUrl && <Paperclip className="w-3 h-3 text-muted-foreground" />}
-                        <Badge className={`no-default-hover-elevate no-default-active-elevate text-[10px] ${categoryColors[log.category] || ""}`} data-testid={`badge-category-${log.id}`}>
-                          {log.category}
-                        </Badge>
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                          {format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "M/d/yy")}
-                        </span>
+                    )}
+                    {group.logs.map(log => (
+                      <div
+                        key={log.id}
+                        data-testid={`row-coaching-log-${log.id}`}
+                        className="p-2.5 rounded border bg-muted/50 cursor-pointer hover-elevate"
+                        onClick={() => setDetailLog(log)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate" data-testid={`text-employee-name-${log.id}`}>{log.employeeName}</p>
+                            <p className="text-[10px] text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {log.attachmentUrl && <Paperclip className="w-3 h-3 text-muted-foreground" />}
+                            <Badge className={`no-default-hover-elevate no-default-active-elevate text-[10px] ${categoryColors[log.category] || ""}`} data-testid={`badge-category-${log.id}`}>
+                              {log.category}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                              {format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "M/d/yy")}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{log.reason}</p>
                       </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{log.reason}</p>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -596,45 +629,62 @@ export default function Coaching() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {enrichedLogs.map(log => (
-                      <TableRow
-                        key={log.id}
-                        data-testid={`row-coaching-log-desktop-${log.id}`}
-                        className="cursor-pointer hover-elevate"
-                        onClick={() => setDetailLog(log)}
-                      >
-                        <TableCell className="whitespace-nowrap text-sm">
-                          {format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "MMM d, yyyy")}
-                        </TableCell>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium text-sm">{log.employeeName}</p>
-                            <p className="text-xs text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={`no-default-hover-elevate no-default-active-elevate ${categoryColors[log.category] || ""}`}>
-                            {log.category}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-[250px]">
-                          <p className="text-sm line-clamp-2">{log.reason}</p>
-                        </TableCell>
-                        <TableCell className="max-w-[250px]">
-                          <p className="text-sm line-clamp-2">{log.actionTaken}</p>
-                        </TableCell>
-                        <TableCell className="max-w-[250px]">
-                          <p className="text-sm line-clamp-2">{log.employeeResponse}</p>
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                          {log.managerName}
-                        </TableCell>
-                        <TableCell>
-                          {log.attachmentUrl && (
-                            <Paperclip className="w-4 h-4 text-muted-foreground" data-testid={`icon-attachment-${log.id}`} />
-                          )}
-                        </TableCell>
-                      </TableRow>
+                    {groupedLogs.map(group => (
+                      <Fragment key={group.location || "__all__"}>
+                        {showLocationGroups && (
+                          <TableRow
+                            className="bg-muted/40 hover:bg-muted/40"
+                            data-testid={`group-header-desktop-${group.location}`}
+                          >
+                            <TableCell colSpan={8} className="py-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.location}</span>
+                                <span className="text-xs text-muted-foreground">{group.logs.length} log{group.logs.length !== 1 ? "s" : ""}</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {group.logs.map(log => (
+                          <TableRow
+                            key={log.id}
+                            data-testid={`row-coaching-log-desktop-${log.id}`}
+                            className="cursor-pointer hover-elevate"
+                            onClick={() => setDetailLog(log)}
+                          >
+                            <TableCell className="whitespace-nowrap text-sm">
+                              {format(log.date ? new Date(log.date + "T00:00:00") : new Date(log.createdAt), "MMM d, yyyy")}
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium text-sm">{log.employeeName}</p>
+                                <p className="text-xs text-muted-foreground">{getJobTitleDisplay(log.employeeJobTitle)}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={`no-default-hover-elevate no-default-active-elevate ${categoryColors[log.category] || ""}`}>
+                                {log.category}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="max-w-[250px]">
+                              <p className="text-sm line-clamp-2">{log.reason}</p>
+                            </TableCell>
+                            <TableCell className="max-w-[250px]">
+                              <p className="text-sm line-clamp-2">{log.actionTaken}</p>
+                            </TableCell>
+                            <TableCell className="max-w-[250px]">
+                              <p className="text-sm line-clamp-2">{log.employeeResponse}</p>
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                              {log.managerName}
+                            </TableCell>
+                            <TableCell>
+                              {log.attachmentUrl && (
+                                <Paperclip className="w-4 h-4 text-muted-foreground" data-testid={`icon-attachment-${log.id}`} />
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </Fragment>
                     ))}
                   </TableBody>
                 </Table>

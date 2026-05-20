@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.14";
+export const APP_VERSION = "3.8.15";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.15",
+    date: "2026-05-20",
+    title: "Coaching Logs: Grouped by Store, Sorted Newest First",
+    changes: [
+      { type: "improvement", description: "When the Coaching Logs page is showing 'All Locations' (and you have access to more than one store), logs are now grouped under a section header for each store and sorted newest-first within each group. Picking a single store from the location filter still shows a flat newest-first list. Applies to both the desktop table and the mobile card view." },
+    ],
+  },
   {
     version: "3.8.14",
     date: "2026-05-20",
