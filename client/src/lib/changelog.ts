@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.15";
+export const APP_VERSION = "3.8.16";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.16",
+    date: "2026-05-20",
+    title: "Blank-Screen Diagnostic for Older iPads",
+    changes: [
+      { type: "improvement", description: "Added a fallback message that replaces the blank white screen seen on older iPads (typically iOS 12 or 13, where Safari can't parse the app's modern JavaScript). Instead of nothing, users now see a readable 'GoodShift could not load' message with a Reload button and a diagnostic block showing their browser version so IT can confirm the iOS version. The page also catches early JS errors and an 8-second mount timeout. No behavior change on supported devices." },
+    ],
+  },
   {
     version: "3.8.15",
     date: "2026-05-20",
