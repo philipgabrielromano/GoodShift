@@ -489,12 +489,26 @@ export function registerOrderRoutes(app: Express) {
       columns.push("submitted_by");
       values.push(actor.name);
 
-      // Phase 1: every newly created order is "submitted" (pending) and has
-      // no inventory effect until an approver acts on it. The MySQL column
-      // also defaults to 'submitted', but we set it explicitly so the audit
-      // trail is unambiguous.
+      // Donors, Supplemental Production, and End-of-Day/Equipment Count
+      // orders don't require warehouse approval — they're informational /
+      // counts. Auto-approve on submit so they don't sit in the queue, and
+      // suppress all confirmation/notification emails for these types.
+      const AUTO_APPROVE_TYPES = new Set([
+        "Donors",
+        "Supplemental production",
+        "End of Day/Equipment Count",
+      ]);
+      const isAutoApproved = AUTO_APPROVE_TYPES.has(parsed.orderType);
+
       columns.push("status");
-      values.push("submitted");
+      values.push(isAutoApproved ? "approved" : "submitted");
+
+      if (isAutoApproved) {
+        columns.push("approved_by");
+        values.push("auto_approved");
+        columns.push("approved_at");
+        values.push(new Date().toISOString().slice(0, 19).replace("T", " "));
+      }
 
       const placeholders = columns.map(() => "?").join(", ");
 
@@ -516,12 +530,24 @@ export function registerOrderRoutes(app: Express) {
       void logOrderEvent({
         orderId: newOrderId,
         eventType: "created",
-        toStatus: "submitted",
+        toStatus: isAutoApproved ? "approved" : "submitted",
         byUserId: actor.id,
-        byUserName: actor.name,
+        byUserName: isAutoApproved ? "auto_approved" : actor.name,
       });
 
-      res.status(201).json({ id: newOrderId, status: "submitted", message: "Order submitted successfully" });
+      const finalStatus = isAutoApproved ? "approved" : "submitted";
+      res.status(201).json({
+        id: newOrderId,
+        status: finalStatus,
+        message: isAutoApproved ? "Order submitted and auto-approved" : "Order submitted successfully",
+      });
+
+      // Auto-approved order types skip all emails (no submitter confirmation,
+      // no warehouse notification) — they're informational and don't need
+      // anyone to act on them.
+      if (isAutoApproved) {
+        return;
+      }
 
       const submittedBy = actor.name;
       const submitterEmail = actor.email;

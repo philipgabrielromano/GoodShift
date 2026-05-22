@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.16";
+export const APP_VERSION = "3.8.17";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.17",
+    date: "2026-05-20",
+    title: "Donors / Supplemental Production / End of Day Orders Auto-Approve",
+    changes: [
+      { type: "improvement", description: "Orders submitted with type Donors, Supplemental Production, or End of Day / Equipment Count are now automatically approved on submit (status goes straight to 'approved', approver is recorded as 'auto_approved'). These types are informational and don't need warehouse review. No confirmation email is sent to the submitter and no notification email is sent to the warehouse distribution list for these types. Transfer & Receive and First Aid orders still require approval and still send their usual emails." },
+    ],
+  },
   {
     version: "3.8.16",
     date: "2026-05-20",
