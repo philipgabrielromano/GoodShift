@@ -16,7 +16,7 @@ export const changelog: ChangelogEntry[] = [
     date: "2026-05-20",
     title: "Donors / Supplemental Production / End of Day Orders Auto-Approve",
     changes: [
-      { type: "improvement", description: "Orders submitted with type Donors, Supplemental Production, or End of Day / Equipment Count are now automatically approved on submit (status goes straight to 'approved', approver is recorded as 'auto_approved'). These types are informational and don't need warehouse review. No confirmation email is sent to the submitter and no notification email is sent to the warehouse distribution list for these types. Transfer & Receive and First Aid orders still require approval and still send their usual emails." },
+      { type: "improvement", description: "Orders submitted with type Donors, Supplemental Production, or End of Day / Equipment Count are now automatically approved on submit (status goes straight to 'approved', approver is recorded as 'auto_approved'). The submitter still gets the usual submission confirmation email, but the warehouse distribution list is NOT notified — these types are informational and don't need anyone to act on them. Transfer & Receive and First Aid orders still require approval and still send their usual emails." },
     ],
   },
   {

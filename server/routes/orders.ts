@@ -542,13 +542,6 @@ export function registerOrderRoutes(app: Express) {
         message: isAutoApproved ? "Order submitted and auto-approved" : "Order submitted successfully",
       });
 
-      // Auto-approved order types skip all emails (no submitter confirmation,
-      // no warehouse notification) — they're informational and don't need
-      // anyone to act on them.
-      if (isAutoApproved) {
-        return;
-      }
-
       const submittedBy = actor.name;
       const submitterEmail = actor.email;
       void (async () => {
@@ -587,12 +580,18 @@ export function registerOrderRoutes(app: Express) {
           //  - Transfer and End-of-Day use the existing generic order list.
           //  - Donors and Supplemental Production are submitter-only (no
           //    extra recipients).
+          //
+          // Auto-approved types (Donors / Supplemental Production / End of
+          // Day) skip the warehouse distro entirely since no one needs to act
+          // on them — the submitter still gets their confirmation above.
           const GENERIC_NOTIFY_TYPES = new Set([
             "Transfer and Receive",
             "End of Day/Equipment Count",
           ]);
           let emailList: string | null | undefined;
-          if (parsed.orderType === "First Aid") {
+          if (isAutoApproved) {
+            emailList = null;
+          } else if (parsed.orderType === "First Aid") {
             const settings = await storage.getGlobalSettings();
             emailList = settings?.firstAidNotificationEmails;
           } else if (GENERIC_NOTIFY_TYPES.has(parsed.orderType)) {
