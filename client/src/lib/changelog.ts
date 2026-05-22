@@ -8,17 +8,9 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.18";
+export const APP_VERSION = "3.8.17";
 
 export const changelog: ChangelogEntry[] = [
-  {
-    version: "3.8.18",
-    date: "2026-05-20",
-    title: "New Email Configuration Matrix Page",
-    changes: [
-      { type: "feature", description: "Added Admin → Email Config — a single page that lists every email GoodShift sends, what triggers it, and who currently receives it. The six recipient lists already stored in global settings (Order notification, First Aid, Driver inspection alerts, Warehouse variance Cleveland / Canton, and HR occurrence notification) can be edited and saved inline. The remaining 'automatic' emails (order confirmation / approved / denied / fulfilled, occurrence alerts, shift-trade notifications, schedule publish, trailer in-transit) are shown as read-only Fixed rows with a description of how their recipients are resolved, so it's clear why they're not editable here. Trigger rules themselves were not changed." },
-    ],
-  },
   {
     version: "3.8.17",
     date: "2026-05-20",

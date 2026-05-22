@@ -34,7 +34,6 @@ import WarehouseInventory from "@/pages/WarehouseInventory";
 import WarehouseInventoryList from "@/pages/WarehouseInventoryList";
 import WarehouseInventoryDetail from "@/pages/WarehouseInventoryDetail";
 import Permissions from "@/pages/Permissions";
-import EmailMatrix from "@/pages/EmailMatrix";
 import CreditCardInspectionForm from "@/pages/CreditCardInspectionForm";
 import CreditCardInspections from "@/pages/CreditCardInspections";
 import DriverInspectionForm from "@/pages/DriverInspectionForm";
@@ -81,7 +80,6 @@ function Router() {
       <Route path="/warehouse-inventory/:id" component={WarehouseInventoryDetail} />
       <Route path="/warehouse-inventory" component={WarehouseInventory} />
       <Route path="/permissions" component={Permissions} />
-      <Route path="/email-matrix" component={EmailMatrix} />
       <Route path="/job-title-hierarchy">{() => <Redirect to="/settings#job-titles" />}</Route>
       <Route path="/credit-card-inspection/new" component={CreditCardInspectionForm} />
       <Route path="/credit-card-inspections" component={CreditCardInspections} />

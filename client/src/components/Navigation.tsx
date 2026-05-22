@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Settings, Menu, Shield, MapPin, Clock, AlertTriangle,
   LogOut, ScrollText, ArrowLeftRight, FileBarChart, ClipboardList, MessageSquare,
   UsersRound, ListTodo, Target, PackageOpen, FileText, ShieldCheck, Truck,
-  Warehouse, CreditCard, Package, Boxes, ExternalLink, Search, ChevronRight, Network, PieChart, Mail,
+  Warehouse, CreditCard, Package, Boxes, ExternalLink, Search, ChevronRight, Network, PieChart,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -121,7 +121,6 @@ export function Navigation() {
 
     const admin: NavItem[] = [];
     if (can("settings.permissions")) admin.push({ href: "/permissions", label: "Permissions", icon: ShieldCheck });
-    if (can("settings.global_config")) admin.push({ href: "/email-matrix", label: "Email Config", icon: Mail });
     admin.push({ href: "/changelog", label: "Changelog", icon: ScrollText });
     if (admin.length) built.push({ id: "admin", label: "Admin", items: admin });
 
