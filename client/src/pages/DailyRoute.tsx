@@ -165,8 +165,19 @@ export default function DailyRoute() {
 
   const allItemTotals = useMemo(() => {
     if (!data) return {};
-    const allStops = data.groups.flatMap(g => g.stops);
-    return aggregateStopsAsItems(allStops);
+    // Dedupe by location name first — a location on N routes appears N times
+    // across the groups, but each occurrence holds the SAME values pulled from
+    // the same orders bucket on the server. Flat-summing would double-count.
+    const seen = new Set<string>();
+    const uniqueStops: DailyStop[] = [];
+    for (const g of data.groups) {
+      for (const stop of g.stops) {
+        if (seen.has(stop.locationName)) continue;
+        seen.add(stop.locationName);
+        uniqueStops.push(stop);
+      }
+    }
+    return aggregateStopsAsItems(uniqueStops);
   }, [data]);
 
   const perRouteItemTotals = useMemo(() => {
@@ -257,9 +268,11 @@ export default function DailyRoute() {
         const existing = byName.get(stop.locationName);
         const stopNote = (stop.notes ?? "").trim();
         if (existing) {
-          for (const [k, v] of Object.entries(stop.values)) {
-            existing.values[k] = (existing.values[k] ?? 0) + Number(v ?? 0);
-          }
+          // Same location appears on multiple routes (e.g. North Olmsted is
+          // on both Box Truck Cleveland and West Cleveland Route). Each
+          // duplicate stop pulls from the SAME orders bucket on the server,
+          // so the values are identical — summing them double-counts the
+          // shipment. Just merge any non-duplicate notes.
           if (stopNote && !existing.notes.includes(stopNote)) existing.notes.push(stopNote);
         } else {
           byName.set(stop.locationName, {

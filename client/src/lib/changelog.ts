@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.17";
+export const APP_VERSION = "3.8.18";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.18",
+    date: "2026-05-26",
+    title: "Daily Route: Fix Doubled Quantities for Multi-Route Stores",
+    changes: [
+      { type: "fix", description: "Fixed a bug on the Daily Route page where stores that appear on more than one truck route (North Olmsted, Canton Outlet, Cleveland Outlet, Route 62, Perry, Willowick) had their equipment quantities doubled in the location-aggregated table, the Excel export, and the 'All routes' manifest pre-fill. Each route's stop was holding an identical copy of the same order, and the aggregation summed them. Quantities now show once per location regardless of how many routes the store is on. The per-route table view was always correct and is unchanged." },
+    ],
+  },
   {
     version: "3.8.17",
     date: "2026-05-20",

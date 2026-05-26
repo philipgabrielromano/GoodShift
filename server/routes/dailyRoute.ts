@@ -279,9 +279,11 @@ function buildWorkbook(data: DailyRouteData): ExcelJS.Workbook {
       const existing = byName.get(stop.locationName);
       const stopNote = (stop.notes ?? "").trim();
       if (existing) {
-        for (const [k, v] of Object.entries(stop.values)) {
-          existing.values[k] = (existing.values[k] ?? 0) + Number(v ?? 0);
-        }
+        // Same location appears on multiple routes (e.g. North Olmsted is on
+        // both Box Truck Cleveland and West Cleveland Route). Each duplicate
+        // stop holds the SAME values pulled from the same orders bucket in
+        // loadDailyRouteData — summing them double-counts the shipment in
+        // the Excel export. Just merge any non-duplicate notes.
         if (stopNote && !existing.notes.includes(stopNote)) existing.notes.push(stopNote);
       } else {
         byName.set(stop.locationName, {
