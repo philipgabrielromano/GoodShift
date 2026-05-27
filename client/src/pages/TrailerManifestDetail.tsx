@@ -42,7 +42,6 @@ const STATUS_LABELS: Record<TrailerManifestStatus, string> = {
   loading: "Loading",
   in_transit: "In Transit",
   delivered: "Delivered",
-  closed: "Closed",
 };
 
 const GROUP_COLORS: Record<string, string> = {
@@ -230,7 +229,7 @@ export default function TrailerManifestDetail() {
   }
 
   const m = data.manifest;
-  const isClosed = m.status === "closed";
+  const isClosed = m.status === "delivered" || (m.status as string) === "closed";
   const isReadOnly = isClosed;
 
   const handlePrint = () => window.print();

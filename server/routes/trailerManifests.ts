@@ -109,8 +109,8 @@ export function registerTrailerManifestRoutes(app: Express) {
       const id = Number(req.params.id);
       const existing = await storage.getTrailerManifest(id);
       if (!existing) return res.status(404).json({ message: "Manifest not found" });
-      if (existing.status === "closed") {
-        return res.status(400).json({ message: "Closed manifests cannot be edited" });
+      if ((existing.status === "delivered" || existing.status === "closed")) {
+        return res.status(400).json({ message: "Delivered manifests cannot be edited (they are locked)" });
       }
       const input = updateSchema.parse(req.body);
       const updated = await storage.updateTrailerManifest(id, input);
@@ -239,8 +239,8 @@ export function registerTrailerManifestRoutes(app: Express) {
       const id = Number(req.params.id);
       const existing = await storage.getTrailerManifest(id);
       if (!existing) return res.status(404).json({ message: "Manifest not found" });
-      if (existing.status === "closed") {
-        return res.status(400).json({ message: "Closed manifests cannot be edited" });
+      if ((existing.status === "delivered" || existing.status === "closed")) {
+        return res.status(400).json({ message: "Delivered manifests cannot be edited (they are locked)" });
       }
       const input = adjustSchema.parse(req.body);
       const groupName = ITEM_TO_GROUP.get(input.itemName)!;
@@ -268,8 +268,8 @@ export function registerTrailerManifestRoutes(app: Express) {
       const id = Number(req.params.id);
       const existing = await storage.getTrailerManifest(id);
       if (!existing) return res.status(404).json({ message: "Manifest not found" });
-      if (existing.status === "closed") {
-        return res.status(400).json({ message: "Closed manifests cannot be edited" });
+      if ((existing.status === "delivered" || existing.status === "closed")) {
+        return res.status(400).json({ message: "Delivered manifests cannot be edited (they are locked)" });
       }
       const input = setQtySchema.parse(req.body);
       const groupName = ITEM_TO_GROUP.get(input.itemName)!;
@@ -297,8 +297,8 @@ export function registerTrailerManifestRoutes(app: Express) {
       const id = Number(req.params.id);
       const existing = await storage.getTrailerManifest(id);
       if (!existing) return res.status(404).json({ message: "Manifest not found" });
-      if (existing.status === "closed") {
-        return res.status(400).json({ message: "Closed manifests cannot accept new photos" });
+      if ((existing.status === "delivered" || existing.status === "closed")) {
+        return res.status(400).json({ message: "Delivered manifests cannot accept new photos (they are locked)" });
       }
       const input = photoSchema.parse(req.body);
       const created = await storage.addTrailerManifestPhoto(

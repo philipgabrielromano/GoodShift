@@ -867,8 +867,14 @@ export class DatabaseStorage implements IStorage {
   async setTrailerManifestStatus(id: number, status: string): Promise<TrailerManifest> {
     const update: any = { status, updatedAt: new Date() };
     if (status === "in_transit") update.departedAt = new Date();
-    if (status === "delivered") update.arrivedAt = new Date();
-    if (status === "closed") update.closedAt = new Date();
+    // "delivered" is now the terminal locked state (the old "closed" status
+    // was merged into it). Stamp both arrivedAt and closedAt so historical
+    // queries on closedAt still work for the migrated rows.
+    if (status === "delivered") {
+      const now = new Date();
+      update.arrivedAt = now;
+      update.closedAt = now;
+    }
     const [updated] = await db.update(trailerManifests)
       .set(update)
       .where(eq(trailerManifests.id, id))

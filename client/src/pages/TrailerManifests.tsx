@@ -31,14 +31,12 @@ const STATUS_LABELS: Record<TrailerManifestStatus, string> = {
   loading: "Loading",
   in_transit: "In Transit",
   delivered: "Delivered",
-  closed: "Closed",
 };
 
 const STATUS_BADGE: Record<TrailerManifestStatus, "default" | "secondary" | "outline" | "destructive"> = {
   loading: "secondary",
   in_transit: "default",
   delivered: "outline",
-  closed: "outline",
 };
 
 export default function TrailerManifests() {
@@ -108,7 +106,7 @@ export default function TrailerManifests() {
 
   const { can } = usePermissions();
   const canEditManifests = can("trailer_manifest.edit");
-  const openManifests = manifests.filter(m => m.status !== "closed");
+  const openManifests = manifests.filter(m => m.status !== "delivered");
 
   const closeAllMutation = useMutation({
     mutationFn: async (ids: number[]) => {
@@ -121,7 +119,7 @@ export default function TrailerManifests() {
       for (let i = 0; i < ids.length; i += BATCH) {
         const chunk = ids.slice(i, i + BATCH);
         const results = await Promise.allSettled(
-          chunk.map(id => apiRequest("POST", `/api/trailer-manifests/${id}/status`, { status: "closed" })),
+          chunk.map(id => apiRequest("POST", `/api/trailer-manifests/${id}/status`, { status: "delivered" })),
         );
         failed += results.filter(r => r.status === "rejected").length;
       }
@@ -130,17 +128,17 @@ export default function TrailerManifests() {
     onSuccess: ({ total, failed }) => {
       queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
       if (failed === 0) {
-        toast({ title: "All manifests closed", description: `${total} manifest${total === 1 ? "" : "s"} marked as Closed.` });
+        toast({ title: "All manifests delivered", description: `${total} manifest${total === 1 ? "" : "s"} marked as Delivered.` });
       } else {
         toast({
-          title: "Some manifests could not be closed",
-          description: `${total - failed} of ${total} closed. ${failed} failed.`,
+          title: "Some manifests could not be marked delivered",
+          description: `${total - failed} of ${total} updated. ${failed} failed.`,
           variant: "destructive",
         });
       }
     },
     onError: (err: any) => {
-      toast({ title: "Failed to close manifests", description: err?.message || "", variant: "destructive" });
+      toast({ title: "Failed to mark manifests delivered", description: err?.message || "", variant: "destructive" });
     },
   });
 
@@ -213,16 +211,17 @@ export default function TrailerManifests() {
                 {closeAllMutation.isPending
                   ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   : <CheckCheck className="w-4 h-4 mr-2" />}
-                Close All ({openManifests.length})
+                Mark All Delivered ({openManifests.length})
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent data-testid="dialog-close-all-confirm">
               <AlertDialogHeader>
-                <AlertDialogTitle>Close all manifests on this page?</AlertDialogTitle>
+                <AlertDialogTitle>Mark all manifests on this page as Delivered?</AlertDialogTitle>
                 <AlertDialogDescription>
                   This will set {openManifests.length} manifest{openManifests.length === 1 ? "" : "s"} to
-                  {" "}<strong>Closed</strong>. Closed manifests cannot be edited (item counts, photos, or
-                  status). Already-closed manifests are not affected. This action cannot be undone in bulk.
+                  {" "}<strong>Delivered</strong>. Delivered manifests are locked — item counts, photos,
+                  and notes cannot be edited. Already-delivered manifests are not affected. You can flip
+                  individual manifests back to a prior status from the dropdown if needed.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -231,7 +230,7 @@ export default function TrailerManifests() {
                   onClick={() => closeAllMutation.mutate(openManifests.map(m => m.id))}
                   data-testid="button-close-all-confirm"
                 >
-                  Close {openManifests.length} manifest{openManifests.length === 1 ? "" : "s"}
+                  Mark {openManifests.length} delivered
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

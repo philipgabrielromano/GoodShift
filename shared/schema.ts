@@ -888,7 +888,7 @@ export const TRAILER_MANIFEST_CATEGORIES: { group: string; items: string[] }[] =
   },
 ];
 
-export const TRAILER_MANIFEST_STATUSES = ["loading", "in_transit", "delivered", "closed"] as const;
+export const TRAILER_MANIFEST_STATUSES = ["loading", "in_transit", "delivered"] as const;
 export type TrailerManifestStatus = (typeof TRAILER_MANIFEST_STATUSES)[number];
 
 export const truckRoutes = pgTable("truck_routes", {

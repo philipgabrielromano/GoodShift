@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.19";
+export const APP_VERSION = "3.8.20";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.20",
+    date: "2026-05-27",
+    title: "Trailer Manifest: Consolidated Closed into Delivered",
+    changes: [
+      { type: "improvement", description: "Removed the 'Closed' status from trailer manifests — Delivered is now the terminal locked state. Marking a manifest as Delivered locks item counts, photos, and notes from further edits (same lock the old Closed status had). All existing Closed manifests were automatically migrated to Delivered. The 'Close All' button on the list page is renamed 'Mark All Delivered'. To unlock a delivered manifest for edits, flip its status back to Loading or In Transit from the dropdown." },
+    ],
+  },
   {
     version: "3.8.19",
     date: "2026-05-26",

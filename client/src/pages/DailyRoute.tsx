@@ -93,7 +93,6 @@ const STATUS_LABELS: Record<string, string> = {
   loading: "Loading",
   in_transit: "In Transit",
   delivered: "Delivered",
-  closed: "Closed",
 };
 
 function todayInNY(): string {
