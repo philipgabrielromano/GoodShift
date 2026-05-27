@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.21";
+export const APP_VERSION = "3.8.22";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.22",
+    date: "2026-05-27",
+    title: "Schedule: Denied & cancelled PTO no longer lingers",
+    changes: [
+      { type: "fix", description: "Fixed a bug where denied, cancelled, or withdrawn PAL/PTO/UTO requests kept appearing on the schedule. When UKG removes a time-off request, the entry was staying in our database forever because the sync only added or updated rows — it never deleted. The UKG time-clock sync now reaps any PTO/UTO/leave entry in the synced window that UKG no longer returns, using the synced_at timestamp to identify entries the latest sync didn't refresh. Regular work punches are deliberately preserved so a partial UKG response can't wipe real time." },
+    ],
+  },
   {
     version: "3.8.21",
     date: "2026-05-27",

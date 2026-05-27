@@ -313,6 +313,27 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
 
   const upserted = await storage.upsertTimeClockEntries(entries);
   console.log(`[Scheduler] Time clock sync complete (${label}): ${upserted} entries upserted (existing rows for absent employee/dates preserved)`);
+
+  // Reap stale PTO/UTO/leave entries (paycode != 0) that UKG no longer
+  // returns. These are denied / cancelled / withdrawn time-off requests:
+  // UKG drops them from the Time endpoint, but our upsert never deletes
+  // them, so they linger and the schedule keeps showing the employee as
+  // off. Anything in the synced window whose synced_at predates this run
+  // wasn't refreshed and is safe to remove. We use the time BEFORE the
+  // UKG fetch as the threshold so any row touched by the just-completed
+  // upsert (which advances synced_at to NOW) is preserved.
+  const syncStartedAt = new Date(syncStart);
+  try {
+    const staleEntries = await storage.deleteStaleNonRegularTimeClockEntries(startDate, endDate, syncStartedAt);
+    const stalePunches = await storage.deleteStaleNonRegularTimeClockPunches(startDate, endDate, syncStartedAt);
+    if (staleEntries > 0 || stalePunches > 0) {
+      console.log(`[Scheduler] Reaped stale PTO/UTO data (${label}): ${staleEntries} entries, ${stalePunches} punches removed (UKG no longer returns them — denied/cancelled requests)`);
+    }
+  } catch (reapErr) {
+    // Reaping is best-effort — log but don't fail the sync if it errors.
+    console.error(`[Scheduler] Stale PTO/UTO reaper failed (${label}):`, reapErr);
+  }
+
   const durationMs = Date.now() - syncStart;
   ukgClient.addSyncResult({
     timestamp: new Date().toISOString(),

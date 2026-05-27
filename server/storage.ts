@@ -46,7 +46,7 @@ import {
   jobTitleVisibility, type JobTitleVisibility,
   featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS,
 } from "@shared/schema";
-import { eq, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
+import { eq, ne, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
 
 export interface IStorage {
   // Employees
@@ -203,6 +203,8 @@ export interface IStorage {
   getUnpaidTimeOffEntries(startDate: string, endDate: string): Promise<TimeClockEntry[]>;
   upsertTimeClockEntries(entries: InsertTimeClockEntry[]): Promise<number>;
   deleteTimeClockEntries(startDate: string, endDate: string, paycodeIds?: number[]): Promise<number>;
+  deleteStaleNonRegularTimeClockEntries(startDate: string, endDate: string, syncedBefore: Date): Promise<number>;
+  deleteStaleNonRegularTimeClockPunches(startDate: string, endDate: string, syncedBefore: Date): Promise<number>;
   getTimeClockEntryCountForRange(startDate: string, endDate: string): Promise<number>;
   getLastTimeClockSyncDate(): Promise<string | null>;
   getEmployeeCount(): Promise<number>;
@@ -1899,6 +1901,36 @@ export class DatabaseStorage implements IStorage {
     const result = await db.delete(timeClockEntries)
       .where(and(...conditions))
       .returning({ id: timeClockEntries.id });
+    return result.length;
+  }
+
+  // Reap PTO/UTO/leave entries (paycode != 0) in the synced window that UKG
+  // no longer returns. After a successful sync, any non-regular row whose
+  // synced_at is older than syncedBefore was NOT refreshed by the current
+  // sync — meaning UKG dropped it (denied / cancelled / withdrawn request).
+  // Regular work punches (paycode 0) are deliberately preserved to avoid
+  // wiping real time when UKG returns a partial paginated response.
+  async deleteStaleNonRegularTimeClockEntries(startDate: string, endDate: string, syncedBefore: Date): Promise<number> {
+    const result = await db.delete(timeClockEntries)
+      .where(and(
+        gte(timeClockEntries.workDate, startDate),
+        lte(timeClockEntries.workDate, endDate),
+        ne(timeClockEntries.paycodeId, 0),
+        lt(timeClockEntries.syncedAt, syncedBefore),
+      ))
+      .returning({ id: timeClockEntries.id });
+    return result.length;
+  }
+
+  async deleteStaleNonRegularTimeClockPunches(startDate: string, endDate: string, syncedBefore: Date): Promise<number> {
+    const result = await db.delete(timeClockPunches)
+      .where(and(
+        gte(timeClockPunches.workDate, startDate),
+        lte(timeClockPunches.workDate, endDate),
+        ne(timeClockPunches.paycodeId, 0),
+        lt(timeClockPunches.syncedAt, syncedBefore),
+      ))
+      .returning({ id: timeClockPunches.id });
     return result.length;
   }
 
