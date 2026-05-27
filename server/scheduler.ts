@@ -1,10 +1,40 @@
 import { ukgClient } from "./ukg";
 import { storage } from "./storage";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 import type { InsertTimeClockEntry, InsertTimeClockPunch } from "@shared/schema";
 
 let employeeSyncInterval: NodeJS.Timeout | null = null;
 let timeClockSyncInterval: NodeJS.Timeout | null = null;
 let timeClockTodaySyncInterval: NodeJS.Timeout | null = null;
+let manifestAutoDeliverInterval: NodeJS.Timeout | null = null;
+let manifestAutoDeliverInitialTimeout: NodeJS.Timeout | null = null;
+
+// Auto-mark any manifest that has been "in_transit" for more than 24 hours
+// as "delivered". Uses `departedAt` when available (set when status flips to
+// in_transit) and falls back to `updatedAt` for legacy rows. We run via SQL
+// in a single statement so concurrent admin edits can't race us — and we
+// touch only rows whose status is still in_transit at the moment of UPDATE.
+async function autoDeliverStaleInTransitManifests(): Promise<void> {
+  try {
+    const result = await db.execute(sql`
+      UPDATE trailer_manifests
+      SET status = 'delivered',
+          arrived_at = NOW(),
+          closed_at = NOW(),
+          updated_at = NOW()
+      WHERE status = 'in_transit'
+        AND COALESCE(departed_at, updated_at) < NOW() - INTERVAL '24 hours'
+      RETURNING id
+    `);
+    const rowCount = (result as any).rowCount ?? (result as any).rows?.length ?? 0;
+    if (rowCount > 0) {
+      console.log(`[Scheduler] Auto-delivered ${rowCount} stale in-transit manifest${rowCount === 1 ? "" : "s"} (in_transit >24h)`);
+    }
+  } catch (err) {
+    console.error("[Scheduler] Auto-deliver stale manifests failed:", err);
+  }
+}
 
 // Initial date to start syncing time clock data from
 const TIME_CLOCK_START_DATE = "2026-01-01";
@@ -398,8 +428,25 @@ export function startDailySync(): void {
     });
   }, ONE_HOUR);
 
+  // Run initial trailer-manifest auto-deliver pass after 15 seconds, then
+  // hourly. Hourly cadence means a manifest is auto-marked Delivered within
+  // ~1 hour of crossing the 24-hour in-transit threshold.
+  manifestAutoDeliverInitialTimeout = setTimeout(() => {
+    manifestAutoDeliverInitialTimeout = null;
+    autoDeliverStaleInTransitManifests().catch(err => {
+      console.error("[Scheduler] Initial trailer-manifest auto-deliver failed:", err);
+    });
+  }, 15000);
+
+  manifestAutoDeliverInterval = setInterval(() => {
+    autoDeliverStaleInTransitManifests().catch(err => {
+      console.error("[Scheduler] Scheduled trailer-manifest auto-deliver failed:", err);
+    });
+  }, ONE_HOUR);
+
   console.log("[Scheduler] Employee sync scheduled: every 24 hours.");
   console.log("[Scheduler] Time clock sync scheduled: 30-day lookback every 24 hours + today-only every 1 hour.");
+  console.log("[Scheduler] Trailer-manifest auto-deliver scheduled: hourly (in_transit >24h -> delivered).");
 }
 
 export function stopDailySync(): void {
@@ -417,6 +464,15 @@ export function stopDailySync(): void {
     clearInterval(timeClockTodaySyncInterval);
     timeClockTodaySyncInterval = null;
     console.log("[Scheduler] Today time clock sync stopped");
+  }
+  if (manifestAutoDeliverInterval) {
+    clearInterval(manifestAutoDeliverInterval);
+    manifestAutoDeliverInterval = null;
+    console.log("[Scheduler] Trailer-manifest auto-deliver stopped");
+  }
+  if (manifestAutoDeliverInitialTimeout) {
+    clearTimeout(manifestAutoDeliverInitialTimeout);
+    manifestAutoDeliverInitialTimeout = null;
   }
 }
 

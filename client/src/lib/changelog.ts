@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.20";
+export const APP_VERSION = "3.8.21";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.21",
+    date: "2026-05-27",
+    title: "Trailer Manifest: Auto-deliver after 24 hours",
+    changes: [
+      { type: "feature", description: "Trailer manifests that have been in 'In Transit' for more than 24 hours are now automatically marked as 'Delivered' (locked terminal state). A background job runs hourly so the auto-flip happens within about an hour of crossing the 24-hour mark — dispatchers no longer have to remember to close manifests by hand. The cutoff is based on when the manifest was marked In Transit (departedAt), or the last update time as a fallback for older rows." },
+    ],
+  },
   {
     version: "3.8.20",
     date: "2026-05-27",
