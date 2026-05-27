@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.18";
+export const APP_VERSION = "3.8.19";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.8.19",
+    date: "2026-05-26",
+    title: "Trailer Manifest: Close All Button",
+    changes: [
+      { type: "feature", description: "Added a 'Close All' button on the Trailer Manifest list page that marks every visible non-closed manifest as Closed in one click. The button shows the count of manifests that will be affected, asks for confirmation, and respects the current status filter so you can (for example) view just Delivered manifests and close only those. Already-closed manifests are skipped." },
+    ],
+  },
   {
     version: "3.8.18",
     date: "2026-05-26",

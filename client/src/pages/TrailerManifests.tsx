@@ -11,8 +11,13 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Plus, Truck, MapPin, ArrowRight } from "lucide-react";
+import { Loader2, Plus, Truck, MapPin, ArrowRight, CheckCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { TrailerManifest, TrailerManifestStatus, TruckRoute, TruckRouteWithStops, Trailer } from "@shared/schema";
@@ -20,6 +25,7 @@ import { TRAILER_MANIFEST_STATUSES } from "@shared/schema";
 import { useLocations } from "@/hooks/use-locations";
 import { isValidLocation } from "@/lib/utils";
 import { useCurrentUser, useUsersBasic } from "@/hooks/use-users";
+import { usePermissions } from "@/hooks/use-permissions";
 
 const STATUS_LABELS: Record<TrailerManifestStatus, string> = {
   loading: "Loading",
@@ -100,6 +106,44 @@ export default function TrailerManifests() {
     },
   });
 
+  const { can } = usePermissions();
+  const canEditManifests = can("trailer_manifest.edit");
+  const openManifests = manifests.filter(m => m.status !== "closed");
+
+  const closeAllMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      // Process in small batches so we don't fan-out N parallel POSTs against
+      // the server if the operator has hundreds of open manifests. 5 at a
+      // time keeps the wall-clock fast for typical (~dozens) loads while
+      // avoiding a thundering-herd against the DB/email side-effects.
+      const BATCH = 5;
+      let failed = 0;
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const chunk = ids.slice(i, i + BATCH);
+        const results = await Promise.allSettled(
+          chunk.map(id => apiRequest("POST", `/api/trailer-manifests/${id}/status`, { status: "closed" })),
+        );
+        failed += results.filter(r => r.status === "rejected").length;
+      }
+      return { total: ids.length, failed };
+    },
+    onSuccess: ({ total, failed }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trailer-manifests"] });
+      if (failed === 0) {
+        toast({ title: "All manifests closed", description: `${total} manifest${total === 1 ? "" : "s"} marked as Closed.` });
+      } else {
+        toast({
+          title: "Some manifests could not be closed",
+          description: `${total - failed} of ${total} closed. ${failed} failed.`,
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to close manifests", description: err?.message || "", variant: "destructive" });
+    },
+  });
+
   const createMutation = useMutation({
     mutationFn: async (input: typeof form) => {
       const payload = {
@@ -157,6 +201,42 @@ export default function TrailerManifests() {
               ))}
             </SelectContent>
           </Select>
+
+          {canEditManifests && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="outline"
+                disabled={openManifests.length === 0 || closeAllMutation.isPending}
+                data-testid="button-close-all-manifests"
+              >
+                {closeAllMutation.isPending
+                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  : <CheckCheck className="w-4 h-4 mr-2" />}
+                Close All ({openManifests.length})
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent data-testid="dialog-close-all-confirm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Close all manifests on this page?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will set {openManifests.length} manifest{openManifests.length === 1 ? "" : "s"} to
+                  {" "}<strong>Closed</strong>. Closed manifests cannot be edited (item counts, photos, or
+                  status). Already-closed manifests are not affected. This action cannot be undone in bulk.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel data-testid="button-close-all-cancel">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => closeAllMutation.mutate(openManifests.map(m => m.id))}
+                  data-testid="button-close-all-confirm"
+                >
+                  Close {openManifests.length} manifest{openManifests.length === 1 ? "" : "s"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          )}
 
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
             <DialogTrigger asChild>
