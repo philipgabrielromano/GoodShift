@@ -2,9 +2,14 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
 import { insertCoachingLogSchema, coachingLogs } from "@shared/schema";
-import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
+
+const COACHING_UPLOAD_CONSTRAINTS: UploadConstraints = {
+  maxSizeBytes: 10 * 1024 * 1024,
+  allowedContentTypes: new Set(["application/pdf"]),
+};
 
 const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
@@ -294,7 +299,7 @@ export function registerCoachingRoutes(app: Express) {
         await objectStorageService.trySetObjectAclSilent(parsed.data.attachmentUrl, {
           owner: String(user.id),
           visibility: "private",
-        });
+        }, COACHING_UPLOAD_CONSTRAINTS);
       }
 
       const employee = await storage.getEmployee(newLog.employeeId);
@@ -412,7 +417,7 @@ export function registerCoachingRoutes(app: Express) {
         await objectStorageService.trySetObjectAclSilent(attachmentUrl, {
           owner: String(user.id),
           visibility: "private",
-        });
+        }, COACHING_UPLOAD_CONSTRAINTS);
       }
 
       res.json(updated);

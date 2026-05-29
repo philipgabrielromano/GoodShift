@@ -8,7 +8,12 @@ import {
   TRAILER_MANIFEST_CATEGORIES,
 } from "@shared/schema";
 import { sendTrailerInTransitEmail } from "../outlook";
-import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+
+const MANIFEST_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
+  maxSizeBytes: 10 * 1024 * 1024,
+  allowedContentTypes: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
+};
 
 function getSessionUser(req: Request): { id: number; name: string } | null {
   const u = (req.session as any)?.user;
@@ -308,7 +313,7 @@ export function registerTrailerManifestRoutes(app: Express) {
       await objectStorageService.trySetObjectAclSilent(input.objectPath, {
         owner: String(user.id),
         visibility: "private",
-      });
+      }, MANIFEST_PHOTO_UPLOAD_CONSTRAINTS);
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });

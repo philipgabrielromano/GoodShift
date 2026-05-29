@@ -2,7 +2,12 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
-import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+
+const OCCURRENCE_UPLOAD_CONSTRAINTS: UploadConstraints = {
+  maxSizeBytes: 10 * 1024 * 1024,
+  allowedContentTypes: new Set(["application/pdf"]),
+};
 
 const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
 const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
@@ -282,7 +287,7 @@ export function registerOccurrenceRoutes(app: Express) {
         await objectStorageService.trySetObjectAclSilent(documentUrl, {
           owner: String(user.id),
           visibility: "private",
-        });
+        }, OCCURRENCE_UPLOAD_CONSTRAINTS);
       }
       
       // Only check HR notification thresholds for countable occurrences (not FMLA or consecutive sickness)

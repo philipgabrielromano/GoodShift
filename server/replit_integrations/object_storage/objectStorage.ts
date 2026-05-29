@@ -9,6 +9,14 @@ import {
   setObjectAclPolicy,
 } from "./objectAcl";
 
+// Constraints verified against actual GCS object metadata at ACL-binding time.
+// These cannot be bypassed by lying at URL-issuance time because the check
+// fetches real storage metadata rather than trusting client-supplied values.
+export interface UploadConstraints {
+  maxSizeBytes?: number;
+  allowedContentTypes?: ReadonlySet<string>;
+}
+
 const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
 
 // The object storage client is used to interact with the object storage service.
@@ -131,6 +139,10 @@ export class ObjectStorageService {
   }
 
   // Gets the upload URL for an object entity.
+  // NOTE: Retained for module-specific upload endpoints (coaching, driver
+  // inspections, credit-card inspections) that already enforce their own
+  // per-feature content-type/size restrictions at the route level. The generic
+  // user-facing flow uses uploadObject() instead.
   async getObjectEntityUploadURL(): Promise<string> {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
@@ -152,6 +164,25 @@ export class ObjectStorageService {
       method: "PUT",
       ttlSec: 900,
     });
+  }
+
+  // Server-side upload: writes `buffer` directly to the private uploads prefix
+  // and returns the internal object path. Because the data passes through the
+  // Express server before reaching storage, content-type and byte size are
+  // enforced at the application layer rather than relying on the client to
+  // honour a presigned PUT URL.
+  async uploadObject(buffer: Buffer, contentType: string): Promise<string> {
+    const privateObjectDir = this.getPrivateObjectDir();
+    const objectId = randomUUID();
+    const fullPath = `${privateObjectDir}/uploads/${objectId}`;
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+    await file.save(buffer, {
+      metadata: { contentType },
+      resumable: false,
+    });
+    return `/objects/uploads/${objectId}`;
   }
 
   // Gets the object entity file from the object path.
@@ -207,9 +238,19 @@ export class ObjectStorageService {
   }
 
   // Tries to set the ACL policy for the object entity and return the normalized path.
+  // Rejects the operation if the object already has an ACL policy so that an
+  // authenticated user cannot rebind a file that was already claimed by another
+  // record or user (path-squatting / ownership-takeover attack).
+  //
+  // When `constraints` is provided the method also validates the actual object
+  // metadata (content-type and byte size) fetched from storage against those
+  // limits. Objects that fail validation are deleted from storage so they
+  // cannot accumulate, and an error is thrown. This ensures constraints cannot
+  // be bypassed by declaring false metadata at URL-issuance time.
   async trySetObjectEntityAclPolicy(
     rawPath: string,
-    aclPolicy: ObjectAclPolicy
+    aclPolicy: ObjectAclPolicy,
+    constraints?: UploadConstraints
   ): Promise<string> {
     const normalizedPath = this.normalizeObjectEntityPath(rawPath);
     if (!normalizedPath.startsWith("/")) {
@@ -217,6 +258,50 @@ export class ObjectStorageService {
     }
 
     const objectFile = await this.getObjectEntityFile(normalizedPath);
+
+    const existingAcl = await getObjectAclPolicy(objectFile);
+    if (existingAcl) {
+      throw new Error(
+        `Object at ${normalizedPath} already has an ACL policy and cannot be re-bound`
+      );
+    }
+
+    if (constraints) {
+      const [metadata] = await objectFile.getMetadata();
+      const actualContentType: string = (metadata.contentType as string) ?? "";
+      const rawSize = metadata.size;
+      const actualSize: number =
+        typeof rawSize === "string"
+          ? parseInt(rawSize, 10)
+          : typeof rawSize === "number"
+          ? rawSize
+          : 0;
+
+      if (
+        constraints.allowedContentTypes &&
+        !constraints.allowedContentTypes.has(actualContentType)
+      ) {
+        await objectFile.delete().catch((err: unknown) =>
+          console.warn("[ObjectStorage] Failed to delete non-conforming object", normalizedPath, ":", err)
+        );
+        throw new Error(
+          `Uploaded object has disallowed content type: ${actualContentType}`
+        );
+      }
+
+      if (
+        constraints.maxSizeBytes !== undefined &&
+        actualSize > constraints.maxSizeBytes
+      ) {
+        await objectFile.delete().catch((err: unknown) =>
+          console.warn("[ObjectStorage] Failed to delete oversized object", normalizedPath, ":", err)
+        );
+        throw new Error(
+          `Uploaded object exceeds maximum allowed size of ${constraints.maxSizeBytes} bytes`
+        );
+      }
+    }
+
     await setObjectAclPolicy(objectFile, aclPolicy);
     return normalizedPath;
   }
@@ -263,13 +348,80 @@ export class ObjectStorageService {
     });
   }
 
+  // Deletes objects in the `uploads/` prefix of the private bucket that have
+  // no ACL policy and are older than `maxAgeMs` milliseconds. Called on a
+  // scheduled basis to evict objects that were uploaded via presigned URL but
+  // never bound to an application record. Without this cleanup, an attacker
+  // who passes the feature gate can fill the bucket by uploading and never
+  // submitting a form.
+  async cleanupOrphanedUploads(maxAgeMs: number = 2 * 60 * 60 * 1000): Promise<void> {
+    let privateObjectDir: string;
+    try {
+      privateObjectDir = this.getPrivateObjectDir();
+    } catch {
+      // PRIVATE_OBJECT_DIR not configured — skip silently.
+      return;
+    }
+
+    const uploadsPrefix = privateObjectDir.startsWith("/")
+      ? `${privateObjectDir.slice(1)}/uploads/`
+      : `${privateObjectDir}/uploads/`;
+
+    const { bucketName, objectName: prefix } = parseObjectPath(
+      `/${uploadsPrefix}`
+    );
+
+    const bucket = objectStorageClient.bucket(bucketName);
+    let files: import("@google-cloud/storage").File[];
+    try {
+      [files] = await bucket.getFiles({ prefix });
+    } catch (err) {
+      console.warn("[ObjectStorage] cleanupOrphanedUploads: failed to list objects:", err);
+      return;
+    }
+
+    const cutoff = Date.now() - maxAgeMs;
+    let deleted = 0;
+    let errors = 0;
+
+    for (const file of files) {
+      try {
+        const [metadata] = await file.getMetadata();
+        const timeCreated = metadata.timeCreated as string | undefined;
+        if (!timeCreated) continue;
+        if (new Date(timeCreated).getTime() > cutoff) continue;
+
+        const aclPolicy = await getObjectAclPolicy(file);
+        if (aclPolicy) continue;
+
+        await file.delete();
+        deleted++;
+      } catch (err) {
+        errors++;
+        console.warn("[ObjectStorage] cleanupOrphanedUploads: error processing", file.name, ":", err);
+      }
+    }
+
+    if (deleted > 0 || errors > 0) {
+      console.log(
+        `[ObjectStorage] cleanupOrphanedUploads: deleted ${deleted} orphaned object${deleted !== 1 ? "s" : ""}, ${errors} error${errors !== 1 ? "s" : ""}`
+      );
+    }
+  }
+
   // Tries to set an ACL policy on an object path. Logs a warning on failure but
   // does not throw so that write flows are not blocked by ACL registration errors.
   // Note: a failure here leaves the object without ACL metadata, which causes the
   // download route to deny all non-privileged access until ACL is correctly set.
-  async trySetObjectAclSilent(objectPath: string, aclPolicy: ObjectAclPolicy): Promise<void> {
+  // When `constraints` is provided, objects that fail the check are deleted from
+  // storage before the warning is logged.
+  async trySetObjectAclSilent(
+    objectPath: string,
+    aclPolicy: ObjectAclPolicy,
+    constraints?: UploadConstraints
+  ): Promise<void> {
     try {
-      await this.trySetObjectEntityAclPolicy(objectPath, aclPolicy);
+      await this.trySetObjectEntityAclPolicy(objectPath, aclPolicy, constraints);
     } catch (err) {
       console.warn("[ObjectStorage] ACL set failed for", objectPath, ":", err);
     }

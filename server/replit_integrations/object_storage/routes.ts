@@ -1,68 +1,128 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
-import { requireAuth } from "../../middleware";
+import { requireAuth, requireFeatureAccessAny } from "../../middleware";
 
-/**
- * Register object storage routes for file uploads.
- *
- * This provides example routes for the presigned URL upload flow:
- * 1. POST /api/uploads/request-url - Get a presigned URL for uploading
- * 2. The client then uploads directly to the presigned URL
- *
- * IMPORTANT: These are example routes. Customize based on your use case:
- * - Add authentication middleware for protected uploads
- * - Add file metadata storage (save to database after upload)
- * - Add ACL policies for access control
- */
+// Allowlist of content types accepted for generic private uploads.
+// Module-specific upload endpoints (coaching, inspections) enforce their own
+// narrower allowlists; this list covers all shared upload paths.
+const ALLOWED_UPLOAD_CONTENT_TYPES = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+// Hard cap on upload size for the generic endpoint (10 MB).
+// Enforced server-side by reading the incoming stream byte-by-byte so it
+// cannot be bypassed by a client that lies in its Content-Length header.
+const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
+
+// Per-user rate limit: at most RATE_LIMIT_MAX requests per RATE_LIMIT_WINDOW_MS.
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const RATE_LIMIT_MAX = 20;
+
+// Sliding-window timestamps keyed by user id (string).
+const uploadRateLimitMap = new Map<string, number[]>();
+
+function isRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  const timestamps = (uploadRateLimitMap.get(userId) ?? []).filter(
+    (t) => t > cutoff
+  );
+  if (timestamps.length >= RATE_LIMIT_MAX) {
+    uploadRateLimitMap.set(userId, timestamps);
+    return true;
+  }
+  timestamps.push(now);
+  uploadRateLimitMap.set(userId, timestamps);
+  return false;
+}
+
 export function registerObjectStorageRoutes(app: Express): void {
   const objectStorageService = new ObjectStorageService();
 
   /**
-   * Request a presigned URL for file upload.
+   * Server-controlled file upload endpoint.
    *
-   * Request body (JSON):
-   * {
-   *   "name": "filename.jpg",
-   *   "size": 12345,
-   *   "contentType": "image/jpeg"
-   * }
+   * POST /api/uploads
    *
-   * Response:
-   * {
-   *   "uploadURL": "https://storage.googleapis.com/...",
-   *   "objectPath": "/objects/uploads/uuid"
-   * }
+   * Send the raw file bytes as the request body with the correct Content-Type
+   * header (e.g. Content-Type: image/jpeg). The server reads the stream,
+   * enforces content-type and byte-size limits before writing to storage, and
+   * returns the resulting object path.
    *
-   * IMPORTANT: The client should NOT send the file to this endpoint.
-   * Send JSON metadata only, then upload the file directly to uploadURL.
+   * Requires the caller to hold at least one upload-capable feature permission
+   * (attendance.edit or trailer_manifest.edit). Also enforces a per-user rate
+   * limit (20 requests per 15 minutes).
+   *
+   * Unlike the former presigned-URL flow, no data reaches object storage until
+   * it has passed server-side validation, so declared metadata cannot be lied
+   * about by the client.
+   *
+   * Response: { "objectPath": "/objects/uploads/<uuid>" }
    */
-  app.post("/api/uploads/request-url", requireAuth, async (req, res) => {
-    try {
-      const { name, size, contentType } = req.body;
+  app.post(
+    "/api/uploads",
+    requireFeatureAccessAny(["attendance.edit", "trailer_manifest.edit"]),
+    async (req: Request, res: Response) => {
+      const sessionUser = (req.session as any)?.user;
+      try {
+        const userId = String(sessionUser?.id ?? "");
+        if (isRateLimited(userId)) {
+          return res.status(429).json({
+            error: "Too many upload requests. Please wait before trying again.",
+          });
+        }
 
-      if (!name) {
-        return res.status(400).json({
-          error: "Missing required field: name",
+        // Validate Content-Type from the request header (strip parameters such
+        // as "; boundary=..." for multipart or "; charset=..." for text types).
+        const rawContentType = (req.headers["content-type"] as string) || "";
+        const contentType = rawContentType.split(";")[0].trim().toLowerCase();
+
+        if (!contentType || !ALLOWED_UPLOAD_CONTENT_TYPES.has(contentType)) {
+          return res.status(400).json({ error: "Content type not allowed" });
+        }
+
+        // Stream the request body with a hard byte-count limit. This is the
+        // primary enforcement mechanism — it fires regardless of what the
+        // client declares in Content-Length.
+        const chunks: Buffer[] = [];
+        let totalSize = 0;
+        let limitExceeded = false;
+
+        await new Promise<void>((resolve, reject) => {
+          req.on("data", (chunk: Buffer) => {
+            totalSize += chunk.length;
+            if (totalSize > MAX_UPLOAD_SIZE_BYTES) {
+              limitExceeded = true;
+              req.destroy();
+              resolve();
+              return;
+            }
+            chunks.push(chunk);
+          });
+          req.on("end", resolve);
+          req.on("error", reject);
         });
+
+        if (limitExceeded) {
+          return res.status(400).json({ error: "File too large. Maximum size is 10MB." });
+        }
+
+        const buffer = Buffer.concat(chunks);
+
+        const objectPath = await objectStorageService.uploadObject(buffer, contentType);
+
+        res.status(201).json({ objectPath });
+      } catch (error) {
+        console.error("Error uploading file:", error);
+        res.status(500).json({ error: "Failed to upload file" });
       }
-
-      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
-
-      // Extract object path from the presigned URL for later reference
-      const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
-
-      res.json({
-        uploadURL,
-        objectPath,
-        // Echo back the metadata for client convenience
-        metadata: { name, size, contentType },
-      });
-    } catch (error) {
-      console.error("Error generating upload URL:", error);
-      res.status(500).json({ error: "Failed to generate upload URL" });
     }
-  });
+  );
 
   /**
    * Serve uploaded objects.
@@ -76,7 +136,7 @@ export function registerObjectStorageRoutes(app: Express): void {
    * Forces Content-Disposition: attachment to prevent browser execution of
    * uploaded HTML/JS files (defense against same-origin content injection).
    */
-  app.get("/objects/{*objectPath}", requireAuth, async (req, res) => {
+  app.get("/objects/{*objectPath}", requireAuth, async (req: Request, res: Response) => {
     const sessionUser = (req.session as any)?.user;
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);

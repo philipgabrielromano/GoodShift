@@ -3,7 +3,12 @@ import { requireAuth, requireFeatureAccess } from "../middleware";
 import { storage } from "../storage";
 import { insertCreditCardInspectionSchema } from "@shared/schema";
 import { z } from "zod";
-import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+
+const INSPECTION_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
+  maxSizeBytes: 10 * 1024 * 1024,
+  allowedContentTypes: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
+};
 
 export function registerCreditCardInspectionRoutes(app: Express) {
   const objectStorageService = new ObjectStorageService();
@@ -76,7 +81,7 @@ export function registerCreditCardInspectionRoutes(app: Express) {
             await objectStorageService.trySetObjectAclSilent(t.photoUrl, {
               owner: String(sessionUser.id),
               visibility: "private",
-            });
+            }, INSPECTION_PHOTO_UPLOAD_CONSTRAINTS);
           }
         }
       }

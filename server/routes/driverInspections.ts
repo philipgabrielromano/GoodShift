@@ -7,8 +7,13 @@ import {
   type DriverInspectionItem,
 } from "@shared/schema";
 import { z } from "zod";
-import { ObjectStorageService } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 import { sendDriverInspectionAlertEmail } from "../outlook";
+
+const DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
+  maxSizeBytes: 10 * 1024 * 1024,
+  allowedContentTypes: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
+};
 
 const LABEL_BY_KEY = new Map(DRIVER_INSPECTION_ITEMS.map(i => [i.key, i] as const));
 
@@ -120,7 +125,7 @@ export function registerDriverInspectionRoutes(app: Express) {
         await objectStorageService.trySetObjectAclSilent(parsed.photoUrl, {
           owner: String(sessionUser.id),
           visibility: "private",
-        });
+        }, DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS);
       }
 
       // Fire-and-forget repair notification

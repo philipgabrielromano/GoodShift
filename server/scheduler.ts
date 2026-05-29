@@ -3,12 +3,14 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 import type { InsertTimeClockEntry, InsertTimeClockPunch } from "@shared/schema";
+import { ObjectStorageService } from "./replit_integrations/object_storage/objectStorage";
 
 let employeeSyncInterval: NodeJS.Timeout | null = null;
 let timeClockSyncInterval: NodeJS.Timeout | null = null;
 let timeClockTodaySyncInterval: NodeJS.Timeout | null = null;
 let manifestAutoDeliverInterval: NodeJS.Timeout | null = null;
 let manifestAutoDeliverInitialTimeout: NodeJS.Timeout | null = null;
+let uploadCleanupInterval: NodeJS.Timeout | null = null;
 
 // Auto-mark any manifest that has been "in_transit" for more than 24 hours
 // as "delivered". Uses `departedAt` when available (set when status flips to
@@ -465,9 +467,27 @@ export function startDailySync(): void {
     });
   }, ONE_HOUR);
 
+  // Delete orphaned (unbound) objects in the uploads/ prefix hourly.
+  // Objects older than 2 hours with no ACL policy are treated as abandoned
+  // presigned-URL uploads that were never bound to an application record.
+  const objectStorageService = new ObjectStorageService();
+  uploadCleanupInterval = setInterval(() => {
+    objectStorageService.cleanupOrphanedUploads().catch(err => {
+      console.error("[Scheduler] Orphaned upload cleanup failed:", err);
+    });
+  }, ONE_HOUR);
+  // Run once shortly after startup so stale objects from a previous session
+  // are not left sitting indefinitely after a server restart.
+  setTimeout(() => {
+    objectStorageService.cleanupOrphanedUploads().catch(err => {
+      console.error("[Scheduler] Initial orphaned upload cleanup failed:", err);
+    });
+  }, 30000);
+
   console.log("[Scheduler] Employee sync scheduled: every 24 hours.");
   console.log("[Scheduler] Time clock sync scheduled: 30-day lookback every 24 hours + today-only every 1 hour.");
   console.log("[Scheduler] Trailer-manifest auto-deliver scheduled: hourly (in_transit >24h -> delivered).");
+  console.log("[Scheduler] Orphaned upload cleanup scheduled: hourly (unbound uploads >2h old).");
 }
 
 export function stopDailySync(): void {
@@ -494,6 +514,11 @@ export function stopDailySync(): void {
   if (manifestAutoDeliverInitialTimeout) {
     clearTimeout(manifestAutoDeliverInitialTimeout);
     manifestAutoDeliverInitialTimeout = null;
+  }
+  if (uploadCleanupInterval) {
+    clearInterval(uploadCleanupInterval);
+    uploadCleanupInterval = null;
+    console.log("[Scheduler] Orphaned upload cleanup stopped");
   }
 }
 
