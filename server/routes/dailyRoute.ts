@@ -8,6 +8,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { truckRoutes, truckRouteLocations, locations, WAREHOUSES, WAREHOUSE_LABELS } from "@shared/schema";
+import { getUserAllowedLocationNames } from "./orders";
 
 // Allowed origin labels for manifests created from a daily route. The route
 // is always Warehouse → store stops, so only the two warehouses are valid
@@ -152,22 +153,34 @@ async function loadRoutes(): Promise<RouteShape[]> {
     }));
 }
 
-async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
+async function loadDailyRouteData(date: string, allowedLocations: string[] | null = null): Promise<DailyRouteData> {
   const routes = await loadRoutes();
 
   // SELECT only the columns we need (id, location, and every requested field)
   // for the day's approved Transfer-and-Receive orders. Submitted/Denied are
   // excluded because the operator only routes what's actually going out.
+  // When allowedLocations is a non-null array, restrict to only those stores.
   const requestedCols = DAILY_FIELDS.map(f => f.snake).join(", ");
+  const params: unknown[] = [date];
+  let locationClause = "";
+  if (allowedLocations !== null) {
+    if (allowedLocations.length === 0) {
+      // No assigned locations — return an empty result immediately.
+      return { date, fields: DAILY_FIELDS, groups: [], totalOrders: 0 };
+    }
+    locationClause = `AND location IN (${allowedLocations.map(() => "?").join(", ")})`;
+    params.push(...allowedLocations);
+  }
   const sql = `
     SELECT id, location, status, notes, ${requestedCols}
     FROM orders
     WHERE order_date = ?
       AND order_type = 'Transfer and Receive'
       AND status = 'approved'
+      ${locationClause}
     ORDER BY location ASC, id ASC
   `;
-  const [rows] = await mysqlPool.query<DailyRouteOrderRow[]>(sql, [date]);
+  const [rows] = await mysqlPool.query<DailyRouteOrderRow[]>(sql, params);
 
   // Map orders by their normalized location string. If a location somehow
   // has multiple approved Transfer-and-Receive orders for the same day, sum
@@ -199,19 +212,31 @@ async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
     }
   }
 
+  // When the caller is location-scoped, build a set of normalized keys they
+  // are allowed to see so we can exclude stops for other stores from the
+  // response. This prevents org-wide route topology from leaking even when
+  // those stops have zero order values.
+  const allowedKeySet: Set<string> | null =
+    allowedLocations !== null
+      ? new Set(allowedLocations.map(normalizeKey))
+      : null;
+
   // Track which order locations we've assigned to a route so we can collect
   // the rest into the "Unrouted" group.
   const claimed = new Set<string>();
   const groups: DailyRouteGroup[] = [];
 
   for (const route of routes) {
-    const stops: DailyStop[] = route.stops.map(stop => {
+    const stops: DailyStop[] = [];
+    for (const stop of route.stops) {
       const stopKey = normalizeKey(stop.matchKey);
+      // For scoped users: only include stops in their allowed set.
+      if (allowedKeySet !== null && !allowedKeySet.has(stopKey)) continue;
       const bucket = ordersByLocation.get(stopKey);
       if (bucket) claimed.add(stopKey);
       const values: Record<string, number> = {};
       for (const f of DAILY_FIELDS) values[f.key] = bucket?.values[f.key] ?? 0;
-      return {
+      stops.push({
         locationId: stop.locationId,
         // Show the canonical name in the column header — operators recognize
         // this from the routes config, not the order-form alias.
@@ -222,9 +247,12 @@ async function loadDailyRouteData(date: string): Promise<DailyRouteData> {
         orderId: bucket?.ids[0] ?? null,
         values,
         notes: bucket?.notes.join(" | ") ?? "",
-      };
-    });
-    groups.push({ routeId: route.id, routeName: route.name, stops });
+      });
+    }
+    // For scoped users, omit route groups that have no visible stops.
+    if (stops.length > 0) {
+      groups.push({ routeId: route.id, routeName: route.name, stops });
+    }
   }
 
   // Anything left over: orders whose location string didn't match any active
@@ -450,7 +478,9 @@ export function registerDailyRouteRoutes(app: Express) {
         if (!DATE_RE.test(date)) {
           return res.status(400).json({ message: "date must be YYYY-MM-DD" });
         }
-        const data = await loadDailyRouteData(date);
+        const user = (req.session as any)?.user;
+        const allowedLocations = await getUserAllowedLocationNames(user);
+        const data = await loadDailyRouteData(date, allowedLocations);
         res.json(data);
       } catch (err) {
         console.error("[DailyRoute] Load error:", err);
@@ -545,7 +575,28 @@ export function registerDailyRouteRoutes(app: Express) {
         if (!DATE_RE.test(date)) {
           return res.status(400).json({ message: "date must be YYYY-MM-DD" });
         }
+        const user = (req.session as any)?.user;
+        const allowedLocations = await getUserAllowedLocationNames(user);
         const manifests = await storage.getTrailerManifestsByServiceDate(date);
+
+        // For unrestricted users (admin / approvers) return all manifests.
+        // For store-scoped users, filter to manifests whose route serves at
+        // least one of the user's allowed locations. Manifests with no routeId
+        // are org-level artifacts and are hidden from store-scoped users.
+        if (allowedLocations !== null) {
+          if (allowedLocations.length === 0) {
+            return res.json([]);
+          }
+          const allowedSet = new Set(allowedLocations.map(l => l.trim().toLowerCase()));
+          const routes = await loadRoutes();
+          const allowedRouteIds = new Set(
+            routes
+              .filter(r => r.stops.some(s => allowedSet.has(normalizeKey(s.matchKey))))
+              .map(r => r.id),
+          );
+          return res.json(manifests.filter(m => m.routeId !== null && allowedRouteIds.has(m.routeId)));
+        }
+
         res.json(manifests);
       } catch (err) {
         console.error("[DailyRoute] Manifests lookup error:", err);
@@ -563,7 +614,9 @@ export function registerDailyRouteRoutes(app: Express) {
         if (!DATE_RE.test(date)) {
           return res.status(400).json({ message: "date must be YYYY-MM-DD" });
         }
-        const data = await loadDailyRouteData(date);
+        const user = (req.session as any)?.user;
+        const allowedLocations = await getUserAllowedLocationNames(user);
+        const data = await loadDailyRouteData(date, allowedLocations);
         const wb = buildWorkbook(data);
         res.setHeader(
           "Content-Type",

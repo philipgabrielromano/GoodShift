@@ -47,7 +47,7 @@ function getActor(req: { session?: any }): { id: number | null; name: string; em
 // assigned stores. Approvers (warehouse / transportation) can see and act
 // on every store's orders, which is required for the central approval and
 // receive-coordination flows.
-async function getUserAllowedLocationNames(
+export async function getUserAllowedLocationNames(
   user: { role?: string; locationIds?: string[] | null } | null | undefined
 ): Promise<string[] | null> {
   if (!user || !user.role) return [];
