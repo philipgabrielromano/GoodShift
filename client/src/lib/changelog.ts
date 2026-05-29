@@ -8,9 +8,21 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.8.22";
+export const APP_VERSION = "3.9.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "3.9.1",
+    date: "2026-05-29",
+    title: "Security hardening across login, HR data, uploads & logistics",
+    changes: [
+      { type: "security", description: "Login is now invite-only. New Microsoft sign-ins are no longer auto-provisioned into the app — only people an admin has already added can sign in. Unknown users get a clear 'contact your administrator' message instead of silently receiving an account. The risky 'first person to log in becomes admin' behavior was also removed in favor of a controlled bootstrap." },
+      { type: "security", description: "Tightened access to HR records. The employee list and an employee's corrective-action history now require the proper view permission rather than just being logged in, matching the rest of the attendance module." },
+      { type: "security", description: "Hardened file uploads. Uploads now stream through the server so file type and size limits are always enforced, the endpoint is limited to staff who actually need it, rate-limited to prevent abuse, and orphaned/unclaimed files are cleaned up automatically. Files can no longer have their ownership reassigned by another user." },
+      { type: "security", description: "Daily Route logistics data is now scoped to your stores. Store users no longer see org-wide route topology, transfer quantities, manifest status, trailer numbers, or driver names for locations outside their assignment." },
+      { type: "security", description: "Updated underlying dependencies to clear 19 reported vulnerabilities. No functional changes." },
+    ],
+  },
   {
     version: "3.8.22",
     date: "2026-05-27",
