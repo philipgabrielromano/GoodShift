@@ -249,34 +249,25 @@ export function setupAuth(app: Express) {
             // Link Microsoft ID to existing user
             user = await storage.updateUser(user.id, { microsoftId });
           } else {
-            // Create new user - first user is admin, rest get auto-assigned role
+            // Bootstrap path: allow the very first user only when the
+            // BOOTSTRAP_ADMIN_EMAIL env var is set and matches this email.
+            // This prevents any arbitrary tenant user from self-registering or
+            // racing to claim the admin account on a fresh deployment.
+            const bootstrapEmail = (process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
             const existingUsers = await storage.getUsers();
-            let role = existingUsers.length === 0 ? "admin" : "viewer";
-            
-            // Try to auto-assign location based on matching employee record
-            let locationIds: string[] = [];
-            const matchingEmployee = await storage.getEmployeeByEmail(email);
-            if (matchingEmployee?.location) {
-              const location = await storage.getLocationByName(matchingEmployee.location);
-              if (location) {
-                locationIds = [String(location.id)];
-              }
+            const isBootstrap = existingUsers.length === 0 && bootstrapEmail && email === bootstrapEmail;
+
+            if (!isBootstrap) {
+              console.warn(`SSO login denied for unprovisioned account: ${email}`);
+              return res.redirect("/?error=unauthorized");
             }
 
-            // Auto-assign "ordering" role based on job title or store email
-            if (role !== "admin") {
-              const shouldBeOrdering = email.includes("store") || (matchingEmployee?.jobTitle && /team\s*lead|assistant\s*manager|alternative\s*lead|outlet\s*(manager|lead)/i.test(matchingEmployee.jobTitle));
-              if (shouldBeOrdering) {
-                role = "ordering";
-              }
-            }
-            
             user = await storage.createUser({
               email,
               name,
               microsoftId,
-              role,
-              locationIds,
+              role: "admin",
+              locationIds: [],
               isActive: true,
             });
           }

@@ -23,8 +23,20 @@ function formatReleaseDate(iso: string): string {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
 }
 
+const ERROR_MESSAGES: Record<string, string> = {
+  unauthorized: "Your Microsoft account is not authorized to access GoodShift. Contact your administrator to have an account provisioned.",
+  account_disabled: "Your GoodShift account has been disabled. Contact your administrator.",
+  auth_failed: "Sign-in failed. Please try again.",
+  login_failed: "Sign-in failed. Please try again.",
+  invalid_state: "Sign-in session expired. Please try again.",
+  sso_not_configured: "Microsoft SSO is not configured on this server.",
+};
+
 export default function Login() {
   const [tagline, setTagline] = useState<string>(DEFAULT_TAGLINE);
+
+  const errorCode = new URLSearchParams(window.location.search).get("error");
+  const errorMessage = errorCode ? (ERROR_MESSAGES[errorCode] ?? "An unexpected error occurred. Please try again.") : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +66,11 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {errorMessage && (
+            <div className="rounded-md bg-destructive/10 border border-destructive/30 px-4 py-3 text-sm text-destructive" data-testid="text-login-error">
+              {errorMessage}
+            </div>
+          )}
           <Button 
             onClick={handleLogin} 
             className="w-full gap-2"
