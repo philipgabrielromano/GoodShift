@@ -741,7 +741,7 @@ export function registerOccurrenceRoutes(app: Express) {
   // === CORRECTIVE ACTIONS ===
   
   // Get corrective actions for an employee
-  app.get("/api/corrective-actions/:employeeId", requireAuth, async (req, res) => {
+  app.get("/api/corrective-actions/:employeeId", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const employeeId = Number(req.params.employeeId);
       const user = (req.session as any)?.user;

@@ -111,6 +111,14 @@ export async function registerRoutes(
       console.log(`[API] Employee filter - Before: ${beforeCount}, After: ${employees.length}`);
     }
     
+    // Non-admin, non-viewer users must have employees.view to see the full list
+    if (user && user.role !== "admin" && user.role !== "viewer") {
+      const canViewEmployees = await userHasFeature(user, "employees.view");
+      if (!canViewEmployees) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
     // Viewers can only see employees for published schedules
     // They get limited employee data (just what's needed for schedule viewing)
     // Also filter out hidden employees for viewers
