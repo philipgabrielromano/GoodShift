@@ -569,6 +569,12 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Category Gaylords Returned</CardTitle>
+                <div
+                  className="mt-2 rounded border-2 border-red-600 bg-red-50 px-4 py-3 text-base font-bold uppercase tracking-wide text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300"
+                  data-testid="notice-gaylords-returned-raw-only"
+                >
+                  Raw unsorted product only
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
