@@ -351,11 +351,11 @@ export default function Coaching() {
                 <span className="hidden sm:inline">Export </span>PDF
               </Button>
             )}
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg flex flex-col max-h-[90dvh]">
               <DialogHeader>
                 <DialogTitle>New Coaching Log</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Employee</Label>
                   <Select value={formEmployee} onValueChange={setFormEmployee}>
