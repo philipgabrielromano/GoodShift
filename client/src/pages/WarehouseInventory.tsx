@@ -723,8 +723,17 @@ export default function WarehouseInventory() {
                     <Label>{transferMode === "paired" ? "Quantity (positive)" : "Quantity (signed: +in / −out)"}</Label>
                     <Input
                       type="number"
+                      min={transferMode === "paired" ? 0 : undefined}
                       value={transferForm.qty}
-                      onChange={e => setTransferForm(f => ({ ...f, qty: e.target.value }))}
+                      onChange={e => {
+                        let v = e.target.value;
+                        // Transfers between warehouses must be positive — strip any negatives.
+                        // Adjustment mode stays signed (+in / −out).
+                        if (transferMode === "paired" && v.trim() !== "" && Number(v) < 0) {
+                          v = String(Math.abs(Number(v)));
+                        }
+                        setTransferForm(f => ({ ...f, qty: v }));
+                      }}
                       placeholder={transferMode === "paired" ? "e.g. 50" : "e.g. -10"}
                       data-testid="input-transfer-qty"
                     />
