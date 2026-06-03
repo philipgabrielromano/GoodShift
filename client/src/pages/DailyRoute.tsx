@@ -860,7 +860,7 @@ export default function DailyRoute() {
                         type="number"
                         min={0}
                         value={item.qty}
-                        onChange={(e) => updateItemQty(idx, parseInt(e.target.value) || 0)}
+                        onChange={(e) => updateItemQty(idx, Math.max(0, parseInt(e.target.value) || 0))}
                         className="w-20 h-8 text-right tabular-nums text-sm"
                         disabled={!item.checked}
                         data-testid={`input-qty-${item.name}`}
