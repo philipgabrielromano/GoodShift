@@ -126,13 +126,19 @@ function NumberField({ label, value, onChange, testId, hint, hintTone }: { label
       <Input
         type="number"
         min={0}
+        inputMode="numeric"
         data-testid={testId}
         value={value ?? ""}
+        onKeyDown={(e) => {
+          // Counts can never be negative — block the minus/plus/exponent keys outright.
+          if (["-", "+", "e", "E"].includes(e.key)) e.preventDefault();
+        }}
         onChange={(e) => {
           if (e.target.value === "") return onChange(null);
-          // Counts can never be negative — clamp anything < 0 to 0.
+          // Safety net for pasted values: ignore non-numbers, clamp anything < 0 to 0.
           const n = Number(e.target.value);
-          onChange(Number.isFinite(n) && n < 0 ? 0 : n);
+          if (!Number.isFinite(n)) return;
+          onChange(n < 0 ? 0 : n);
         }}
         className="h-9"
       />
