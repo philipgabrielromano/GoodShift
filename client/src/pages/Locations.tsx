@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import type { Location } from "@shared/schema";
-import { isValidLocation } from "@/lib/utils";
+import { isValidLocation, isValidLocationName } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 type SurfaceKey = "availableForOrderForm" | "availableForScheduling" | "availableForRosterTargets";
@@ -183,10 +183,26 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
     }
   };
 
+  const handleSetFormOnly = async (location: Location, formOnly: boolean) => {
+    try {
+      await updateLocation.mutateAsync({ id: location.id, formOnly });
+      toast({
+        title: formOnly ? "Marked as Order Form only" : "Converted to full store",
+        description: formOnly
+          ? `${location.name} is now hidden from scheduling and store assignment.`
+          : `${location.name} now appears in scheduling and store assignment.`,
+      });
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Failed to update location." });
+    }
+  };
+
   // Filter out invalid/excluded locations; managers further restricted to their assigned locations
   // Admins can see inactive locations (to re-enable them), but excluded names are always hidden
   const allDisplayed = useMemo(() => (locations?.filter(l => {
-    if (isAdmin) return isValidLocation({ ...l, isActive: true });
+    // Admins see every real location, including inactive and Order-Form-only
+    // ones, so they can manage and convert them. Only junk names are hidden.
+    if (isAdmin) return isValidLocationName(l.name);
     if (!isValidLocation(l)) return false;
     return userLocationIds.includes(String(l.id));
   }) || []), [locations, isAdmin, userLocationIds]);
@@ -543,6 +559,21 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
                         />
                       </div>
                     ))}
+                    <div className="flex items-start justify-between gap-3 border-t pt-3">
+                      <div className="min-w-0">
+                        <Label htmlFor="switch-edit-form-only" className="text-sm">Order Form only</Label>
+                        <p className="text-xs text-muted-foreground">
+                          When on, this is treated as an Order Form-only entry and is hidden from scheduling, roster, and store assignment. Turn off to make it a full store location.
+                        </p>
+                      </div>
+                      <Switch
+                        id="switch-edit-form-only"
+                        checked={editingLocation.formOnly === true}
+                        onCheckedChange={(checked) => handleSetFormOnly(editingLocation, checked)}
+                        disabled={updateLocation.isPending}
+                        data-testid="switch-edit-form-only"
+                      />
+                    </div>
                   </div>
                 )}
 
