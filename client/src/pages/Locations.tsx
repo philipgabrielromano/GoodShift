@@ -231,6 +231,15 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
         </div>
       )}
 
+      {embedded && isAdmin && (
+        <div className="flex justify-end">
+          <Button onClick={openCreate} data-testid="button-add-location" className="shrink-0">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Location
+          </Button>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-2 sm:gap-4">
         <Card>
           <CardHeader className="p-3 sm:p-6 pb-2">
