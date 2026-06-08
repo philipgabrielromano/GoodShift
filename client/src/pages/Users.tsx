@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import type { User, InsertUser, Role, Employee } from "@shared/schema";
-import { isValidLocation } from "@/lib/utils";
+import { isValidLocationName } from "@/lib/utils";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -570,7 +570,7 @@ export default function Users({ embedded = false }: { embedded?: boolean } = {})
               <div className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1" data-testid="list-locations">
                 {locations
                   ?.slice()
-                  .filter(isValidLocation)
+                  .filter(loc => loc.isActive !== false && isValidLocationName(loc.name))
                   .sort((a, b) => a.name.localeCompare(b.name))
                   .map(loc => (
                     <label
