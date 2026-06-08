@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { MapPin, Pencil, Search } from "lucide-react";
-import { useLocations, useUpdateLocation } from "@/hooks/use-locations";
+import { MapPin, Pencil, Search, Plus } from "lucide-react";
+import { useLocations, useUpdateLocation, useCreateLocation } from "@/hooks/use-locations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
 import type { Location } from "@shared/schema";
@@ -36,6 +37,7 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
   const { toast } = useToast();
   const { data: locations, isLoading } = useLocations();
   const updateLocation = useUpdateLocation();
+  const createLocation = useCreateLocation();
 
   const { user, role } = usePermissions();
   const isAdmin = role === "admin";
@@ -47,6 +49,56 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
   const [draftEmail, setDraftEmail] = useState("");
   const [draftOrderFormName, setDraftOrderFormName] = useState("");
   const [draftSchedulingName, setDraftSchedulingName] = useState("");
+
+  // New-location dialog state
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newHours, setNewHours] = useState("0");
+  const [newWarehouse, setNewWarehouse] = useState<string>("none");
+  const [newFormOnly, setNewFormOnly] = useState(false);
+
+  const openCreate = () => {
+    setNewName("");
+    setNewHours("0");
+    setNewWarehouse("none");
+    setNewFormOnly(false);
+    setCreateOpen(true);
+  };
+
+  const saveNewLocation = async () => {
+    const name = newName.trim();
+    if (!name) {
+      toast({ variant: "destructive", title: "Name required", description: "Please enter a store name." });
+      return;
+    }
+    const duplicate = (locations ?? []).some(l => l.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) {
+      toast({ variant: "destructive", title: "Already exists", description: `A location named "${name}" already exists.` });
+      return;
+    }
+    const hours = Number(newHours);
+    if (!Number.isInteger(hours) || hours < 0) {
+      toast({ variant: "destructive", title: "Invalid value", description: "Please enter a whole number of hours (0 or greater)." });
+      return;
+    }
+    try {
+      await createLocation.mutateAsync({
+        name,
+        weeklyHoursLimit: hours,
+        warehouseAssignment: newWarehouse === "none" ? null : newWarehouse,
+        formOnly: newFormOnly,
+      });
+      toast({
+        title: "Location added",
+        description: newFormOnly
+          ? `${name} was created as an Order Form only location, so it won't appear in this list.`
+          : `${name} has been created.`,
+      });
+      setCreateOpen(false);
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Failed to create location." });
+    }
+  };
 
   const editingLocation = useMemo(
     () => (editingId == null ? null : locations?.find(l => l.id === editingId) ?? null),
@@ -170,6 +222,12 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
               Configure each store's hours, warehouse routing, and where it appears in the app.
             </p>
           </div>
+          {isAdmin && (
+            <Button onClick={openCreate} data-testid="button-add-location" className="shrink-0">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Location
+            </Button>
+          )}
         </div>
       )}
 
@@ -531,6 +589,84 @@ export default function Locations({ embedded = false }: { embedded?: boolean } =
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Add Location dialog */}
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Location</DialogTitle>
+            <DialogDescription>
+              Create a new store location. You can fine-tune visibility and other settings afterward with the Edit button.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-name">Store Name</Label>
+              <Input
+                id="new-name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="e.g. Massillon Store"
+                data-testid="input-new-location-name"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="new-hours">Weekly Hours Budget</Label>
+              <Input
+                id="new-hours"
+                type="number"
+                min="0"
+                value={newHours}
+                onChange={(e) => setNewHours(e.target.value)}
+                data-testid="input-new-location-hours"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="new-warehouse">Warehouse</Label>
+              <Select value={newWarehouse} onValueChange={setNewWarehouse}>
+                <SelectTrigger id="new-warehouse" data-testid="select-new-location-warehouse">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  <SelectItem value="cleveland">Cleveland</SelectItem>
+                  <SelectItem value="canton">Canton</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Which warehouse this store's orders draw from / return to.
+              </p>
+            </div>
+
+            <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+              <div className="min-w-0">
+                <Label htmlFor="new-form-only" className="text-sm">Order Form only</Label>
+                <p className="text-xs text-muted-foreground">
+                  Turn on for entries used only on the Order Form (hidden from scheduling and roster).
+                </p>
+              </div>
+              <Switch
+                id="new-form-only"
+                checked={newFormOnly}
+                onCheckedChange={setNewFormOnly}
+                data-testid="switch-new-location-form-only"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex-row gap-2">
+            <Button variant="outline" onClick={() => setCreateOpen(false)} className="flex-1" data-testid="button-cancel-add-location">
+              Cancel
+            </Button>
+            <Button onClick={saveNewLocation} disabled={createLocation.isPending} className="flex-1" data-testid="button-save-add-location">
+              {createLocation.isPending ? "Adding..." : "Add Location"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
