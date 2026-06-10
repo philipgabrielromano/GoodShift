@@ -249,24 +249,20 @@ export function setupAuth(app: Express) {
             // Link Microsoft ID to existing user
             user = await storage.updateUser(user.id, { microsoftId });
           } else {
-            // Bootstrap path: allow the very first user only when the
-            // BOOTSTRAP_ADMIN_EMAIL env var is set and matches this email.
-            // This prevents any arbitrary tenant user from self-registering or
-            // racing to claim the admin account on a fresh deployment.
+            // Auto-provision new SSO accounts. The very first user matching
+            // BOOTSTRAP_ADMIN_EMAIL becomes an admin so a fresh deployment has
+            // an owner; everyone else is created as a viewer with no location
+            // access (no sensitive visibility until an admin grants a role and
+            // locations).
             const bootstrapEmail = (process.env.BOOTSTRAP_ADMIN_EMAIL || "").trim().toLowerCase();
             const existingUsers = await storage.getUsers();
             const isBootstrap = existingUsers.length === 0 && bootstrapEmail && email === bootstrapEmail;
-
-            if (!isBootstrap) {
-              console.warn(`SSO login denied for unprovisioned account: ${email}`);
-              return res.redirect("/?error=unauthorized");
-            }
 
             user = await storage.createUser({
               email,
               name,
               microsoftId,
-              role: "admin",
+              role: isBootstrap ? "admin" : "viewer",
               locationIds: [],
               isActive: true,
             });
