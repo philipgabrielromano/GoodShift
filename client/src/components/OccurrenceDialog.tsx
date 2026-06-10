@@ -45,6 +45,7 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
   const [reason, setReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
   const [isFmla, setIsFmla] = useState<boolean>(false);
+  const [isOtherLeave, setIsOtherLeave] = useState<boolean>(false);
   const [isConsecutiveSickness, setIsConsecutiveSickness] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedDocumentUrl, setUploadedDocumentUrl] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
       setReason("");
       setNotes("");
       setIsFmla(false);
+      setIsOtherLeave(false);
       setIsConsecutiveSickness(false);
       setSelectedFile(null);
       setUploadedDocumentUrl(null);
@@ -148,13 +150,14 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
         occurrenceValue: typeInfo.points,
         isNcns: occurrenceType === "ncns",
         isFmla,
+        isOtherLeave,
         isConsecutiveSickness,
         reason: reason || undefined,
         notes: notesAvailable ? (notes || undefined) : undefined,
         documentUrl: uploadedDocumentUrl || undefined
       });
 
-      const exemptionNote = isFmla ? " (FMLA - not counted)" : isConsecutiveSickness ? " (Consecutive sickness - not counted)" : "";
+      const exemptionNote = isFmla ? " (FMLA - not counted)" : isOtherLeave ? " (Other leave - not counted)" : isConsecutiveSickness ? " (Consecutive sickness - not counted)" : "";
       toast({ 
         title: "Attendance record created", 
         description: `${typeInfo.label} recorded for ${employeeName}${exemptionNote}.` 
@@ -257,7 +260,7 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
                 checked={isFmla} 
                 onCheckedChange={(checked) => {
                   setIsFmla(checked === true);
-                  if (checked) setIsConsecutiveSickness(false);
+                  if (checked) { setIsConsecutiveSickness(false); setIsOtherLeave(false); }
                 }}
                 data-testid="checkbox-fmla"
               />
@@ -268,11 +271,26 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
 
             <div className="flex items-center space-x-2">
               <Checkbox 
+                id="isOtherLeave" 
+                checked={isOtherLeave} 
+                onCheckedChange={(checked) => {
+                  setIsOtherLeave(checked === true);
+                  if (checked) { setIsFmla(false); setIsConsecutiveSickness(false); }
+                }}
+                data-testid="checkbox-other-leave"
+              />
+              <Label htmlFor="isOtherLeave" className="text-sm font-normal cursor-pointer">
+                Other Leave Usage <span className="text-muted-foreground">(will not count as occurrence)</span>
+              </Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Checkbox 
                 id="isConsecutiveSickness" 
                 checked={isConsecutiveSickness} 
                 onCheckedChange={(checked) => {
                   setIsConsecutiveSickness(checked === true);
-                  if (checked) setIsFmla(false);
+                  if (checked) { setIsFmla(false); setIsOtherLeave(false); }
                 }}
                 data-testid="checkbox-consecutive-sickness"
               />
@@ -282,11 +300,13 @@ export function OccurrenceDialog({ isOpen, onClose, employeeId, employeeName, oc
             </div>
           </div>
 
-          {(isFmla || isConsecutiveSickness) && (
+          {(isFmla || isOtherLeave || isConsecutiveSickness) && (
             <div className="rounded-md bg-blue-50 border border-blue-200 p-3 dark:bg-blue-950 dark:border-blue-800">
               <p className="text-sm text-blue-800 dark:text-blue-200">
                 {isFmla 
                   ? "This absence is protected under FMLA and will be documented but not counted toward the occurrence total."
+                  : isOtherLeave
+                  ? "This absence is covered by another approved leave and will be documented but not counted toward the occurrence total."
                   : "This is part of a consecutive illness period and will be documented but not counted toward the occurrence total."
                 }
               </p>

@@ -257,7 +257,7 @@ export function registerOccurrenceRoutes(app: Express) {
     try {
       const user = (req.session as any)?.user;
       
-      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, isFmla, isConsecutiveSickness, reason, documentUrl } = req.body;
+      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, isFmla, isOtherLeave, isConsecutiveSickness, reason, documentUrl } = req.body;
       
       if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
         return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
@@ -277,6 +277,7 @@ export function registerOccurrenceRoutes(app: Express) {
         notes: notes || null,
         isNcns: isNcns || false,
         isFmla: isFmla || false,
+        isOtherLeave: isOtherLeave || false,
         isConsecutiveSickness: isConsecutiveSickness || false,
         reason: reason || null,
         documentUrl: documentUrl || null,
@@ -290,8 +291,8 @@ export function registerOccurrenceRoutes(app: Express) {
         }, OCCURRENCE_UPLOAD_CONSTRAINTS);
       }
       
-      // Only check HR notification thresholds for countable occurrences (not FMLA or consecutive sickness)
-      if (!isFmla && !isConsecutiveSickness) {
+      // Only check HR notification thresholds for countable occurrences (not FMLA, other leave, or consecutive sickness)
+      if (!isFmla && !isOtherLeave && !isConsecutiveSickness) {
         const protocol = req.headers['x-forwarded-proto'] || 'https';
         const host = req.headers.host || 'localhost:5000';
         const appUrl = `${protocol}://${host}`;
@@ -395,8 +396,8 @@ export function registerOccurrenceRoutes(app: Express) {
       const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
       
       // Calculate total points (stored as integers x100, so divide by 100)
-      // FMLA and consecutive sickness occurrences do NOT count toward the total
-      const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+      // FMLA, other leave, and consecutive sickness occurrences do NOT count toward the total
+      const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
       const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
       
       // Get ALL adjustments for full history display. Two separate buckets:
@@ -560,8 +561,8 @@ export function registerOccurrenceRoutes(app: Express) {
       for (const emp of allEmployees) {
         const empOccurrences = occurrencesByEmployee.get(emp.id) || [];
         const activeOccurrences = empOccurrences.filter(o => o.status === 'active');
-        // FMLA and consecutive sickness occurrences do NOT count toward the total
-        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+        // FMLA, other leave, and consecutive sickness occurrences do NOT count toward the total
+        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
         const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
 
         // Get adjustments for this year (only count active adjustments)
@@ -713,7 +714,7 @@ export function registerOccurrenceRoutes(app: Express) {
         const endDate = effectiveDate;
         const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
         const activeOccurrences = occurrences.filter(o => o.status === 'active');
-        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
         const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
         
         if (totalPoints === 0) {

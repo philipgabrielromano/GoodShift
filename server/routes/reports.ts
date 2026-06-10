@@ -150,7 +150,7 @@ export function registerReportRoutes(app: Express) {
 
       for (const occ of allOccurrences) {
         if (occ.status !== "active") continue;
-        if (occ.isFmla || occ.isConsecutiveSickness) continue;
+        if (occ.isFmla || occ.isOtherLeave || occ.isConsecutiveSickness) continue;
         if (!employeePoints[occ.employeeId]) employeePoints[occ.employeeId] = 0;
         employeePoints[occ.employeeId] += occ.occurrenceValue;
       }

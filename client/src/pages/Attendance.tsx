@@ -300,6 +300,7 @@ export default function Attendance() {
           let status = o.status === "retracted" ? "Retracted" : "Active";
           if (o.isConsecutiveSickness) status = "Consecutive Illness (not counted)";
           else if (o.isFmla) status = "FMLA (not counted)";
+          else if (o.isOtherLeave) status = "Other Leave (not counted)";
           return [
             o.occurrenceDate,
             o.occurrenceType === "half" ? "Half (0.5)" : o.occurrenceType === "ncns" ? "NCNS (1.0)" : "Full (1.0)",
@@ -799,6 +800,11 @@ export default function Attendance() {
                                       FMLA
                                     </Badge>
                                   )}
+                                  {occurrence.isOtherLeave && !isRetracted && (
+                                    <Badge variant="secondary" className="text-xs bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200">
+                                      Other Leave
+                                    </Badge>
+                                  )}
                                   {isRetracted && (
                                     <Badge variant="secondary" className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
                                       Retracted
@@ -837,9 +843,9 @@ export default function Attendance() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                                <span className={`text-xs sm:text-sm font-medium ${isRetracted || outsideWindow ? 'line-through text-muted-foreground' : (occurrence.isFmla || occurrence.isConsecutiveSickness) ? 'text-muted-foreground' : ''}`}>
+                                <span className={`text-xs sm:text-sm font-medium ${isRetracted || outsideWindow ? 'line-through text-muted-foreground' : (occurrence.isFmla || occurrence.isOtherLeave || occurrence.isConsecutiveSickness) ? 'text-muted-foreground' : ''}`}>
                                   {(occurrence.occurrenceValue / 100).toFixed(1)}
-                                  {!isRetracted && (occurrence.isFmla || occurrence.isConsecutiveSickness) && (
+                                  {!isRetracted && (occurrence.isFmla || occurrence.isOtherLeave || occurrence.isConsecutiveSickness) && (
                                     <span className="text-[10px] sm:text-xs ml-0.5">(n/c)</span>
                                   )}
                                 </span>

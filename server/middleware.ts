@@ -192,7 +192,7 @@ export async function checkAndSendHRNotification(
 
     // Calculate net tally (includes the newly added occurrence)
     const activeOccurrences = occurrences.filter(o => o.status === 'active');
-    const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isConsecutiveSickness);
+    const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
     const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
 
     const activeAdjustments = adjustments.filter(a => a.status === 'active');

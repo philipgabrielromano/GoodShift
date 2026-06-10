@@ -429,6 +429,7 @@ export const occurrences = pgTable("occurrences", {
   illnessGroupId: text("illness_group_id"), // UUID to link multi-day illness occurrences (days 1-3 = single occurrence)
   isNcns: boolean("is_ncns").notNull().default(false), // No Call/No Show flag
   isFmla: boolean("is_fmla").notNull().default(false), // FMLA usage - does NOT count as occurrence
+  isOtherLeave: boolean("is_other_leave").notNull().default(false), // Other leave usage - does NOT count as occurrence
   isConsecutiveSickness: boolean("is_consecutive_sickness").notNull().default(false), // Consecutive sickness - does NOT count as occurrence
   status: text("status").notNull().default("active"), // 'active' or 'retracted'
   retractedReason: text("retracted_reason"), // 'perfect_attendance', 'unscheduled_shift', or manual reason
