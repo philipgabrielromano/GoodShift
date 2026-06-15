@@ -1433,7 +1433,7 @@ export const warehouseTransfers = pgTable("warehouse_transfers", {
   itemName: text("item_name").notNull(),
   groupName: text("group_name").notNull(),
   qty: integer("qty").notNull(), // signed: positive = in, negative = out
-  reason: text("reason").notNull(), // 'transfer_in' | 'transfer_out' | 'salvage_pickup' | 'adjustment' | 'other'
+  reason: text("reason").notNull(), // 'transfer_in' | 'transfer_out' | 'salvage_pickup' | 'purchase' | 'adjustment' | 'other'
   counterpartyWarehouse: text("counterparty_warehouse"), // optional: other warehouse for inter-warehouse transfers
   transferGroupId: text("transfer_group_id"), // shared id linking the two halves of a paired inter-warehouse transfer (null for single-sided adjustments)
   notes: text("notes"),
@@ -1453,6 +1453,7 @@ export const TRANSFER_REASONS = [
   "transfer_in",
   "transfer_out",
   "salvage_pickup",
+  "purchase",
   "adjustment",
   "other",
 ] as const;
@@ -1461,6 +1462,7 @@ export const TRANSFER_REASON_LABELS: Record<TransferReason, string> = {
   transfer_in: "Transfer In",
   transfer_out: "Transfer Out",
   salvage_pickup: "Salvage Pickup",
+  purchase: "Purchase",
   adjustment: "Adjustment",
   other: "Other",
 };

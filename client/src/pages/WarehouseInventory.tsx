@@ -26,8 +26,8 @@ import {
 } from "recharts";
 import { classifyVariance } from "@/lib/warehouseVariance";
 
-type AdjustmentReason = "salvage_pickup" | "adjustment" | "other";
-const ADJUSTMENT_REASONS: AdjustmentReason[] = ["salvage_pickup", "adjustment", "other"];
+type AdjustmentReason = "salvage_pickup" | "purchase" | "adjustment" | "other";
+const ADJUSTMENT_REASONS: AdjustmentReason[] = ["salvage_pickup", "purchase", "adjustment", "other"];
 
 interface Meta {
   warehouses: string[];
@@ -194,6 +194,9 @@ export default function WarehouseInventory() {
         });
       }
       // Adjustment mode (single-sided, signed qty allowed)
+      if (transferForm.reason === "purchase" && qtyNum <= 0) {
+        throw new Error("Purchase quantity must be positive — purchases add inventory");
+      }
       const cat = meta?.categories.find(c => c.items.includes(transferForm.itemName));
       return await apiRequest("POST", "/api/warehouse-transfers", {
         warehouse: transferForm.warehouse,
@@ -607,7 +610,7 @@ export default function WarehouseInventory() {
               <DialogHeader>
                 <DialogTitle>Record a Warehouse Transfer</DialogTitle>
                 <DialogDescription>
-                  Choose inter-warehouse to move stock between Cleveland & Canton (both sides post atomically), or adjustment for salvage/write-offs.
+                  Choose inter-warehouse to move stock between Cleveland & Canton (both sides post atomically), or adjustment to record a purchase (inventory bought in), salvage pickup, or write-off.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -628,7 +631,7 @@ export default function WarehouseInventory() {
                     onClick={() => setTransferMode("adjustment")}
                     data-testid="button-mode-adjustment"
                   >
-                    Adjustment / Salvage
+                    Purchase / Adjustment
                   </Button>
                 </div>
 
@@ -690,6 +693,7 @@ export default function WarehouseInventory() {
                       >
                         <SelectTrigger data-testid="select-reason"><SelectValue /></SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="purchase">Purchase (inventory bought in)</SelectItem>
                           <SelectItem value="adjustment">Adjustment</SelectItem>
                           <SelectItem value="salvage_pickup">Salvage Pickup</SelectItem>
                           <SelectItem value="other">Other</SelectItem>
@@ -720,21 +724,22 @@ export default function WarehouseInventory() {
                     </Select>
                   </div>
                   <div className="space-y-1">
-                    <Label>{transferMode === "paired" ? "Quantity (positive)" : "Quantity (signed: +in / −out)"}</Label>
+                    <Label>{transferMode === "paired" || transferForm.reason === "purchase" ? "Quantity (positive)" : "Quantity (signed: +in / −out)"}</Label>
                     <Input
                       type="number"
-                      min={transferMode === "paired" ? 0 : undefined}
+                      min={transferMode === "paired" || transferForm.reason === "purchase" ? 0 : undefined}
                       value={transferForm.qty}
                       onChange={e => {
                         let v = e.target.value;
-                        // Transfers between warehouses must be positive — strip any negatives.
-                        // Adjustment mode stays signed (+in / −out).
-                        if (transferMode === "paired" && v.trim() !== "" && Number(v) < 0) {
+                        // Inter-warehouse transfers and purchases are inflows — strip any
+                        // negatives. Other adjustment reasons stay signed (+in / −out).
+                        const forcePositive = transferMode === "paired" || transferForm.reason === "purchase";
+                        if (forcePositive && v.trim() !== "" && Number(v) < 0) {
                           v = String(Math.abs(Number(v)));
                         }
                         setTransferForm(f => ({ ...f, qty: v }));
                       }}
-                      placeholder={transferMode === "paired" ? "e.g. 50" : "e.g. -10"}
+                      placeholder={transferMode === "paired" || transferForm.reason === "purchase" ? "e.g. 50" : "e.g. -10"}
                       data-testid="input-transfer-qty"
                     />
                   </div>

@@ -153,7 +153,8 @@ export function registerWarehouseInventoryRoutes(app: Express) {
   // Two POST modes:
   //   1) Paired inter-warehouse transfer: body = { mode: 'paired', fromWarehouse, toWarehouse, itemName, qty>0, transferDate, notes? }
   //      → atomically posts a -qty row on source AND a +qty row on dest, sharing transferGroupId.
-  //   2) Adjustment / salvage / other single-sided: body = { warehouse, itemName, qty (signed, !=0), reason, transferDate, notes? }
+  //   2) Purchase / adjustment / salvage / other single-sided: body = { warehouse, itemName, qty (signed, !=0), reason, transferDate, notes? }
+  //      Note: reason 'purchase' must be a positive qty (inventory bought in); it is a single-sided inflow.
   //      → posts a single signed row on that warehouse. Reason CANNOT be transfer_in/out (those are reserved for paired).
   const pairedSchema = z.object({
     mode: z.literal("paired"),
@@ -198,6 +199,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       if (input.reason === "transfer_in" || input.reason === "transfer_out") {
         return res.status(400).json({
           message: "Inter-warehouse transfers must use mode='paired' so both sides are posted atomically.",
+        });
+      }
+      if (input.reason === "purchase" && input.qty <= 0) {
+        return res.status(400).json({
+          message: "Purchase quantity must be positive — purchases add inventory.",
         });
       }
       const cat = WAREHOUSE_INVENTORY_CATEGORIES.find(c => c.items.includes(input.itemName));
