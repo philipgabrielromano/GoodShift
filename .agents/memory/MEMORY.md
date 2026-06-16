@@ -1,0 +1,1 @@
+- [Employee hierarchy visibility](employee-hierarchy-visibility.md) — attendance/coaching/reports each re-implement job-title visibility; keep in lockstep, level-0 (HR) must see everyone within locations.

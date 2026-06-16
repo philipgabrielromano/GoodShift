@@ -86,7 +86,9 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
   }
 
   const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-  if (managerLevel >= 3) return true;
+  // Unknown titles (level 0, e.g. HR, district-level roles) and store-manager-
+  // and-above (level >= 3) can access everyone within their allowed locations.
+  if (managerLevel === 0 || managerLevel >= 3) return true;
   const empLevel = getHierarchyLevel(targetEmployee.jobTitle);
   return empLevel < managerLevel;
 }
@@ -135,7 +137,9 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
   const visible = activeEmployees.filter(e => {
     if (managerEmployee && e.id === managerEmployee.id) return false;
     if (allowedNames && (!e.location || !allowedNames.has(e.location))) return false;
-    if (managerLevel >= 3) return true;
+    // Unknown titles (level 0, e.g. HR) and store-manager-and-above (level >= 3)
+    // see everyone within their allowed locations.
+    if (managerLevel === 0 || managerLevel >= 3) return true;
     return getHierarchyLevel(e.jobTitle) < managerLevel;
   });
 
@@ -210,7 +214,9 @@ export function registerOccurrenceRoutes(app: Express) {
 
       const visible = filtered.filter(e => {
         if (managerEmployee && e.id === managerEmployee.id) return false;
-        if (managerLevel >= 3) return true;
+        // Unknown titles (level 0, e.g. HR) and store-manager-and-above
+        // (level >= 3) see everyone within their allowed locations.
+        if (managerLevel === 0 || managerLevel >= 3) return true;
         return getHierarchyLevel(e.jobTitle) < managerLevel;
       });
 
