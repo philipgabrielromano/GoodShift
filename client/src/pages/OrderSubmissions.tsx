@@ -25,12 +25,20 @@ import {
   Clock,
   History,
   CheckCheck,
+  X,
 } from "lucide-react";
 import { useLocation as useWouterLocation } from "wouter";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
 import { isOrderFormLocation } from "@/lib/utils";
-import { ADJUSTABLE_ORDER_FIELDS, type OrderEvent, type OrderStatus } from "@shared/schema";
+import {
+  ADJUSTABLE_ORDER_FIELDS,
+  ORDER_CONFIRMATION_KIND,
+  RECEIPT_CONFIRM_FIELDS,
+  EXPORT_CONFIRM_FIELDS,
+  type OrderEvent,
+  type OrderStatus,
+} from "@shared/schema";
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -91,6 +99,8 @@ interface Order {
   deniedAt: string | null;
   deniedBy: string | null;
   denialReason: string | null;
+  confirmedAt: string | null;
+  confirmedBy: string | null;
   notes: string | null;
   [key: string]: string | number | boolean | null;
 }
@@ -205,6 +215,8 @@ const SKIP_KEYS = new Set([
   "deniedAt",
   "deniedBy",
   "denialReason",
+  "confirmedAt",
+  "confirmedBy",
 ]);
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -245,6 +257,53 @@ function StatusBadge({ status }: { status: OrderStatus }) {
   );
 }
 
+// The reconciliation kind for an order type, or null for order types that don't
+// move warehouse goods (Donors / Supplemental / First Aid).
+function confirmKindFor(orderType: string): "receipt" | "export" | null {
+  return ORDER_CONFIRMATION_KIND[orderType] ?? null;
+}
+
+// The mapped lines that were planned (> 0) on this order for the given
+// confirmation flow. These are the lines the confirmer must enter an actual
+// for. Lines planned at 0 aren't shown by default; the confirm dialog offers a
+// picker to add one as an overage (something arrived/left that wasn't ordered).
+function plannedConfirmLines(order: Record<string, any>, kind: "receipt" | "export") {
+  const fields = kind === "receipt" ? RECEIPT_CONFIRM_FIELDS : EXPORT_CONFIRM_FIELDS;
+  return fields
+    .map((field) => ({ field, planned: Number(order[field] ?? 0) || 0 }))
+    .filter((l) => l.planned > 0);
+}
+
+// Order-aware status badge. Goods-moving orders surface their reconciliation
+// state ("Pending confirmation" once approved-but-unconfirmed, "Reconciled"
+// once the actuals are typed) on top of the raw DB status. Everything else
+// falls back to the plain status badge.
+function OrderStatusBadge({ order }: { order: { status: OrderStatus; orderType: string; confirmedAt: string | null } }) {
+  const status = (order.status as OrderStatus) || "submitted";
+  const kind = confirmKindFor(order.orderType);
+  if (kind && status === "approved" && !order.confirmedAt) {
+    return (
+      <Badge variant="secondary" className="bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 inline-flex items-center gap-1" data-testid="badge-status-pending-confirmation">
+        <Clock className="w-3 h-3" />
+        Pending confirmation
+      </Badge>
+    );
+  }
+  if (kind && order.confirmedAt) {
+    // Any confirmed goods-moving order is reconciled, whatever its raw status.
+    // This also covers historical backfilled rows that were confirmed while
+    // still in "approved" (they count toward inventory, so "approved" alone
+    // would be misleading).
+    return (
+      <Badge variant="secondary" className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200 inline-flex items-center gap-1" data-testid="badge-status-reconciled">
+        <PackageCheck className="w-3 h-3" />
+        Reconciled
+      </Badge>
+    );
+  }
+  return <StatusBadge status={status} />;
+}
+
 const EVENT_LABELS: Record<string, string> = {
   created: "Submitted",
   modified: "Modified",
@@ -252,8 +311,17 @@ const EVENT_LABELS: Record<string, string> = {
   denied: "Denied",
   received: "Received",
   unreceived: "Reverted to Approved",
+  confirmed_receipt: "Receipt confirmed",
+  confirmed_export: "Export confirmed",
   deleted: "Deleted",
 };
+
+// Confirmation events store their variance as { planned, actual } maps instead
+// of the { before, after } shape used by edit/adjust events.
+const CONFIRMATION_EVENT_TYPES = new Set([
+  "confirmed_receipt",
+  "confirmed_export",
+]);
 
 function AuditLog({ orderId }: { orderId: number }) {
   const { data, isLoading, error } = useQuery<OrderEvent[]>({
@@ -280,8 +348,18 @@ function AuditLog({ orderId }: { orderId: number }) {
   return (
     <ul className="space-y-2" data-testid={`list-audit-${orderId}`}>
       {data.map((e) => {
-        const changes = e.changes as { before?: Record<string, any>; after?: Record<string, any> } | null;
-        const changedKeys = changes?.after ? Object.keys(changes.after) : [];
+        const isConfirmation = CONFIRMATION_EVENT_TYPES.has(e.eventType);
+        const changes = e.changes as {
+          before?: Record<string, any>;
+          after?: Record<string, any>;
+          planned?: Record<string, any>;
+          actual?: Record<string, any>;
+        } | null;
+        // Confirmation events carry { planned, actual }; everything else carries
+        // { before, after }. Normalize both into a from/to pair for display.
+        const fromMap = isConfirmation ? changes?.planned : changes?.before;
+        const toMap = isConfirmation ? changes?.actual : changes?.after;
+        const changedKeys = toMap ? Object.keys(toMap) : [];
         return (
           <li key={e.id} className="rounded border bg-muted/30 p-2 text-sm" data-testid={`event-${e.id}`}>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -299,18 +377,24 @@ function AuditLog({ orderId }: { orderId: number }) {
             {e.note && <div className="mt-1 text-sm">{e.note}</div>}
             {changedKeys.length > 0 && (
               <div className="mt-1 text-xs">
-                <span className="text-muted-foreground">Changed: </span>
+                <span className="text-muted-foreground">{isConfirmation ? "Planned → actual: " : "Changed: "}</span>
                 {changedKeys.map((k, i) => {
-                  const before = changes?.before?.[k];
-                  const after = changes?.after?.[k];
+                  const from = fromMap?.[k];
+                  const to = toMap?.[k];
+                  const variance = isConfirmation ? Number(to ?? 0) - Number(from ?? 0) : 0;
                   return (
                     <span key={k}>
                       {i > 0 ? ", " : ""}
                       <span className="font-medium">{FIELD_LABELS[k] || k}</span>
                       {" "}
                       <span className="text-muted-foreground">
-                        ({before ?? "—"} → {after ?? "—"})
+                        ({from ?? "—"} → {to ?? "—"})
                       </span>
+                      {isConfirmation && variance !== 0 && (
+                        <span className={variance > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+                          {" "}{variance > 0 ? `+${variance}` : variance}
+                        </span>
+                      )}
                     </span>
                   );
                 })}
@@ -340,6 +424,16 @@ export default function OrderSubmissions() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustValues, setAdjustValues] = useState<Record<string, number>>({});
   const [adjustReason, setAdjustReason] = useState("");
+  // Reconciliation confirm dialog: the responsible side types the actual
+  // quantities that physically moved before a goods-moving order leaves
+  // "pending confirmation". Inputs start blank (no one-click) and every
+  // planned-nonzero line must be filled in.
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmKind, setConfirmKind] = useState<"receipt" | "export">("receipt");
+  const [confirmValues, setConfirmValues] = useState<Record<string, string>>({});
+  // Extra (planned-0) lines the confirmer chose to add to record an overage —
+  // something arrived/left that wasn't on the original order.
+  const [confirmExtra, setConfirmExtra] = useState<string[]>([]);
   // Bulk-approve state. We open a confirmation dialog showing the count of
   // currently-visible submitted orders before any DB writes happen.
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
@@ -355,6 +449,7 @@ export default function OrderSubmissions() {
   const canDelete = can("orders.delete");
   const canApprove = can("orders.approve");
   const canReceive = can("orders.receive");
+  const canConfirmExport = can("orders.confirm_export");
   const [, navigate] = useWouterLocation();
 
   const { data: dbLocations } = useLocations();
@@ -403,6 +498,41 @@ export default function OrderSubmissions() {
     },
     onError: (err: Error) => {
       toast({ title: "Couldn't update receive status", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Confirm a goods-moving order with the typed actual quantities.
+  const confirmMutation = useMutation({
+    mutationFn: async ({ id, kind, actuals }: { id: number; kind: "receipt" | "export"; actuals: Record<string, number> }) => {
+      const path = kind === "receipt" ? "confirm-receipt" : "confirm-export";
+      await apiRequest("POST", `/api/orders/${id}/${path}`, { actuals });
+    },
+    onSuccess: (_data, vars) => {
+      toast({ title: vars.kind === "receipt" ? "Receipt confirmed" : "Export confirmed" });
+      setConfirmOpen(false);
+      setConfirmValues({});
+      setConfirmExtra([]);
+      setSelectedOrder(null);
+      invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't confirm order", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Undo a confirmation — clears the typed actuals and reverts to approved.
+  const unconfirmMutation = useMutation({
+    mutationFn: async ({ id, kind }: { id: number; kind: "receipt" | "export" }) => {
+      const path = kind === "receipt" ? "unconfirm-receipt" : "unconfirm-export";
+      await apiRequest("POST", `/api/orders/${id}/${path}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Confirmation undone — order moved back to approved" });
+      setSelectedOrder(null);
+      invalidateAll();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't undo confirmation", description: err.message, variant: "destructive" });
     },
   });
 
@@ -516,7 +646,7 @@ export default function OrderSubmissions() {
 
   const nonNullFields = (order: Order) => {
     return Object.entries(order)
-      .filter(([key, val]) => !SKIP_KEYS.has(key) && val !== null && val !== undefined && val !== 0)
+      .filter(([key, val]) => !SKIP_KEYS.has(key) && !key.endsWith("Actual") && val !== null && val !== undefined && val !== 0)
       .map(([key, val]) => ({
         label: FIELD_LABELS[key] || key,
         value: key === "isCentralProcessing" ? (val ? "Yes" : "No") : val,
@@ -654,7 +784,7 @@ export default function OrderSubmissions() {
                         <TableCell>{order.submittedBy}</TableCell>
                         <TableCell>{formatDateTime(order.submittedAt)}</TableCell>
                         <TableCell data-testid={`cell-status-${order.id}`}>
-                          <StatusBadge status={st} />
+                          <OrderStatusBadge order={order} />
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
@@ -723,7 +853,7 @@ export default function OrderSubmissions() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Order #{selectedOrder?.id} Details
-              {selectedOrder && <StatusBadge status={statusForRow(selectedOrder)} />}
+              {selectedOrder && <OrderStatusBadge order={selectedOrder} />}
             </DialogTitle>
           </DialogHeader>
           {selectedOrder && (
@@ -771,6 +901,17 @@ export default function OrderSubmissions() {
                     </div>
                   </>
                 )}
+                {selectedOrder.confirmedAt && (
+                  <>
+                    <div className="text-muted-foreground">
+                      {confirmKindFor(selectedOrder.orderType) === "export" ? "Export confirmed" : "Receipt confirmed"}
+                    </div>
+                    <div data-testid={`text-confirmed-${selectedOrder.id}`}>
+                      {formatDateTime(selectedOrder.confirmedAt)}
+                      {selectedOrder.confirmedBy ? ` by ${selectedOrder.confirmedBy}` : ""}
+                    </div>
+                  </>
+                )}
               </div>
 
               {selectedOrder.denialReason && (
@@ -794,6 +935,40 @@ export default function OrderSubmissions() {
                 </>
               )}
 
+              {(() => {
+                const kind = confirmKindFor(selectedOrder.orderType);
+                if (!kind || !selectedOrder.confirmedAt) return null;
+                const lines = plannedConfirmLines(selectedOrder, kind)
+                  .map((l) => {
+                    const actual = Number((selectedOrder as any)[`${l.field}Actual`] ?? 0) || 0;
+                    return { ...l, actual, variance: actual - l.planned };
+                  });
+                if (lines.length === 0) return null;
+                return (
+                  <>
+                    <hr />
+                    <div>
+                      <p className="text-sm font-medium mb-2">Confirmed quantities (planned → actual)</p>
+                      <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm" data-testid={`variance-${selectedOrder.id}`}>
+                        {lines.map((l) => (
+                          <div key={l.field} className="contents">
+                            <div className="text-muted-foreground">{FIELD_LABELS[l.field] || l.field}</div>
+                            <div className="font-medium tabular-nums text-right">
+                              {l.planned} → {l.actual}
+                              {l.variance !== 0 && (
+                                <span className={l.variance > 0 ? "ml-2 text-emerald-600 dark:text-emerald-400" : "ml-2 text-rose-600 dark:text-rose-400"}>
+                                  {l.variance > 0 ? `+${l.variance}` : l.variance}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+
               {selectedOrder.notes && (
                 <>
                   <hr />
@@ -813,7 +988,7 @@ export default function OrderSubmissions() {
                 <AuditLog orderId={selectedOrder.id} />
               </div>
 
-              {(canEdit || canDelete || canApprove || canReceive) && (
+              {(canEdit || canDelete || canApprove || canReceive || canConfirmExport) && (
                 <>
                   <hr />
                   <div className="flex flex-col gap-2">
@@ -866,32 +1041,86 @@ export default function OrderSubmissions() {
                         </div>
                       </>
                     )}
-                    {canReceive && statusForRow(selectedOrder) === "approved" && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="w-full"
-                        disabled={receiveMutation.isPending}
-                        onClick={() => receiveMutation.mutate({ id: selectedOrder.id, received: true })}
-                        data-testid={`button-receive-order-${selectedOrder.id}`}
-                      >
-                        {receiveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
-                        Mark as Received
-                      </Button>
-                    )}
-                    {canReceive && (statusForRow(selectedOrder) === "received" || statusForRow(selectedOrder) === "closed") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full"
-                        disabled={receiveMutation.isPending}
-                        onClick={() => receiveMutation.mutate({ id: selectedOrder.id, received: false })}
-                        data-testid={`button-unreceive-order-${selectedOrder.id}`}
-                      >
-                        {receiveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageX className="w-4 h-4 mr-2" />}
-                        Undo Receive
-                      </Button>
-                    )}
+                    {(() => {
+                      const kind = confirmKindFor(selectedOrder.orderType);
+                      const st = statusForRow(selectedOrder);
+                      const isConfirmed = !!selectedOrder.confirmedAt;
+                      // Whoever may act on THIS order's confirmation: the store
+                      // (orders.receive) for Transfer & Receive, transportation
+                      // (orders.confirm_export) for End of Day.
+                      const canConfirmThis = kind === "receipt" ? canReceive : kind === "export" ? canConfirmExport : false;
+
+                      // Non-goods-moving order types keep the plain one-click
+                      // receive / undo — there's nothing to reconcile.
+                      if (kind === null) {
+                        return (
+                          <>
+                            {canReceive && st === "approved" && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="w-full"
+                                disabled={receiveMutation.isPending}
+                                onClick={() => receiveMutation.mutate({ id: selectedOrder.id, received: true })}
+                                data-testid={`button-receive-order-${selectedOrder.id}`}
+                              >
+                                {receiveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
+                                Mark as Received
+                              </Button>
+                            )}
+                            {canReceive && (st === "received" || st === "closed") && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                disabled={receiveMutation.isPending}
+                                onClick={() => receiveMutation.mutate({ id: selectedOrder.id, received: false })}
+                                data-testid={`button-unreceive-order-${selectedOrder.id}`}
+                              >
+                                {receiveMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageX className="w-4 h-4 mr-2" />}
+                                Undo Receive
+                              </Button>
+                            )}
+                          </>
+                        );
+                      }
+
+                      // Goods-moving orders require typed actuals.
+                      return (
+                        <>
+                          {canConfirmThis && st === "approved" && !isConfirmed && (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              className="w-full"
+                              disabled={confirmMutation.isPending}
+                              onClick={() => { setConfirmKind(kind); setConfirmValues({}); setConfirmExtra([]); setConfirmOpen(true); }}
+                              data-testid={`button-confirm-order-${selectedOrder.id}`}
+                            >
+                              <PackageCheck className="w-4 h-4 mr-2" />
+                              {kind === "receipt" ? "Confirm receipt…" : "Confirm export…"}
+                            </Button>
+                          )}
+                          {/* Undo is only offered while the order is "received".
+                              The server keeps "closed" terminal (a closed
+                              confirmation can't be reverted), so we don't show
+                              the button there to avoid a guaranteed error. */}
+                          {canConfirmThis && isConfirmed && st === "received" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full"
+                              disabled={unconfirmMutation.isPending}
+                              onClick={() => unconfirmMutation.mutate({ id: selectedOrder.id, kind })}
+                              data-testid={`button-unconfirm-order-${selectedOrder.id}`}
+                            >
+                              {unconfirmMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageX className="w-4 h-4 mr-2" />}
+                              Undo confirmation
+                            </Button>
+                          )}
+                        </>
+                      );
+                    })()}
                     {canEdit && (
                       <Button
                         variant="outline"
@@ -1124,6 +1353,154 @@ export default function OrderSubmissions() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Confirm receipt / export. Goods-moving orders only count toward
+          inventory once the responsible side TYPES the actual quantities that
+          physically moved — there is no one-click "received". The planned
+          amount is shown as the input placeholder so the confirmer can see
+          what was expected, but they must enter every line explicitly (0 is a
+          valid actual). Planned-positive lines are shown by default; a picker
+          lets the confirmer add an overage line for an item that arrived but
+          wasn't on the original order (planned 0). */}
+      {(() => {
+        const order = selectedOrder;
+        const confirmLines = order ? plannedConfirmLines(order, confirmKind) : [];
+        // Every field this flow allows, minus the planned-positive lines already
+        // shown and minus any overage lines already added. These are offered in
+        // the "record an overage" picker so the confirmer can log an item that
+        // wasn't on the original order (planned 0).
+        const flowFields = confirmKind === "receipt" ? RECEIPT_CONFIRM_FIELDS : EXPORT_CONFIRM_FIELDS;
+        const plannedFieldSet = new Set(confirmLines.map((l) => l.field));
+        const addableFields = flowFields.filter((f) => !plannedFieldSet.has(f) && !confirmExtra.includes(f));
+        const extraLines = confirmExtra.map((field) => ({ field, planned: 0 }));
+        const allLines = [...confirmLines, ...extraLines];
+        const allFilled = allLines.every((l) => {
+          const v = confirmValues[l.field];
+          return v !== undefined && v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0;
+        });
+        const submit = () => {
+          if (!order) return;
+          const actuals: Record<string, number> = {};
+          for (const l of allLines) {
+            actuals[l.field] = Math.max(0, Math.trunc(Number(confirmValues[l.field])));
+          }
+          confirmMutation.mutate({ id: order.id, kind: confirmKind, actuals });
+        };
+        return (
+          <Dialog open={confirmOpen} onOpenChange={(open) => { if (!confirmMutation.isPending) setConfirmOpen(open); }}>
+            <DialogContent data-testid="dialog-confirm-actuals">
+              <DialogHeader>
+                <DialogTitle>
+                  {confirmKind === "receipt" ? "Confirm what you received" : "Confirm what was sent"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <p className="text-muted-foreground">
+                  {confirmKind === "receipt"
+                    ? "Type the actual quantity that arrived for each line. This is what counts toward warehouse inventory — not the requested amount."
+                    : "Type the actual quantity that left for each line. This is what counts toward inventory — not the planned amount."}
+                </p>
+                {allLines.length === 0 ? (
+                  <p className="text-muted-foreground">
+                    Nothing was ordered on this order. If something still arrived,
+                    add it below and type the actual quantity. Otherwise leave it
+                    unconfirmed — there's nothing to count.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-[1fr_7rem] items-center gap-x-4 gap-y-2">
+                    {confirmLines.map((l) => (
+                      <div key={l.field} className="contents">
+                        <label htmlFor={`confirm-${l.field}`} className="text-muted-foreground">
+                          {FIELD_LABELS[l.field] || l.field}
+                          <span className="ml-1 text-xs">(planned {l.planned})</span>
+                        </label>
+                        <Input
+                          id={`confirm-${l.field}`}
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          placeholder={String(l.planned)}
+                          value={confirmValues[l.field] ?? ""}
+                          onChange={(e) => setConfirmValues((prev) => ({ ...prev, [l.field]: e.target.value }))}
+                          className="text-right tabular-nums"
+                          data-testid={`input-confirm-${l.field}`}
+                        />
+                      </div>
+                    ))}
+                    {extraLines.map((l) => (
+                      <div key={l.field} className="contents">
+                        <label htmlFor={`confirm-${l.field}`} className="text-muted-foreground inline-flex items-center gap-1">
+                          {FIELD_LABELS[l.field] || l.field}
+                          <span className="ml-1 text-xs">(overage — not ordered)</span>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => {
+                              setConfirmExtra((prev) => prev.filter((f) => f !== l.field));
+                              setConfirmValues((prev) => { const next = { ...prev }; delete next[l.field]; return next; });
+                            }}
+                            data-testid={`button-remove-overage-${l.field}`}
+                            aria-label="Remove line"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </label>
+                        <Input
+                          id={`confirm-${l.field}`}
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={confirmValues[l.field] ?? ""}
+                          onChange={(e) => setConfirmValues((prev) => ({ ...prev, [l.field]: e.target.value }))}
+                          className="text-right tabular-nums"
+                          data-testid={`input-confirm-${l.field}`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {addableFields.length > 0 && (
+                  <div className="pt-1">
+                    <Select
+                      value=""
+                      onValueChange={(field) => {
+                        setConfirmExtra((prev) => (prev.includes(field) ? prev : [...prev, field]));
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs" data-testid="select-add-overage">
+                        <SelectValue placeholder="+ Received something not on the order?" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {addableFields.map((f) => (
+                          <SelectItem key={f} value={f} data-testid={`option-overage-${f}`}>
+                            {FIELD_LABELS[f] || f}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={confirmMutation.isPending} data-testid="button-confirm-cancel">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={submit}
+                  disabled={confirmMutation.isPending || !allFilled || allLines.length === 0}
+                  data-testid="button-confirm-submit"
+                >
+                  {confirmMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}
+                  {confirmKind === "receipt" ? "Confirm receipt" : "Confirm export"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </div>
   );
 }

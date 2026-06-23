@@ -18,6 +18,13 @@ import {
   type OrderStatus,
   ADJUSTABLE_ORDER_FIELDS,
   ADJUSTABLE_ORDER_FIELDS_SET,
+  ORDER_CONFIRMATION_KIND,
+  ORDER_RECONCILABLE_COLUMNS,
+  ORDER_RECONCILABLE_FIELDS,
+  RECEIPT_CONFIRM_FIELDS,
+  RECEIPT_CONFIRM_FIELDS_SET,
+  EXPORT_CONFIRM_FIELDS,
+  EXPORT_CONFIRM_FIELDS_SET,
 } from "@shared/schema";
 
 // Statuses whose seasonal requests count toward the soft-hold balance
@@ -43,16 +50,27 @@ function getActor(req: { session?: any }): { id: number | null; name: string; em
 // an empty array for users who have no assigned stores at all — they should
 // see and touch nothing.
 //
-// Policy: anyone WITHOUT `orders.approve` is restricted to their own
-// assigned stores. Approvers (warehouse / transportation) can see and act
-// on every store's orders, which is required for the central approval and
-// receive-coordination flows.
+// Policy: anyone WITHOUT `orders.approve` is restricted to their own assigned
+// stores. Approvers (warehouse) are unrestricted everywhere (central approval
+// flow). The transportation export designee (orders.confirm_export) is a
+// READ-ONLY exception: they may SEE every store's orders so they can find and
+// confirm End-of-Day exports, but they MUST NOT gain cross-store reach for
+// store-scoped *actions* — creating, editing, deleting, receiving, or
+// Transfer & Receive *receipt* confirmation all stay scoped to their own
+// stores. Read paths in the export-confirm flow pass
+// `{ exportDesigneeGlobal: true }`; every store action leaves it off so
+// confirm_export can't widen its blast radius. (The export *confirm* endpoint
+// is gated by the feature permission itself and skips this helper entirely.)
 export async function getUserAllowedLocationNames(
-  user: { role?: string; locationIds?: string[] | null } | null | undefined
+  user: { role?: string; locationIds?: string[] | null } | null | undefined,
+  opts?: { exportDesigneeGlobal?: boolean }
 ): Promise<string[] | null> {
   if (!user || !user.role) return [];
   if (user.role === "admin") return null;
   if (await userHasFeature(user, "orders.approve")) return null;
+  if (opts?.exportDesigneeGlobal && (await userHasFeature(user, "orders.confirm_export"))) {
+    return null;
+  }
 
   const ids = (user.locationIds ?? []).filter(Boolean).map(String);
   if (ids.length === 0) return [];
@@ -73,7 +91,7 @@ export async function getUserAllowedLocationNames(
 // emails, etc.) can keep using `void`.
 async function logOrderEvent(args: {
   orderId: number;
-  eventType: "created" | "modified" | "approved" | "denied" | "received" | "unreceived" | "deleted";
+  eventType: "created" | "modified" | "approved" | "denied" | "received" | "unreceived" | "confirmed_receipt" | "confirmed_export" | "deleted";
   fromStatus?: OrderStatus | null;
   toStatus?: OrderStatus | null;
   byUserId: number | null;
@@ -468,12 +486,49 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
   return result;
 }
 
+// For goods-moving order types, only the mapped fields relevant to that
+// order's confirmation flow may carry inventory-affecting quantities:
+//   - receipt (Transfer & Receive): everything EXCEPT outlet bulk fields.
+//   - export  (End of Day):         *_returned + outlet bulk fields.
+// A non-relevant mapped field (e.g. an outlet quantity on a T&R, or an
+// equipment *_requested on an EOD) would never get a typed actual at confirm
+// time, yet it would still fall back to its planned value in the warehouse
+// on-hand math (COALESCE(<col>_actual, <col>)) once the order is confirmed —
+// silently moving inventory that nobody confirmed. We reject those at the
+// write boundary. The forbidden sets are derived from the shared constants so
+// they can never drift from the inventory map or the confirm allowlists.
+const FORBIDDEN_MAPPED_FIELDS_BY_KIND: Record<"receipt" | "export", string[]> = {
+  receipt: ORDER_RECONCILABLE_FIELDS.filter(f => !RECEIPT_CONFIRM_FIELDS_SET.has(f)),
+  export: ORDER_RECONCILABLE_FIELDS.filter(f => !EXPORT_CONFIRM_FIELDS_SET.has(f)),
+};
+
+// Returns a plain-language error message if a goods-moving order carries a
+// non-relevant mapped quantity, or null if the order is clean. Non-goods-moving
+// types are never reconciled and are exempt.
+function checkGoodsMovingMappedFields(parsed: Record<string, any>): string | null {
+  const kind = ORDER_CONFIRMATION_KIND[String(parsed.orderType || "")];
+  if (!kind) return null;
+  const offenders = FORBIDDEN_MAPPED_FIELDS_BY_KIND[kind].filter(f => Number(parsed[f] || 0) > 0);
+  if (offenders.length === 0) return null;
+  return kind === "receipt"
+    ? `A Transfer & Receive order can't carry outlet bulk quantities (${offenders.join(", ")}). Use an End-of-Day order for those.`
+    : `An End-of-Day order can't carry equipment request quantities (${offenders.join(", ")}). Use a Transfer & Receive order to request equipment.`;
+}
+
 export function registerOrderRoutes(app: Express) {
   app.post("/api/orders", requireFeatureAccess("orders.submit"), async (req, res) => {
     let conn: PoolConnection | null = null;
     try {
       const parsed = orderSchema.parse(req.body);
       const actor = getActor(req);
+
+      // Reject goods-moving orders that carry quantities outside their
+      // confirmation flow (e.g. outlet bulk on a T&R) — those would move
+      // inventory without ever being typed-confirmed.
+      const mappedFieldError = checkGoodsMovingMappedFields(parsed);
+      if (mappedFieldError) {
+        return res.status(400).json({ message: mappedFieldError });
+      }
 
       // Store-scoped users (no orders.approve) can only submit orders for
       // their own assigned store(s). Admins/approvers are unrestricted.
@@ -631,8 +686,10 @@ export function registerOrderRoutes(app: Express) {
 
       // Store-scoped users see only their assigned stores' orders.
       // `null` = no restriction (admin / approver). `[]` = no assignments,
-      // so the user sees nothing (short-circuit with an empty page).
-      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      // so the user sees nothing (short-circuit with an empty page). Read path:
+      // the transportation export designee may list every store's orders so
+      // they can find End-of-Day exports to confirm.
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user, { exportDesigneeGlobal: true });
       if (allowedLocations !== null && allowedLocations.length === 0) {
         const pageLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
         const pageOffset = Math.max(0, Number(offset) || 0);
@@ -730,95 +787,10 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  // Mark an order as physically received at the store. This is the renamed
-  // "fulfill" action — the legacy /fulfill route is kept as an alias below
-  // for backwards compat with any clients/scripts that still reference it.
-  // Only allowed transition: approved → received. Receiving a second time
-  // (received → received) is a no-op for the user and is treated as success
-  // without re-running the UPDATE so we don't get tripped up by MySQL's
-  // affectedRows=0 behaviour when nothing actually changes.
-  const handleReceive = async (req: any, res: any) => {
-    let conn: PoolConnection | null = null;
-    try {
-      const id = Number(req.params.id);
-      if (!Number.isInteger(id) || id <= 0) {
-        return res.status(400).json({ message: "Invalid order id" });
-      }
-      const actor = getActor(req);
-
-      conn = await mysqlPool.getConnection();
-      await conn.beginTransaction();
-      // SELECT FOR UPDATE + status predicate in the UPDATE makes the
-      // approved → received transition atomic against concurrent
-      // approve/deny/unreceive on the same row.
-      const [rows] = await conn.execute<OrderRow[]>(
-        "SELECT id, status, location FROM orders WHERE id = ? FOR UPDATE",
-        [id]
-      );
-      if (rows.length === 0) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(404).json({ message: "Order not found" });
-      }
-      // Only stores assigned to this order may receive it. Approvers /
-      // admins are unrestricted (allowedLocations === null).
-      const allowedRecvLocations = await getUserAllowedLocationNames((req.session as any)?.user);
-      if (allowedRecvLocations !== null && !allowedRecvLocations.includes(rows[0].location as string)) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(404).json({ message: "Order not found" });
-      }
-      const fromStatus = rows[0].status as OrderStatus;
-      if (fromStatus === "received") {
-        // Already received — nothing to do, no audit row to write.
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.json({ message: "Order is already received", status: "received" });
-      }
-      if (fromStatus !== "approved") {
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(409).json({
-          message: `Order is currently "${fromStatus}". Only approved orders can be marked received.`,
-        });
-      }
-
-      const fulfilledBy = actor.name;
-      const [result] = await conn.execute<ResultSetHeader>(
-        "UPDATE orders SET fulfilled_at = NOW(), fulfilled_by = ?, status = 'received' WHERE id = ? AND status = 'approved'",
-        [fulfilledBy, id]
-      );
-      if (result.affectedRows === 0) {
-        // Another writer changed the status between our SELECT FOR UPDATE
-        // and the UPDATE (shouldn't happen with the lock, but defend in
-        // depth) — surface a 409 so the client can retry.
-        await conn.rollback();
-        conn.release();
-        conn = null;
-        return res.status(409).json({ message: "Order status changed before this request — try again." });
-      }
-      await conn.commit();
-      conn.release();
-      conn = null;
-
-      // Await the audit write — if it fails we surface a 500 and the operator
-      // will see a state-change without a history row in the logs (no silent
-      // partial commits possible without an alert).
-      await logOrderEvent({
-        orderId: id,
-        eventType: "received",
-        fromStatus,
-        toStatus: "received",
-        byUserId: actor.id,
-        byUserName: actor.name,
-      });
-      res.json({ message: "Order marked as received", status: "received" });
-
-      // Notify the requesting store that their order is fulfilled.
+  // Send the "order received / fulfilled" notification email to the
+  // requesting store + submitter. Best-effort: failures are logged, never
+  // thrown. Called fire-and-forget after a successful receipt confirmation.
+  const notifyOrderFulfilled = (id: number, fulfilledBy: string) => {
       void (async () => {
         try {
           const [orderRows] = await mysqlPool.execute<OrderRow[]>(
@@ -884,27 +856,206 @@ export function registerOrderRoutes(app: Express) {
           console.error("[Orders] Failed to send fulfillment email:", e);
         }
       })();
+  };
+
+  // ---- Confirmation (reconciliation) of actual moved quantities ----
+  // Goods-moving orders stay "pending confirmation" after approval until the
+  // responsible side TYPES the actual quantities that physically moved.
+  // Confirming writes the *_actual columns + confirmed_at/by and moves the
+  // order to "received". Only confirmed orders count toward warehouse
+  // inventory (see server/services/warehouseOnHand.ts).
+  const confirmActualsSchema = z.object({
+    actuals: z.record(z.string(), z.number().int().min(0).max(99999)),
+  });
+  // camelCase -> snake_case for building "<col>_actual" names. The keys come
+  // only from the hard-coded allowlist constants (never raw client input), so
+  // the resulting column names are always safe to interpolate.
+  const camelToSnakeCol = (s: string) => s.replace(/[A-Z]/g, m => "_" + m.toLowerCase());
+
+  const handleConfirm = (kind: "receipt" | "export") => async (req: any, res: any) => {
+    let conn: PoolConnection | null = null;
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      let body: { actuals: Record<string, number> };
+      try {
+        body = confirmActualsSchema.parse(req.body);
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          return res.status(400).json({ message: e.errors[0].message });
+        }
+        throw e;
+      }
+      const allow = kind === "receipt" ? RECEIPT_CONFIRM_FIELDS_SET : EXPORT_CONFIRM_FIELDS_SET;
+      const allowList = kind === "receipt" ? RECEIPT_CONFIRM_FIELDS : EXPORT_CONFIRM_FIELDS;
+      // Reject any field this flow isn't allowed to set — keeps arbitrary
+      // column names out of the UPDATE.
+      for (const key of Object.keys(body.actuals)) {
+        if (!allow.has(key)) {
+          return res.status(400).json({ message: `Field "${key}" can't be confirmed on this order.` });
+        }
+      }
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT * FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const order = rows[0] as any;
+
+      // Store-scope guard for the receipt flow (a store confirms only its own
+      // deliveries). The export flow is gated by orders.confirm_export, whose
+      // holders are unrestricted across stores. 404 (not 403) so we don't leak
+      // the existence of other stores' orders.
+      if (kind === "receipt") {
+        const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+        if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
+          await conn.rollback(); conn.release(); conn = null;
+          return res.status(404).json({ message: "Order not found" });
+        }
+      }
+
+      // The order type must match the confirmation flow.
+      const orderType = String(order.order_type || "");
+      if (ORDER_CONFIRMATION_KIND[orderType] !== kind) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(400).json({
+          message: kind === "receipt"
+            ? "This isn't a Transfer & Receive order, so it can't be received here."
+            : "This isn't an End-of-Day export order, so it can't be confirmed here.",
+        });
+      }
+
+      const fromStatus = order.status as OrderStatus;
+      if (order.confirmed_at) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({ message: "This order has already been confirmed." });
+      }
+      if (fromStatus !== "approved") {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}". Only approved orders can be confirmed.`,
+        });
+      }
+
+      // Work out which mapped lines were PLANNED on this order. Every planned
+      // line with a positive quantity must have an explicit actual typed in
+      // (0 is valid — it records that nothing moved). Lines planned at 0/NULL
+      // don't have to be filled, but MAY be (records an overage).
+      const plannedSnapshot: Record<string, number> = {};
+      const requiredMissing: string[] = [];
+      for (const camel of allowList) {
+        const snake = camelToSnakeCol(camel);
+        const plannedRaw = order[snake];
+        if (plannedRaw === null || plannedRaw === undefined) continue;
+        const planned = Number(plannedRaw);
+        plannedSnapshot[camel] = planned;
+        if (planned > 0 && !(camel in body.actuals)) {
+          requiredMissing.push(camel);
+        }
+      }
+      // Reject empty confirmations outright — there is no one-click "confirm
+      // as-is". A goods-moving order only counts toward inventory once the
+      // responsible side TYPES at least one actual. An order with no planned
+      // lines (nothing was ordered) can still be confirmed, but only by adding
+      // an overage line with a typed actual; otherwise it stays pending, which
+      // is correct because nothing actually moved.
+      if (Object.keys(body.actuals).length === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(400).json({ message: "Enter at least one actual quantity before confirming." });
+      }
+      if (requiredMissing.length > 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(400).json({
+          message: `Enter an actual quantity for every planned line before confirming (missing: ${requiredMissing.join(", ")}).`,
+        });
+      }
+
+      // Build the SET clause: each confirmed actual column + the reconciliation
+      // flags + status. Column names derive only from the allowlist constants.
+      const setParts: string[] = [];
+      const setValues: (string | number)[] = [];
+      for (const [camel, value] of Object.entries(body.actuals)) {
+        setParts.push(`${camelToSnakeCol(camel)}_actual = ?`);
+        setValues.push(value);
+      }
+      setParts.push(
+        "confirmed_at = NOW()",
+        "confirmed_by = ?",
+        "fulfilled_at = NOW()",
+        "fulfilled_by = ?",
+        "status = 'received'",
+      );
+      setValues.push(actor.name, actor.name, id);
+
+      const [result] = await conn.execute<ResultSetHeader>(
+        `UPDATE orders SET ${setParts.join(", ")} WHERE id = ? AND status = 'approved' AND confirmed_at IS NULL`,
+        setValues,
+      );
+      if (result.affectedRows === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
+      }
+      await conn.commit(); conn.release(); conn = null;
+
+      // Audit the planned → actual variance for every confirmed line.
+      const plannedChanges: Record<string, number> = {};
+      const actualChanges: Record<string, number> = {};
+      for (const [camel, value] of Object.entries(body.actuals)) {
+        plannedChanges[camel] = plannedSnapshot[camel] ?? 0;
+        actualChanges[camel] = value;
+      }
+      await logOrderEvent({
+        orderId: id,
+        eventType: kind === "receipt" ? "confirmed_receipt" : "confirmed_export",
+        fromStatus,
+        toStatus: "received",
+        byUserId: actor.id,
+        byUserName: actor.name,
+        changes: { planned: plannedChanges, actual: actualChanges },
+      });
+
+      // Receipt confirmations notify the store/submitter, mirroring the old
+      // fulfillment email. Exports are an internal transportation step.
+      if (kind === "receipt") {
+        notifyOrderFulfilled(id, actor.name);
+      }
+
+      res.json({
+        message: kind === "receipt" ? "Receipt confirmed" : "Export confirmed",
+        status: "received",
+      });
     } catch (err) {
       if (conn) {
         try { await conn.rollback(); } catch { /* ignore */ }
         try { conn.release(); } catch { /* ignore */ }
       }
-      console.error("[Orders] Error receiving order:", err);
-      res.status(500).json({ message: "Failed to mark order as received" });
+      console.error("[Orders] Error confirming order:", err);
+      res.status(500).json({ message: "Failed to confirm order" });
     }
   };
 
-  app.post("/api/orders/:id/receive", requireFeatureAccess("orders.receive"), handleReceive);
-  // Backwards-compat alias for the renamed action.
-  app.post("/api/orders/:id/fulfill", requireFeatureAccess("orders.receive"), handleReceive);
+  // Goods-moving confirmation (typed actuals):
+  //  - Transfer & Receive is confirmed by the receiving store (orders.receive,
+  //    store-scoped).
+  //  - End-of-Day exports are confirmed by the transportation designee
+  //    (orders.confirm_export, cross-store).
+  app.post("/api/orders/:id/confirm-receipt", requireFeatureAccess("orders.receive"), handleConfirm("receipt"));
+  app.post("/api/orders/:id/confirm-export", requireFeatureAccess("orders.confirm_export"), handleConfirm("export"));
 
-  // Reverse a receive — moves an order from received back to approved so a
-  // leader can correct a mistaken receive. Requires orders.receive (same
-  // permission as marking received). `closed` is intentionally disallowed
-  // here: closing an order is a terminal action; reopening it requires a
-  // separate "reopen closed order" workflow we have not yet implemented
-  // (tracked as a follow-up).
-  const handleUnreceive = async (req: any, res: any) => {
+  // Simple one-click receive for NON-goods-moving order types (Donors,
+  // Supplemental production, First Aid). These don't move warehouse inventory,
+  // so there's nothing to reconcile — receiving is a plain acknowledgement.
+  // Goods-moving types are rejected here and must go through /confirm-*.
+  const handleSimpleReceive = async (req: any, res: any) => {
     let conn: PoolConnection | null = null;
     try {
       const id = Number(req.params.id);
@@ -916,54 +1067,218 @@ export function registerOrderRoutes(app: Express) {
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
       const [rows] = await conn.execute<OrderRow[]>(
-        "SELECT id, status, location FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT id, status, location, order_type FROM orders WHERE id = ? FOR UPDATE",
         [id]
       );
       if (rows.length === 0) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
+        await conn.rollback(); conn.release(); conn = null;
         return res.status(404).json({ message: "Order not found" });
       }
-      // Same store-scope guard as receive — only the assigned store(s) can
-      // un-receive; admin/approver bypass via getUserAllowedLocationNames.
-      const allowedUnrecvLocations = await getUserAllowedLocationNames((req.session as any)?.user);
-      if (allowedUnrecvLocations !== null && !allowedUnrecvLocations.includes(rows[0].location as string)) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
+      const order = rows[0] as any;
+      // Store-scope guard — only the assigned store(s) can receive; admins /
+      // approvers are unrestricted (allowedLocations === null).
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
+        await conn.rollback(); conn.release(); conn = null;
         return res.status(404).json({ message: "Order not found" });
       }
-      const fromStatus = rows[0].status as OrderStatus;
+      // Goods-moving orders require typed actuals — refuse the one-click path.
+      if (ORDER_CONFIRMATION_KIND[String(order.order_type || "")]) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(400).json({
+          message: "This order moves goods — enter the actual quantities to confirm it.",
+        });
+      }
+      const fromStatus = order.status as OrderStatus;
+      if (fromStatus === "received") {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.json({ message: "Order is already received", status: "received" });
+      }
+      if (fromStatus !== "approved") {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}". Only approved orders can be marked received.`,
+        });
+      }
+      const [result] = await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET fulfilled_at = NOW(), fulfilled_by = ?, status = 'received' WHERE id = ? AND status = 'approved'",
+        [actor.name, id]
+      );
+      if (result.affectedRows === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
+      }
+      await conn.commit(); conn.release(); conn = null;
+
+      await logOrderEvent({
+        orderId: id,
+        eventType: "received",
+        fromStatus,
+        toStatus: "received",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
+      res.json({ message: "Order marked as received", status: "received" });
+      notifyOrderFulfilled(id, actor.name);
+    } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      console.error("[Orders] Error receiving order:", err);
+      res.status(500).json({ message: "Failed to mark order as received" });
+    }
+  };
+  app.post("/api/orders/:id/receive", requireFeatureAccess("orders.receive"), handleSimpleReceive);
+  app.post("/api/orders/:id/fulfill", requireFeatureAccess("orders.receive"), handleSimpleReceive);
+
+  // Undo a confirmation — clears the typed actuals + confirmed_at/by and moves
+  // the order from received back to approved so the responsible side can
+  // re-enter the quantities. `closed` is intentionally disallowed (terminal).
+  // Receipt undo is store-scoped (orders.receive); export undo is cross-store
+  // (orders.confirm_export). The order type must match the flow.
+  const handleUnconfirm = (kind: "receipt" | "export") => async (req: any, res: any) => {
+    let conn: PoolConnection | null = null;
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT id, status, location, order_type FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const order = rows[0] as any;
+      // Receipt undo is store-scoped; export undo is unrestricted (gated by
+      // orders.confirm_export). 404 (not 403) to avoid leaking existence.
+      if (kind === "receipt") {
+        const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+        if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
+          await conn.rollback(); conn.release(); conn = null;
+          return res.status(404).json({ message: "Order not found" });
+        }
+      }
+      const orderType = String(order.order_type || "");
+      if (ORDER_CONFIRMATION_KIND[orderType] !== kind) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(400).json({
+          message: kind === "receipt"
+            ? "This isn't a Transfer & Receive order."
+            : "This isn't an End-of-Day export order.",
+        });
+      }
+      const fromStatus = order.status as OrderStatus;
       if (fromStatus === "closed") {
-        await conn.rollback();
-        conn.release();
-        conn = null;
+        await conn.rollback(); conn.release(); conn = null;
         return res.status(409).json({
           message: "This order is closed. Closed orders can't be reverted to approved.",
         });
       }
       if (fromStatus !== "received") {
-        await conn.rollback();
-        conn.release();
-        conn = null;
+        await conn.rollback(); conn.release(); conn = null;
         return res.status(409).json({
           message: `Order is currently "${fromStatus}", not received — nothing to undo.`,
         });
       }
+      // Wipe every actual column + the reconciliation flags and revert to
+      // approved. Column names come only from the constant list.
+      const clearParts = ORDER_RECONCILABLE_COLUMNS.map(c => `${c}_actual = NULL`);
+      clearParts.push(
+        "confirmed_at = NULL",
+        "confirmed_by = NULL",
+        "fulfilled_at = NULL",
+        "fulfilled_by = NULL",
+        "status = 'approved'",
+      );
       const [result] = await conn.execute<ResultSetHeader>(
-        "UPDATE orders SET fulfilled_at = NULL, fulfilled_by = NULL, status = 'approved' WHERE id = ? AND status = 'received'",
+        `UPDATE orders SET ${clearParts.join(", ")} WHERE id = ? AND status = 'received'`,
         [id]
       );
       if (result.affectedRows === 0) {
-        await conn.rollback();
-        conn.release();
-        conn = null;
+        await conn.rollback(); conn.release(); conn = null;
         return res.status(409).json({ message: "Order status changed before this request — try again." });
       }
-      await conn.commit();
-      conn.release();
-      conn = null;
+      await conn.commit(); conn.release(); conn = null;
+
+      await logOrderEvent({
+        orderId: id,
+        eventType: "unreceived",
+        fromStatus,
+        toStatus: "approved",
+        byUserId: actor.id,
+        byUserName: actor.name,
+      });
+      res.json({ message: "Confirmation undone — order moved back to approved", status: "approved" });
+    } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
+      console.error("[Orders] Error undoing confirmation:", err);
+      res.status(500).json({ message: "Failed to undo confirmation" });
+    }
+  };
+  // Undo confirmation for goods-moving orders (clears typed actuals + flags).
+  app.post("/api/orders/:id/unconfirm-receipt", requireFeatureAccess("orders.receive"), handleUnconfirm("receipt"));
+  app.post("/api/orders/:id/unconfirm-export", requireFeatureAccess("orders.confirm_export"), handleUnconfirm("export"));
+
+  // Simple undo-receive for NON-goods-moving orders — moves received back to
+  // approved. Goods-moving orders are rejected (they must use /unconfirm-*).
+  const handleSimpleUnreceive = async (req: any, res: any) => {
+    let conn: PoolConnection | null = null;
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return res.status(400).json({ message: "Invalid order id" });
+      }
+      const actor = getActor(req);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT id, status, location, order_type FROM orders WHERE id = ? FOR UPDATE",
+        [id]
+      );
+      if (rows.length === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      const order = rows[0] as any;
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(404).json({ message: "Order not found" });
+      }
+      if (ORDER_CONFIRMATION_KIND[String(order.order_type || "")]) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(400).json({
+          message: "This order moves goods — use Undo confirmation instead.",
+        });
+      }
+      const fromStatus = order.status as OrderStatus;
+      if (fromStatus !== "received" && fromStatus !== "closed") {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({
+          message: `Order is currently "${fromStatus}". Only received orders can be moved back to approved.`,
+        });
+      }
+      const [result] = await conn.execute<ResultSetHeader>(
+        "UPDATE orders SET fulfilled_at = NULL, fulfilled_by = NULL, status = 'approved' WHERE id = ? AND status IN ('received','closed')",
+        [id]
+      );
+      if (result.affectedRows === 0) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({ message: "Order status changed before this request — try again." });
+      }
+      await conn.commit(); conn.release(); conn = null;
 
       await logOrderEvent({
         orderId: id,
@@ -979,12 +1294,12 @@ export function registerOrderRoutes(app: Express) {
         try { await conn.rollback(); } catch { /* ignore */ }
         try { conn.release(); } catch { /* ignore */ }
       }
-      console.error("[Orders] Error un-receiving order:", err);
-      res.status(500).json({ message: "Failed to undo receive" });
+      console.error("[Orders] Error undoing receive:", err);
+      res.status(500).json({ message: "Failed to move order back to approved" });
     }
   };
-  app.post("/api/orders/:id/unreceive", requireFeatureAccess("orders.receive"), handleUnreceive);
-  app.post("/api/orders/:id/unfulfill", requireFeatureAccess("orders.receive"), handleUnreceive);
+  app.post("/api/orders/:id/unreceive", requireFeatureAccess("orders.receive"), handleSimpleUnreceive);
+  app.post("/api/orders/:id/unfulfill", requireFeatureAccess("orders.receive"), handleSimpleUnreceive);
 
   // Approve a submitted order. Seasonal balance is informational only here
   // — over-approval is allowed; the live balance shown in the Order Form
@@ -1044,6 +1359,25 @@ export function registerOrderRoutes(app: Express) {
       }
 
       const camel = toCamel(order) as Record<string, any>;
+
+      // Same goods-moving guard the create/edit paths enforce, but applied to
+      // the EFFECTIVE post-adjustment order (current values overridden by the
+      // warehouse adjustments). Adjustments are all `*_requested` fields, which
+      // are forbidden on an export (End-of-Day) order: such a line could never
+      // receive a typed actual at confirm time, yet warehouseOnHand would still
+      // deduct its planned value once the order is confirmed. Today EOD orders
+      // auto-approve and so never reach this submitted-only endpoint, but we
+      // guard here anyway so the integrity rule can't silently reopen if that
+      // coupling ever changes. Runs after the status check, so only genuine
+      // submitted orders (Transfer & Receive) are ever evaluated.
+      const effective = { ...camel, ...rawAdjustments };
+      const mappedFieldError = checkGoodsMovingMappedFields(effective);
+      if (mappedFieldError) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(400).json({ message: mappedFieldError });
+      }
 
       // Build the effective post-approval values: start from what the store
       // requested, override anything the warehouse adjusted. Only keep
@@ -1463,7 +1797,7 @@ export function registerOrderRoutes(app: Express) {
       if (orderRows.length === 0) {
         return res.status(404).json({ message: "Order not found" });
       }
-      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user, { exportDesigneeGlobal: true });
       if (allowedLocations !== null && !allowedLocations.includes(orderRows[0].location as string)) {
         // 404 (not 403) so we don't leak the existence of orders from other
         // stores by status-code differentiation.
@@ -1483,7 +1817,7 @@ export function registerOrderRoutes(app: Express) {
       if (rows.length === 0) {
         return res.status(404).json({ message: "Order not found" });
       }
-      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user, { exportDesigneeGlobal: true });
       if (allowedLocations !== null && !allowedLocations.includes(rows[0].location as string)) {
         // 404, not 403 — same reasoning as above (don't leak existence).
         return res.status(404).json({ message: "Order not found" });
@@ -1505,6 +1839,13 @@ export function registerOrderRoutes(app: Express) {
       const parsed = orderSchema.parse(req.body);
       const actor = getActor(req);
 
+      // Same write-boundary guard as create: a goods-moving order can't carry
+      // quantities outside its confirmation flow.
+      const mappedFieldError = checkGoodsMovingMappedFields(parsed);
+      if (mappedFieldError) {
+        return res.status(400).json({ message: mappedFieldError });
+      }
+
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
 
@@ -1521,6 +1862,20 @@ export function registerOrderRoutes(app: Express) {
       }
       const beforeRow = toCamel(existing[0]) as Record<string, any>;
       const beforeStatus = (existing[0].status as OrderStatus) || "submitted";
+
+      // Block edits to a confirmed (reconciled) goods-moving order. Its typed
+      // actuals already drive warehouse inventory, so the confirmation must be
+      // undone first (which clears the actuals and reverts it to approved).
+      // Non-goods-moving order types are never reconciled, so they're exempt.
+      const existingType = String((existing[0] as any).order_type || "");
+      if ((existing[0] as any).confirmed_at && ORDER_CONFIRMATION_KIND[existingType]) {
+        await conn.rollback();
+        conn.release();
+        conn = null;
+        return res.status(409).json({
+          message: "This order has been confirmed. Undo the confirmation before editing it.",
+        });
+      }
 
       // Store-scope guard: edits must come from a user assigned to either
       // the original store OR the new store (so they can't move an order

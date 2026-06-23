@@ -15,7 +15,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, ClipboardList, Pencil } from "lucide-react";
+import { Loader2, ClipboardList, Pencil, Lock, Clock, CheckCircle2 } from "lucide-react";
+import { ORDER_CONFIRMATION_KIND } from "@shared/schema";
 
 const ORDER_TYPES = [
   "Transfer and Receive",
@@ -295,6 +296,19 @@ export default function OrderForm() {
   const isFirstAid = orderType === "First Aid";
   const isOutletLocation = location === "Outlet Canton" || location === "Outlet Cleveland";
 
+  // Plain-language status for the order being edited. Goods-moving orders
+  // (Transfer & Receive, End of Day) carry an extra reconciliation step:
+  // they're approved first, then someone TYPES the actual quantities to
+  // confirm what really moved. We surface that state in everyday language and
+  // lock editing once it's confirmed — the server rejects those edits too,
+  // so this just avoids a confusing error.
+  const existingStatus = existingOrder?.status as string | undefined;
+  const existingType = existingOrder?.orderType as string | undefined;
+  const existingConfirmedAt = existingOrder?.confirmedAt as string | null | undefined;
+  const existingKind = existingType ? (ORDER_CONFIRMATION_KIND[existingType] ?? null) : null;
+  const isConfirmedGoodsMoving = !!existingKind && !!existingConfirmedAt;
+  const editLocked = isEditMode && isConfirmedGoodsMoving;
+
   const submitMutation = useMutation({
     mutationFn: async (data: FormValues) => {
       const method = isEditMode ? "PUT" : "POST";
@@ -321,6 +335,7 @@ export default function OrderForm() {
   });
 
   const onSubmit = (data: FormValues) => {
+    if (editLocked) return;
     submitMutation.mutate(data);
   };
 
@@ -338,6 +353,46 @@ export default function OrderForm() {
         <ClipboardList className="w-7 h-7 text-primary" />
         <h1 className="text-2xl font-bold" data-testid="text-order-form-title">Order Form</h1>
       </div>
+
+      {isEditMode && existingOrder && (
+        <>
+          {editLocked ? (
+            <div
+              className="mb-6 flex items-start gap-3 rounded border-l-4 border-amber-500 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm"
+              data-testid="banner-order-locked"
+            >
+              <Lock className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div>
+                <div className="font-medium">This order is locked because it's been confirmed.</div>
+                <div className="text-muted-foreground">
+                  The actual quantities have already been counted{existingKind === "export" ? " and the export is reconciled" : " and the receipt is reconciled"}. To change anything, go to Order Submissions and undo the confirmation first.
+                </div>
+              </div>
+            </div>
+          ) : existingKind && existingStatus === "approved" && !existingConfirmedAt ? (
+            <div
+              className="mb-6 flex items-start gap-3 rounded border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-950/40 p-3 text-sm"
+              data-testid="banner-order-pending-confirmation"
+            >
+              <Clock className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+              <div>
+                <div className="font-medium">Approved — waiting for {existingKind === "export" ? "the export" : "the receipt"} to be confirmed.</div>
+                <div className="text-muted-foreground">
+                  Nothing counts toward inventory until someone types in the actual quantities that {existingKind === "export" ? "left" : "arrived"}. You can still edit this order until then.
+                </div>
+              </div>
+            </div>
+          ) : existingKind && existingConfirmedAt ? (
+            <div
+              className="mb-6 flex items-start gap-3 rounded border-l-4 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 p-3 text-sm"
+              data-testid="banner-order-reconciled"
+            >
+              <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <div className="font-medium">This order is confirmed and counted toward inventory.</div>
+            </div>
+          ) : null}
+        </>
+      )}
 
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <Card>
@@ -667,11 +722,12 @@ export default function OrderForm() {
         <Button
           type="submit"
           className="w-full md:w-auto"
-          disabled={submitMutation.isPending}
+          disabled={submitMutation.isPending || editLocked}
           data-testid="button-submit-order"
         >
           {submitMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          Submit Order
+          {editLocked ? <Lock className="w-4 h-4 mr-2" /> : null}
+          {editLocked ? "Locked — confirmed" : isEditMode ? "Update Order" : "Submit Order"}
         </Button>
       </form>
     </div>

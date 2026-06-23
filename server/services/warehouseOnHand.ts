@@ -3,7 +3,6 @@ import { storage } from "../storage";
 import { mysqlPool } from "../mysql";
 import {
   ORDER_FIELD_TO_WAREHOUSE_ITEM,
-  ORDER_INVENTORY_AFFECTING_STATUSES,
   WAREHOUSE_INVENTORY_CATEGORIES,
   type Warehouse,
 } from "@shared/schema";
@@ -82,7 +81,12 @@ export async function computeWarehouseOnHand(
   const orderDeltas = new Map<string, number>(); // itemName -> signed qty
   if (baselineDate && feederStoreNames.length > 0) {
     const fields = Object.keys(ORDER_FIELD_TO_WAREHOUSE_ITEM);
-    const fieldList = fields.map(f => `COALESCE(SUM(${f}), 0) AS ${f}`).join(", ");
+    // Count the CONFIRMED actual quantity that was physically moved, falling
+    // back to the planned (requested/returned) value only when no actual has
+    // been typed yet. Confirmed actuals always win.
+    const fieldList = fields
+      .map(f => `COALESCE(SUM(COALESCE(${f}_actual, ${f})), 0) AS ${f}`)
+      .join(", ");
     const placeholders = feederStoreNames.map(() => "?").join(",");
     const params: any[] = [...feederStoreNames];
     let dateClause = "";
@@ -92,16 +96,16 @@ export async function computeWarehouseOnHand(
     }
     dateClause += " AND order_date <= ?";
     params.push(asOf);
-    // Phase 1 approval workflow: only orders that have actually been approved
-    // (or further along) move warehouse inventory. "submitted" orders are a
-    // soft hold that does NOT change on-hand counts until an approver acts.
-    const statusPlaceholders = ORDER_INVENTORY_AFFECTING_STATUSES.map(() => "?").join(",");
-    params.push(...ORDER_INVENTORY_AFFECTING_STATUSES);
+    // Only RECONCILED orders move warehouse inventory: a goods-moving order
+    // counts once someone has confirmed the actual quantities (confirmed_at is
+    // set). Pending (unconfirmed) orders are a soft hold that does NOT change
+    // on-hand counts — this stops planned numbers from compounding before the
+    // responsible side has confirmed what really moved.
     const sqlText = `
       SELECT ${fieldList}
       FROM orders
       WHERE location IN (${placeholders}) ${dateClause}
-        AND status IN (${statusPlaceholders})
+        AND confirmed_at IS NOT NULL
     `;
     const [rows] = await mysqlPool.query<OrderRowMin[]>(sqlText, params);
     const row: any = rows[0] || {};

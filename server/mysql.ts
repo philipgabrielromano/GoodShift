@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { ORDER_RECONCILABLE_COLUMNS } from "@shared/schema";
 
 const LOCAL_PROXY_PORT = 13306;
 
@@ -171,6 +172,46 @@ export async function initOrdersTable(): Promise<void> {
     // the seasonal balance loaders.
     try {
       await conn.query("CREATE INDEX idx_orders_status ON orders(status)");
+    } catch {
+      /* index already exists */
+    }
+
+    // ---- Order reconciliation (receiving & export confirmation) ----
+    // Each inventory-affecting column gets a mirror "<col>_actual" that holds
+    // the quantity the responsible side TYPED IN at confirmation time. The
+    // warehouse on-hand engine reads COALESCE(<col>_actual, <col>) so confirmed
+    // actuals win and un-confirmed (NULL) actuals fall back to the planned
+    // value. Add all the actual columns FIRST, then confirmed_at/by.
+    for (const col of ORDER_RECONCILABLE_COLUMNS) {
+      await ensureCol(`${col}_actual`, "INT DEFAULT NULL");
+    }
+    // confirmed_at / confirmed_by drive the "reconciled" state. A goods-moving
+    // order does NOT count toward inventory until confirmed_at is set.
+    const confirmedAtJustAdded = await ensureCol("confirmed_at", "DATETIME DEFAULT NULL");
+    await ensureCol("confirmed_by", "VARCHAR(255) DEFAULT NULL");
+
+    // One-time backfill on the migration that first adds confirmed_at: every
+    // order the OLD engine already counted (status approved/received/closed) is
+    // marked confirmed so historical on-hand math is preserved EXACTLY — the
+    // _actual columns stay NULL, so COALESCE(_actual, planned) falls back to the
+    // planned value and nothing changes. submitted/denied orders are left
+    // unconfirmed. New orders created after this migration start unconfirmed and
+    // must be reconciled by typing actuals before they affect inventory.
+    if (confirmedAtJustAdded) {
+      await conn.query(
+        `UPDATE orders
+            SET confirmed_at = COALESCE(fulfilled_at, approved_at, submitted_at),
+                confirmed_by = COALESCE(fulfilled_by, approved_by, submitted_by)
+          WHERE status IN ('approved', 'received', 'closed')
+            AND confirmed_at IS NULL`,
+      );
+      console.log("[MySQL] Backfilled orders.confirmed_at for pre-existing approved/received/closed orders");
+    }
+
+    // Index to keep the warehouse on-hand query (now filters on confirmed_at)
+    // fast.
+    try {
+      await conn.query("CREATE INDEX idx_orders_confirmed_at ON orders(confirmed_at)");
     } catch {
       /* index already exists */
     }

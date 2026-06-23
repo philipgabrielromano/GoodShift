@@ -1062,6 +1062,8 @@ export const ORDER_EVENT_TYPES = [
   "denied",
   "received",
   "unreceived",
+  "confirmed_receipt",
+  "confirmed_export",
   "deleted",
 ] as const;
 export type OrderEventType = (typeof ORDER_EVENT_TYPES)[number];
@@ -1542,6 +1544,52 @@ export const ORDER_FIELD_TO_WAREHOUSE_ITEM: Record<string, { group: string; item
   outlet_wares: { group: "Outlet", item: "Outlet Wares", sign: +1 },
 };
 
+// ---- Order reconciliation (receiving & export confirmation) ----
+// Goods-moving orders must have their ACTUAL moved quantities typed in before
+// they count toward warehouse inventory. Those actual quantities live in mirror
+// columns ("<col>_actual") on the MySQL orders table, alongside the original
+// planned requested/returned columns so variance stays visible. An order is
+// "reconciled" once orders.confirmed_at is set; until then a goods-moving order
+// is "pending confirmation" and does NOT affect on-hand inventory.
+const _orderSnakeToCamel = (s: string): string =>
+  s.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
+
+// snake_case columns that get a mirror "<col>_actual" confirmed column. Derived
+// from the warehouse-item map so the actuals can never drift from the inventory
+// math.
+export const ORDER_RECONCILABLE_COLUMNS: string[] = Object.keys(ORDER_FIELD_TO_WAREHOUSE_ITEM);
+export const ORDER_RECONCILABLE_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS.map(_orderSnakeToCamel);
+
+// Order types that physically move goods and therefore require an actual-quantity
+// confirmation before they affect inventory.
+export const GOODS_MOVING_ORDER_TYPES = [
+  "Transfer and Receive",
+  "End of Day/Equipment Count",
+] as const;
+
+// Which confirmation flow an order type uses.
+//  - "receipt": the receiving store types what it actually received / returned.
+//  - "export":  the transportation designee types what was actually loaded.
+export const ORDER_CONFIRMATION_KIND: Record<string, "receipt" | "export"> = {
+  "Transfer and Receive": "receipt",
+  "End of Day/Equipment Count": "export",
+};
+
+// Per-flow allowlist of camelCase fields a confirmer may set. Derived from the
+// warehouse-item map so it can never drift from the inventory math.
+//  - Receipt (Transfer and Receive): all mapped equipment/raw requested+returned
+//    fields (everything except the outlet bulk fields, which are End-of-Day only).
+//  - Export (End of Day): the *_returned fields plus outlet bulk.
+export const RECEIPT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
+  .filter(c => !c.startsWith("outlet_"))
+  .map(_orderSnakeToCamel);
+export const RECEIPT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(RECEIPT_CONFIRM_FIELDS);
+
+export const EXPORT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
+  .filter(c => c.endsWith("_returned") || c.startsWith("outlet_"))
+  .map(_orderSnakeToCamel);
+export const EXPORT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(EXPORT_CONFIRM_FIELDS);
+
 export const insertWarehouseInventoryCountSchema = createInsertSchema(warehouseInventoryCounts).omit({
   id: true,
   createdAt: true,
@@ -1620,6 +1668,7 @@ export const SYSTEM_FEATURES = [
   { category: "Orders", feature: "orders.delete", label: "Delete Orders", description: "Permanently remove submitted orders" },
   { category: "Orders", feature: "orders.approve", label: "Approve / Deny Orders", description: "Approve or deny submitted orders so they take effect on inventory" },
   { category: "Orders", feature: "orders.receive", label: "Mark Orders Received", description: "Mark approved orders as physically received at the store" },
+  { category: "Orders", feature: "orders.confirm_export", label: "Confirm Order Exports", description: "Type the actual quantities loaded for End-of-Day export orders so they count toward inventory (transportation designee, all stores)" },
   // Credit Card Inspections
   { category: "Credit Card Inspections", feature: "credit_card_inspection.submit", label: "Submit Credit Card Inspections", description: "Submit credit card terminal inspection forms" },
   { category: "Credit Card Inspections", feature: "credit_card_inspection.view_all", label: "View All Credit Card Inspections", description: "View the full history of credit card inspections" },
@@ -1704,6 +1753,7 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "orders.delete": ["admin"],
   "orders.approve": ["admin"],
   "orders.receive": ["admin", "ordering"],
+  "orders.confirm_export": ["admin"],
   "credit_card_inspection.submit": ["admin", "manager"],
   "credit_card_inspection.view_all": ["admin", "manager"],
   "credit_card_inspection.delete": ["admin"],
