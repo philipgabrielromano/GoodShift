@@ -189,6 +189,9 @@ export async function initOrdersTable(): Promise<void> {
     // order does NOT count toward inventory until confirmed_at is set.
     const confirmedAtJustAdded = await ensureCol("confirmed_at", "DATETIME DEFAULT NULL");
     await ensureCol("confirmed_by", "VARCHAR(255) DEFAULT NULL");
+    // Optional free-text note typed by the confirmer (damage, discrepancies,
+    // why actuals differ from planned). Cleared when a confirmation is undone.
+    await ensureCol("confirmed_note", "TEXT DEFAULT NULL");
 
     // One-time backfill on the migration that first adds confirmed_at: every
     // order the OLD engine already counted (status approved/received/closed) is

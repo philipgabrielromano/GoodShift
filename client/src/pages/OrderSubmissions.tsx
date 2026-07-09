@@ -101,6 +101,7 @@ interface Order {
   denialReason: string | null;
   confirmedAt: string | null;
   confirmedBy: string | null;
+  confirmedNote: string | null;
   notes: string | null;
   [key: string]: string | number | boolean | null;
 }
@@ -217,6 +218,7 @@ const SKIP_KEYS = new Set([
   "denialReason",
   "confirmedAt",
   "confirmedBy",
+  "confirmedNote",
 ]);
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -434,6 +436,8 @@ export default function OrderSubmissions() {
   // Extra (planned-0) lines the confirmer chose to add to record an overage —
   // something arrived/left that wasn't on the original order.
   const [confirmExtra, setConfirmExtra] = useState<string[]>([]);
+  // Optional note typed on the confirm dialog (damage, discrepancies, etc.).
+  const [confirmNote, setConfirmNote] = useState("");
   // Bulk-approve state. We open a confirmation dialog showing the count of
   // currently-visible submitted orders before any DB writes happen.
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
@@ -503,15 +507,16 @@ export default function OrderSubmissions() {
 
   // Confirm a goods-moving order with the typed actual quantities.
   const confirmMutation = useMutation({
-    mutationFn: async ({ id, kind, actuals }: { id: number; kind: "receipt" | "export"; actuals: Record<string, number> }) => {
+    mutationFn: async ({ id, kind, actuals, note }: { id: number; kind: "receipt" | "export"; actuals: Record<string, number>; note?: string }) => {
       const path = kind === "receipt" ? "confirm-receipt" : "confirm-export";
-      await apiRequest("POST", `/api/orders/${id}/${path}`, { actuals });
+      await apiRequest("POST", `/api/orders/${id}/${path}`, note ? { actuals, note } : { actuals });
     },
     onSuccess: (_data, vars) => {
       toast({ title: vars.kind === "receipt" ? "Receipt confirmed" : "Export confirmed" });
       setConfirmOpen(false);
       setConfirmValues({});
       setConfirmExtra([]);
+      setConfirmNote("");
       setSelectedOrder(null);
       invalidateAll();
     },
@@ -921,6 +926,15 @@ export default function OrderSubmissions() {
                 </div>
               )}
 
+              {selectedOrder.confirmedNote && (
+                <div className="rounded border-l-4 border-sky-500 bg-sky-50 dark:bg-sky-950/40 p-3 text-sm" data-testid={`text-confirmed-note-${selectedOrder.id}`}>
+                  <div className="font-medium mb-1">
+                    {confirmKindFor(selectedOrder.orderType) === "export" ? "Export note" : "Receipt note"}
+                  </div>
+                  <div className="whitespace-pre-wrap">{selectedOrder.confirmedNote}</div>
+                </div>
+              )}
+
               {nonNullFields(selectedOrder).length > 0 && (
                 <>
                   <hr />
@@ -1094,7 +1108,7 @@ export default function OrderSubmissions() {
                               size="sm"
                               className="w-full"
                               disabled={confirmMutation.isPending}
-                              onClick={() => { setConfirmKind(kind); setConfirmValues({}); setConfirmExtra([]); setConfirmOpen(true); }}
+                              onClick={() => { setConfirmKind(kind); setConfirmValues({}); setConfirmExtra([]); setConfirmNote(""); setConfirmOpen(true); }}
                               data-testid={`button-confirm-order-${selectedOrder.id}`}
                             >
                               <PackageCheck className="w-4 h-4 mr-2" />
@@ -1384,7 +1398,7 @@ export default function OrderSubmissions() {
           for (const l of allLines) {
             actuals[l.field] = Math.max(0, Math.trunc(Number(confirmValues[l.field])));
           }
-          confirmMutation.mutate({ id: order.id, kind: confirmKind, actuals });
+          confirmMutation.mutate({ id: order.id, kind: confirmKind, actuals, note: confirmNote.trim() || undefined });
         };
         return (
           <Dialog open={confirmOpen} onOpenChange={(open) => { if (!confirmMutation.isPending) setConfirmOpen(open); }}>
@@ -1483,6 +1497,18 @@ export default function OrderSubmissions() {
                     </Select>
                   </div>
                 )}
+                <div className="pt-1 space-y-1.5">
+                  <label htmlFor="confirm-note" className="text-muted-foreground">Notes (optional)</label>
+                  <Textarea
+                    id="confirm-note"
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="Anything worth noting — damage, discrepancies, why a count differs…"
+                    value={confirmNote}
+                    onChange={(e) => setConfirmNote(e.target.value)}
+                    data-testid="input-confirm-note"
+                  />
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={confirmMutation.isPending} data-testid="button-confirm-cancel">

@@ -866,6 +866,9 @@ export function registerOrderRoutes(app: Express) {
   // inventory (see server/services/warehouseOnHand.ts).
   const confirmActualsSchema = z.object({
     actuals: z.record(z.string(), z.number().int().min(0).max(99999)),
+    // Optional free-text note from the confirmer (damage, discrepancies, why
+    // actuals differ from planned). Stored on the order and in the audit event.
+    note: z.string().trim().max(2000, "Note is too long (max 2,000 characters)").optional(),
   });
   // camelCase -> snake_case for building "<col>_actual" names. The keys come
   // only from the hard-coded allowlist constants (never raw client input), so
@@ -879,7 +882,7 @@ export function registerOrderRoutes(app: Express) {
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid order id" });
       }
-      let body: { actuals: Record<string, number> };
+      let body: { actuals: Record<string, number>; note?: string };
       try {
         body = confirmActualsSchema.parse(req.body);
       } catch (e) {
@@ -982,19 +985,21 @@ export function registerOrderRoutes(app: Express) {
       // Build the SET clause: each confirmed actual column + the reconciliation
       // flags + status. Column names derive only from the allowlist constants.
       const setParts: string[] = [];
-      const setValues: (string | number)[] = [];
+      const setValues: (string | number | null)[] = [];
       for (const [camel, value] of Object.entries(body.actuals)) {
         setParts.push(`${camelToSnakeCol(camel)}_actual = ?`);
         setValues.push(value);
       }
+      const confirmNote = body.note && body.note.length > 0 ? body.note : null;
       setParts.push(
         "confirmed_at = NOW()",
         "confirmed_by = ?",
+        "confirmed_note = ?",
         "fulfilled_at = NOW()",
         "fulfilled_by = ?",
         "status = 'received'",
       );
-      setValues.push(actor.name, actor.name, id);
+      setValues.push(actor.name, confirmNote, actor.name, id);
 
       const [result] = await conn.execute<ResultSetHeader>(
         `UPDATE orders SET ${setParts.join(", ")} WHERE id = ? AND status = 'approved' AND confirmed_at IS NULL`,
@@ -1020,6 +1025,7 @@ export function registerOrderRoutes(app: Express) {
         toStatus: "received",
         byUserId: actor.id,
         byUserName: actor.name,
+        note: confirmNote,
         changes: { planned: plannedChanges, actual: actualChanges },
       });
 
@@ -1194,6 +1200,7 @@ export function registerOrderRoutes(app: Express) {
       clearParts.push(
         "confirmed_at = NULL",
         "confirmed_by = NULL",
+        "confirmed_note = NULL",
         "fulfilled_at = NULL",
         "fulfilled_by = NULL",
         "status = 'approved'",
