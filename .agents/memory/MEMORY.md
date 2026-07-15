@@ -1,1 +1,2 @@
 - [Employee hierarchy visibility](employee-hierarchy-visibility.md) — attendance/coaching/reports each re-implement job-title visibility; keep in lockstep, level-0 (HR) must see everyone within locations.
+- [Tailscale key & secret propagation](tailscale-prod-outage.md) — expired auth key can down prod (dev looks fine); dev shells serve stale secret values for minutes after user updates.
