@@ -26,10 +26,19 @@ tailscaled \
 sleep 3
 
 echo "[Tailscale] Connecting to tailnet..."
-tailscale --socket="$TAILSCALE_SOCK" up \
+# --timeout keeps an invalid/expired auth key from hanging forever. If the
+# connection fails we continue WITHOUT the VPN instead of blocking the app:
+# the site stays up and only the MySQL-backed order features are degraded.
+if ! tailscale --socket="$TAILSCALE_SOCK" up \
   --auth-key="$TAILSCALE_AUTH_KEY" \
   --hostname="replit-goodshift" \
-  --accept-routes
+  --accept-routes \
+  --timeout=60s; then
+  echo "[Tailscale] ERROR: could not join the tailnet (auth key expired or revoked?)."
+  echo "[Tailscale] Continuing WITHOUT the VPN so the app can still start."
+  echo "[Tailscale] Order form / MySQL features will be unavailable until the key is fixed."
+  exit 0
+fi
 
 echo "[Tailscale] Connected. Status:"
 tailscale --socket="$TAILSCALE_SOCK" status
