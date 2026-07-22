@@ -47,24 +47,48 @@ function ChecklistItemRow({ item, dbItem, onToggle, onNotesChange }: {
   const [showNotes, setShowNotes] = useState(!!dbItem.notes);
   const [localNotes, setLocalNotes] = useState(dbItem.notes || "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+  const latestRef = useRef({ id: dbItem.id, value: dbItem.notes || "", onNotesChange });
 
   useEffect(() => {
-    setLocalNotes(dbItem.notes || "");
-  }, [dbItem.notes]);
-
-  const handleNotesChange = useCallback((value: string) => {
-    setLocalNotes(value);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      onNotesChange(dbItem.id, value);
-    }, 800);
+    latestRef.current.id = dbItem.id;
+    latestRef.current.onNotesChange = onNotesChange;
   }, [dbItem.id, onNotesChange]);
 
   useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    // Only sync from the server when the user has no unsaved edits,
+    // so a background update never overwrites text they're still typing.
+    if (!dirtyRef.current) {
+      setLocalNotes(dbItem.notes || "");
+    }
+  }, [dbItem.notes]);
+
+  const flushSave = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    if (dirtyRef.current) {
+      dirtyRef.current = false;
+      const { id, value, onNotesChange: save } = latestRef.current;
+      save(id, value);
+    }
   }, []);
+
+  const handleNotesChange = useCallback((value: string) => {
+    setLocalNotes(value);
+    dirtyRef.current = true;
+    latestRef.current.value = value;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(flushSave, 3000);
+  }, [flushSave]);
+
+  useEffect(() => {
+    // Save any pending edits if the row unmounts (tab switch, event change).
+    return () => {
+      flushSave();
+    };
+  }, [flushSave]);
 
   return (
     <div
@@ -104,12 +128,13 @@ function ChecklistItemRow({ item, dbItem, onToggle, onNotesChange }: {
           <Textarea
             value={localNotes}
             onChange={(e) => handleNotesChange(e.target.value)}
+            onBlur={flushSave}
             placeholder="Add notes..."
             className="min-h-[60px] text-sm"
             data-testid={`notes-${item.key}`}
           />
-          {dbItem.notes !== localNotes && localNotes !== "" && (
-            <p className="text-xs text-muted-foreground mt-1 italic">Saving...</p>
+          {(dbItem.notes || "") !== localNotes && (
+            <p className="text-xs text-muted-foreground mt-1 italic">Saving…</p>
           )}
         </div>
       )}
@@ -198,6 +223,30 @@ export default function Optimization() {
     },
   });
 
+  const saveNotesMutation = useMutation({
+    mutationFn: async ({ id, notes }: { id: number; notes: string }) => {
+      const res = await apiRequest("PATCH", `/api/optimization/checklist/${id}`, { notes });
+      return res.json();
+    },
+    onSuccess: (updatedItem: OptimizationChecklistItem) => {
+      // Update just this item in the cache — no refetch, so typing stays smooth
+      // and in-progress edits in other rows are never overwritten.
+      queryClient.setQueryData<{
+        event: OptimizationEvent;
+        checklist: OptimizationChecklistItem[];
+        surveys: OptimizationSurveyResponse[];
+      }>(
+        ["/api/optimization/events", updatedItem.eventId],
+        (old) => old
+          ? { ...old, checklist: old.checklist.map(c => c.id === updatedItem.id ? { ...c, notes: updatedItem.notes } : c) }
+          : old,
+      );
+    },
+    onError: () => {
+      toast({ title: "Couldn't save note", description: "Your text is still on screen — add a character or keep typing and it will try again.", variant: "destructive" });
+    },
+  });
+
   const submitSurveyMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest("POST", `/api/optimization/events/${selectedEventId}/survey`, data);
@@ -269,8 +318,8 @@ export default function Optimization() {
   }, [toggleChecklistMutation]);
 
   const handleNotesChange = useCallback((id: number, notes: string) => {
-    toggleChecklistMutation.mutate({ id, notes });
-  }, [toggleChecklistMutation]);
+    saveNotesMutation.mutate({ id, notes });
+  }, [saveNotesMutation]);
 
   const checklistByPhase = useMemo(() => {
     if (!eventDetail?.checklist) return {};
