@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { sendOccurrenceAlertEmail, type OccurrenceAlertEmailData } from "./outlook";
+import { STORE_MANAGER_TITLES } from "./hierarchy";
 
 export const TIMEZONE = "America/New_York";
 
@@ -239,8 +240,8 @@ export async function checkAndSendHRNotification(
         console.log(`[HR Notification] Including HR email(s): ${emails.join(', ')}`);
       }
       
-      // Find the Store Manager for this employee's store location
-      const STORE_MANAGER_TITLES = ['STSUPER', 'WVSTMNG', 'ECOMDIR'];
+      // Find the Store Manager for this employee's store location.
+      // Title list comes from the shared hierarchy module (single source of truth).
       if (employee.location) {
         const allEmployees = await storage.getEmployees();
         const storeManagerEmployees = allEmployees.filter(emp =>

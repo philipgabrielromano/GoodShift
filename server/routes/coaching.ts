@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
+import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { insertCoachingLogSchema, coachingLogs } from "@shared/schema";
 import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 import { eq } from "drizzle-orm";
@@ -10,46 +11,6 @@ const COACHING_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
   allowedContentTypes: new Set(["application/pdf"]),
 };
-
-const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
-const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
-const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "EASSIS"];
-const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD"];
-
-function getHierarchyLevel(jobTitle: string | null): number {
-  if (!jobTitle) return 0;
-  const upper = jobTitle.toUpperCase();
-  if (DISTRICT_MANAGER_TITLES.includes(upper)) return 4;
-  if (STORE_MANAGER_TITLES.includes(upper)) return 3;
-  if (ASST_MANAGER_TITLES.includes(upper)) return 2;
-  if (TEAM_LEAD_TITLES.includes(upper)) return 1;
-  return 0;
-}
-
-// Role-based hierarchy caps. A user account whose role encodes a sub-store
-// management level must never exceed that level — even when the account has
-// no linked employee record (email mismatch), or the linked record's job
-// title is not in the manager title lists. Without this cap, such accounts
-// fall through to store-manager-level visibility (level 3) and can see
-// manager/assistant-manager coaching logs.
-const ROLE_LEVEL_CAPS: Record<string, number> = {
-  team_lead: 1,
-  asstmanager: 2,
-};
-
-/**
- * Effective hierarchy level for a viewer: the job-title-derived level,
- * clamped by the account role's cap when one exists. A title level of 0
- * (unknown title) normally grants see-all — for capped roles it clamps to
- * the cap instead.
- */
-function getEffectiveLevel(user: any, managerEmployee: { jobTitle: string | null } | undefined): number {
-  const titleLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
-  const cap = ROLE_LEVEL_CAPS[user?.role];
-  if (cap === undefined) return titleLevel;
-  if (titleLevel === 0 || titleLevel > cap) return cap;
-  return titleLevel;
-}
 
 /**
  * Returns the explicit direct-report employee ID set for this user,

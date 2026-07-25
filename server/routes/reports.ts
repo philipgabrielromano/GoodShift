@@ -2,19 +2,7 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
 import { isValidLocationName } from "@shared/locationFilters";
-
-const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
-const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST"];
-const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK"];
-
-function getHierarchyLevel(jobTitle: string | null): number {
-  if (!jobTitle) return 0;
-  const upper = jobTitle.toUpperCase();
-  if (STORE_MANAGER_TITLES.includes(upper)) return 3;
-  if (ASST_MANAGER_TITLES.includes(upper)) return 2;
-  if (TEAM_LEAD_TITLES.includes(upper)) return 1;
-  return 0;
-}
+import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 
 // Per-job-title visibility override (configured by admins). Mirrors the
 // helper used by Coaching/Attendance so DMs/Directors granted visibility
@@ -118,11 +106,12 @@ export function registerReportRoutes(app: Express) {
           });
         } else {
           // No per-title visibility configured. Fall back to hierarchy.
-          // managerLevel === 0 means either no matching employee record, OR a
-          // title outside the recognized store hierarchy (e.g. DM/Director).
-          // In that case the user has feature access + location scope already,
-          // so don't apply a peer-exclusion filter that would zero out the report.
-          const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+          // getEffectiveLevel clamps team_lead/asstmanager accounts to their
+          // role's level even when no employee record matches their email.
+          // Level 0 (unknown title, e.g. corporate/HR) and level >= 3 have
+          // feature access + location scope already, so no peer-exclusion
+          // filter is applied that would zero out the report.
+          const managerLevel = getEffectiveLevel(user, managerEmployee);
           if (managerLevel > 0 && managerLevel < 3) {
             filteredEmployees = filteredEmployees.filter(e => {
               if (managerEmployee && e.id === managerEmployee.id) return false;

@@ -2,27 +2,13 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
+import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 
 const OCCURRENCE_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
   allowedContentTypes: new Set(["application/pdf"]),
 };
-
-const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
-const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
-const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "EASSIS"];
-const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD"];
-
-function getHierarchyLevel(jobTitle: string | null): number {
-  if (!jobTitle) return 0;
-  const upper = jobTitle.toUpperCase();
-  if (DISTRICT_MANAGER_TITLES.includes(upper)) return 4;
-  if (STORE_MANAGER_TITLES.includes(upper)) return 3;
-  if (ASST_MANAGER_TITLES.includes(upper)) return 2;
-  if (TEAM_LEAD_TITLES.includes(upper)) return 1;
-  return 0;
-}
 
 async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined): Promise<Set<string> | null> {
   if (!viewerJobTitle) return null;
@@ -85,7 +71,7 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     return !!targetEmployee.jobTitle && visibleTitleSet.has(targetEmployee.jobTitle.toUpperCase());
   }
 
-  const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+  const managerLevel = getEffectiveLevel(user, managerEmployee);
   // Unknown titles (level 0, e.g. HR, district-level roles) and store-manager-
   // and-above (level >= 3) can access everyone within their allowed locations.
   if (managerLevel === 0 || managerLevel >= 3) return true;
@@ -132,7 +118,7 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     return new Set(visibleByTitle.map(e => e.id));
   }
 
-  const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+  const managerLevel = getEffectiveLevel(user, managerEmployee);
 
   const visible = activeEmployees.filter(e => {
     if (managerEmployee && e.id === managerEmployee.id) return false;
@@ -208,7 +194,7 @@ export function registerOccurrenceRoutes(app: Express) {
         })));
       }
 
-      const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+      const managerLevel = getEffectiveLevel(user, managerEmployee);
 
       console.log(`[Attendance] Employee list - User: ${user.email}, MatchedEmployee: ${managerEmployee?.name || 'NONE'}, JobTitle: ${managerEmployee?.jobTitle || 'N/A'}, HierarchyLevel: ${managerLevel}, LocationFilter: ${allowedNames ? Array.from(allowedNames).join(',') : 'ALL'}, PreFilterCount: ${filtered.length}`);
 

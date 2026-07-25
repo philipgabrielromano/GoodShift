@@ -36,9 +36,13 @@ unmatched. In production most sub-store accounts are UNMATCHED (e.g. ~14/15
 `team_lead`-role and ~18/22 `asstmanager`-role users as of July 2026), so
 title-only logic silently grants them store-manager visibility.
 
-**The fix (coaching only, July 2026):** coaching.ts clamps the title-derived
-level with `ROLE_LEVEL_CAPS { team_lead: 1, asstmanager: 2 }`; a title level of
-0 (unknown title, normally see-all) also clamps to the cap. Uncapped roles
+**The fix (July 2026):** shared `server/hierarchy.ts` is now the single source
+of truth for title lists, `getHierarchyLevel`, and `getEffectiveLevel`, which
+clamps the title-derived level with `ROLE_LEVEL_CAPS { team_lead: 1,
+asstmanager: 2 }`; a title level of 0 (unknown title, normally see-all) also
+clamps to the cap. All three modules (coaching, occurrences, reports) import
+it — the per-file copies had already drifted (reports was missing
+EASSIS/ECMCOMLD/DSTTMLDR). Uncapped roles
 (manager/optimizer/dmdirector/hradmin/admin/viewer) keep legacy behavior —
 hradmin depends on level-0 see-all.
 
@@ -46,7 +50,6 @@ hradmin depends on level-0 see-all.
 logs purely because their account email didn't match an employee record.
 
 **How to apply:** Never trust the title-derived level alone for sub-store
-roles; clamp by account role. Attendance (occurrences.ts) and reports.ts still
-use title-only logic with the `: 3` fallback — same exposure exists there until
-mirrored. Admin-configured per-title visibility and explicit direct-report
-assignments intentionally override the caps.
+roles; clamp by account role via the shared helper — never re-declare
+hierarchy logic in a route file. Admin-configured per-title visibility and
+explicit direct-report assignments intentionally override the caps.
