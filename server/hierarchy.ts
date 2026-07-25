@@ -14,7 +14,7 @@
 export const DISTRICT_MANAGER_TITLES = ["DSTTMLDR"];
 export const STORE_MANAGER_TITLES = ["STSUPER", "WVSTMNG", "ECOMDIR"];
 export const ASST_MANAGER_TITLES = ["STASSTSP", "WVSTAST", "EASSIS"];
-export const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD"];
+export const TEAM_LEAD_TITLES = ["STLDWKR", "WVLDWRK", "ECMCOMLD", "ALTSTLD", "ECLEAD"];
 
 export function getHierarchyLevel(jobTitle: string | null): number {
   if (!jobTitle) return 0;
