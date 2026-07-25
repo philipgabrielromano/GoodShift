@@ -27,3 +27,26 @@ restrictions.
 three files, mirror the change in the others (or extract a shared helper). When
 debugging "user X sees no employees / can't access employee", check the
 managerLevel computed from their linked employee's jobTitle first.
+
+# Email→employee matching is unreliable; account role is the trustworthy signal
+
+Visibility level is derived from the employee record matched by the account's
+email, falling back to level 3 (store manager, see-all-in-location) when
+unmatched. In production most sub-store accounts are UNMATCHED (e.g. ~14/15
+`team_lead`-role and ~18/22 `asstmanager`-role users as of July 2026), so
+title-only logic silently grants them store-manager visibility.
+
+**The fix (coaching only, July 2026):** coaching.ts clamps the title-derived
+level with `ROLE_LEVEL_CAPS { team_lead: 1, asstmanager: 2 }`; a title level of
+0 (unknown title, normally see-all) also clamps to the cap. Uncapped roles
+(manager/optimizer/dmdirector/hradmin/admin/viewer) keep legacy behavior —
+hradmin depends on level-0 see-all.
+
+**Why:** Team-lead/asst-manager accounts could read store managers' coaching
+logs purely because their account email didn't match an employee record.
+
+**How to apply:** Never trust the title-derived level alone for sub-store
+roles; clamp by account role. Attendance (occurrences.ts) and reports.ts still
+use title-only logic with the `: 3` fallback — same exposure exists there until
+mirrored. Admin-configured per-title visibility and explicit direct-report
+assignments intentionally override the caps.

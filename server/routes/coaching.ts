@@ -26,6 +26,31 @@ function getHierarchyLevel(jobTitle: string | null): number {
   return 0;
 }
 
+// Role-based hierarchy caps. A user account whose role encodes a sub-store
+// management level must never exceed that level — even when the account has
+// no linked employee record (email mismatch), or the linked record's job
+// title is not in the manager title lists. Without this cap, such accounts
+// fall through to store-manager-level visibility (level 3) and can see
+// manager/assistant-manager coaching logs.
+const ROLE_LEVEL_CAPS: Record<string, number> = {
+  team_lead: 1,
+  asstmanager: 2,
+};
+
+/**
+ * Effective hierarchy level for a viewer: the job-title-derived level,
+ * clamped by the account role's cap when one exists. A title level of 0
+ * (unknown title) normally grants see-all — for capped roles it clamps to
+ * the cap instead.
+ */
+function getEffectiveLevel(user: any, managerEmployee: { jobTitle: string | null } | undefined): number {
+  const titleLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+  const cap = ROLE_LEVEL_CAPS[user?.role];
+  if (cap === undefined) return titleLevel;
+  if (titleLevel === 0 || titleLevel > cap) return cap;
+  return titleLevel;
+}
+
 /**
  * Returns the explicit direct-report employee ID set for this user,
  * or null if no explicit assignments exist (falls back to job-title hierarchy).
@@ -119,7 +144,7 @@ export function registerCoachingRoutes(app: Express) {
           })));
         }
 
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+        const managerLevel = getEffectiveLevel(user, managerEmployee);
 
         console.log(`[Coaching] Employee list - User: ${user.email}, MatchedEmployee: ${managerEmployee?.name || 'NONE'}, JobTitle: ${managerEmployee?.jobTitle || 'N/A'}, HierarchyLevel: ${managerLevel}, LocationFilter: ${allowedNames ? Array.from(allowedNames).join(',') : 'ALL'}, PreFilterCount: ${filtered.length}`);
 
@@ -201,7 +226,7 @@ export function registerCoachingRoutes(app: Express) {
           return res.json(allLogs.filter(log => visibleByTitle.has(log.employeeId)));
         }
 
-        const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+        const managerLevel = getEffectiveLevel(user, managerEmployee);
 
         const visibleEmployeeIds = new Set(
           allEmployees.filter(e => {
@@ -279,7 +304,7 @@ export function registerCoachingRoutes(app: Express) {
               return res.status(403).json({ message: "Cannot create coaching log for an employee whose job title you cannot manage" });
             }
           } else {
-            const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+            const managerLevel = getEffectiveLevel(user, managerEmployee);
             // Only apply level-gate for known sub-store roles (team lead / asst
             // manager). Unknown titles (HR etc.) and store-manager-and-above
             // are already constrained by the location check above.
@@ -388,7 +413,7 @@ export function registerCoachingRoutes(app: Express) {
               return res.status(403).json({ message: "Cannot modify coaching log for an employee whose job title you cannot manage" });
             }
           } else {
-            const managerLevel = managerEmployee ? getHierarchyLevel(managerEmployee.jobTitle) : 3;
+            const managerLevel = getEffectiveLevel(user, managerEmployee);
             // Only apply level-gate for known sub-store roles. Unknown titles
             // (HR etc.) are already constrained by the location check above.
             if (managerLevel >= 1 && managerLevel < 3) {
