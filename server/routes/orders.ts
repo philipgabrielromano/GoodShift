@@ -487,19 +487,20 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
 }
 
 // For goods-moving order types, only the mapped fields relevant to that
-// order's confirmation flow may carry inventory-affecting quantities:
+// order's flow may carry inventory-affecting quantities:
 //   - receipt (Transfer & Receive): everything EXCEPT outlet bulk fields.
 //   - export  (End of Day):         *_returned + outlet bulk fields.
-// A non-relevant mapped field (e.g. an outlet quantity on a T&R, or an
-// equipment *_requested on an EOD) would never get a typed actual at confirm
-// time, yet it would still fall back to its planned value in the warehouse
-// on-hand math (COALESCE(<col>_actual, <col>)) once the order is confirmed —
-// silently moving inventory that nobody confirmed. We reject those at the
-// write boundary. The forbidden sets are derived from the shared constants so
-// they can never drift from the inventory map or the confirm allowlists.
+// Note this is about which quantities may exist ON the order — it is
+// intentionally broader than the confirm allowlists, which are Raw-only.
+// Equipment counts and outlet bulk never require a typed actual: once the
+// order is confirmed they move at their planned values in the warehouse
+// on-hand math (COALESCE(<col>_actual, <col>)). Only quantities that don't
+// belong to the flow at all are rejected at the write boundary.
 const FORBIDDEN_MAPPED_FIELDS_BY_KIND: Record<"receipt" | "export", string[]> = {
-  receipt: ORDER_RECONCILABLE_FIELDS.filter(f => !RECEIPT_CONFIRM_FIELDS_SET.has(f)),
-  export: ORDER_RECONCILABLE_FIELDS.filter(f => !EXPORT_CONFIRM_FIELDS_SET.has(f)),
+  // Outlet bulk belongs to End-of-Day orders only.
+  receipt: ORDER_RECONCILABLE_FIELDS.filter(f => f.startsWith("outlet")),
+  // An End-of-Day order carries returned + outlet quantities, never requests.
+  export: ORDER_RECONCILABLE_FIELDS.filter(f => !f.endsWith("Returned") && !f.startsWith("outlet")),
 };
 
 // Returns a plain-language error message if a goods-moving order carries a
@@ -965,13 +966,13 @@ export function registerOrderRoutes(app: Express) {
           requiredMissing.push(camel);
         }
       }
-      // Reject empty confirmations outright — there is no one-click "confirm
-      // as-is". A goods-moving order only counts toward inventory once the
-      // responsible side TYPES at least one actual. An order with no planned
-      // lines (nothing was ordered) can still be confirmed, but only by adding
-      // an overage line with a typed actual; otherwise it stays pending, which
-      // is correct because nothing actually moved.
-      if (Object.keys(body.actuals).length === 0) {
+      // An order with NO planned-positive lines (nothing qualifying was
+      // ordered) may be confirmed with zero actuals — a one-click "nothing
+      // moved" confirmation. When planned lines DO exist, every one of them
+      // still requires a typed actual (the requiredMissing guard below), so
+      // an empty confirmation is only possible on genuinely empty orders.
+      const hasPlannedLines = Object.values(plannedSnapshot).some((p) => p > 0);
+      if (Object.keys(body.actuals).length === 0 && hasPlannedLines) {
         await conn.rollback(); conn.release(); conn = null;
         return res.status(400).json({ message: "Enter at least one actual quantity before confirming." });
       }

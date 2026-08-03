@@ -1416,9 +1416,10 @@ export default function OrderSubmissions() {
                 </p>
                 {allLines.length === 0 ? (
                   <p className="text-muted-foreground">
-                    Nothing was ordered on this order. If something still arrived,
-                    add it below and type the actual quantity. Otherwise leave it
-                    unconfirmed — there's nothing to count.
+                    No raw product lines need counts on this order. You can
+                    confirm it as-is — any other quantities on the order are
+                    recorded at their planned amounts. If a raw product category
+                    still arrived, add it below and type the actual quantity.
                   </p>
                 ) : (
                   <div className="grid grid-cols-[1fr_7rem] items-center gap-x-4 gap-y-2">
@@ -1516,7 +1517,7 @@ export default function OrderSubmissions() {
                 </Button>
                 <Button
                   onClick={submit}
-                  disabled={confirmMutation.isPending || !allFilled || allLines.length === 0}
+                  disabled={confirmMutation.isPending || !allFilled}
                   data-testid="button-confirm-submit"
                 >
                   {confirmMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <PackageCheck className="w-4 h-4 mr-2" />}

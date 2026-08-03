@@ -1545,12 +1545,14 @@ export const ORDER_FIELD_TO_WAREHOUSE_ITEM: Record<string, { group: string; item
 };
 
 // ---- Order reconciliation (receiving & export confirmation) ----
-// Goods-moving orders must have their ACTUAL moved quantities typed in before
-// they count toward warehouse inventory. Those actual quantities live in mirror
-// columns ("<col>_actual") on the MySQL orders table, alongside the original
-// planned requested/returned columns so variance stays visible. An order is
-// "reconciled" once orders.confirmed_at is set; until then a goods-moving order
-// is "pending confirmation" and does NOT affect on-hand inventory.
+// Goods-moving orders must be confirmed before they count toward warehouse
+// inventory. Only Raw product lines require ACTUAL moved quantities typed in;
+// equipment and outlet quantities move at their planned values once the order
+// is confirmed. Actual quantities live in mirror columns ("<col>_actual") on
+// the MySQL orders table, alongside the original planned requested/returned
+// columns so variance stays visible. An order is "reconciled" once
+// orders.confirmed_at is set; until then a goods-moving order is "pending
+// confirmation" and does NOT affect on-hand inventory.
 const _orderSnakeToCamel = (s: string): string =>
   s.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase());
 
@@ -1577,16 +1579,19 @@ export const ORDER_CONFIRMATION_KIND: Record<string, "receipt" | "export"> = {
 
 // Per-flow allowlist of camelCase fields a confirmer may set. Derived from the
 // warehouse-item map so it can never drift from the inventory math.
-//  - Receipt (Transfer and Receive): all mapped equipment/raw requested+returned
-//    fields (everything except the outlet bulk fields, which are End-of-Day only).
-//  - Export (End of Day): the *_returned fields plus outlet bulk.
+// ONLY the Raw product categories (gaylord requested/returned lines) require a
+// typed actual. Equipment counts and Outlet bulk move at their planned values
+// once the order is confirmed — they never block confirmation and can't have
+// actuals typed in.
+//  - Receipt (Transfer and Receive): Raw requested + returned fields.
+//  - Export (End of Day): Raw *_returned fields only.
 export const RECEIPT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
-  .filter(c => !c.startsWith("outlet_"))
+  .filter(c => ORDER_FIELD_TO_WAREHOUSE_ITEM[c].group === "Raw")
   .map(_orderSnakeToCamel);
 export const RECEIPT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(RECEIPT_CONFIRM_FIELDS);
 
 export const EXPORT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
-  .filter(c => c.endsWith("_returned") || c.startsWith("outlet_"))
+  .filter(c => ORDER_FIELD_TO_WAREHOUSE_ITEM[c].group === "Raw" && c.endsWith("_returned"))
   .map(_orderSnakeToCamel);
 export const EXPORT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(EXPORT_CONFIRM_FIELDS);
 
