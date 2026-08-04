@@ -286,8 +286,15 @@ export default function Attendance() {
     doc.text(`Total Occurrences: ${summary.totalOccurrences.toFixed(1)}`, 14, 56);
     doc.text(`Adjustments: ${summary.adjustmentsThisYear.toFixed(1)}`, 14, 62);
     doc.text(`Net Tally: ${summary.netTally.toFixed(1)}`, 14, 68);
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text("Full history is listed below. Items outside the rolling 12-month window do not count toward the totals above.", 14, 74);
+    doc.setTextColor(0, 0, 0);
 
-    let startY = 78;
+    let startY = 82;
+
+    const isOutsideWindow = (dateStr: string | null | undefined) =>
+      !!dateStr && !!summary.periodStart && dateStr < summary.periodStart;
 
     const allOccs = summary.occurrences || [];
     if (allOccs.length > 0) {
@@ -301,6 +308,7 @@ export default function Attendance() {
           if (o.isConsecutiveSickness) status = "Consecutive Illness (not counted)";
           else if (o.isFmla) status = "FMLA (not counted)";
           else if (o.isOtherLeave) status = "Other Leave (not counted)";
+          else if (o.status !== "retracted" && isOutsideWindow(o.occurrenceDate)) status = "Outside 12-mo window (not counted)";
           return [
             o.occurrenceDate,
             o.occurrenceType === "half" ? "Half (0.5)" : o.occurrenceType === "ncns" ? "NCNS (1.0)" : "Full (1.0)",
@@ -319,6 +327,8 @@ export default function Attendance() {
             if (row?.status === 'retracted') {
               data.cell.styles.textColor = [150, 150, 150];
               data.cell.styles.fontStyle = 'italic';
+            } else if (isOutsideWindow(row?.occurrenceDate)) {
+              data.cell.styles.textColor = [130, 130, 130];
             }
           }
         },
@@ -337,7 +347,11 @@ export default function Attendance() {
           a.adjustmentDate,
           a.adjustmentType === "perfect_attendance" ? "Perfect Attendance" : a.adjustmentType,
           (a.adjustmentValue / 100).toFixed(1),
-          a.status === "retracted" ? "Retracted" : "Active",
+          a.status === "retracted"
+            ? "Retracted"
+            : isOutsideWindow(a.adjustmentDate)
+              ? "Outside 12-mo window (not counted)"
+              : "Active",
           a.notes || "",
         ]),
         styles: { fontSize: 8 },
@@ -349,6 +363,8 @@ export default function Attendance() {
             if (row?.status === 'retracted') {
               data.cell.styles.textColor = [150, 150, 150];
               data.cell.styles.fontStyle = 'italic';
+            } else if (isOutsideWindow(row?.adjustmentDate)) {
+              data.cell.styles.textColor = [130, 130, 130];
             }
           }
         },
