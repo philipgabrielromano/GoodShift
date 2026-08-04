@@ -441,8 +441,8 @@ export default function Users({ embedded = false }: { embedded?: boolean } = {})
                           </Badge>
                         </TableCell>
 
-                        <TableCell>
-                          <span className="text-muted-foreground" data-testid={`text-user-email-${user.id}`}>
+                        <TableCell className="max-w-[10rem] lg:max-w-[16rem]">
+                          <span className="text-muted-foreground block truncate" title={user.email} data-testid={`text-user-email-${user.id}`}>
                             {user.email}
                           </span>
                         </TableCell>
@@ -452,18 +452,28 @@ export default function Users({ embedded = false }: { embedded?: boolean } = {})
                             <span className="text-muted-foreground italic" data-testid={`text-user-stores-${user.id}`}>All stores</span>
                           ) : user.locationIds && user.locationIds.length > 0 ? (
                             <div className="flex flex-wrap gap-1" data-testid={`text-user-stores-${user.id}`}>
-                              {user.locationIds.map(id => (
+                              {user.locationIds.slice(0, 3).map(id => (
                                 <Badge key={id} variant="outline" className="text-xs font-normal" data-testid={`badge-user-location-${user.id}-${id}`}>
                                   {getLocationName(id)}
                                 </Badge>
                               ))}
+                              {user.locationIds.length > 3 && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs font-normal text-muted-foreground"
+                                  title={user.locationIds.slice(3).map(id => getLocationName(id)).join(", ")}
+                                  data-testid={`badge-user-locations-more-${user.id}`}
+                                >
+                                  +{user.locationIds.length - 3} more
+                                </Badge>
+                              )}
                             </div>
                           ) : (
                             <span className="text-muted-foreground" data-testid={`text-user-stores-${user.id}`}>None assigned</span>
                           )}
                         </TableCell>
 
-                        <TableCell className="text-right">
+                        <TableCell className="text-right whitespace-nowrap">
                           <span className="text-muted-foreground" data-testid={`text-user-last-login-${user.id}`}>
                             {formatLastLogin(user.lastLoginAt)}
                           </span>
