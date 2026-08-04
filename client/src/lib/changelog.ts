@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "3.9.1";
+export const APP_VERSION = "4.0.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.0.0",
+    date: "2026-08-04",
+    title: "Simpler order confirmation & complete attendance PDF exports",
+    changes: [
+      { type: "improvement", description: "Order confirmation (reconciliation) now only asks for actual counts on raw product categories — the gaylord Requested/Returned lines. Outlet categories and equipment counts no longer appear in the confirm step; they're recorded automatically at their planned quantities once the order is confirmed." },
+      { type: "improvement", description: "End of Day and Transfer & Receive orders with no raw product lines can now be confirmed in one click. Previously an order with nothing to count couldn't be confirmed at all and sat pending forever." },
+      { type: "improvement", description: "The attendance Occurrence Record PDF now shows an employee's full history, matching the webpage. Items older than the rolling 12-month window are included in grey with an 'Outside 12-mo window (not counted)' label, and a note clarifies that the totals reflect only the 12-month window." },
+    ],
+  },
   {
     version: "3.9.1",
     date: "2026-05-29",
