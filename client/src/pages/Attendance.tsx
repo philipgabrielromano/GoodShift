@@ -115,8 +115,6 @@ export default function Attendance() {
   const [adjustmentNotes, setAdjustmentNotes] = useState("");
   const [adjustmentDate, setAdjustmentDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
 
-  const [perfectAttendanceDialogOpen, setPerfectAttendanceDialogOpen] = useState(false);
-  const [perfectAttendanceDate, setPerfectAttendanceDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
 
   const [correctiveDialogOpen, setCorrectiveDialogOpen] = useState(false);
   const [correctiveActionType, setCorrectiveActionType] = useState<'warning' | 'final_warning' | 'termination' | null>(null);
@@ -184,31 +182,6 @@ export default function Attendance() {
       toast({ 
         title: "Error", 
         description: error?.message || "Failed to add adjustment", 
-        variant: "destructive" 
-      });
-    }
-  };
-
-  const handleGrantPerfectAttendance = async () => {
-    if (!selectedEmployeeId || !perfectAttendanceDate) return;
-    
-    try {
-      const year = parseInt(perfectAttendanceDate.slice(0, 4), 10);
-      await createAdjustment.mutateAsync({
-        employeeId: selectedEmployeeId,
-        adjustmentValue: -100,
-        adjustmentType: 'perfect_attendance',
-        notes: '90-day perfect attendance bonus',
-        adjustmentDate: perfectAttendanceDate,
-        calendarYear: year,
-      });
-      toast({ title: "Perfect Attendance Granted", description: "The -1.0 perfect attendance bonus has been applied." });
-      setPerfectAttendanceDialogOpen(false);
-      setPerfectAttendanceDate(format(new Date(), "yyyy-MM-dd"));
-    } catch (error: any) {
-      toast({ 
-        title: "Error", 
-        description: error?.message || "Failed to grant perfect attendance", 
         variant: "destructive" 
       });
     }
@@ -569,33 +542,6 @@ export default function Attendance() {
                   </CardContent>
                 </Card>
 
-                <Card className={summary.perfectAttendanceBonus ? "border-green-300 dark:border-green-700" : ""}>
-                  <CardHeader className="p-3 sm:p-6 pb-1 sm:pb-2">
-                    <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
-                      Perfect Attendance
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-3 sm:p-6 pt-0">
-                    <div className="flex items-end gap-1 sm:gap-2">
-                      <span 
-                        className={`text-2xl sm:text-4xl font-bold ${summary.perfectAttendanceBonus ? 'text-green-600' : 'text-muted-foreground'}`}
-                        data-testid="text-perfect-attendance-bonus"
-                      >
-                        {summary.perfectAttendanceUsed || 0}/1
-                      </span>
-                      <span className="text-xs sm:text-base text-muted-foreground mb-0.5 sm:mb-1">used</span>
-                    </div>
-                    <p className="text-xs sm:text-sm text-muted-foreground mt-2">
-                      {summary.perfectAttendanceBonus 
-                        ? `Bonus: ${summary.perfectAttendanceBonusValue?.toFixed(1) || "-1.0"}`
-                        : summary.perfectAttendanceEligible
-                          ? summary.perfectAttendanceWouldBeWasted
-                            ? "Eligible but nothing to reduce"
-                            : "Eligible (-1.0)"
-                          : "Requires 90 days clean"}
-                    </p>
-                  </CardContent>
-                </Card>
               </div>
 
               {canManageOccurrences && (
@@ -609,20 +555,6 @@ export default function Attendance() {
                     >
                       <Award className="w-4 h-4 mr-1 sm:mr-2" />
                       <span className="hidden sm:inline">Add </span>Adjustment (-1.0)
-                    </Button>
-                  )}
-                  {summary.perfectAttendanceEligible && !summary.perfectAttendanceBonus && !summary.perfectAttendanceWouldBeWasted && (
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      className="border-green-300 text-green-600"
-                      onClick={() => {
-                        setPerfectAttendanceDialogOpen(true);
-                      }}
-                      data-testid="button-grant-perfect-attendance"
-                    >
-                      <Award className="w-4 h-4 mr-1 sm:mr-2" />
-                      <span className="hidden sm:inline">Grant </span>Perfect Attend. (-1.0)
                     </Button>
                   )}
                 </div>
@@ -1070,7 +1002,7 @@ export default function Attendance() {
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Each adjustment reduces the employee's occurrence tally by 1.0. Set the <strong>Date Earned</strong> to record an adjustment in a prior year (e.g. 2025) for record-keeping. Standard limits still apply per calendar year: <strong>1 Covered Unscheduled Shift</strong> and <strong>1 Perfect Attendance</strong> per year.
+              Each adjustment reduces the employee's occurrence tally by 1.0. Set the <strong>Date Earned</strong> to record an adjustment in a prior year (e.g. 2025) for record-keeping. The standard limit still applies: <strong>1 Covered Unscheduled Shift</strong> per calendar year.
             </p>
             <div className="space-y-2">
               <Label>Adjustment Type</Label>
@@ -1080,12 +1012,8 @@ export default function Attendance() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unscheduled_shift">Covered Unscheduled Shift</SelectItem>
-                  <SelectItem value="perfect_attendance">Perfect Attendance (backfill)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                For current-year Perfect Attendance bonuses earned through 90 days clean, use the "Grant Perfect Attendance" button on the employee row when eligible. This backfill option is for recording past Perfect Attendance bonuses.
-              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="adjustmentDate">Date Earned</Label>
@@ -1129,55 +1057,6 @@ export default function Attendance() {
             >
               {createAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               Add Adjustment
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={perfectAttendanceDialogOpen} onOpenChange={setPerfectAttendanceDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Award className="w-5 h-5 text-green-500" />
-              Grant Perfect Attendance Bonus
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              This employee has achieved 90 days of perfect attendance and is eligible for a -1.0 adjustment to their occurrence tally.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              This can only be granted once per calendar year.
-            </p>
-            <div className="space-y-2">
-              <Label htmlFor="perfectAttendanceDate">Date Earned</Label>
-              <Input
-                id="perfectAttendanceDate"
-                type="date"
-                value={perfectAttendanceDate}
-                max={format(new Date(), "yyyy-MM-dd")}
-                onChange={(e) => setPerfectAttendanceDate(e.target.value)}
-                data-testid="input-perfect-attendance-date"
-              />
-              {perfectAttendanceDate && parseInt(perfectAttendanceDate.slice(0, 4), 10) !== new Date().getFullYear() && (
-                <p className="text-xs text-orange-600 dark:text-orange-400">
-                  Backdating to {perfectAttendanceDate.slice(0, 4)} — counts toward that year's perfect-attendance limit.
-                </p>
-              )}
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPerfectAttendanceDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleGrantPerfectAttendance} 
-              disabled={createAdjustment.isPending}
-              className="bg-green-600 hover:bg-green-700"
-              data-testid="button-confirm-perfect-attendance"
-            >
-              {createAdjustment.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Grant Bonus (-1.0)
             </Button>
           </DialogFooter>
         </DialogContent>

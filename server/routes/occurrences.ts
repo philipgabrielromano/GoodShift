@@ -688,35 +688,15 @@ export function registerOccurrenceRoutes(app: Express) {
       const existingAdjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, year);
       const activeAdjustments = existingAdjustments.filter(a => a.status === 'active');
       
-      // Special validation for perfect_attendance adjustments
+      // Perfect attendance forgiveness has been discontinued — no NEW
+      // perfect_attendance adjustments may be created. Existing ones remain
+      // on record and still count toward historical tallies.
       if (adjustmentType === 'perfect_attendance') {
-        // Check if already used perfect attendance this year
-        const existingPerfectAttendance = activeAdjustments.filter(a => a.adjustmentType === 'perfect_attendance');
-        if (existingPerfectAttendance.length > 0) {
-          return res.status(400).json({ message: "Perfect attendance bonus has already been used this year (limit: 1 per year)" });
-        }
-        
-        // Check if employee has occurrences to reduce (don't waste the bonus).
-        // For backdated bonuses, look at the 12 months ending on the adjustment date,
-        // not the rolling window from "now".
-        const windowEnd = new Date(effectiveDate + 'T00:00:00Z');
-        const windowStart = new Date(windowEnd);
-        windowStart.setUTCFullYear(windowStart.getUTCFullYear() - 1);
-        const startDate = windowStart.toISOString().split('T')[0];
-        const endDate = effectiveDate;
-        const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
-        const activeOccurrences = occurrences.filter(o => o.status === 'active');
-        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
-        const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
-        
-        if (totalPoints === 0) {
-          return res.status(400).json({ message: "Cannot grant perfect attendance bonus - employee has no occurrences to reduce in the 12 months prior to this date" });
-        }
-      } else {
-        const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
-        if (manualAdjustments.length >= 1) {
-          return res.status(400).json({ message: `Employee has already used their adjustment for ${year}` });
-        }
+        return res.status(400).json({ message: "Perfect attendance adjustments are no longer available." });
+      }
+      const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
+      if (manualAdjustments.length >= 1) {
+        return res.status(400).json({ message: `Employee has already used their adjustment for ${year}` });
       }
       
       const adjustment = await storage.createOccurrenceAdjustment({

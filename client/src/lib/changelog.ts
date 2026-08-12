@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.0.0";
+export const APP_VERSION = "4.1.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.1.0",
+    date: "2026-08-12",
+    title: "Perfect Attendance retired & user settings fit on smaller screens",
+    changes: [
+      { type: "improvement", description: "Perfect Attendance forgiveness has been retired. The 'Grant Perfect Attendance' button and the backfill option in Add Adjustment are gone, and new perfect-attendance adjustments are blocked server-side. Covered Unscheduled Shift (1 per calendar year) is now the only occurrence adjustment. Existing perfect-attendance bonuses already on record are unchanged and still count toward past tallies." },
+      { type: "fix", description: "The user settings page no longer scrolls sideways on smaller screens. Long login emails now truncate (hover to see the full address) and users with many store assignments show the first three stores plus a '+N more' badge instead of one badge per store." },
+    ],
+  },
   {
     version: "4.0.0",
     date: "2026-08-04",
