@@ -8,9 +8,19 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.1.0";
+export const APP_VERSION = "4.2.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.2.0",
+    date: "2026-08-16",
+    title: "Record unexpected arrivals during order confirmation",
+    changes: [
+      { type: "feature", description: "The order confirmation dialog's 'add a line' picker now offers every category that belongs to the order type — equipment (totes, gaylords, duros, containers, blue bins, pallets) on Transfer & Receive, and returns plus Outlet bulk on End of Day — so unexpected arrivals or departures can be recorded. Only raw product lines are still required; everything else is optional." },
+      { type: "feature", description: "Seasonal saved-stock categories (Winter, Summer, Halloween, Christmas) can now also be added during confirmation to record what actually arrived or left. These are for the record and audit trail only — they don't affect warehouse inventory balances." },
+      { type: "improvement", description: "When a line that was planned on the order (like totes) is added in the confirm dialog, it now shows its planned quantity instead of being labeled an overage, and the audit trail records the true planned-vs-actual variance." },
+    ],
+  },
   {
     version: "4.1.0",
     date: "2026-08-12",
