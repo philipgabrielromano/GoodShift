@@ -25,6 +25,8 @@ import {
   RECEIPT_CONFIRM_FIELDS_SET,
   EXPORT_CONFIRM_FIELDS,
   EXPORT_CONFIRM_FIELDS_SET,
+  RECEIPT_REQUIRED_CONFIRM_FIELDS_SET,
+  EXPORT_REQUIRED_CONFIRM_FIELDS_SET,
 } from "@shared/schema";
 
 // Statuses whose seasonal requests count toward the soft-hold balance
@@ -490,8 +492,9 @@ function toCamel(row: RowDataPacket): Record<string, string | number | boolean |
 // order's flow may carry inventory-affecting quantities:
 //   - receipt (Transfer & Receive): everything EXCEPT outlet bulk fields.
 //   - export  (End of Day):         *_returned + outlet bulk fields.
-// Note this is about which quantities may exist ON the order — it is
-// intentionally broader than the confirm allowlists, which are Raw-only.
+// Note this is about which quantities may exist ON the order — it matches the
+// broad confirm allowlists (anything in the flow MAY be confirmed), while only
+// the Raw REQUIRED subsets force a typed actual.
 // Equipment counts and outlet bulk never require a typed actual: once the
 // order is confirmed they move at their planned values in the warehouse
 // on-hand math (COALESCE(<col>_actual, <col>)). Only quantities that don't
@@ -894,6 +897,7 @@ export function registerOrderRoutes(app: Express) {
       }
       const allow = kind === "receipt" ? RECEIPT_CONFIRM_FIELDS_SET : EXPORT_CONFIRM_FIELDS_SET;
       const allowList = kind === "receipt" ? RECEIPT_CONFIRM_FIELDS : EXPORT_CONFIRM_FIELDS;
+      const requiredSet = kind === "receipt" ? RECEIPT_REQUIRED_CONFIRM_FIELDS_SET : EXPORT_REQUIRED_CONFIRM_FIELDS_SET;
       // Reject any field this flow isn't allowed to set — keeps arbitrary
       // column names out of the UPDATE.
       for (const key of Object.keys(body.actuals)) {
@@ -950,28 +954,35 @@ export function registerOrderRoutes(app: Express) {
         });
       }
 
-      // Work out which mapped lines were PLANNED on this order. Every planned
-      // line with a positive quantity must have an explicit actual typed in
-      // (0 is valid — it records that nothing moved). Lines planned at 0/NULL
-      // don't have to be filled, but MAY be (records an overage).
+      // Snapshot the planned quantity of EVERY flow-allowed line (for accurate
+      // planned→actual audit variance), and work out which REQUIRED (Raw
+      // product) lines were planned. Every Raw planned line with a positive
+      // quantity must have an explicit actual typed in (0 is valid — it
+      // records that nothing moved). Lines planned at 0/NULL, and non-Raw
+      // lines, don't have to be filled, but MAY be (records an overage /
+      // unexpected arrival, or a variance on an equipment/outlet line).
       const plannedSnapshot: Record<string, number> = {};
       const requiredMissing: string[] = [];
+      let hasRequiredPlannedLines = false;
       for (const camel of allowList) {
         const snake = camelToSnakeCol(camel);
         const plannedRaw = order[snake];
         if (plannedRaw === null || plannedRaw === undefined) continue;
         const planned = Number(plannedRaw);
         plannedSnapshot[camel] = planned;
-        if (planned > 0 && !(camel in body.actuals)) {
-          requiredMissing.push(camel);
+        if (planned > 0 && requiredSet.has(camel)) {
+          hasRequiredPlannedLines = true;
+          if (!(camel in body.actuals)) {
+            requiredMissing.push(camel);
+          }
         }
       }
-      // An order with NO planned-positive lines (nothing qualifying was
-      // ordered) may be confirmed with zero actuals — a one-click "nothing
-      // moved" confirmation. When planned lines DO exist, every one of them
+      // An order with NO required (Raw) planned-positive lines may be
+      // confirmed with zero actuals — a one-click "nothing qualifying moved"
+      // confirmation. When required planned lines DO exist, every one of them
       // still requires a typed actual (the requiredMissing guard below), so
-      // an empty confirmation is only possible on genuinely empty orders.
-      const hasPlannedLines = Object.values(plannedSnapshot).some((p) => p > 0);
+      // an empty confirmation is only possible on orders with no forced lines.
+      const hasPlannedLines = hasRequiredPlannedLines;
       if (Object.keys(body.actuals).length === 0 && hasPlannedLines) {
         await conn.rollback(); conn.release(); conn = null;
         return res.status(400).json({ message: "Enter at least one actual quantity before confirming." });

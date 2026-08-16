@@ -1577,23 +1577,38 @@ export const ORDER_CONFIRMATION_KIND: Record<string, "receipt" | "export"> = {
   "End of Day/Equipment Count": "export",
 };
 
-// Per-flow allowlist of camelCase fields a confirmer may set. Derived from the
-// warehouse-item map so it can never drift from the inventory math.
-// ONLY the Raw product categories (gaylord requested/returned lines) require a
-// typed actual. Equipment counts and Outlet bulk move at their planned values
-// once the order is confirmed — they never block confirmation and can't have
-// actuals typed in.
-//  - Receipt (Transfer and Receive): Raw requested + returned fields.
-//  - Export (End of Day): Raw *_returned fields only.
+// Per-flow allowlist of camelCase fields a confirmer MAY set. Derived from the
+// warehouse-item map so it can never drift from the inventory math. These match
+// the flow's shape (see FORBIDDEN_MAPPED_FIELDS_BY_KIND in server/routes/orders.ts):
+// anything that can legitimately arrive/leave on this flow can be recorded as an
+// actual — including unexpected overages on lines that weren't planned.
+//  - Receipt (Transfer and Receive): everything except outlet bulk fields.
+//  - Export (End of Day): *_returned + outlet bulk fields.
 export const RECEIPT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
-  .filter(c => ORDER_FIELD_TO_WAREHOUSE_ITEM[c].group === "Raw")
+  .filter(c => !c.startsWith("outlet_"))
   .map(_orderSnakeToCamel);
 export const RECEIPT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(RECEIPT_CONFIRM_FIELDS);
 
 export const EXPORT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
-  .filter(c => ORDER_FIELD_TO_WAREHOUSE_ITEM[c].group === "Raw" && c.endsWith("_returned"))
+  .filter(c => c.endsWith("_returned") || c.startsWith("outlet_"))
   .map(_orderSnakeToCamel);
 export const EXPORT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(EXPORT_CONFIRM_FIELDS);
+
+// REQUIRED subsets: only the Raw product categories (gaylord requested/returned
+// lines) FORCE a typed actual when planned > 0. Equipment counts and Outlet bulk
+// move at their planned values once the order is confirmed — they never block
+// confirmation, though actuals may still be typed for them via the broad lists.
+//  - Receipt: Raw requested + returned fields.
+//  - Export: Raw *_returned fields only.
+export const RECEIPT_REQUIRED_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
+  .filter(c => ORDER_FIELD_TO_WAREHOUSE_ITEM[c].group === "Raw")
+  .map(_orderSnakeToCamel);
+export const RECEIPT_REQUIRED_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(RECEIPT_REQUIRED_CONFIRM_FIELDS);
+
+export const EXPORT_REQUIRED_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
+  .filter(c => ORDER_FIELD_TO_WAREHOUSE_ITEM[c].group === "Raw" && c.endsWith("_returned"))
+  .map(_orderSnakeToCamel);
+export const EXPORT_REQUIRED_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(EXPORT_REQUIRED_CONFIRM_FIELDS);
 
 export const insertWarehouseInventoryCountSchema = createInsertSchema(warehouseInventoryCounts).omit({
   id: true,

@@ -36,6 +36,8 @@ import {
   ORDER_CONFIRMATION_KIND,
   RECEIPT_CONFIRM_FIELDS,
   EXPORT_CONFIRM_FIELDS,
+  RECEIPT_REQUIRED_CONFIRM_FIELDS,
+  EXPORT_REQUIRED_CONFIRM_FIELDS,
   type OrderEvent,
   type OrderStatus,
 } from "@shared/schema";
@@ -265,12 +267,13 @@ function confirmKindFor(orderType: string): "receipt" | "export" | null {
   return ORDER_CONFIRMATION_KIND[orderType] ?? null;
 }
 
-// The mapped lines that were planned (> 0) on this order for the given
-// confirmation flow. These are the lines the confirmer must enter an actual
-// for. Lines planned at 0 aren't shown by default; the confirm dialog offers a
-// picker to add one as an overage (something arrived/left that wasn't ordered).
+// The REQUIRED (Raw product) lines that were planned (> 0) on this order for
+// the given confirmation flow. These are the lines the confirmer MUST enter an
+// actual for. Other lines (equipment, outlet bulk, or Raw planned at 0) aren't
+// shown by default; the confirm dialog offers a picker to add any flow field as
+// an overage (something arrived/left that wasn't ordered).
 function plannedConfirmLines(order: Record<string, any>, kind: "receipt" | "export") {
-  const fields = kind === "receipt" ? RECEIPT_CONFIRM_FIELDS : EXPORT_CONFIRM_FIELDS;
+  const fields = kind === "receipt" ? RECEIPT_REQUIRED_CONFIRM_FIELDS : EXPORT_REQUIRED_CONFIRM_FIELDS;
   return fields
     .map((field) => ({ field, planned: Number(order[field] ?? 0) || 0 }))
     .filter((l) => l.planned > 0);
@@ -1379,14 +1382,14 @@ export default function OrderSubmissions() {
       {(() => {
         const order = selectedOrder;
         const confirmLines = order ? plannedConfirmLines(order, confirmKind) : [];
-        // Every field this flow allows, minus the planned-positive lines already
-        // shown and minus any overage lines already added. These are offered in
-        // the "record an overage" picker so the confirmer can log an item that
-        // wasn't on the original order (planned 0).
+        // Every field this flow allows, minus the required lines already shown
+        // and minus any lines already added. These are offered in the picker so
+        // the confirmer can log an item that wasn't on the original order (an
+        // overage), or type a variance on a planned equipment/outlet line.
         const flowFields = confirmKind === "receipt" ? RECEIPT_CONFIRM_FIELDS : EXPORT_CONFIRM_FIELDS;
         const plannedFieldSet = new Set(confirmLines.map((l) => l.field));
         const addableFields = flowFields.filter((f) => !plannedFieldSet.has(f) && !confirmExtra.includes(f));
-        const extraLines = confirmExtra.map((field) => ({ field, planned: 0 }));
+        const extraLines = confirmExtra.map((field) => ({ field, planned: Number(order?.[field] ?? 0) || 0 }));
         const allLines = [...confirmLines, ...extraLines];
         const allFilled = allLines.every((l) => {
           const v = confirmValues[l.field];
@@ -1447,7 +1450,7 @@ export default function OrderSubmissions() {
                       <div key={l.field} className="contents">
                         <label htmlFor={`confirm-${l.field}`} className="text-muted-foreground inline-flex items-center gap-1">
                           {FIELD_LABELS[l.field] || l.field}
-                          <span className="ml-1 text-xs">(overage — not ordered)</span>
+                          <span className="ml-1 text-xs">{l.planned > 0 ? `(planned ${l.planned})` : "(overage — not ordered)"}</span>
                           <button
                             type="button"
                             className="text-muted-foreground hover:text-destructive"
@@ -1467,7 +1470,7 @@ export default function OrderSubmissions() {
                           min={0}
                           step={1}
                           inputMode="numeric"
-                          placeholder="0"
+                          placeholder={String(l.planned)}
                           value={confirmValues[l.field] ?? ""}
                           onChange={(e) => setConfirmValues((prev) => ({ ...prev, [l.field]: e.target.value }))}
                           className="text-right tabular-nums"
