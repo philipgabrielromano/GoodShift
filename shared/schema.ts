@@ -1582,16 +1582,30 @@ export const ORDER_CONFIRMATION_KIND: Record<string, "receipt" | "export"> = {
 // the flow's shape (see FORBIDDEN_MAPPED_FIELDS_BY_KIND in server/routes/orders.ts):
 // anything that can legitimately arrive/leave on this flow can be recorded as an
 // actual — including unexpected overages on lines that weren't planned.
-//  - Receipt (Transfer and Receive): everything except outlet bulk fields.
-//  - Export (End of Day): *_returned + outlet bulk fields.
-export const RECEIPT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
-  .filter(c => !c.startsWith("outlet_"))
-  .map(_orderSnakeToCamel);
+//  - Receipt (Transfer and Receive): everything except outlet bulk fields,
+//    plus seasonal saved-stock lines.
+//  - Export (End of Day): *_returned + outlet bulk fields, plus seasonal
+//    saved-stock returned lines.
+// Seasonal saved-stock has NO warehouse-inventory impact (it isn't in the
+// warehouse-item map), but confirmers may still record what actually arrived /
+// left; the actual lands in the "<col>_actual" mirror column for the record.
+export const SEASONAL_CONFIRMABLE_COLUMNS: string[] = [
+  "saved_winter_requested", "saved_winter_returned",
+  "saved_summer_requested", "saved_summer_returned",
+  "saved_halloween_requested", "saved_halloween_returned",
+  "saved_christmas_requested", "saved_christmas_returned",
+];
+
+export const RECEIPT_CONFIRM_FIELDS: string[] = [
+  ...ORDER_RECONCILABLE_COLUMNS.filter(c => !c.startsWith("outlet_")),
+  ...SEASONAL_CONFIRMABLE_COLUMNS,
+].map(_orderSnakeToCamel);
 export const RECEIPT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(RECEIPT_CONFIRM_FIELDS);
 
-export const EXPORT_CONFIRM_FIELDS: string[] = ORDER_RECONCILABLE_COLUMNS
-  .filter(c => c.endsWith("_returned") || c.startsWith("outlet_"))
-  .map(_orderSnakeToCamel);
+export const EXPORT_CONFIRM_FIELDS: string[] = [
+  ...ORDER_RECONCILABLE_COLUMNS.filter(c => c.endsWith("_returned") || c.startsWith("outlet_")),
+  ...SEASONAL_CONFIRMABLE_COLUMNS.filter(c => c.endsWith("_returned")),
+].map(_orderSnakeToCamel);
 export const EXPORT_CONFIRM_FIELDS_SET: ReadonlySet<string> = new Set(EXPORT_CONFIRM_FIELDS);
 
 // REQUIRED subsets: only the Raw product categories (gaylord requested/returned
