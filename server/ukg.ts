@@ -724,8 +724,8 @@ class UKGClient {
         if (records.length > 0) {
           const sampleRecord = records[0];
           const fields = Object.keys(sampleRecord).filter(key => !key.startsWith("@"));
-          console.log(`UKG DEBUG ${endpoint} fields:`, fields);
-          console.log(`UKG DEBUG ${endpoint} sample:`, JSON.stringify(records.slice(0, 3), null, 2));
+          console.log("UKG DEBUG %s fields:", endpoint, fields);
+          console.log("UKG DEBUG %s sample:", endpoint, JSON.stringify(records.slice(0, 3), null, 2));
           results[endpoint] = {
             success: true,
             count: records.length,
@@ -738,7 +738,7 @@ class UKGClient {
       } catch (error: unknown) {
         clearTimeout(timeoutId);
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`UKG DEBUG ${endpoint} error:`, message);
+        console.error("UKG DEBUG %s error:", endpoint, message);
         results[endpoint] = { error: message };
       }
     }
