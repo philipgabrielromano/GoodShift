@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.2.0";
+export const APP_VERSION = "4.3.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.3.0",
+    date: "2026-08-18",
+    title: "Eye Wash added to First Aid orders",
+    changes: [
+      { type: "feature", description: "First Aid orders now include Eye Wash in two sizes — 16oz and 32oz — as separate lines in the First Aid Items grid. Counts appear on order details and in the first-aid restock notification emails like every other item." },
+    ],
+  },
   {
     version: "4.2.0",
     date: "2026-08-16",
