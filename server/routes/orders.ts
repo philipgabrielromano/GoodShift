@@ -1633,7 +1633,7 @@ export function registerOrderRoutes(app: Express) {
         try { await conn.rollback(); } catch { /* ignore */ }
         try { conn.release(); } catch { /* ignore */ }
       }
-      console.error(`[Orders] Bulk approve failed for order ${id}:`, err);
+      console.error("[Orders] Bulk approve failed for order %d:", id, err);
       return {
         ok: false,
         status: 500,
