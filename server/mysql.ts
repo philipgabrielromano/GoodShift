@@ -108,8 +108,15 @@ export async function initOrdersTable(): Promise<void> {
     );
     const colSet = new Set((cols as Array<{ COLUMN_NAME: string }>).map(c => c.COLUMN_NAME.toLowerCase()));
     const ensureCol = async (name: string, ddl: string): Promise<boolean> => {
+      if (!/^[a-z][a-z0-9_]*$/i.test(name)) {
+        throw new Error(`Invalid column name: ${name}`);
+      }
+      if (!/^(INT|TINYINT\(\d+\)|VARCHAR\(\d+\)|TEXT|DATETIME)(\s+(NOT\s+)?NULL)?(\s+DEFAULT\s+('[^']*'|NULL|CURRENT_TIMESTAMP))?$/i.test(ddl)) {
+        throw new Error(`Invalid column DDL: ${ddl}`);
+      }
       if (!colSet.has(name.toLowerCase())) {
-        await conn.query(`ALTER TABLE orders ADD COLUMN ${name} ${ddl}`);
+        const sql = "ALTER TABLE orders ADD COLUMN `" + name + "` " + ddl;
+        await conn.query(sql);
         colSet.add(name.toLowerCase());
         console.log(`[MySQL] Added orders.${name}`);
         return true;
