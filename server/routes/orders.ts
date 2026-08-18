@@ -205,6 +205,8 @@ const orderSchema = z.object({
   stopBleedKit: nonNegInt,
   instantColdPack: nonNegInt,
   spillKit: nonNegInt,
+  eyeWash16oz: nonNegInt,
+  eyeWash32oz: nonNegInt,
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -313,6 +315,8 @@ const FIELD_LABELS: Record<string, string> = {
   stopBleedKit: "Stop the Bleed Kit",
   instantColdPack: "Instant Cold Pack",
   spillKit: "Spill Kit (BBP/Vomit)",
+  eyeWash16oz: "Eye Wash (16oz)",
+  eyeWash32oz: "Eye Wash (32oz)",
 };
 
 const SKIP_KEYS = new Set(["orderDate", "orderType", "location", "notes"]);
@@ -403,6 +407,8 @@ const CAMEL_TO_SNAKE: Record<keyof OrderInput, string> = {
   stopBleedKit: "stop_bleed_kit",
   instantColdPack: "instant_cold_pack",
   spillKit: "spill_kit",
+  eyeWash16oz: "eye_wash_16oz",
+  eyeWash32oz: "eye_wash_32oz",
   notes: "notes",
 };
 
@@ -478,7 +484,7 @@ async function loadBalances(location?: string): Promise<LocationBalance[]> {
 function toCamel(row: RowDataPacket): Record<string, string | number | boolean | null> {
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, val] of Object.entries(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    const camelKey = key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
     if (camelKey === "isCentralProcessing") {
       result[camelKey] = val === 1 ? true : val === 0 ? false : null;
     } else {

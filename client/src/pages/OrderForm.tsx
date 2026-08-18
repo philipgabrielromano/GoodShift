@@ -115,6 +115,8 @@ const formSchema = z.object({
   stopBleedKit: z.number().nullable().optional(),
   instantColdPack: z.number().nullable().optional(),
   spillKit: z.number().nullable().optional(),
+  eyeWash16oz: z.number().nullable().optional(),
+  eyeWash32oz: z.number().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
 
@@ -176,6 +178,8 @@ const FIRST_AID_FIELDS = [
   { field: "stopBleedKit" as const, label: "Stop the Bleed Kit", testId: "input-stop-bleed-kit" },
   { field: "instantColdPack" as const, label: "Instant Cold Pack", testId: "input-instant-cold-pack" },
   { field: "spillKit" as const, label: "Spill Kit (BBP/Vomit)", testId: "input-spill-kit" },
+  { field: "eyeWash16oz" as const, label: "Eye Wash (16oz)", testId: "input-eye-wash-16oz" },
+  { field: "eyeWash32oz" as const, label: "Eye Wash (32oz)", testId: "input-eye-wash-32oz" },
 ];
 
 interface AuthStatus {

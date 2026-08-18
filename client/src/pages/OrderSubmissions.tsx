@@ -198,6 +198,8 @@ const FIELD_LABELS: Record<string, string> = {
   stopBleedKit: "Stop the Bleed Kit",
   instantColdPack: "Instant Cold Pack",
   spillKit: "Spill Kit (BBP/Vomit)",
+  eyeWash16oz: "Eye Wash (16oz)",
+  eyeWash32oz: "Eye Wash (32oz)",
 };
 
 // Fields shown in the header section of the dialog. Everything else (the
