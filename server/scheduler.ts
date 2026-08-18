@@ -175,7 +175,7 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
 
   const apiError = ukgClient.getLastError();
   if (apiError) {
-    console.error(`[Scheduler] UKG time clock API error (${label}):`, apiError);
+    console.error("[Scheduler] UKG time clock API error (%s):", label, apiError);
     const durationMs = Date.now() - syncStart;
     ukgClient.addSyncResult({
       timestamp: new Date().toISOString(),
@@ -205,7 +205,7 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
 
   // Log all unique Status values seen — helps identify what values UKG uses for rescinded entries
   const statusValues = new Set(timeClockData.map(e => e.status));
-  console.log(`[Scheduler] UKG Status values seen (${label}):`, [...statusValues].sort((a, b) => (a ?? -1) - (b ?? -1)));
+  console.log("[Scheduler] UKG Status values seen (%s):", label, [...statusValues].sort((a, b) => (a ?? -1) - (b ?? -1)));
 
   // Aggregate multiple punches for the same employee/date before storing
   const aggregatedMap = new Map<string, {
@@ -275,7 +275,7 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
     }));
 
   const incomingPaycodeIds = [...new Set(timeClockData.map(e => e.paycodeId || 0))];
-  console.log(`[Scheduler] Paycode IDs in incoming data (${label}):`, incomingPaycodeIds);
+  console.log("[Scheduler] Paycode IDs in incoming data (%s):", label, incomingPaycodeIds);
 
   const entries: InsertTimeClockEntry[] = Array.from(aggregatedMap.values());
   console.log(`[Scheduler] Aggregated to ${entries.length} unique employee/date combinations (${label})`);
@@ -333,7 +333,7 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
     }
   } catch (reapErr) {
     // Reaping is best-effort — log but don't fail the sync if it errors.
-    console.error(`[Scheduler] Stale PTO/UTO reaper failed (${label}):`, reapErr);
+    console.error("[Scheduler] Stale PTO/UTO reaper failed (%s):", label, reapErr);
   }
 
   const durationMs = Date.now() - syncStart;
