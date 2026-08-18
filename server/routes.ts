@@ -543,7 +543,8 @@ export async function registerRoutes(
       
       const cleared = await storage.deleteShiftsByDateRange(nextWeekStart, nextWeekEnd, effectiveLocation);
       if (cleared > 0) {
-        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${effectiveLocation || "all locations"})`);
+        const safeLocation = (effectiveLocation || "all locations").replace(/[\r\n\t]/g, "");
+        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${safeLocation})`);
       }
       
       const newShifts = filteredShifts.map(shift => ({
@@ -626,7 +627,9 @@ export async function registerRoutes(
         shiftPatterns: JSON.stringify(patterns),
       });
       
-      console.log(`[Template Save] Saved "${name}" with ${patterns.length} patterns (location: ${effectiveLocation || "all"})`);
+      const safeName = String(name).replace(/[\r\n\t]/g, "");
+      const safeLocation = (effectiveLocation || "all").replace(/[\r\n\t]/g, "");
+      console.log(`[Template Save] Saved "${safeName}" with ${patterns.length} patterns (location: ${safeLocation})`);
       res.status(201).json(template);
     } catch (err) {
       console.error("Error creating template:", err);
@@ -677,7 +680,8 @@ export async function registerRoutes(
       
       const cleared = await storage.deleteShiftsByDateRange(targetWeekStart, targetWeekEnd, effectiveLocation);
       if (cleared > 0) {
-        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${effectiveLocation || "all locations"})`);
+        const safeLocation = (effectiveLocation || "all locations").replace(/[\r\n\t]/g, "");
+        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${safeLocation})`);
       }
       
       const newShifts = filteredPatterns.map((pattern: any) => {
