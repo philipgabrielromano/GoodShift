@@ -466,6 +466,7 @@ async function signObjectURL({
     method,
     expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
   };
+  // nosemgrep: typescript.lang.security.audit.node-http-request — loopback-only sidecar; traffic stays on 127.0.0.1
   const response = await fetch(
     `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
     {
