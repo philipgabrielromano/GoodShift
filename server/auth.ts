@@ -195,6 +195,18 @@ export function setupAuth(app: Express) {
         nonce,
         prompt: "select_account",
       });
+
+      const allowedHost = "login.microsoftonline.com";
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(authUrl);
+      } catch {
+        return res.redirect("/?error=login_failed");
+      }
+      if (parsedUrl.hostname !== allowedHost) {
+        return res.redirect("/?error=login_failed");
+      }
+
       res.redirect(authUrl);
     } catch (error) {
       console.error("Login error:", error);
