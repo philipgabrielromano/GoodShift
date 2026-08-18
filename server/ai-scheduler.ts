@@ -466,7 +466,7 @@ Respond with a JSON object:
     const createdShifts = [];
     let skippedDuplicates = 0;
     
-    console.log(`[AI Scheduler] existingShiftDays set contains ${existingShiftDays.size} entries:`, Array.from(existingShiftDays));
+    console.log("[AI Scheduler] existingShiftDays set contains %d entries:", existingShiftDays.size, Array.from(existingShiftDays));
     
     for (const shift of aiResponse.shifts) {
       // Skip if employee already has a shift on this day (pre-filled)
