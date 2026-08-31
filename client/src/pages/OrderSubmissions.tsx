@@ -664,16 +664,17 @@ export default function OrderSubmissions() {
   };
 
   return (
-    <div className="p-6">
+    <div className="p-3 sm:p-6">
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <FileText className="w-7 h-7 text-primary" />
         <h1 className="text-2xl font-bold" data-testid="text-order-submissions-title">Order Submissions</h1>
         {canApprove && (
-          <div className="ml-auto">
+          <div className="w-full sm:w-auto sm:ml-auto">
             <Button
               variant="default"
               onClick={() => setBulkConfirmOpen(true)}
               disabled={!canBulkApprove || bulkApproveMutation.isPending}
+              className="w-full sm:w-auto"
               data-testid="button-bulk-approve"
             >
               <CheckCheck className="w-4 h-4 mr-2" />
@@ -767,6 +768,49 @@ export default function OrderSubmissions() {
             </div>
           ) : (
             <>
+              {/* Phone view: one card per order, no sideways scrolling. */}
+              <div className="md:hidden divide-y" data-testid="list-orders-mobile">
+                {orders.map((order) => (
+                  <div key={order.id} className="p-4 space-y-2" data-testid={`card-order-${order.id}`}>
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <Badge className={ORDER_TYPE_COLORS[order.orderType] || ""} variant="secondary">
+                        {order.orderType}
+                      </Badge>
+                      <OrderStatusBadge order={order} />
+                    </div>
+                    <div className="text-sm">
+                      <div className="font-medium">{order.location}</div>
+                      <div className="text-muted-foreground">
+                        {formatDate(order.orderDate)} · {order.submittedBy}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => setSelectedOrder(order)}
+                        data-testid={`button-view-order-mobile-${order.id}`}
+                      >
+                        View
+                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => navigate(`/orders/edit/${order.id}`)}
+                          data-testid={`button-edit-order-mobile-${order.id}`}
+                        >
+                          <Pencil className="w-4 h-4 mr-1" />
+                          Edit
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop view: unchanged table. */}
+              <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -824,8 +868,9 @@ export default function OrderSubmissions() {
                   })}
                 </TableBody>
               </Table>
+              </div>
 
-              <div className="flex items-center justify-between px-4 py-3 border-t">
+              <div className="flex items-center justify-between gap-2 flex-wrap px-4 py-3 border-t">
                 <p className="text-sm text-muted-foreground" data-testid="text-order-count">
                   Showing {page * pageSize + 1}–{Math.min((page + 1) * pageSize, total)} of {total}
                 </p>
