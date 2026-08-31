@@ -420,7 +420,11 @@ export function registerOccurrenceRoutes(app: Express) {
       // Check eligibility for perfect attendance (90 days without occurrences)
       const yearStart = `${currentYear}-01-01`;
       const yearOccurrences = await storage.getOccurrences(employeeId, yearStart, endDate);
-      const activeYearOccurrences = yearOccurrences.filter(o => o.status === 'active');
+      // FMLA, other leave, and consecutive sickness are exempt (zero points), so
+      // they must not reset the 90-day perfect-attendance clock either
+      const activeYearOccurrences = yearOccurrences.filter(o =>
+        o.status === 'active' && !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness
+      );
       
       let perfectAttendanceEligible = false;
       
@@ -563,8 +567,10 @@ export function registerOccurrenceRoutes(app: Express) {
         const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
         const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
 
-        // Check for perfect attendance bonus - filter occurrences to this year only
-        const activeYearOccurrences = activeOccurrences.filter(o => o.occurrenceDate >= yearStart);
+        // Check for perfect attendance bonus - filter occurrences to this year only.
+        // Exempt occurrences (FMLA, other leave, consecutive sickness) add zero points
+        // and must not reset the 90-day clean streak, so use countableOccurrences here.
+        const activeYearOccurrences = countableOccurrences.filter(o => o.occurrenceDate >= yearStart);
         let perfectAttendanceBonus = 0;
 
         if (activeYearOccurrences.length === 0) {
