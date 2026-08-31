@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2, ClipboardList, Pencil, Lock, Clock, CheckCircle2 } from "lucide-react";
@@ -468,6 +468,7 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Equipment Requested</CardTitle>
+                <CardDescription>Request containers and other equipment to manage donations.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -484,6 +485,9 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Equipment Returned</CardTitle>
+                <CardDescription>
+                  Return containers and other equipment. Only use this if you are sending back unused, EMPTY containers or equipment.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -500,6 +504,7 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Category Gaylords Requested</CardTitle>
+                <CardDescription>Request raw, unsorted product from the warehouse.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
