@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
 import { isValidLocationName } from "@shared/locationFilters";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
+import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
 
 // Per-job-title visibility override (configured by admins). Mirrors the
 // helper used by Coaching/Attendance so DMs/Directors granted visibility
@@ -71,7 +72,6 @@ export function registerReportRoutes(app: Express) {
       // Get all employees
       const allEmployees = await storage.getEmployees();
 
-      const currentYear = new Date().getFullYear();
       let filteredEmployees = showInactive
         ? allEmployees.filter(e => !e.isActive)
         : allEmployees.filter(e => e.isActive);
@@ -124,39 +124,40 @@ export function registerReportRoutes(app: Express) {
         }
       }
 
-      const now = new Date();
-      const twelveMonthsAgo = new Date(now);
-      twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
-      const startDate = twelveMonthsAgo.toISOString().split("T")[0];
-      const endDate = now.toISOString().split("T")[0];
+      // Shared rolling 12-month window (same as email/alerts/summary tally math)
+      const window = getRollingTallyWindow();
 
-      // Get all occurrences and adjustments in the date range
-      const allOccurrences = await storage.getAllOccurrencesInDateRange(startDate, endDate);
-      const allAdjustments = await storage.getAllOccurrenceAdjustmentsForYear(currentYear);
+      // Get all occurrences and adjustments in the same rolling window.
+      // Adjustments were previously filtered by calendar year, which made this
+      // report disagree with the summary/alerts near year boundaries.
+      const allOccurrences = await storage.getAllOccurrencesInDateRange(window.startDate, window.endDate);
+      const allAdjustments = await storage.getAllOccurrenceAdjustmentsInDateRange(window.startDate, window.endDate);
 
-      // Build map of employee ID -> total points
-      const employeePoints: Record<number, number> = {};
-
+      // Group by employee for the shared tally math
+      const occurrencesByEmployee = new Map<number, typeof allOccurrences>();
       for (const occ of allOccurrences) {
-        if (occ.status !== "active") continue;
-        if (occ.isFmla || occ.isOtherLeave || occ.isConsecutiveSickness) continue;
-        if (!employeePoints[occ.employeeId]) employeePoints[occ.employeeId] = 0;
-        employeePoints[occ.employeeId] += occ.occurrenceValue;
+        const list = occurrencesByEmployee.get(occ.employeeId) || [];
+        list.push(occ);
+        occurrencesByEmployee.set(occ.employeeId, list);
       }
-
+      const adjustmentsByEmployee = new Map<number, typeof allAdjustments>();
       for (const adj of allAdjustments) {
-        if (adj.status !== "active") continue;
-        if (!employeePoints[adj.employeeId]) employeePoints[adj.employeeId] = 0;
-        employeePoints[adj.employeeId] += adj.adjustmentValue;
+        const list = adjustmentsByEmployee.get(adj.employeeId) || [];
+        list.push(adj);
+        adjustmentsByEmployee.set(adj.employeeId, list);
       }
 
-      // Build result
+      // Build result using the shared net-tally function (server/occurrenceTally.ts)
       const result = filteredEmployees.map(emp => ({
         employeeId: emp.id,
         employeeName: emp.name,
         location: emp.location || "Unknown",
         jobTitle: emp.jobTitle,
-        totalPoints: Math.max(0, (employeePoints[emp.id] || 0) / 100), // Convert from x100 to actual
+        totalPoints: computeNetTally(
+          occurrencesByEmployee.get(emp.id) || [],
+          adjustmentsByEmployee.get(emp.id) || [],
+          window
+        ).netTally,
         employmentType: emp.employmentType,
       })).sort((a, b) => b.totalPoints - a.totalPoints);
 

@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { sendOccurrenceAlertEmail, type OccurrenceAlertEmailData } from "./outlook";
 import { STORE_MANAGER_TITLES } from "./hierarchy";
+import { computeNetTally, getRollingTallyWindow } from "./occurrenceTally";
 
 export const TIMEZONE = "America/New_York";
 
@@ -178,33 +179,22 @@ export async function checkAndSendHRNotification(
       return;
     }
 
-    // Calculate current occurrence tally (rolling 12-month window)
-    const now = new Date();
-    const oneYearAgo = new Date(now);
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const startDate = oneYearAgo.toISOString().split('T')[0];
-    const endDate = now.toISOString().split('T')[0];
-    const currentYear = now.getFullYear();
+    // Calculate current occurrence tally (rolling 12-month window).
+    // Shared math with the in-app alerts / summary / report lives in
+    // server/occurrenceTally.ts so email and in-app views always agree.
+    const window = getRollingTallyWindow();
 
-    // Get occurrences and adjustments
-    const occurrences = await storage.getOccurrences(employeeId, startDate, endDate);
-    const adjustments = await storage.getOccurrenceAdjustmentsForYear(employeeId, currentYear);
+    // Get occurrences and adjustments (adjustments use the same rolling
+    // window as occurrences — not the calendar year — so backfilled
+    // adjustments near year boundaries are treated consistently)
+    const occurrences = await storage.getOccurrences(employeeId, window.startDate, window.endDate);
+    const adjustments = await storage.getOccurrenceAdjustments(employeeId, window.startDate, window.endDate);
     const correctiveActions = await storage.getCorrectiveActions(employeeId);
 
-    // Calculate net tally (includes the newly added occurrence)
-    const activeOccurrences = occurrences.filter(o => o.status === 'active');
-    const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
-    const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
-
-    const activeAdjustments = adjustments.filter(a => a.status === 'active');
-    const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
-    const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
-
-    // Note: Perfect attendance bonus calculation is complex and depends on timing
-    // For threshold crossing detection, we use a simplified calculation without the bonus
-    // since adding an occurrence would typically invalidate perfect attendance anyway
-    const adjustmentTotal = manualAdjustmentTotal;
-    const netTally = Math.max(0, totalPoints + adjustmentTotal);
+    // Net tally (includes the newly added occurrence). Stored
+    // perfect-attendance adjustments count here exactly like they do in the
+    // in-app alerts and summary; no automatic bonus is applied anywhere.
+    const { netTally } = computeNetTally(occurrences, adjustments, window);
     
     // Calculate what the tally was BEFORE this occurrence was added
     const addedPoints = addedOccurrenceValue / 100;

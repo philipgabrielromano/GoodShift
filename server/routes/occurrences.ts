@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
 import { checkAndSendHRNotification } from "../middleware";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
+import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
 import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 
 const OCCURRENCE_UPLOAD_CONSTRAINTS: UploadConstraints = {
@@ -373,43 +374,33 @@ export function registerOccurrenceRoutes(app: Express) {
       }
       
       const now = new Date();
-      const oneYearAgo = new Date(now);
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-      
-      const startDate = oneYearAgo.toISOString().split('T')[0];
-      const endDate = now.toISOString().split('T')[0];
+      // Shared rolling 12-month window (same as email/alerts/report tally math)
+      const window = getRollingTallyWindow(now);
+      const { startDate, endDate } = window;
       
       // Fetch every occurrence for this employee so the page can show full
       // history. The rolling 12-month window is still used for the tally math.
       const allOccurrencesEver = await storage.getOccurrences(employeeId, '1900-01-01', endDate);
-      const allOccurrences = allOccurrencesEver.filter(o =>
-        o.occurrenceDate >= startDate && o.occurrenceDate <= endDate
-      );
-      const activeOccurrences = allOccurrences.filter(o => o.status === 'active');
       
-      // Calculate total points (stored as integers x100, so divide by 100)
-      // FMLA, other leave, and consecutive sickness occurrences do NOT count toward the total
-      const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
-      const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
-      
-      // Get ALL adjustments for full history display. Two separate buckets:
-      //   - currentYearAdjustments → 1-per-year cap math
-      //   - windowAdjustments      → impact on the rolling 12-month tally
-      // An adjustment dated in a prior year that's still inside the rolling
-      // window (e.g. backfilled to 2025-11 while viewing in 2026-05) should
-      // reduce the current net tally just like occurrences in the same window.
+      // Get ALL adjustments for full history display. currentYearAdjustments
+      // drives the 1-per-year cap math; the shared tally function applies the
+      // rolling-window filter itself. An adjustment dated in a prior year
+      // that's still inside the rolling window (e.g. backfilled to 2025-11
+      // while viewing in 2026-05) reduces the current net tally just like
+      // occurrences in the same window.
       const currentYear = now.getFullYear();
       const allAdjustmentsEver = await storage.getOccurrenceAdjustments(employeeId, '1900-01-01', endDate);
       const currentYearAdjustments = allAdjustmentsEver.filter(a => a.calendarYear === currentYear);
-      const windowAdjustments = allAdjustmentsEver.filter(a =>
-        a.adjustmentDate >= startDate && a.adjustmentDate <= endDate
-      );
       
-      // Active adjustments inside the rolling window drive the tally math.
-      const activeWindowManualAdjustments = windowAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance' && a.status === 'active');
-      const activeWindowPerfectAttendanceAdjustments = windowAdjustments.filter(a => a.adjustmentType === 'perfect_attendance' && a.status === 'active');
-      const manualAdjustmentTotal = activeWindowManualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
-      const perfectAttendanceValue = activeWindowPerfectAttendanceAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
+      // Shared tally math (server/occurrenceTally.ts) — identical rules to the
+      // HR threshold email, in-app alerts, and occurrence report.
+      const {
+        totalPoints,
+        perfectAttendanceValue,
+        totalAdjustment,
+        netTally,
+        activeOccurrences,
+      } = computeNetTally(allOccurrencesEver, allAdjustmentsEver, window);
       
       // Active current-year adjustments drive the 1-per-year cap and the
       // "perfect attendance used this year" flag (which gates the bonus button).
@@ -449,12 +440,6 @@ export function registerOccurrenceRoutes(app: Express) {
           }
         }
       }
-      
-      // Total adjustment = manual adjustments + perfect attendance (if used)
-      const totalAdjustment = manualAdjustmentTotal + perfectAttendanceValue;
-      
-      // Net tally = total occurrences + adjustments (adjustments are negative values)
-      const netTally = Math.max(0, totalPoints + totalAdjustment);
       
       // Sort the FULL history (most recent first) for display. The page shows
       // every occurrence ever recorded, even though the tally above only counts
@@ -496,14 +481,8 @@ export function registerOccurrenceRoutes(app: Express) {
     try {
       const user = (req.session as any)?.user;
 
-      const now = new Date();
-      const oneYearAgo = new Date(now);
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-      
-      const startDate = oneYearAgo.toISOString().split('T')[0];
-      const endDate = now.toISOString().split('T')[0];
-      const currentYear = now.getFullYear();
-      const yearStart = `${currentYear}-01-01`;
+      // Shared rolling 12-month window (same as email/summary/report tally math)
+      const window = getRollingTallyWindow();
 
       // Get all active employees filtered by hierarchical access
       const visibleIds = await getVisibleEmployeeIds(user);
@@ -513,10 +492,12 @@ export function registerOccurrenceRoutes(app: Express) {
         allEmployees = allEmployees.filter(e => visibleIds.has(e.id));
       }
 
-      // OPTIMIZATION: Fetch all data in bulk with just 3 queries instead of 4 per employee
+      // OPTIMIZATION: Fetch all data in bulk with just 3 queries instead of 4 per employee.
+      // Adjustments are fetched by the same rolling window as occurrences (not
+      // calendar year) so year-boundary behavior matches the summary view.
       const [allOccurrences, allAdjustments, allCorrectiveActions] = await Promise.all([
-        storage.getAllOccurrencesInDateRange(startDate, endDate),
-        storage.getAllOccurrenceAdjustmentsForYear(currentYear),
+        storage.getAllOccurrencesInDateRange(window.startDate, window.endDate),
+        storage.getAllOccurrenceAdjustmentsInDateRange(window.startDate, window.endDate),
         storage.getAllCorrectiveActions()
       ]);
 
@@ -553,41 +534,15 @@ export function registerOccurrenceRoutes(app: Express) {
         message: string;
       }> = [];
 
-      // Calculate occurrence totals for each employee using pre-fetched data
+      // Calculate occurrence totals for each employee using pre-fetched data.
+      // Shared tally math (server/occurrenceTally.ts): stored perfect-attendance
+      // adjustments count like any other adjustment; NO automatic -1 bonus is
+      // applied based on eligibility alone. This keeps the alert totals in
+      // lockstep with the HR threshold emails and the attendance summary.
       for (const emp of allEmployees) {
         const empOccurrences = occurrencesByEmployee.get(emp.id) || [];
-        const activeOccurrences = empOccurrences.filter(o => o.status === 'active');
-        // FMLA, other leave, and consecutive sickness occurrences do NOT count toward the total
-        const countableOccurrences = activeOccurrences.filter(o => !o.isFmla && !o.isOtherLeave && !o.isConsecutiveSickness);
-        const totalPoints = countableOccurrences.reduce((sum, o) => sum + o.occurrenceValue, 0) / 100;
-
-        // Get adjustments for this year (only count active adjustments)
         const empAdjustments = adjustmentsByEmployee.get(emp.id) || [];
-        const activeAdjustments = empAdjustments.filter(a => a.status === 'active');
-        const manualAdjustments = activeAdjustments.filter(a => a.adjustmentType !== 'perfect_attendance');
-        const manualAdjustmentTotal = manualAdjustments.reduce((sum, a) => sum + a.adjustmentValue, 0) / 100;
-
-        // Check for perfect attendance bonus - filter occurrences to this year only.
-        // Exempt occurrences (FMLA, other leave, consecutive sickness) add zero points
-        // and must not reset the 90-day clean streak, so use countableOccurrences here.
-        const activeYearOccurrences = countableOccurrences.filter(o => o.occurrenceDate >= yearStart);
-        let perfectAttendanceBonus = 0;
-
-        if (activeYearOccurrences.length === 0) {
-          const yearStartDate = new Date(`${currentYear}-01-01T00:00:00`);
-          const daysSinceYearStart = Math.floor((now.getTime() - yearStartDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysSinceYearStart >= 90) perfectAttendanceBonus = -1.0;
-        } else {
-          const sortedOccurrences = [...activeYearOccurrences].sort((a, b) => 
-            new Date(b.occurrenceDate).getTime() - new Date(a.occurrenceDate).getTime()
-          );
-          const mostRecentDate = new Date(sortedOccurrences[0].occurrenceDate + 'T00:00:00');
-          const daysSinceLastOccurrence = Math.floor((now.getTime() - mostRecentDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysSinceLastOccurrence >= 90) perfectAttendanceBonus = -1.0;
-        }
-
-        const totalAdjustment = manualAdjustmentTotal + perfectAttendanceBonus;
-        const netTally = Math.max(0, totalPoints + totalAdjustment);
+        const { totalPoints, netTally } = computeNetTally(empOccurrences, empAdjustments, window);
 
         // Get corrective actions for this employee to check if action already taken
         const empCorrective = correctiveByEmployee.get(emp.id) || [];
