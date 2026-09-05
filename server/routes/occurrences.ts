@@ -5,6 +5,7 @@ import { checkAndSendHRNotification } from "../middleware";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
 import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+import { getAuthorizedLocationNames } from "../access-control";
 
 const OCCURRENCE_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -19,15 +20,7 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
 }
 
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
-  if (user.role === "admin") return null;
-  if (!user.locationIds || user.locationIds.length === 0) return null;
-  const allLocations = await storage.getLocations();
-  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
-  const names = new Set<string>();
-  for (const loc of allLocations) {
-    if (idSet.has(String(loc.id))) names.add(loc.name);
-  }
-  return names.size > 0 ? names : null;
+  return getAuthorizedLocationNames(user);
 }
 
 async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<boolean> {
@@ -36,6 +29,11 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
   const allEmployees = await storage.getEmployees();
   const targetEmployee = allEmployees.find(e => e.id === targetEmployeeId);
   if (!targetEmployee) return false;
+
+  const allowedNames = await getAllowedLocationNames(user);
+  if (!targetEmployee.location || !allowedNames?.has(targetEmployee.location)) {
+    return false;
+  }
 
   if (user.role === "viewer") {
     const linkedEmployee = allEmployees.find(e =>
@@ -54,11 +52,6 @@ async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<b
     if (explicit.length > 0) {
       return explicit.includes(targetEmployeeId);
     }
-  }
-
-  const allowedNames = await getAllowedLocationNames(user);
-  if (allowedNames && (!targetEmployee.location || !allowedNames.has(targetEmployee.location))) {
-    return false;
   }
 
   const managerEmployee = allEmployees.find(e =>
@@ -85,12 +78,17 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
 
   const allEmployees = await storage.getEmployees();
   const activeEmployees = allEmployees.filter(e => e.isActive);
+  const allowedNames = await getAllowedLocationNames(user);
 
   if (user.role === "viewer") {
     const linkedEmployee = allEmployees.find(e =>
       e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
     );
-    return new Set(linkedEmployee ? [linkedEmployee.id] : []);
+    return new Set(
+      linkedEmployee?.location && allowedNames?.has(linkedEmployee.location)
+        ? [linkedEmployee.id]
+        : [],
+    );
   }
 
   // Any non-viewer, non-admin role (built-in manager/optimizer or custom role with
@@ -99,11 +97,12 @@ async function getVisibleEmployeeIds(user: any): Promise<Set<number> | null> {
     const explicit = await storage.getDirectReportsForManager(user.id);
     if (explicit.length > 0) {
       const explicitSet = new Set(explicit);
-      return new Set(activeEmployees.filter(e => explicitSet.has(e.id)).map(e => e.id));
+      return new Set(activeEmployees
+        .filter(e => explicitSet.has(e.id) && !!e.location && allowedNames?.has(e.location))
+        .map(e => e.id));
     }
   }
 
-  const allowedNames = await getAllowedLocationNames(user);
   const managerEmployee = allEmployees.find(e =>
     e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
   );
@@ -156,6 +155,9 @@ export function registerOccurrenceRoutes(app: Express) {
         })));
       }
 
+      const allowedNames = await getAllowedLocationNames(user);
+      filtered = filtered.filter(e => !!e.location && allowedNames?.has(e.location));
+
       // Explicit direct-report assignments fully replace the auto hierarchy.
       if (user.id) {
         const explicit = await storage.getDirectReportsForManager(user.id);
@@ -169,11 +171,6 @@ export function registerOccurrenceRoutes(app: Express) {
             isActive: e.isActive, employmentType: e.employmentType
           })));
         }
-      }
-
-      const allowedNames = await getAllowedLocationNames(user);
-      if (allowedNames) {
-        filtered = filtered.filter(e => e.location && allowedNames.has(e.location));
       }
 
       const managerEmployee = allEmployees.find(e =>

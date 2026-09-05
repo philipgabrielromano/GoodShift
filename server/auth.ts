@@ -4,6 +4,7 @@ import session from "express-session";
 import crypto from "crypto";
 import csurf from "csurf";
 import { storage } from "./storage";
+import { revalidateSessionUser } from "./session-authorization";
 
 declare module "express-session" {
   interface SessionData {
@@ -75,6 +76,10 @@ export function setupAuth(app: Express) {
       },
     })
   );
+
+  // Database-backed revalidation makes account revocation and privilege
+  // changes effective immediately rather than at cookie expiry.
+  app.use(revalidateSessionUser);
 
   const csrfProtection = csurf({ cookie: false });
 
@@ -300,6 +305,9 @@ export function setupAuth(app: Express) {
 
         await storage.updateUser(user.id, { lastLoginAt: new Date() });
 
+        await new Promise<void>((resolve, reject) => {
+          req.session.regenerate(err => (err ? reject(err) : resolve()));
+        });
         req.session.user = {
           id: user.id,
           microsoftId,

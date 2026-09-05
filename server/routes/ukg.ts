@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ukgClient } from "../ukg";
 import { runTimeClockSync } from "../scheduler";
 import { requireAuth, requireAdmin, requireFeatureAccess } from "../middleware";
+import { getAuthorizedUkgEmployeeIds } from "../access-control";
 
 export function registerUKGRoutes(app: Express) {
   // === UKG INTEGRATION ===
@@ -103,7 +104,7 @@ export function registerUKGRoutes(app: Express) {
     res.json(locations);
   });
 
-  app.get(api.ukg.employees.path, requireAuth, async (req, res) => {
+  app.get(api.ukg.employees.path, requireAdmin, async (req, res) => {
     if (!ukgClient.isConfigured()) {
       return res.json([]);
     }
@@ -114,7 +115,7 @@ export function registerUKGRoutes(app: Express) {
     res.json(employees);
   });
 
-  app.post(api.ukg.sync.path, requireFeatureAccess("settings.ukg_sync"), async (req, res) => {
+  app.post(api.ukg.sync.path, requireFeatureAccess("settings.ukg_sync"), requireAdmin, async (req, res) => {
     try {
       if (!ukgClient.isConfigured()) {
         return res.status(400).json({ message: "UKG is not configured", apiError: null });
@@ -217,7 +218,7 @@ export function registerUKGRoutes(app: Express) {
     endDate: dateString("endDate"),
   }).default({});
 
-  app.post("/api/ukg/sync-timeclock", requireFeatureAccess("settings.ukg_sync"), async (req, res) => {
+  app.post("/api/ukg/sync-timeclock", requireFeatureAccess("settings.ukg_sync"), requireAdmin, async (req, res) => {
     try {
       if (!ukgClient.isConfigured()) {
         return res.status(400).json({ success: false, message: "UKG is not configured" });
@@ -332,10 +333,16 @@ export function registerUKGRoutes(app: Express) {
         String(startDate),
         String(endDate)
       );
+      const user = (req.session as any).user;
+      const allEmployees = await storage.getEmployees();
+      const allowedUkgIds = await getAuthorizedUkgEmployeeIds(user, allEmployees);
+      const authorizedEntries = allowedUkgIds === null
+        ? storedEntries
+        : storedEntries.filter(entry => allowedUkgIds.has(entry.ukgEmployeeId));
 
       // Convert stored entries to the format expected by the frontend
       // Database stores hours as minutes, convert back to hours
-      const entries = storedEntries.map(entry => ({
+      const entries = authorizedEntries.map(entry => ({
         employeeId: entry.ukgEmployeeId,
         date: entry.workDate,
         clockIn: entry.clockIn || "",

@@ -53,3 +53,19 @@ logs purely because their account email didn't match an employee record.
 roles; clamp by account role via the shared helper — never re-declare
 hierarchy logic in a route file. Admin-configured per-title visibility and
 explicit direct-report assignments intentionally override the caps.
+
+# Location scope is an invariant, not a hierarchy override
+
+Every non-admin workforce read or mutation must resolve the account's assigned
+locations first. An empty or unresolvable assignment is an empty scope, never
+company-wide access. Explicit direct reports and title visibility can broaden
+hierarchy access only within that location scope.
+
+**Why:** Location assignments are the store authorization boundary. Treating
+an empty assignment as "all" or checking direct reports before location scope
+recreates cross-store access through alternate employee, attendance, coaching,
+reporting, schedule, or UKG-backed endpoints.
+
+**How to apply:** Use the shared location authorization helpers for workforce
+routes. Only administrators may receive the unrestricted sentinel; all other
+roles receive a concrete location or employee-ID set, including an empty set.

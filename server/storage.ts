@@ -48,6 +48,13 @@ import {
 } from "@shared/schema";
 import { eq, ne, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
 
+export class ShiftTradeConflictError extends Error {
+  constructor() {
+    super("Trade shifts or status changed before approval");
+    this.name = "ShiftTradeConflictError";
+  }
+}
+
 export interface IStorage {
   // Employees
   getEmployees(): Promise<Employee[]>;
@@ -268,6 +275,15 @@ export interface IStorage {
   getShiftTrade(id: number): Promise<ShiftTrade | undefined>;
   createShiftTrade(trade: InsertShiftTrade): Promise<ShiftTrade>;
   updateShiftTrade(id: number, trade: Partial<InsertShiftTrade>): Promise<ShiftTrade>;
+  approveShiftTrade(input: {
+    tradeId: number;
+    requesterShiftId: number;
+    responderShiftId: number;
+    requesterId: number;
+    responderId: number;
+    managerNote: string | null;
+    reviewedBy: number;
+  }): Promise<ShiftTrade>;
   deleteShiftTrade(id: number): Promise<void>;
 
   // Notifications
@@ -2378,6 +2394,55 @@ export class DatabaseStorage implements IStorage {
       .where(eq(shiftTrades.id, id))
       .returning();
     return updated;
+  }
+
+  async approveShiftTrade(input: {
+    tradeId: number;
+    requesterShiftId: number;
+    responderShiftId: number;
+    requesterId: number;
+    responderId: number;
+    managerNote: string | null;
+    reviewedBy: number;
+  }): Promise<ShiftTrade> {
+    return db.transaction(async tx => {
+      const [requesterShift] = await tx.update(shifts)
+        .set({ employeeId: input.responderId })
+        .where(and(
+          eq(shifts.id, input.requesterShiftId),
+          eq(shifts.employeeId, input.requesterId),
+        ))
+        .returning({ id: shifts.id });
+      if (!requesterShift) throw new ShiftTradeConflictError();
+
+      const [responderShift] = await tx.update(shifts)
+        .set({ employeeId: input.requesterId })
+        .where(and(
+          eq(shifts.id, input.responderShiftId),
+          eq(shifts.employeeId, input.responderId),
+        ))
+        .returning({ id: shifts.id });
+      if (!responderShift) throw new ShiftTradeConflictError();
+
+      const [updatedTrade] = await tx.update(shiftTrades)
+        .set({
+          status: "approved",
+          managerNote: input.managerNote,
+          reviewedBy: input.reviewedBy,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(shiftTrades.id, input.tradeId),
+          eq(shiftTrades.status, "pending_manager"),
+          eq(shiftTrades.requesterShiftId, input.requesterShiftId),
+          eq(shiftTrades.responderShiftId, input.responderShiftId),
+          eq(shiftTrades.requesterId, input.requesterId),
+          eq(shiftTrades.responderId, input.responderId),
+        ))
+        .returning();
+      if (!updatedTrade) throw new ShiftTradeConflictError();
+      return updatedTrade;
+    });
   }
 
   async deleteShiftTrade(id: number): Promise<void> {

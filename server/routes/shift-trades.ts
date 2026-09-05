@@ -1,7 +1,17 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
+import { ShiftTradeConflictError } from "../storage";
 import { requireAuth, requireManager, requireFeatureAccess, getNotificationEmails } from "../middleware";
 import { sendTradeNotificationEmail } from "../outlook";
+import { canManageEmployee } from "../access-control";
+
+async function canManageTrade(user: any, requesterId: number, responderId: number | null): Promise<boolean> {
+  const requester = await storage.getEmployee(requesterId);
+  const responder = responderId ? await storage.getEmployee(responderId) : undefined;
+  return !!requester && !!responder &&
+    await canManageEmployee(user, requester) &&
+    await canManageEmployee(user, responder);
+}
 
 export function registerShiftTradeRoutes(app: Express) {
   // ========== SHIFT TRADING ==========
@@ -32,6 +42,13 @@ export function registerShiftTradeRoutes(app: Express) {
       }
 
       const trades = await storage.getShiftTrades({ employeeId, status });
+      if (isManagerOrAdmin && sessionUser.role !== "admin") {
+        const scoped = [];
+        for (const trade of trades) {
+          if (await canManageTrade(sessionUser, trade.requesterId, trade.responderId)) scoped.push(trade);
+        }
+        return res.json(scoped);
+      }
       res.json(trades);
     } catch (error) {
       console.error("Error fetching shift trades:", error);
@@ -48,6 +65,9 @@ export function registerShiftTradeRoutes(app: Express) {
       const sessionUser = (req.session as any)?.user;
       const { userHasFeature } = await import("../middleware");
       const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
+      if (isManagerOrAdmin && !(await canManageTrade(sessionUser, trade.requesterId, trade.responderId))) {
+        return res.status(403).json({ message: "You do not have access to this trade" });
+      }
 
       if (!isManagerOrAdmin) {
         const allEmployees = await storage.getEmployees();
@@ -295,6 +315,9 @@ export function registerShiftTradeRoutes(app: Express) {
 
       const { approved, managerNote } = req.body;
       const sessionUser = (req.session as any)?.user;
+      if (!(await canManageTrade(sessionUser, trade.requesterId, trade.responderId))) {
+        return res.status(403).json({ message: "Access denied: trade outside your assigned scope" });
+      }
 
       if (approved) {
         // Swap the shifts: update employeeId on each shift
@@ -304,15 +327,26 @@ export function registerShiftTradeRoutes(app: Express) {
         if (!requesterShift || !responderShift) {
           return res.status(400).json({ message: "One or both shifts no longer exist" });
         }
+        const requesterShiftEmployee = await storage.getEmployee(requesterShift.employeeId);
+        const responderShiftEmployee = await storage.getEmployee(responderShift.employeeId);
+        if (!requesterShiftEmployee || !responderShiftEmployee ||
+            !(await canManageEmployee(sessionUser, requesterShiftEmployee)) ||
+            !(await canManageEmployee(sessionUser, responderShiftEmployee))) {
+          return res.status(403).json({ message: "Access denied: shift outside your assigned scope" });
+        }
+        if (requesterShift.employeeId !== trade.requesterId ||
+            responderShift.employeeId !== trade.responderId) {
+          return res.status(409).json({ message: "Trade shifts have changed; cancel this trade and create a new one" });
+        }
 
-        // Swap employee IDs
-        await storage.updateShift(trade.requesterShiftId, { employeeId: trade.responderId });
-        await storage.updateShift(trade.responderShiftId, { employeeId: trade.requesterId });
-
-        const updatedTrade = await storage.updateShiftTrade(trade.id, {
-          status: "approved",
+        const updatedTrade = await storage.approveShiftTrade({
+          tradeId: trade.id,
+          requesterShiftId: trade.requesterShiftId,
+          responderShiftId: trade.responderShiftId,
+          requesterId: trade.requesterId,
+          responderId: trade.responderId,
           managerNote: managerNote || null,
-          reviewedBy: sessionUser?.id || null,
+          reviewedBy: sessionUser.id,
         });
 
         // Notify both employees
@@ -384,6 +418,9 @@ export function registerShiftTradeRoutes(app: Express) {
         res.json(updatedTrade);
       }
     } catch (error) {
+      if (error instanceof ShiftTradeConflictError) {
+        return res.status(409).json({ message: "Trade shifts or status changed; reload and try again" });
+      }
       console.error("Error manager-responding to shift trade:", error);
       res.status(500).json({ message: "Failed to process manager response" });
     }
@@ -402,6 +439,9 @@ export function registerShiftTradeRoutes(app: Express) {
       const sessionUser = (req.session as any)?.user;
       const { userHasFeature } = await import("../middleware");
       const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
+      if (isManagerOrAdmin && !(await canManageTrade(sessionUser, trade.requesterId, trade.responderId))) {
+        return res.status(403).json({ message: "Access denied: trade outside your assigned scope" });
+      }
       if (!isManagerOrAdmin) {
         const allEmployees = await storage.getEmployees();
         const callerEmployee = allEmployees.find(e =>

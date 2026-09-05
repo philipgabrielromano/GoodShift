@@ -37,6 +37,14 @@ import { registerWarehouseInventoryRoutes } from "./routes/warehouseInventory";
 import { registerCreditCardInspectionRoutes } from "./routes/creditCardInspections";
 import { registerDriverInspectionRoutes } from "./routes/driverInspections";
 import { initOrdersTable } from "./mysql";
+import {
+  canAccessEmployeeLocation,
+  canManageEmployee,
+  filterEmployeesByLocationScope,
+  getAuthorizedLocationNames,
+  getAuthorizedUkgEmployeeIds,
+  resolveAuthorizedLocation,
+} from "./access-control";
 
 function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTime: Date }[]) {
   const seen = new Set<string>();
@@ -50,7 +58,8 @@ function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTim
 
 export async function registerRoutes(
   httpServer: Server,
-  app: Express
+  app: Express,
+  options: { initializeOrdersTable?: boolean } = {},
 ): Promise<Server> {
 
   // Register object storage routes for PDF document uploads
@@ -92,24 +101,9 @@ export async function registerRoutes(
       );
     }
     
-    // Filter by location for non-admin users with assigned locations
-    // user.locationIds contains location IDs (as strings), but emp.location contains location NAMES
-    // We need to look up the location names from the IDs
-    // Admins can see all employees regardless of locationIds
-    if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
-      const allLocations = await storage.getLocations();
-      const userLocationNames = allLocations
-        .filter(loc => user.locationIds.includes(String(loc.id)))
-        .map(loc => loc.name);
-      
-      console.log(`[API] Employee filter - User: ${user.email}, Role: ${user.role}, LocationIds: ${JSON.stringify(user.locationIds)}, Resolved location names: ${JSON.stringify(userLocationNames)}`);
-      
-      const beforeCount = employees.length;
-      employees = employees.filter(emp => 
-        emp.location && userLocationNames.includes(emp.location)
-      );
-      console.log(`[API] Employee filter - Before: ${beforeCount}, After: ${employees.length}`);
-    }
+    // Every non-admin is deny-by-default and sees employees only at explicitly
+    // assigned locations. An empty assignment list therefore returns no roster.
+    employees = await filterEmployeesByLocationScope(user, employees);
     
     // Non-admin, non-viewer users must have employees.view to see the full list
     if (user && user.role !== "admin" && user.role !== "viewer") {
@@ -156,14 +150,8 @@ export async function registerRoutes(
     if (!employee) return res.status(404).json({ message: "Employee not found" });
 
     if (user && user.role !== "admin") {
-      if (user.locationIds && user.locationIds.length > 0) {
-        const allLocations = await storage.getLocations();
-        const userLocationNames = allLocations
-          .filter((loc: any) => user.locationIds.includes(String(loc.id)))
-          .map((loc: any) => loc.name);
-        if (employee.location && !userLocationNames.includes(employee.location)) {
-          return res.status(403).json({ message: "Access denied" });
-        }
+      if (!(await canAccessEmployeeLocation(user, employee))) {
+        return res.status(403).json({ message: "Access denied" });
       }
 
       if (user.role === "viewer") {
@@ -200,6 +188,10 @@ export async function registerRoutes(
   app.post(api.employees.create.path, requireFeatureAccess("employees.edit"), async (req, res) => {
     try {
       const input = api.employees.create.input.parse(req.body);
+      const user = (req.session as any).user;
+      if (!(await canManageEmployee(user, input as any))) {
+        return res.status(403).json({ message: "Access denied: employee outside your assigned scope" });
+      }
       const employee = await storage.createEmployee(input);
       res.status(201).json(employee);
     } catch (err) {
@@ -213,7 +205,14 @@ export async function registerRoutes(
   app.put(api.employees.update.path, requireFeatureAccess("employees.edit"), async (req, res) => {
     try {
       const input = api.employees.update.input.parse(req.body);
-      const employee = await storage.updateEmployee(Number(req.params.id), input);
+      const existing = await storage.getEmployee(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Employee not found" });
+      const user = (req.session as any).user;
+      if (!(await canManageEmployee(user, existing)) ||
+          !(await canManageEmployee(user, { ...existing, ...input }))) {
+        return res.status(403).json({ message: "Access denied: employee outside your assigned scope" });
+      }
+      const employee = await storage.updateEmployee(existing.id, input);
       res.json(employee);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -224,7 +223,12 @@ export async function registerRoutes(
   });
 
   app.delete(api.employees.delete.path, requireFeatureAccess("employees.delete"), async (req, res) => {
-    await storage.deleteEmployee(Number(req.params.id));
+    const employee = await storage.getEmployee(Number(req.params.id));
+    if (!employee) return res.status(404).json({ message: "Employee not found" });
+    if (!(await canManageEmployee((req.session as any).user, employee))) {
+      return res.status(403).json({ message: "Access denied: employee outside your assigned scope" });
+    }
+    await storage.deleteEmployee(employee.id);
     res.status(204).send();
   });
 
@@ -232,7 +236,12 @@ export async function registerRoutes(
   app.post(api.employees.toggleScheduleVisibility.path, requireFeatureAccess("employees.edit"), async (req, res) => {
     try {
       const input = api.employees.toggleScheduleVisibility.input.parse(req.body);
-      const employee = await storage.updateEmployee(Number(req.params.id), {
+      const existing = await storage.getEmployee(Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Employee not found" });
+      if (!(await canManageEmployee((req.session as any).user, existing))) {
+        return res.status(403).json({ message: "Access denied: employee outside your assigned scope" });
+      }
+      const employee = await storage.updateEmployee(existing.id, {
         isHiddenFromSchedule: input.isHiddenFromSchedule,
       });
       if (!employee) {
@@ -253,8 +262,33 @@ export async function registerRoutes(
     const start = req.query.start ? new Date(req.query.start as string) : undefined;
     const end = req.query.end ? new Date(req.query.end as string) : undefined;
     const employeeId = req.query.employeeId ? Number(req.query.employeeId) : undefined;
-    
+
+    if (req.query.employeeId && !Number.isInteger(employeeId)) {
+      return res.status(400).json({ message: "Invalid employeeId" });
+    }
+    if (employeeId !== undefined) {
+      const requestedEmployee = await storage.getEmployee(employeeId);
+      if (!requestedEmployee) return res.status(404).json({ message: "Employee not found" });
+      if (!(await canAccessEmployeeLocation(user, requestedEmployee))) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+
     let shifts = await storage.getShifts(start, end, employeeId);
+    if (user.role !== "admin" && employeeId === undefined) {
+      const allowedNames = await getAuthorizedLocationNames(user);
+      if (!allowedNames || allowedNames.size === 0) {
+        shifts = [];
+      } else {
+        const employees = await storage.getEmployees();
+        const allowedEmployeeIds = new Set(
+          employees
+            .filter(employee => !!employee.location && allowedNames.has(employee.location))
+            .map(employee => employee.id),
+        );
+        shifts = shifts.filter(shift => allowedEmployeeIds.has(shift.employeeId));
+      }
+    }
 
     if (user?.role === "viewer") {
       const publishedWeeks = new Set<string>();
@@ -302,6 +336,11 @@ export async function registerRoutes(
         startTime,
         endTime
       });
+      const targetEmployee = await storage.getEmployee(input.employeeId);
+      if (!targetEmployee) return res.status(400).json({ message: "Employee not found" });
+      if (!(await canAccessEmployeeLocation((req.session as any).user, targetEmployee))) {
+        return res.status(403).json({ message: "Access denied: shift outside your assigned scope" });
+      }
       const shift = await storage.createShift(input);
       res.status(201).json(shift);
     } catch (err) {
@@ -322,7 +361,16 @@ export async function registerRoutes(
        }
 
       const input = api.shifts.update.input.parse(body);
-      const shift = await storage.updateShift(Number(req.params.id), input);
+      const existing = (await storage.getShifts()).find(s => s.id === Number(req.params.id));
+      if (!existing) return res.status(404).json({ message: "Shift not found" });
+      const oldEmployee = await storage.getEmployee(existing.employeeId);
+      const newEmployee = await storage.getEmployee(input.employeeId ?? existing.employeeId);
+      if (!oldEmployee || !newEmployee) return res.status(400).json({ message: "Employee not found" });
+      const user = (req.session as any).user;
+      if (!(await canAccessEmployeeLocation(user, oldEmployee)) || !(await canAccessEmployeeLocation(user, newEmployee))) {
+        return res.status(403).json({ message: "Access denied: shift outside your assigned scope" });
+      }
+      const shift = await storage.updateShift(existing.id, input);
       res.json(shift);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -333,7 +381,13 @@ export async function registerRoutes(
   });
 
   app.delete(api.shifts.delete.path, requireFeatureAccess("schedule.edit"), async (req, res) => {
-    await storage.deleteShift(Number(req.params.id));
+    const existing = (await storage.getShifts()).find(s => s.id === Number(req.params.id));
+    if (!existing) return res.status(404).json({ message: "Shift not found" });
+    const employee = await storage.getEmployee(existing.employeeId);
+    if (!employee || !(await canAccessEmployeeLocation((req.session as any).user, employee))) {
+      return res.status(403).json({ message: "Access denied: shift outside your assigned scope" });
+    }
+    await storage.deleteShift(existing.id);
     res.status(204).send();
   });
 
@@ -361,19 +415,7 @@ export async function registerRoutes(
       // Admins see everything; non-admins with assigned locations are scoped to
       // those locations only (mirroring the filter in GET /api/employees).
       const user = (req.session as any)?.user;
-      let allowedUkgIds: Set<string> | null = null; // null = no restriction
-      if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
-        const allLocations = await storage.getLocations();
-        const userLocationNames = allLocations
-          .filter(loc => user.locationIds.includes(String(loc.id)))
-          .map(loc => loc.name);
-        const scopedEmployees = allEmployees.filter(
-          emp => emp.location && userLocationNames.includes(emp.location)
-        );
-        allowedUkgIds = new Set(
-          scopedEmployees.filter(e => e.ukgEmployeeId).map(e => e.ukgEmployeeId as string)
-        );
-      }
+      const allowedUkgIds = await getAuthorizedUkgEmployeeIds(user, allEmployees);
       
       // Enrich PAL entries with employee info.
       // - Admins see all entries (including unmapped UKG IDs) for full visibility.
@@ -427,19 +469,7 @@ export async function registerRoutes(
       // Admins see everything; non-admins with assigned locations are scoped to
       // those locations only (mirroring the filter in GET /api/employees).
       const user = (req.session as any)?.user;
-      let allowedUkgIds: Set<string> | null = null; // null = no restriction
-      if (user && user.role !== "admin" && user.locationIds && user.locationIds.length > 0) {
-        const allLocations = await storage.getLocations();
-        const userLocationNames = allLocations
-          .filter(loc => user.locationIds.includes(String(loc.id)))
-          .map(loc => loc.name);
-        const scopedEmployees = allEmployees.filter(
-          emp => emp.location && userLocationNames.includes(emp.location)
-        );
-        allowedUkgIds = new Set(
-          scopedEmployees.filter(e => e.ukgEmployeeId).map(e => e.ukgEmployeeId as string)
-        );
-      }
+      const allowedUkgIds = await getAuthorizedUkgEmployeeIds(user, allEmployees);
       
       // Enrich entries with employee info.
       // - Admins see all entries (including unmapped UKG IDs) for full visibility.
@@ -481,29 +511,6 @@ export async function registerRoutes(
   // Returns { effectiveLocation, error } where effectiveLocation is the resolved
   // location string (or undefined for "all"), and error is a 403 message if the
   // requested location is outside the user's authorized scope.
-  const resolveAuthorizedLocation = async (user: any, requestedLocation: string | undefined): Promise<{ effectiveLocation: string | undefined; error: string | null }> => {
-    if (!user || user.role === "admin") {
-      return { effectiveLocation: requestedLocation && requestedLocation !== "all" ? requestedLocation : undefined, error: null };
-    }
-    if (user.locationIds && user.locationIds.length > 0) {
-      const allLocations = await storage.getLocations();
-      const userLocationNames = allLocations
-        .filter((loc: any) => user.locationIds.includes(String(loc.id)))
-        .map((loc: any) => loc.name as string);
-      if (!requestedLocation || requestedLocation === "all") {
-        if (userLocationNames.length === 1) {
-          return { effectiveLocation: userLocationNames[0], error: null };
-        }
-        return { effectiveLocation: undefined, error: "You must specify a location you are assigned to" };
-      }
-      if (!userLocationNames.includes(requestedLocation)) {
-        return { effectiveLocation: undefined, error: "Access denied: location outside your assigned scope" };
-      }
-      return { effectiveLocation: requestedLocation, error: null };
-    }
-    return { effectiveLocation: requestedLocation && requestedLocation !== "all" ? requestedLocation : undefined, error: null };
-  };
-
   // Copy current week's schedule to the next week
   app.post("/api/schedule/copy-to-next-week", requireFeatureAccess("schedule.edit"), async (req, res) => {
     try {
@@ -932,7 +939,9 @@ export async function registerRoutes(
   app.post(api.schedule.generate.path, requireFeatureAccess("schedule.generate"), async (req, res) => {
     try {
       const { weekStart, location } = api.schedule.generate.input.parse(req.body);
-      const insertedShifts = await generateSchedule(weekStart, location);
+      const { effectiveLocation, error } = await resolveAuthorizedLocation((req.session as any).user, location);
+      if (error) return res.status(403).json({ message: error });
+      const insertedShifts = await generateSchedule(weekStart, effectiveLocation);
       res.status(201).json(insertedShifts);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -950,7 +959,10 @@ export async function registerRoutes(
       // Get user's location filter
       const user = (req.session as any)?.user;
       let locationIds: string[] | undefined;
-      if (user && user.locationIds && user.locationIds.length > 0) {
+      if (user?.role !== "admin") {
+        if (!user?.locationIds?.length) {
+          return res.status(403).json({ message: "Access denied: no assigned locations" });
+        }
         locationIds = user.locationIds;
       }
       
@@ -979,7 +991,9 @@ export async function registerRoutes(
   app.post("/api/schedule/clear", requireFeatureAccess("schedule.edit"), async (req, res) => {
     try {
       const parsed = api.schedule.generate.input.parse(req.body);
-      const location = parsed.location;
+      const user = (req.session as any).user;
+      const { effectiveLocation: location, error } = await resolveAuthorizedLocation(user, parsed.location);
+      if (error) return res.status(403).json({ message: error });
       const startDate = new Date(parsed.weekStart);
       const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       
@@ -993,7 +1007,7 @@ export async function registerRoutes(
       // Use formatInTimeZone to get consistent date format
       const weekStartDate = formatInTimeZone(startDate, TIMEZONE, "yyyy-MM-dd");
       const wasPublished = await storage.isSchedulePublished(weekStartDate);
-      if (wasPublished) {
+      if (wasPublished && user.role === "admin") {
         await storage.unpublishSchedule(weekStartDate);
         console.log(`[Clear Schedule] Auto-unpublished schedule for week ${weekStartDate}`);
       }
@@ -1002,7 +1016,7 @@ export async function registerRoutes(
       res.json({ 
         message: `Cleared ${deletedCount} shifts for ${locationLabel}`, 
         deletedCount,
-        unpublished: wasPublished
+        unpublished: wasPublished && user.role === "admin"
       });
     } catch (err) {
       console.error("Clear schedule error:", err);
@@ -1236,7 +1250,7 @@ export async function registerRoutes(
   });
 
   // Publish a week's schedule (anyone with schedule.publish feature)
-  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), async (req, res) => {
+  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), requireAdmin, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       
@@ -1300,7 +1314,7 @@ export async function registerRoutes(
   });
 
   // Unpublish a week's schedule (anyone with schedule.publish feature)
-  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), async (req, res) => {
+  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), requireAdmin, async (req, res) => {
     try {
       
       const weekStart = req.params.weekStart as string;
@@ -1444,9 +1458,11 @@ export async function registerRoutes(
     }
   });
 
-  initOrdersTable().catch((err) => {
-    console.error("[MySQL] Failed to initialize orders table:", err);
-  });
+  if (options.initializeOrdersTable !== false) {
+    initOrdersTable().catch((err) => {
+      console.error("[MySQL] Failed to initialize orders table:", err);
+    });
+  }
 
   // === PERMISSIONS MANAGEMENT ===
 

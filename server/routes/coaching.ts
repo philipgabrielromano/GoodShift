@@ -6,6 +6,7 @@ import { insertCoachingLogSchema, coachingLogs } from "@shared/schema";
 import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
+import { canManageEmployee, getAuthorizedLocationNames } from "../access-control";
 
 const COACHING_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -35,15 +36,7 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
 }
 
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
-  if (user.role === "admin") return null;
-  if (!user.locationIds || user.locationIds.length === 0) return null;
-  const allLocations = await storage.getLocations();
-  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
-  const names = new Set<string>();
-  for (const loc of allLocations) {
-    if (idSet.has(String(loc.id))) names.add(loc.name);
-  }
-  return names.size > 0 ? names : null;
+  return getAuthorizedLocationNames(user);
 }
 
 export function registerCoachingRoutes(app: Express) {
@@ -68,12 +61,16 @@ export function registerCoachingRoutes(app: Express) {
       }
 
       if (user.role !== "viewer") {
+        const allowedNames = await getAllowedLocationNames(user);
+        const locationScoped = filteredByStatus.filter(
+          e => !!e.location && allowedNames?.has(e.location),
+        );
         // Any non-admin, non-viewer role with coaching.view access flows through
         // the same hierarchy/location scoping as built-in manager/optimizer.
         // Explicit direct-report assignments fully replace the auto hierarchy.
         const explicitSet = await getExplicitReportsSet(user);
         if (explicitSet) {
-          const sortedExplicit = filteredByStatus
+          const sortedExplicit = locationScoped
             .filter(e => explicitSet.has(e.id))
             .sort((a, b) => a.name.localeCompare(b.name));
           return res.json(sortedExplicit.map(e => ({
@@ -81,11 +78,7 @@ export function registerCoachingRoutes(app: Express) {
           })));
         }
 
-        const allowedNames = await getAllowedLocationNames(user);
-        let filtered = filteredByStatus;
-        if (allowedNames) {
-          filtered = filtered.filter(e => e.location && allowedNames.has(e.location));
-        }
+        let filtered = locationScoped;
 
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
@@ -152,6 +145,7 @@ export function registerCoachingRoutes(app: Express) {
 
       if (user.role !== "viewer") {
         const allEmployees = await storage.getEmployees();
+        const allowedNames = await getAllowedLocationNames(user);
 
         // Explicit direct-report assignments override the auto job-title hierarchy
         if (user.id) {
@@ -160,14 +154,17 @@ export function registerCoachingRoutes(app: Express) {
             const explicitSet = new Set(explicit);
             const visibleByExplicit = new Set(
               allEmployees
-                .filter(e => (includeInactive || e.isActive) && explicitSet.has(e.id))
+                .filter(e =>
+                  (includeInactive || e.isActive) &&
+                  explicitSet.has(e.id) &&
+                  !!e.location &&
+                  allowedNames?.has(e.location)
+                )
                 .map(e => e.id),
             );
             return res.json(allLogs.filter(log => visibleByExplicit.has(log.employeeId)));
           }
         }
-
-        const allowedNames = await getAllowedLocationNames(user);
 
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
@@ -206,10 +203,11 @@ export function registerCoachingRoutes(app: Express) {
 
       if (user.role === "viewer") {
         const allEmployees = await storage.getEmployees();
+        const allowedNames = await getAllowedLocationNames(user);
         const viewerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
-        if (viewerEmployee) {
+        if (viewerEmployee?.location && allowedNames?.has(viewerEmployee.location)) {
           return res.json(allLogs.filter(log => log.employeeId === viewerEmployee.id));
         }
         return res.json([]);
@@ -241,6 +239,9 @@ export function registerCoachingRoutes(app: Express) {
         const targetEmployee = allEmployees.find(e => e.id === parsed.data.employeeId);
         if (!targetEmployee) {
           return res.status(404).json({ message: "Employee not found" });
+        }
+        if (!(await canManageEmployee(user, targetEmployee))) {
+          return res.status(403).json({ message: "Cannot create coaching log for employee outside your assigned scope" });
         }
 
         // Explicit direct-report assignments fully replace the auto hierarchy.
@@ -350,6 +351,9 @@ export function registerCoachingRoutes(app: Express) {
         const targetEmployee = allEmployees.find(e => e.id === existingLog.employeeId);
         if (!targetEmployee) {
           return res.status(404).json({ error: "Employee not found" });
+        }
+        if (!(await canManageEmployee(user, targetEmployee))) {
+          return res.status(403).json({ message: "Cannot modify coaching log for employee outside your assigned scope" });
         }
 
         // Explicit direct-report assignments fully replace the auto hierarchy.

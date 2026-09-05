@@ -4,6 +4,7 @@ import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../
 import { isValidLocationName } from "@shared/locationFilters";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
+import { getAuthorizedLocationNames } from "../access-control";
 
 // Per-job-title visibility override (configured by admins). Mirrors the
 // helper used by Coaching/Attendance so DMs/Directors granted visibility
@@ -17,15 +18,7 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
 
 // Helper to resolve user's locationIds (numeric IDs) to location names
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
-  if (user.role === "admin") return null; // admins see all
-  if (!user.locationIds || user.locationIds.length === 0) return null;
-  const allLocations = await storage.getLocations();
-  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
-  const names = new Set<string>();
-  for (const loc of allLocations) {
-    if (idSet.has(String(loc.id))) names.add(loc.name);
-  }
-  return names.size > 0 ? names : null;
+  return getAuthorizedLocationNames(user);
 }
 
 export function registerReportRoutes(app: Express) {

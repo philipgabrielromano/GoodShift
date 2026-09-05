@@ -1,2 +1,2 @@
-- [Employee hierarchy visibility](employee-hierarchy-visibility.md) — 3 modules re-implement job-title visibility; level-0 (HR) sees all; email→employee match unreliable — coaching clamps level by account role.
+- [Employee hierarchy visibility](employee-hierarchy-visibility.md) — level-0 sees all only inside assigned locations; non-admins without locations see none; explicit reports never bypass location scope.
 - [Tailscale key & secret propagation](tailscale-prod-outage.md) — expired auth key can down prod (dev looks fine); dev shells serve stale secret values for minutes after user updates.
