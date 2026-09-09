@@ -777,7 +777,7 @@ export default function Attendance() {
                                     Reason: {occurrence.retractedReason}
                                   </span>
                                 )}
-                                {occurrence.documentUrl && (
+                                {occurrence.documentUrl?.startsWith("/objects/") && (
                                   <a 
                                     href={occurrence.documentUrl} 
                                     target="_blank" 

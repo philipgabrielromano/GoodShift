@@ -6,6 +6,7 @@ import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
 import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 import { getAuthorizedLocationNames } from "../access-control";
+import { isValidObjectPath } from "../security/urlValidation";
 
 const OCCURRENCE_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -252,10 +253,25 @@ export function registerOccurrenceRoutes(app: Express) {
       if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
         return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
       }
+      if (documentUrl != null && documentUrl !== "" && !isValidObjectPath(documentUrl)) {
+        return res.status(400).json({ message: "Invalid document path" });
+      }
 
       const hasAccess = await canAccessEmployee(user, employeeId);
       if (!hasAccess) {
         return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
+      }
+
+      if (documentUrl) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(documentUrl, {
+            owner: String(user.id),
+            visibility: "private",
+          }, OCCURRENCE_UPLOAD_CONSTRAINTS);
+        } catch (err) {
+          console.warn("[Occurrences] Rejected document attachment:", err);
+          return res.status(400).json({ message: "Invalid or unavailable document attachment" });
+        }
       }
       
       const occurrence = await storage.createOccurrence({
@@ -274,13 +290,6 @@ export function registerOccurrenceRoutes(app: Express) {
         createdBy: user.id
       });
 
-      if (documentUrl) {
-        await objectStorageService.trySetObjectAclSilent(documentUrl, {
-          owner: String(user.id),
-          visibility: "private",
-        }, OCCURRENCE_UPLOAD_CONSTRAINTS);
-      }
-      
       // Only check HR notification thresholds for countable occurrences (not FMLA, other leave, or consecutive sickness)
       if (!isFmla && !isOtherLeave && !isConsecutiveSickness) {
         const protocol = req.headers['x-forwarded-proto'] || 'https';

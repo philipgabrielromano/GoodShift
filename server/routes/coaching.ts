@@ -7,11 +7,22 @@ import { ObjectStorageService, UploadConstraints } from "../replit_integrations/
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { canManageEmployee, getAuthorizedLocationNames } from "../access-control";
+import { isValidObjectPath } from "../security/urlValidation";
+import { z } from "zod";
 
 const COACHING_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
   allowedContentTypes: new Set(["application/pdf"]),
 };
+
+const coachingAttachmentSchema = insertCoachingLogSchema.extend({
+  attachmentUrl: z.string().refine(isValidObjectPath, "Invalid attachment path").nullish(),
+});
+
+const updateAttachmentSchema = z.object({
+  attachmentUrl: z.string().refine(isValidObjectPath, "Invalid attachment path").nullish(),
+  attachmentName: z.string().max(255).nullish(),
+});
 
 /**
  * Returns the explicit direct-report employee ID set for this user,
@@ -224,7 +235,7 @@ export function registerCoachingRoutes(app: Express) {
     try {
       const user = (req.session as any)?.user;
 
-      const parsed = insertCoachingLogSchema.safeParse({
+      const parsed = coachingAttachmentSchema.safeParse({
         ...req.body,
         managerId: user.id,
         managerName: user.name,
@@ -280,14 +291,19 @@ export function registerCoachingRoutes(app: Express) {
         }
       }
 
-      const newLog = await storage.createCoachingLog(parsed.data);
-
       if (parsed.data.attachmentUrl) {
-        await objectStorageService.trySetObjectAclSilent(parsed.data.attachmentUrl, {
-          owner: String(user.id),
-          visibility: "private",
-        }, COACHING_UPLOAD_CONSTRAINTS);
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(parsed.data.attachmentUrl, {
+            owner: String(user.id),
+            visibility: "private",
+          }, COACHING_UPLOAD_CONSTRAINTS);
+        } catch (err) {
+          console.warn("[Coaching] Rejected attachment:", err);
+          return res.status(400).json({ error: "Invalid or unavailable attachment" });
+        }
       }
+
+      const newLog = await storage.createCoachingLog(parsed.data);
 
       const employee = await storage.getEmployee(newLog.employeeId);
       const enriched = {
@@ -338,7 +354,11 @@ export function registerCoachingRoutes(app: Express) {
       const user = (req.session as any)?.user;
 
       const logId = Number(req.params.id);
-      const { attachmentUrl, attachmentName } = req.body;
+      const parsedAttachment = updateAttachmentSchema.safeParse(req.body);
+      if (!parsedAttachment.success) {
+        return res.status(400).json({ error: "Invalid attachment data", details: parsedAttachment.error.errors });
+      }
+      const { attachmentUrl, attachmentName } = parsedAttachment.data;
 
       const existingLogs = await storage.getCoachingLogs({});
       const existingLog = existingLogs.find(l => l.id === logId);
@@ -391,6 +411,18 @@ export function registerCoachingRoutes(app: Express) {
         }
       }
 
+      if (attachmentUrl) {
+        try {
+          await objectStorageService.trySetObjectEntityAclPolicy(attachmentUrl, {
+            owner: String(user.id),
+            visibility: "private",
+          }, COACHING_UPLOAD_CONSTRAINTS);
+        } catch (err) {
+          console.warn("[Coaching] Rejected updated attachment:", err);
+          return res.status(400).json({ error: "Invalid or unavailable attachment" });
+        }
+      }
+
       const [updated] = await db.update(coachingLogs)
         .set({
           attachmentUrl: attachmentUrl || null,
@@ -401,13 +433,6 @@ export function registerCoachingRoutes(app: Express) {
 
       if (!updated) {
         return res.status(404).json({ error: "Coaching log not found" });
-      }
-
-      if (attachmentUrl) {
-        await objectStorageService.trySetObjectAclSilent(attachmentUrl, {
-          owner: String(user.id),
-          visibility: "private",
-        }, COACHING_UPLOAD_CONSTRAINTS);
       }
 
       res.json(updated);

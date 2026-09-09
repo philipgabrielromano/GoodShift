@@ -7,6 +7,7 @@ import { ukgClient } from "../ukg";
 import { runTimeClockSync } from "../scheduler";
 import { requireAuth, requireAdmin, requireFeatureAccess } from "../middleware";
 import { getAuthorizedUkgEmployeeIds } from "../access-control";
+import { normalizeUkgApiUrl } from "../security/urlValidation";
 
 export function registerUKGRoutes(app: Express) {
   // === UKG INTEGRATION ===
@@ -78,17 +79,35 @@ export function registerUKGRoutes(app: Express) {
       if (!ukgApiUrl || !ukgUsername) {
         return res.status(400).json({ message: "API URL and username are required" });
       }
+      let normalizedApiUrl: string;
+      try {
+        normalizedApiUrl = normalizeUkgApiUrl(ukgApiUrl);
+      } catch (err) {
+        return res.status(400).json({ message: err instanceof Error ? err.message : "Invalid UKG API URL" });
+      }
       const settings = await storage.getGlobalSettings();
+      const currentApiUrl = settings.ukgApiUrl || process.env.UKG_API_URL || "";
+      if (!ukgPassword && currentApiUrl) {
+        let normalizedCurrentUrl: string;
+        try {
+          normalizedCurrentUrl = normalizeUkgApiUrl(currentApiUrl);
+        } catch {
+          return res.status(400).json({ message: "Password is required to replace the current unsafe UKG API URL" });
+        }
+        if (normalizedCurrentUrl !== normalizedApiUrl) {
+          return res.status(400).json({ message: "Password is required when changing the UKG API URL" });
+        }
+      }
       const effectivePassword = ukgPassword || settings.ukgPassword || process.env.UKG_PASSWORD || "";
       if (!effectivePassword) {
         return res.status(400).json({ message: "Password is required" });
       }
-      const updateData: any = { ukgApiUrl, ukgUsername };
+      const updateData: any = { ukgApiUrl: normalizedApiUrl, ukgUsername };
       if (ukgPassword) {
         updateData.ukgPassword = ukgPassword;
       }
       await storage.updateGlobalSettings(updateData);
-      ukgClient.updateCredentials(ukgApiUrl, ukgUsername, effectivePassword);
+      ukgClient.updateCredentials(normalizedApiUrl, ukgUsername, effectivePassword);
       res.json({ success: true, message: "UKG credentials updated successfully" });
     } catch (err) {
       console.error("Failed to update UKG credentials:", err);

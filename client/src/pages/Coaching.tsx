@@ -734,7 +734,7 @@ export default function Coaching() {
 
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Attachment</p>
-                  {detailLog.attachmentUrl ? (
+                  {detailLog.attachmentUrl?.startsWith("/objects/") ? (
                     <div className="flex items-center gap-2 p-3 rounded-lg border bg-muted/30">
                       <FileText className="w-5 h-5 text-red-500 shrink-0" />
                       <a
