@@ -57,6 +57,9 @@ import { registerWarehouseInventoryRoutes } from "../server/routes/warehouseInve
 import { registerReportRoutes } from "../server/routes/reports";
 import { registerRosterRoutes } from "../server/routes/roster";
 import { registerUKGRoutes } from "../server/routes/ukg";
+import { registerTruckRouteRoutes } from "../server/routes/truckRoutes";
+import { registerTrailerRoutes } from "../server/routes/trailers";
+import { registerTractorRoutes } from "../server/routes/tractors";
 
 // A unique synthetic role per test run so we never collide with real data.
 const TEST_ROLE = `test_dm_${process.pid}_${Date.now()}`;
@@ -70,6 +73,7 @@ let baseUrl = "";
 
 type RouteGate = {
   feature: string;
+  prerequisites?: string[];
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   body?: unknown;
@@ -322,6 +326,7 @@ const ROUTE_GATES: RouteGate[] = [
     feature: "orders.submit",
     method: "GET",
     path: "/api/orders/seasonal-balances",
+    prerequisites: ["seasonal_inventory.view"],
     okStatuses: [200, 500],
     kind: "real",
     sourceFile: "server/routes/orders.ts",
@@ -329,7 +334,7 @@ const ROUTE_GATES: RouteGate[] = [
       /app\.get\(\s*"\/api\/orders\/seasonal-balances"\s*,\s*requireFeatureAccess\(\s*"orders\.submit"\s*\)/,
   },
   {
-    feature: "orders.edit",
+    feature: "orders.receive",
     method: "POST",
     path: "/api/orders/999999/fulfill",
     body: {},
@@ -337,10 +342,10 @@ const ROUTE_GATES: RouteGate[] = [
     kind: "real",
     sourceFile: "server/routes/orders.ts",
     sourcePattern:
-      /app\.post\(\s*"\/api\/orders\/:id\/fulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+      /app\.post\(\s*"\/api\/orders\/:id\/fulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.receive"\s*\)/,
   },
   {
-    feature: "orders.edit",
+    feature: "orders.receive",
     method: "POST",
     path: "/api/orders/999999/unfulfill",
     body: {},
@@ -348,7 +353,7 @@ const ROUTE_GATES: RouteGate[] = [
     kind: "real",
     sourceFile: "server/routes/orders.ts",
     sourcePattern:
-      /app\.post\(\s*"\/api\/orders\/:id\/unfulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+      /app\.post\(\s*"\/api\/orders\/:id\/unfulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.receive"\s*\)/,
   },
 
   // -------------------- Credit Card Inspections --------------------
@@ -464,7 +469,7 @@ const ROUTE_GATES: RouteGate[] = [
     okStatuses: [200, 500],
     kind: "real",
     sourceFile: "server/routes/truckRoutes.ts",
-    sourcePattern: /app\.get\(\s*"\/api\/truck-routes"\s*,\s*requireFeatureAccess\(\s*"truck_routes\.view"\s*\)/,
+    sourcePattern: /app\.get\(\s*"\/api\/truck-routes"\s*,\s*(?:\/\/[^\n]*\n\s*)*requireFeatureAccessAny\(\s*\[\s*"truck_routes\.view",\s*"trailer_manifest\.edit",\s*"trailer_manifest\.view",\s*"driver_inspection\.submit",?\s*\]\s*\)/,
   },
   {
     feature: "truck_routes.edit",
@@ -503,6 +508,7 @@ const ROUTE_GATES: RouteGate[] = [
     // inline check exists in source and that an unauthorized request to the
     // aggregate branch is rejected.
     feature: "seasonal_inventory.view",
+    prerequisites: ["orders.submit"],
     method: "GET",
     path: "/api/orders/seasonal-balances",
     okStatuses: [200, 403, 500],
@@ -685,6 +691,63 @@ const ROUTE_GATES: RouteGate[] = [
   },
 ];
 
+// Keep expectations independent of production source: changing a route's gate
+// must fail these tests, not silently change the expected permission.
+function realGate(
+  feature: string,
+  method: RouteGate["method"],
+  path: string,
+  sourceFile: string,
+  alternatives?: string[],
+): RouteGate {
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const keys = (alternatives ?? [feature]).map(key => `"${escape(key)}"`).join("\\s*,\\s*");
+  const middleware = alternatives
+    ? `requireFeatureAccessAny\\(\\s*\\[\\s*${keys}\\s*,?\\s*\\]\\s*\\)`
+    : `requireFeatureAccess\\(\\s*${keys}\\s*\\)`;
+  return {
+    feature, method, path: path.replace(":id", "999999"), sourceFile,
+    kind: "real",
+    body: method === "GET" || method === "DELETE" ? undefined : {},
+    sourcePattern: new RegExp(`app\\.${method.toLowerCase()}\\(\\s*"${escape(path)}"\\s*,\\s*(?:\\/\\/[^\\n]*\\n\\s*)*${middleware}`),
+  };
+}
+
+for (const [feature, actions] of [
+  ["orders.receive", ["receive", "unreceive", "confirm-receipt", "unconfirm-receipt"]],
+  ["orders.confirm_export", ["confirm-export", "unconfirm-export"]],
+  ["orders.approve", ["approve", "deny"]],
+] as const) {
+  for (const action of actions) ROUTE_GATES.push(realGate(feature, "POST", `/api/orders/:id/${action}`, "server/routes/orders.ts"));
+}
+ROUTE_GATES.push(
+  realGate("orders.approve", "POST", "/api/orders/bulk-approve", "server/routes/orders.ts"),
+  realGate("orders.view_all", "GET", "/api/orders/:id/events", "server/routes/orders.ts"),
+  realGate("orders.view_all", "GET", "/api/orders/:id", "server/routes/orders.ts"),
+  realGate("reports.schedule_audit", "GET", "/api/reports/schedule-audit", "server/routes/reports.ts"),
+  realGate("truck_routes.edit", "PUT", "/api/truck-routes/:id", "server/routes/truckRoutes.ts"),
+);
+
+// Each alternative must work alone; revocation must deny with all others absent.
+for (const [path, sourceFile, alternatives] of [
+  ["/api/truck-routes", "server/routes/truckRoutes.ts", ["truck_routes.view", "trailer_manifest.edit", "trailer_manifest.view", "driver_inspection.submit"]],
+  ["/api/truck-routes/:id", "server/routes/truckRoutes.ts", ["truck_routes.view", "trailer_manifest.edit", "trailer_manifest.view", "driver_inspection.submit"]],
+  ["/api/trailers", "server/routes/trailers.ts", ["trailers.view", "trailer_manifest.edit", "trailer_manifest.view", "driver_inspection.submit"]],
+  ["/api/tractors", "server/routes/tractors.ts", ["tractors.view", "driver_inspection.submit"]],
+] as const) {
+  for (const feature of alternatives) {
+    if (path === "/api/truck-routes" && feature === "truck_routes.view") continue;
+    ROUTE_GATES.push(realGate(feature, "GET", path, sourceFile, [...alternatives]));
+  }
+}
+for (const fleet of ["trailers", "tractors"] as const) {
+  for (const [method, suffix, permission] of [
+    ["POST", "", "edit"], ["PUT", "/:id", "edit"], ["DELETE", "/:id", "delete"],
+  ] as const) {
+    ROUTE_GATES.push(realGate(`${fleet}.${permission}`, method, `/api/${fleet}${suffix}`, `server/routes/${fleet}.ts`));
+  }
+}
+
 // Features intentionally NOT covered by ROUTE_GATES because they are not
 // enforced via requireFeatureAccess middleware on a server route. The
 // EXEMPT_FEATURES negative test below asserts none of these accidentally
@@ -746,14 +809,14 @@ function buildTestApp() {
   // Test-only login endpoint to seed req.session.user without going through
   // Microsoft SSO (which can't be exercised from a test runner).
   app.post("/_test/login", (req, res) => {
-    const { id, email, name, role } = req.body ?? {};
+    const { id, email, name, role, locationIds } = req.body ?? {};
     (req.session as any).user = {
       id: id ?? 9001,
       microsoftId: "test-msid",
       name: name ?? "Test User",
       email: email ?? "test@example.com",
       role: role ?? "viewer",
-      locationIds: null,
+      locationIds: locationIds ?? null,
     };
     (req.session as any).isAuthenticated = true;
     req.session.save((err) => {
@@ -776,6 +839,9 @@ function buildTestApp() {
   registerReportRoutes(app);
   registerRosterRoutes(app);
   registerUKGRoutes(app);
+  registerTruckRouteRoutes(app);
+  registerTrailerRoutes(app);
+  registerTractorRoutes(app);
 
   // Mount stubs for routes registered inline in server/routes.ts (which we
   // can't import in isolation). Source-grep tests verify the production
@@ -880,6 +946,7 @@ async function revokeTestRole(feature: string): Promise<void> {
  */
 async function assertGated(opts: {
   feature: string;
+  prerequisites?: string[];
   method: string;
   path: string;
   body?: unknown;
@@ -888,25 +955,30 @@ async function assertGated(opts: {
   const { feature, method, path, body } = opts;
   const okStatuses = opts.okStatuses ?? BROADLY_OK;
 
-  const original = await grantTestRole(feature);
+  const originals = new Map<string, string[]>();
   try {
+    for (const key of [...(opts.prerequisites ?? []), feature]) {
+      originals.set(key, await grantTestRole(key));
+    }
     const cookie = await loginAs(TEST_ROLE);
 
     const granted = await request({ method, path, body, cookie });
-    // The gate passed iff we don't see the middleware's 401/403 responses.
-    // A downstream 403 from a different check (e.g. an inline admin-only
-    // guard inside the handler) is fine: it proves the request reached the
-    // handler.
+    assert.ok(
+      typeof granted.body !== "string" || !granted.body.includes(`Cannot ${method} `),
+      `${method} ${path} is not mounted in the test harness`,
+    );
+    // Only the documented manifest admin override may deny a granted role.
+    // Arbitrary downstream 403s must not mask regressions in compound gates.
     assert.notEqual(
       granted.status,
       401,
       `[${feature}] granted role should be authenticated`,
     );
     if (granted.status === 403) {
-      assert.notEqual(
+      assert.equal(feature, "trailer_manifest.delete", `[${feature}] granted role was forbidden`);
+      assert.equal(
         granted.body?.message,
-        "Access denied",
-        `[${feature}] granted role hit the feature-gate middleware (got "Access denied")`,
+        "Admin access required to delete manifests",
       );
     }
     const allowed = [...okStatuses, 403];
@@ -928,7 +1000,7 @@ async function assertGated(opts: {
       `[${feature}] revoked role should hit the feature-gate middleware (got ${JSON.stringify(revoked.body)})`,
     );
   } finally {
-    await setAllowedRoles(feature, original);
+    for (const [key, roles] of originals) await setAllowedRoles(key, roles);
   }
 }
 
@@ -1012,12 +1084,64 @@ test("custom role with no permissions is denied across a sample of gated endpoin
   }
 });
 
+test("anonymous requests cannot reach any inventoried route", async () => {
+  for (const gate of ROUTE_GATES) {
+    const res = await request({ method: gate.method, path: gate.path, body: gate.body });
+    assert.equal(res.status, 401, `${gate.method} ${gate.path} must require authentication`);
+  }
+});
+
+test("seasonal balances enforce store scope and the aggregate's second grant", async (t) => {
+  const { mysqlPool } = await import("../server/mysql");
+  const locations = [
+    { id: 1, name: "Test Store A", orderFormName: "Test Store A" },
+    { id: 2, name: "Test Store B", orderFormName: "Test Store B" },
+  ];
+  t.mock.method(storage, "getLocations", async () => locations);
+  const execute = t.mock.method(mysqlPool, "execute", async (_sql: string, params: unknown[]) => [
+    locations.filter(location => !params.includes("Test Store A") || location.id === 1)
+      .map(location => ({ location: location.name })),
+    [],
+  ]);
+  const originalSubmit = await grantTestRole("orders.submit");
+  const originalSeasonal = await getAllowedRoles("seasonal_inventory.view");
+  try {
+    await revokeTestRole("seasonal_inventory.view");
+    const login = await request({
+      method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1"] },
+    });
+    const cookie = login.cookie;
+    assert.ok(cookie);
+    const own = await request({ method: "GET", path: "/api/orders/seasonal-balances?location=Test%20Store%20A", cookie });
+    assert.equal(own.status, 200, "own-store lookup needs orders.submit only");
+    assert.deepEqual(own.body.balances.map((b: any) => b.location), ["Test Store A"]);
+    const callsBeforeDenial = execute.mock.callCount();
+    for (const path of ["/api/orders/seasonal-balances?location=Test%20Store%20B", "/api/orders/seasonal-balances"]) {
+      const denied = await request({ method: "GET", path, cookie });
+      assert.equal(denied.status, 403);
+      assert.equal(denied.body.message, "Access denied");
+    }
+    assert.equal(execute.mock.callCount(), callsBeforeDenial, "denied requests must not query balances");
+    await grantTestRole("seasonal_inventory.view");
+    const aggregate = await request({ method: "GET", path: "/api/orders/seasonal-balances", cookie });
+    assert.equal(aggregate.status, 200);
+    assert.deepEqual(aggregate.body.balances.map((b: any) => b.location), ["Test Store A"]);
+    const other = await request({ method: "GET", path: "/api/orders/seasonal-balances?location=Test%20Store%20B", cookie });
+    assert.equal(other.status, 403, "aggregate grant does not bypass store scope");
+  } finally {
+    await setAllowedRoles("orders.submit", originalSubmit);
+    await setAllowedRoles("seasonal_inventory.view", originalSeasonal);
+  }
+});
+
 // One concrete test per feature — generated from ROUTE_GATES so adding a new
 // SYSTEM_FEATURES entry only requires extending the table above.
 for (const gate of ROUTE_GATES) {
   test(`gate ${gate.feature} → ${gate.method} ${gate.path}`, async () => {
     await assertGated({
       feature: gate.feature,
+      prerequisites: gate.prerequisites,
       method: gate.method,
       path: gate.path,
       body: gate.body,
