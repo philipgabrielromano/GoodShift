@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, ChevronDown, Trash2, Copy, Loader2, FileDown
 import { Badge } from "@/components/ui/badge";
 import { cn, getJobTitle, getCanonicalJobCode, isSchedulableLocation } from "@/lib/utils";
 import { TASK_LIST } from "@shared/schema";
-import type { TaskAssignment as TaskAssignmentType, CustomTask } from "@shared/schema";
+import type { Location, TaskAssignment as TaskAssignmentType, CustomTask } from "@shared/schema";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { formatInTimeZone, toZonedTime } from "date-fns-tz";
@@ -207,12 +207,6 @@ interface Shift {
   employeeId: number;
   startTime: string;
   endTime: string;
-}
-
-interface Location {
-  id: number;
-  name: string;
-  isActive: boolean;
 }
 
 const HOUR_START = 7;

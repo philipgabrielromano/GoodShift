@@ -677,6 +677,7 @@ export default function Schedule() {
         employeeId: targetEmployeeId,
         startTime: newStartUTC,
         endTime: newEndUTC,
+        crossTrainedRole: null,
       };
       
       if (previousShifts) {

@@ -16,13 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { Plus, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Star, ClipboardList, BarChart3, MessageSquare, Trash2, StickyNote, Clock, Check } from "lucide-react";
 import { OPTIMIZATION_CHECKLIST, OPTIMIZATION_SURVEY_QUESTIONS } from "@shared/schema";
-import type { OptimizationEvent, OptimizationChecklistItem, OptimizationSurveyResponse } from "@shared/schema";
-
-interface Location {
-  id: number;
-  name: string;
-  isActive: boolean;
-}
+import type { Location, OptimizationEvent, OptimizationChecklistItem, OptimizationSurveyResponse } from "@shared/schema";
 
 const STATUS_LABELS: Record<string, string> = {
   planning: "Planning",

@@ -101,7 +101,7 @@ export function dv(value: string | number | null | undefined, branding: Resolved
 }
 
 export interface RenderLayoutArgs {
-  type: EmailTypeId;
+  type: EmailTypeId | "order_approved" | "order_denied";
   title: string;
   bodyHtml: string;
   ctaLabel?: string;
@@ -115,8 +115,16 @@ export interface RenderLayoutArgs {
 }
 
 export function renderEmailLayout(args: RenderLayoutArgs): string {
-  const headerColor = args.headerColorOverride || args.branding.headerColors[args.type];
-  const ctaColor = args.headerColorOverride || args.branding.headerColors[args.type];
+  // Approval and denial notifications predate the configurable email-type
+  // list in the shared schema. Keep their distinct templates renderable on the
+  // server without requiring a schema/data migration for branding settings.
+  const defaultHeaderColor = args.type === "order_approved"
+    ? "#4FBC86"
+    : args.type === "order_denied"
+      ? "#DF4E51"
+      : args.branding.headerColors[args.type];
+  const headerColor = args.headerColorOverride || defaultHeaderColor;
+  const ctaColor = args.headerColorOverride || defaultHeaderColor;
   const safeTitle = htmlEscape(args.title);
   const safeFooter = htmlEscape(args.footerText ?? "This is an automated notification from GoodShift. Please do not reply to this email.");
   const cta = args.ctaLabel && args.ctaHref

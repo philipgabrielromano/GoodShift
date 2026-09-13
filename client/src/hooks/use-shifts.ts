@@ -14,9 +14,9 @@ export function useShifts(start?: string, end?: string, employeeId?: number) {
 
       const res = await fetch(url.toString(), { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch shifts");
-      const data = await res.json();
+      const data = api.shifts.list.responses[200].parse(await res.json());
 
-      return (data as any[]).map(s => ({
+      return data.map(s => ({
         ...s,
         startTime: new Date(s.startTime),
         endTime: new Date(s.endTime)

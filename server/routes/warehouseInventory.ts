@@ -32,10 +32,7 @@ const itemsUpdateSchema = z.object({
 
 const createSchema = insertWarehouseInventoryCountSchema.omit({
   status: true,
-  finalizedAt: true,
-  finalizedById: true,
-  finalizedByName: true,
-} as any).extend({
+}).extend({
   copyFromCountId: z.number().int().positive().optional(),
   copyFromLatest: z.boolean().optional(),
   prefillFromEngine: z.boolean().optional(), // Default true: pre-fill qty AND expectedQty from on-hand engine
@@ -750,7 +747,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       // counts, the snapshotted expectedQty on each item row is authoritative.
       let expectedMap: Record<string, number> | undefined;
       if (count.status !== "final") {
-        const live = await computeWarehouseOnHand(count.warehouse, count.countDate);
+        const warehouse = WAREHOUSES.find(value => value === count.warehouse);
+        if (!warehouse) {
+          return res.status(500).json({ message: "Count has an invalid warehouse" });
+        }
+        const live = await computeWarehouseOnHand(warehouse, count.countDate);
         expectedMap = {};
         for (const it of live.items) expectedMap[it.itemName] = it.onHand;
       }
@@ -824,7 +825,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
 
       const { copyFromCountId: _a, copyFromLatest: _b, prefillFromEngine: _c, ...baseInput } = input;
       const created = await storage.createWarehouseInventoryCount(
-        baseInput as any,
+        baseInput,
         user,
         copyFromCountId ? { copyFromCountId } : prefillFromEngine ? { prefillFromEngine } : undefined,
       );

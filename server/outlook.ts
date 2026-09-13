@@ -1056,7 +1056,7 @@ export async function sendOrderApprovedEmail(
       ctaHref: `${data.appUrl}/orders`,
       branding,
     });
-    const subject = `${branding.appName}: Order Approved - ${data.orderType} - ${data.location}`;
+    const subject = `GoodShift: Order Approved - ${data.orderType} - ${data.location}`;
     const message = {
       subject,
       body: { contentType: 'HTML', content: emailBody },
@@ -1131,7 +1131,7 @@ export async function sendOrderDeniedEmail(
       ctaHref: `${data.appUrl}/orders`,
       branding,
     });
-    const subject = `${branding.appName}: Order Denied - ${data.orderType} - ${data.location}`;
+    const subject = `GoodShift: Order Denied - ${data.orderType} - ${data.location}`;
     const message = {
       subject,
       body: { contentType: 'HTML', content: emailBody },

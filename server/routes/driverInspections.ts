@@ -15,7 +15,10 @@ const DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
   allowedContentTypes: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
 };
 
-const LABEL_BY_KEY = new Map(DRIVER_INSPECTION_ITEMS.map(i => [i.key, i] as const));
+const LABEL_BY_KEY = DRIVER_INSPECTION_ITEMS.reduce(
+  (map, item) => map.set(item.key, item),
+  new Map<string, (typeof DRIVER_INSPECTION_ITEMS)[number]>(),
+);
 
 const resolveItemSchema = z.object({
   resolved: z.boolean(),
@@ -90,7 +93,7 @@ export function registerDriverInspectionRoutes(app: Express) {
         return {
           key: i.key,
           label: canonical?.label ?? i.label,
-          section: (canonical?.section ?? i.section) as "engine_off" | "engine_on",
+          section: canonical?.section ?? i.section,
           status: i.status,
           resolved: false,
           resolvedAt: null,

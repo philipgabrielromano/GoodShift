@@ -1510,11 +1510,9 @@ export async function registerRoutes(
         allowedRoles: z.array(z.string()),
       }));
       const updates = schema.parse(req.body);
-      const validFeatures = SYSTEM_FEATURES.map(f => f.feature);
       const legacyKeysToRetire = new Set<string>();
 
       for (const update of updates) {
-        if (!validFeatures.includes(update.feature)) continue;
         const featureInfo = SYSTEM_FEATURES.find(f => f.feature === update.feature);
         if (!featureInfo) continue;
 
@@ -1749,7 +1747,8 @@ export async function registerRoutes(
 
   app.delete("/api/roles/:name", requireAdmin, async (req, res) => {
     try {
-      const name = req.params.name;
+      const rawName = req.params.name;
+      const name = Array.isArray(rawName) ? rawName[0] ?? "" : rawName;
       const existing = await storage.getRoles();
       const target = existing.find(r => r.name === name);
       if (!target) return res.status(404).json({ message: "Role not found" });

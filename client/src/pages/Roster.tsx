@@ -11,13 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Target, BarChart3, TrendingUp, TrendingDown, Minus, Globe, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { usePermissions } from "@/hooks/use-permissions";
-import type { RosterTarget } from "@shared/schema";
-
-interface Location {
-  id: number;
-  name: string;
-  isActive: boolean;
-}
+import type { Location, RosterTarget } from "@shared/schema";
 
 interface RosterReportRow {
   jobCode: string;

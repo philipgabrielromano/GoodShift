@@ -131,7 +131,12 @@ export default function Settings() {
     }
   }, [settings?.loginTagline]);
 
-  const { data: authStatus } = useQuery<{ isAuthenticated: boolean; user: { id: string; name: string; email: string; role: string } | null; ssoConfigured: boolean }>({
+  const { data: authStatus } = useQuery<{
+    isAuthenticated: boolean;
+    user: { id: string; name: string; email: string; role: string } | null;
+    ssoConfigured: boolean;
+    accessibleFeatures?: string[];
+  }>({
     queryKey: ["/api/auth/status"],
   });
 
