@@ -2,3 +2,4 @@
 - [Tailscale key & secret propagation](tailscale-prod-outage.md) — expired auth key can down prod (dev looks fine); dev shells serve stale secret values for minutes after user updates.
 - [Schedule publication scope](schedule-publication-scope.md) — preserve legacy published-week visibility while limiting manager publication and clearing to authorized locations.
 - [Permission test contracts](permission-test-contracts.md) — verify form lookup dependencies, not just current route wiring, when repairing stale permission tests.
+- [Permission test isolation](permission-test-isolation.md) — direct test invocations must be safe; restoring shared permission snapshots can erase concurrent edits.

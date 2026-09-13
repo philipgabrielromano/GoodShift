@@ -5,6 +5,9 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
+    "test:permissions": "npx tsx --test test/permissions.test.ts",
+    "validate:release": "npm run test:permissions",
+    "prebuild": "npm run validate:release",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",

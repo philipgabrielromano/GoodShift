@@ -1,13 +1,47 @@
 import mysql from "mysql2/promise";
+import type { Pool } from "mysql2/promise";
 import { ORDER_RECONCILABLE_COLUMNS } from "@shared/schema";
 
 const LOCAL_PROXY_PORT = 13306;
+const TEST_POOL_SYMBOL = Symbol.for("goodshift.external-fixtures.mysql-pool");
+const TEST_FIXTURE_ENV = "GOODSHIFT_EXTERNAL_FIXTURES";
+const NODE_TEST_CONTEXT_ENV = "NODE_TEST_CONTEXT";
+
+/**
+ * Permission tests install an isolated pool before importing any route module.
+ *
+ * Keeping the injection point here (rather than replacing mysql2 throughout
+ * the application) means the production path remains exactly the same while
+ * tests can guarantee that a route can never open a real MySQL connection.
+ * The test helper deliberately owns the fixture implementation; this module
+ * only consumes the already-installed pool.
+ */
+function getInstalledTestPool(): Pool | undefined {
+  const candidate = (globalThis as unknown as Record<symbol, unknown>)[TEST_POOL_SYMBOL];
+  const fixtureRequested =
+    process.env[TEST_FIXTURE_ENV] === "1" || candidate !== undefined;
+  if (!fixtureRequested) return undefined;
+  if (!process.env[NODE_TEST_CONTEXT_ENV]) {
+    throw new Error("[MySQL] External fixtures require node --test");
+  }
+  const validPool =
+    candidate &&
+    typeof candidate === "object" &&
+    typeof (candidate as { execute?: unknown }).execute === "function" &&
+    typeof (candidate as { query?: unknown }).query === "function" &&
+    typeof (candidate as { getConnection?: unknown }).getConnection === "function" &&
+    typeof (candidate as { end?: unknown }).end === "function";
+  if (validPool) {
+    return candidate as Pool;
+  }
+  throw new Error("[MySQL] Fixture mode requested without a valid isolated pool");
+}
 
 const useTailscale = !!process.env.TAILSCALE_AUTH_KEY;
 const mysqlHost = useTailscale ? "127.0.0.1" : process.env.MYSQL_HOST;
 const mysqlPort = useTailscale ? LOCAL_PROXY_PORT : (Number(process.env.MYSQL_PORT) || 3306);
 
-const pool = mysql.createPool({
+const pool = getInstalledTestPool() ?? mysql.createPool({
   host: mysqlHost,
   port: mysqlPort,
   database: process.env.MYSQL_DATABASE,

@@ -23,11 +23,13 @@
  *
  * Run with:   npx tsx --test test/permissions.test.ts
  *
- * Requires DATABASE_URL to be set so the real feature_permissions table can
- * be read/written. The tests scope all changes to a unique synthetic role
- * string per run and restore allowed_roles after each test.
+ * Requires PostgreSQL binaries on PATH. A disposable local database is
+ * created automatically; DATABASE_URL and external service credentials are
+ * never used. Shared rows and real records cannot be modified.
  */
 
+import { cleanupPermissionDatabase } from "./helpers/permission-database";
+import { allowTestServer } from "./helpers/external-fixtures";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Express } from "express";
@@ -36,7 +38,7 @@ import http from "http";
 import type { AddressInfo } from "net";
 import { eq } from "drizzle-orm";
 
-import { db } from "../server/db";
+import { db, pool } from "../server/db";
 import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, SYSTEM_FEATURES, users } from "../shared/schema";
 import { storage } from "../server/storage";
 import {
@@ -1015,6 +1017,7 @@ before(async () => {
   });
   const addr = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${addr.port}`;
+  allowTestServer(baseUrl);
 });
 
 after(async () => {
@@ -1027,14 +1030,36 @@ after(async () => {
   // MySQL pool the node test runner hangs at exit (its idle connections
   // keep the event loop alive), which previously caused post-merge to
   // time out with a "river CANCEL" error.
-  const { pool } = await import("../server/db");
   const { mysqlPool } = await import("../server/mysql");
   await Promise.all([pool.end(), mysqlPool.end()]);
+  cleanupPermissionDatabase();
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test("fixtures: database and external services cannot reach shared records", async () => {
+  assert.equal(pool.options.database, "permissions_test");
+  assert.ok(pool.options.host?.startsWith("/"), "Postgres must use the private Unix socket");
+  assert.equal(pool.options.connectionString, undefined, "No inherited database URL");
+  const result = await pool.query("SELECT count(*)::int AS count FROM feature_permissions");
+  assert.equal(result.rows[0].count, 0, "Each run starts with empty permission rows");
+
+  const { mysqlPool } = await import("../server/mysql");
+  const [rows] = await mysqlPool.execute("SELECT * FROM orders WHERE id = 999999");
+  assert.deepEqual(rows, [], "Missing IDs come from an empty fixture, not real storage");
+  await assert.rejects(
+    mysqlPool.execute("DELETE FROM orders WHERE id = 999999"),
+    /Unexpected MySQL operation/,
+  );
+  const { ObjectStorageService } = await import("../server/replit_integrations/object_storage/objectStorage");
+  assert.throws(
+    () => new ObjectStorageService().getObjectEntityUploadURL(),
+    /Unexpected object storage operation/,
+  );
+  await assert.rejects(fetch("http://127.0.0.1:1106/"), /Unexpected network operation/);
+});
 
 test("admin shortcut: even with no permission row, admin role bypasses the gate", async () => {
   // attendance.edit removed for everyone except the synthetic role; admin must
