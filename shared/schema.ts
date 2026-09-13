@@ -405,6 +405,32 @@ export const insertPublishedScheduleSchema = createInsertSchema(publishedSchedul
 export type PublishedSchedule = typeof publishedSchedules.$inferSelect;
 export type InsertPublishedSchedule = z.infer<typeof insertPublishedScheduleSchema>;
 
+// A location-specific publication state. The legacy published_schedules row
+// remains the global marker; these rows are only used when a schedule is
+// published (or unpublished) for one location at a time. Locations are kept
+// as names, matching employees.location, rather than location IDs because UKG
+// employee location values are the canonical schedule scope.
+export const publishedScheduleOverrides = pgTable("published_schedule_overrides", {
+  id: serial("id").primaryKey(),
+  weekStart: date("week_start").notNull(),
+  location: text("location").notNull(),
+  isPublished: boolean("is_published").notNull().default(false),
+  publishedBy: integer("published_by"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("published_schedule_overrides_week_location_idx").on(table.weekStart, table.location),
+]);
+
+export const insertPublishedScheduleOverrideSchema = createInsertSchema(publishedScheduleOverrides).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type PublishedScheduleOverride = typeof publishedScheduleOverrides.$inferSelect;
+export type InsertPublishedScheduleOverride = z.infer<typeof insertPublishedScheduleOverrideSchema>;
+
 // === OCCURRENCES (Attendance Tracking) ===
 
 // Occurrences table for tracking attendance issues (tardiness, absences, NCNS)

@@ -1,2 +1,3 @@
 - [Employee hierarchy visibility](employee-hierarchy-visibility.md) — level-0 sees all only inside assigned locations; non-admins without locations see none; explicit reports never bypass location scope.
 - [Tailscale key & secret propagation](tailscale-prod-outage.md) — expired auth key can down prod (dev looks fine); dev shells serve stale secret values for minutes after user updates.
+- [Schedule publication scope](schedule-publication-scope.md) — preserve legacy published-week visibility while limiting manager publication and clearing to authorized locations.

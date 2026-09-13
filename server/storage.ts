@@ -13,6 +13,7 @@ import {
   timeClockPunches, type TimeClockPunch, type InsertTimeClockPunch,
   scheduleTemplates, type ScheduleTemplate, type InsertScheduleTemplate,
   publishedSchedules, type PublishedSchedule, type InsertPublishedSchedule,
+  publishedScheduleOverrides, type PublishedScheduleOverride,
   shiftPresets, type ShiftPreset, type InsertShiftPreset,
   occurrences, type Occurrence, type InsertOccurrence,
   occurrenceAdjustments, type OccurrenceAdjustment, type InsertOccurrenceAdjustment,
@@ -230,9 +231,15 @@ export interface IStorage {
   deleteScheduleTemplate(id: number): Promise<void>;
 
   // Published Schedules
-  isSchedulePublished(weekStart: string): Promise<boolean>;
-  publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule>;
-  unpublishSchedule(weekStart: string): Promise<void>;
+  isSchedulePublished(weekStart: string, location?: string | null): Promise<boolean>;
+  publishSchedule(weekStart: string, publishedBy?: number, location?: string): Promise<PublishedSchedule | PublishedScheduleOverride>;
+  unpublishSchedule(weekStart: string, location?: string): Promise<void>;
+  clearSchedule(
+    start: Date,
+    end: Date,
+    weekStart: string,
+    location?: string | null,
+  ): Promise<{ deletedCount: number; unpublished: boolean }>;
 
   // Shift Presets
   getShiftPresets(): Promise<ShiftPreset[]>;
@@ -358,6 +365,11 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Publication operations accept an optional database handle so isolated
+  // storage tests can run against a temporary schema. Production uses the
+  // shared application handle exactly as before.
+  constructor(private readonly scheduleDb: typeof db = db) {}
+
   // Employees
   async getEmployees(): Promise<Employee[]> {
     return await db.select().from(employees);
@@ -2056,26 +2068,258 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Published Schedules
-  async isSchedulePublished(weekStart: string): Promise<boolean> {
-    const [published] = await db.select().from(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
-    return !!published;
+  private async lockSchedulePublicationWeek(tx: any, weekStart: string): Promise<void> {
+    // hashtext gives us the int4 form accepted by pg_advisory_xact_lock.
+    // The lock is transaction-scoped, so every global, scoped, and atomic
+    // clear mutation for a week is serialized until its writes commit.
+    await tx.execute(sql`
+      SELECT pg_advisory_xact_lock(hashtext(${`published-schedule:${weekStart}`}))
+    `);
   }
 
-  async publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule> {
-    const existing = await this.isSchedulePublished(weekStart);
+  private async getSchedulePublicationStatus(
+    queryDb: any,
+    weekStart: string,
+    location?: string | null,
+  ): Promise<boolean> {
+    const [legacy] = await queryDb
+      .select({ id: publishedSchedules.id })
+      .from(publishedSchedules)
+      .where(eq(publishedSchedules.weekStart, weekStart));
+    const legacyPublished = !!legacy;
+
+    // An explicit location (including an empty-but-valid location name)
+    // consults its override first. A null location represents an employee
+    // without a location and therefore has no location override.
+    if (typeof location === "string") {
+      const [override] = await queryDb
+        .select({ isPublished: publishedScheduleOverrides.isPublished })
+        .from(publishedScheduleOverrides)
+        .where(and(
+          eq(publishedScheduleOverrides.weekStart, weekStart),
+          eq(publishedScheduleOverrides.location, location),
+        ));
+      return override ? override.isPublished : legacyPublished;
+    }
+    if (location === null) return legacyPublished;
+
+    // Undefined is the administrator aggregate view. Include names found on
+    // employees and names configured in Locations so an unstaffed configured
+    // store still has to be published. An employee without a location is
+    // included as a legacy-only scope.
+    const employeeLocationRows = await queryDb
+      .select({ location: employees.location })
+      .from(employees);
+    const configuredLocationRows = await queryDb
+      .select({ location: locations.name })
+      .from(locations);
+    const knownLocations = new Set<string>();
+    for (const row of employeeLocationRows) {
+      if (row.location !== null) knownLocations.add(row.location);
+    }
+    for (const row of configuredLocationRows) {
+      knownLocations.add(row.location);
+    }
+    const hasUnlocatedEmployees = employeeLocationRows.some((row: { location: string | null }) => row.location === null);
+
+    const overrides = await queryDb
+      .select({
+        location: publishedScheduleOverrides.location,
+        isPublished: publishedScheduleOverrides.isPublished,
+      })
+      .from(publishedScheduleOverrides)
+      .where(eq(publishedScheduleOverrides.weekStart, weekStart));
+    const overrideByLocation = new Map<string, boolean>(
+      overrides.map((override: { location: string; isPublished: boolean }) => [
+        override.location,
+        override.isPublished,
+      ]),
+    );
+
+    if (knownLocations.size === 0 && !hasUnlocatedEmployees) return legacyPublished;
+    for (const knownLocation of Array.from(knownLocations)) {
+      const published = overrideByLocation.has(knownLocation)
+        ? overrideByLocation.get(knownLocation)
+        : legacyPublished;
+      if (!published) return false;
+    }
+    return !hasUnlocatedEmployees || legacyPublished;
+  }
+
+  private async upsertSchedulePublicationOverride(
+    tx: any,
+    weekStart: string,
+    location: string,
+    isPublished: boolean,
+    publishedBy?: number,
+  ): Promise<PublishedScheduleOverride> {
+    const now = new Date();
+    const [existing] = await tx
+      .select()
+      .from(publishedScheduleOverrides)
+      .where(and(
+        eq(publishedScheduleOverrides.weekStart, weekStart),
+        eq(publishedScheduleOverrides.location, location),
+      ));
+
     if (existing) {
-      const [updated] = await db.update(publishedSchedules)
-        .set({ publishedBy, publishedAt: new Date() })
-        .where(eq(publishedSchedules.weekStart, weekStart))
+      const update: Partial<PublishedScheduleOverride> = {
+        isPublished,
+        updatedAt: now,
+      };
+      if (isPublished) {
+        update.publishedAt = now;
+        if (publishedBy !== undefined) update.publishedBy = publishedBy;
+      }
+      const [updated] = await tx
+        .update(publishedScheduleOverrides)
+        .set(update)
+        .where(eq(publishedScheduleOverrides.id, existing.id))
         .returning();
       return updated;
     }
-    const [newPublished] = await db.insert(publishedSchedules).values({ weekStart, publishedBy }).returning();
-    return newPublished;
+
+    const [created] = await tx
+      .insert(publishedScheduleOverrides)
+      .values({
+        weekStart,
+        location,
+        isPublished,
+        publishedBy: isPublished ? (publishedBy ?? null) : null,
+        publishedAt: isPublished ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return created;
   }
 
-  async unpublishSchedule(weekStart: string): Promise<void> {
-    await db.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+  async isSchedulePublished(weekStart: string, location?: string | null): Promise<boolean> {
+    return this.getSchedulePublicationStatus(this.scheduleDb, weekStart, location);
+  }
+
+  async publishSchedule(
+    weekStart: string,
+    publishedBy?: number,
+    location?: string,
+  ): Promise<PublishedSchedule | PublishedScheduleOverride> {
+    return this.scheduleDb.transaction(async (tx) => {
+      await this.lockSchedulePublicationWeek(tx, weekStart);
+
+      if (location !== undefined) {
+        return this.upsertSchedulePublicationOverride(tx, weekStart, location, true, publishedBy);
+      }
+
+      const [existing] = await tx
+        .select()
+        .from(publishedSchedules)
+        .where(eq(publishedSchedules.weekStart, weekStart));
+      let published: PublishedSchedule;
+      if (existing) {
+        const [updated] = await tx
+          .update(publishedSchedules)
+          .set({ publishedBy: publishedBy ?? null, publishedAt: new Date() })
+          .where(eq(publishedSchedules.id, existing.id))
+          .returning();
+        published = updated;
+      } else {
+        const [created] = await tx
+          .insert(publishedSchedules)
+          .values({ weekStart, publishedBy: publishedBy ?? null })
+          .returning();
+        published = created;
+      }
+
+      // A global publication supersedes all location-specific exceptions.
+      await tx
+        .delete(publishedScheduleOverrides)
+        .where(eq(publishedScheduleOverrides.weekStart, weekStart));
+      return published;
+    });
+  }
+
+  async unpublishSchedule(weekStart: string, location?: string): Promise<void> {
+    await this.scheduleDb.transaction(async (tx) => {
+      await this.lockSchedulePublicationWeek(tx, weekStart);
+
+      if (location !== undefined) {
+        await this.upsertSchedulePublicationOverride(tx, weekStart, location, false);
+        return;
+      }
+
+      await tx.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+      await tx
+        .delete(publishedScheduleOverrides)
+        .where(eq(publishedScheduleOverrides.weekStart, weekStart));
+    });
+  }
+
+  async clearSchedule(
+    start: Date,
+    end: Date,
+    weekStart: string,
+    location?: string | null,
+  ): Promise<{ deletedCount: number; unpublished: boolean }> {
+    return this.scheduleDb.transaction(async (tx) => {
+      await this.lockSchedulePublicationWeek(tx, weekStart);
+      const isScoped = typeof location === "string";
+
+      let deletedCount = 0;
+      if (isScoped) {
+        const locationEmployees = await tx
+          .select({ id: employees.id })
+          .from(employees)
+          .where(eq(employees.location, location as string));
+        const employeeIds = locationEmployees.map((employee: { id: number }) => employee.id);
+        if (employeeIds.length > 0) {
+          const deleted = await tx
+            .delete(shifts)
+            .where(and(
+              gte(shifts.startTime, start),
+              lt(shifts.startTime, end),
+              inArray(shifts.employeeId, employeeIds),
+            ))
+            .returning({ id: shifts.id });
+          deletedCount = deleted.length;
+        }
+      } else {
+        const deleted = await tx
+          .delete(shifts)
+          .where(and(
+            gte(shifts.startTime, start),
+            lt(shifts.startTime, end),
+          ))
+          .returning({ id: shifts.id });
+        deletedCount = deleted.length;
+      }
+
+      let unpublished: boolean;
+      if (isScoped) {
+        unpublished = await this.getSchedulePublicationStatus(tx, weekStart, location as string);
+        // Keep a false scoped override so a global legacy marker cannot
+        // immediately republish the location after it has been cleared.
+        if (unpublished) {
+          await this.upsertSchedulePublicationOverride(tx, weekStart, location as string, false);
+        }
+      } else {
+        const [legacy] = await tx
+          .select({ id: publishedSchedules.id })
+          .from(publishedSchedules)
+          .where(eq(publishedSchedules.weekStart, weekStart));
+        const overrides = await tx
+          .select({ isPublished: publishedScheduleOverrides.isPublished })
+          .from(publishedScheduleOverrides)
+          .where(eq(publishedScheduleOverrides.weekStart, weekStart));
+        unpublished = !!legacy || overrides.some((override: { isPublished: boolean }) => override.isPublished);
+
+        await tx.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+        await tx
+          .delete(publishedScheduleOverrides)
+          .where(eq(publishedScheduleOverrides.weekStart, weekStart));
+      }
+
+      return { deletedCount, unpublished };
+    });
   }
 
   // Shift Presets

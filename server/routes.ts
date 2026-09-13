@@ -56,6 +56,12 @@ function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTim
   });
 }
 
+function isPublicationWeek(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express,
@@ -291,29 +297,25 @@ export async function registerRoutes(
     }
 
     if (user?.role === "viewer") {
-      const publishedWeeks = new Set<string>();
+      const employees = await storage.getEmployees();
+      const employeeLocations = new Map(employees.map(employee => [employee.id, employee.location]));
+      const publicationStatus = new Map<string, boolean>();
+      const visibleShifts = [];
       for (const shift of shifts) {
         const shiftDate = new Date(shift.startTime);
-        const day = shiftDate.getUTCDay();
-        const weekStartDate = new Date(shiftDate);
+        // Calculate Sunday from the local calendar date, not the UTC weekday.
+        const weekStartDate = new Date(`${formatInTimeZone(shiftDate, TIMEZONE, "yyyy-MM-dd")}T00:00:00Z`);
+        const day = weekStartDate.getUTCDay();
         weekStartDate.setUTCDate(weekStartDate.getUTCDate() - day);
-        const weekKey = formatInTimeZone(weekStartDate, TIMEZONE, "yyyy-MM-dd");
-        publishedWeeks.add(weekKey);
-      }
-      const publishedSet = new Set<string>();
-      for (const wk of publishedWeeks) {
-        if (await storage.isSchedulePublished(wk)) {
-          publishedSet.add(wk);
+        const weekKey = weekStartDate.toISOString().slice(0, 10);
+        const location = employeeLocations.get(shift.employeeId) ?? null;
+        const key = JSON.stringify([weekKey, location]);
+        if (!publicationStatus.has(key)) {
+          publicationStatus.set(key, await storage.isSchedulePublished(weekKey, location));
         }
+        if (publicationStatus.get(key)) visibleShifts.push(shift);
       }
-      shifts = shifts.filter(shift => {
-        const shiftDate = new Date(shift.startTime);
-        const day = shiftDate.getUTCDay();
-        const weekStartDate = new Date(shiftDate);
-        weekStartDate.setUTCDate(weekStartDate.getUTCDate() - day);
-        const weekKey = formatInTimeZone(weekStartDate, TIMEZONE, "yyyy-MM-dd");
-        return publishedSet.has(weekKey);
-      });
+      shifts = visibleShifts;
     }
 
     res.json(shifts);
@@ -994,29 +996,25 @@ export async function registerRoutes(
       const user = (req.session as any).user;
       const { effectiveLocation: location, error } = await resolveAuthorizedLocation(user, parsed.location);
       if (error) return res.status(403).json({ message: error });
-      const startDate = new Date(parsed.weekStart);
-      const endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const inputDate = new Date(parsed.weekStart);
+      if (isNaN(inputDate.getTime())) return res.status(400).json({ message: "Invalid weekStart date" });
+      const weekStartDate = /^\d{4}-\d{2}-\d{2}$/.test(parsed.weekStart)
+        ? parsed.weekStart : formatInTimeZone(inputDate, TIMEZONE, "yyyy-MM-dd");
+      if (!isPublicationWeek(weekStartDate)) return res.status(400).json({ message: "Invalid weekStart date" });
+      const startDate = fromZonedTime(`${weekStartDate}T00:00:00`, TIMEZONE);
+      const endDay = new Date(`${weekStartDate}T00:00:00Z`);
+      endDay.setUTCDate(endDay.getUTCDate() + 7);
+      const endDate = fromZonedTime(`${endDay.toISOString().slice(0, 10)}T00:00:00`, TIMEZONE);
       
       console.log(`[Clear Schedule] Clearing shifts for week ${parsed.weekStart}, location: ${location || "ALL"}`);
       
-      const deletedCount = await storage.deleteShiftsByDateRange(startDate, endDate, location);
-      
-      console.log(`[Clear Schedule] Deleted ${deletedCount} shifts`);
-      
-      // Auto-unpublish the schedule when clearing
-      // Use formatInTimeZone to get consistent date format
-      const weekStartDate = formatInTimeZone(startDate, TIMEZONE, "yyyy-MM-dd");
-      const wasPublished = await storage.isSchedulePublished(weekStartDate);
-      if (wasPublished && user.role === "admin") {
-        await storage.unpublishSchedule(weekStartDate);
-        console.log(`[Clear Schedule] Auto-unpublished schedule for week ${weekStartDate}`);
-      }
+      const { deletedCount, unpublished } = await storage.clearSchedule(startDate, endDate, weekStartDate, location);
       
       const locationLabel = location || "all locations";
       res.json({ 
         message: `Cleared ${deletedCount} shifts for ${locationLabel}`, 
         deletedCount,
-        unpublished: wasPublished && user.role === "admin"
+        unpublished
       });
     } catch (err) {
       console.error("Clear schedule error:", err);
@@ -1238,10 +1236,18 @@ export async function registerRoutes(
   app.get("/api/schedule/published/:weekStart", requireAuth, async (req, res) => {
     try {
       const weekStart = req.params.weekStart as string;
-      if (!isValidDate(weekStart)) {
+      if (!isPublicationWeek(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
-      const isPublished = await storage.isSchedulePublished(weekStart);
+      const requestedLocation = req.query.location;
+      if (requestedLocation !== undefined && typeof requestedLocation !== "string") {
+        return res.status(400).json({ message: "Invalid location" });
+      }
+      const { effectiveLocation: location, error } = await resolveAuthorizedLocation(
+        (req.session as any).user, requestedLocation as string | undefined,
+      );
+      if (error) return res.status(403).json({ message: error });
+      const isPublished = await storage.isSchedulePublished(weekStart, location);
       res.json({ weekStart, isPublished });
     } catch (error) {
       console.error("Error checking schedule publish status:", error);
@@ -1250,25 +1256,29 @@ export async function registerRoutes(
   });
 
   // Publish a week's schedule (anyone with schedule.publish feature)
-  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), requireAdmin, async (req, res) => {
+  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       
       const { weekStart } = req.body;
-      if (!weekStart || !isValidDate(weekStart)) {
+      if (!isPublicationWeek(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
       
-      const published = await storage.publishSchedule(weekStart, user.id);
+      if (req.body.location !== undefined && typeof req.body.location !== "string") {
+        return res.status(400).json({ message: "Invalid location" });
+      }
+      const { effectiveLocation: location, error } = await resolveAuthorizedLocation(user, req.body.location);
+      if (error) return res.status(403).json({ message: error });
+      const published = await storage.publishSchedule(weekStart, user.id, location);
       res.json({ message: "Schedule published", published });
-
-      const { location } = req.body;
 
       (async () => {
         try {
-          const weekStartDate = new Date(weekStart);
-          const weekEndDate = new Date(weekStartDate);
-          weekEndDate.setDate(weekEndDate.getDate() + 7);
+          const weekStartDate = fromZonedTime(`${weekStart}T00:00:00`, TIMEZONE);
+          const endDay = new Date(`${weekStart}T00:00:00Z`);
+          endDay.setUTCDate(endDay.getUTCDate() + 7);
+          const weekEndDate = fromZonedTime(`${endDay.toISOString().slice(0, 10)}T00:00:00`, TIMEZONE);
 
           const allShifts = await storage.getShifts(weekStartDate, weekEndDate);
           const employees = await storage.getEmployees();
@@ -1314,15 +1324,23 @@ export async function registerRoutes(
   });
 
   // Unpublish a week's schedule (anyone with schedule.publish feature)
-  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), requireAdmin, async (req, res) => {
+  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), async (req, res) => {
     try {
       
       const weekStart = req.params.weekStart as string;
-      if (!isValidDate(weekStart)) {
+      if (!isPublicationWeek(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
       
-      await storage.unpublishSchedule(weekStart);
+      const requestedLocation = req.query.location;
+      if (requestedLocation !== undefined && typeof requestedLocation !== "string") {
+        return res.status(400).json({ message: "Invalid location" });
+      }
+      const { effectiveLocation: location, error } = await resolveAuthorizedLocation(
+        (req.session as any).user, requestedLocation as string | undefined,
+      );
+      if (error) return res.status(403).json({ message: error });
+      await storage.unpublishSchedule(weekStart, location);
       res.status(204).send();
     } catch (error) {
       console.error("Error unpublishing schedule:", error);

@@ -77,6 +77,8 @@ The `shared/` directory contains `schema.ts` (Drizzle table definitions and Zod 
 - **clsx/tailwind-merge**: Conditional CSS class composition.
 
 ### Testing
+- **Schedule publication isolation**: `npx tsx --test test/access-control.test.ts test/storage-publication.test.ts` covers assigned-location authorization and real PostgreSQL publication/clear transactions. Storage tests create and remove an isolated temporary schema, never modifying application data.
+- **Publishing schema changes**: Location-scoped publication requires `published_schedule_overrides` from `shared/schema.ts`. Apply this additive schema through the normal Publish process before the new server serves production traffic; do not manually edit production permissions or migrate production from development shell commands. Legacy `published_schedules` rows remain intact and require no backfill.
 - **Permission integration tests**: `test/permissions.test.ts` exercises `requireFeatureAccess` against the real `feature_permissions` table by mounting the actual occurrences/coaching/shift-trades route registrations and a `schedule.publish` stub. A test-only `/_test/login` endpoint seeds `req.session.user` with a synthetic role per run so we don't need Microsoft SSO. Run with `npx tsx --test test/permissions.test.ts`. Requires `DATABASE_URL`. Tests scope all `feature_permissions` mutations to a unique synthetic role and restore original `allowed_roles` after each case.
 
 ### Integrations
