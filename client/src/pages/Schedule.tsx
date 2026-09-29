@@ -421,6 +421,14 @@ export default function Schedule() {
     );
   }, [locations, isAdmin, userLocationIds]);
 
+  // Export only the selected, authorized scope. A viewer's shifts are served
+  // only for published weeks, so do not export roster/leave data for an
+  // unpublished week even when the export permission is granted.
+  const canExportVisibleSchedule = canExportSchedulePDF
+    && canViewSchedule
+    && (userRole !== "viewer" || isSchedulePublished)
+    && (isAdmin || userLocations.some(location => location.name === selectedLocation));
+
   // A multi-location non-admin must select one assigned location before
   // publishing. The API cannot resolve an "all" scope for that user. Users
   // without a valid assigned location cannot publish either.
@@ -798,11 +806,11 @@ export default function Schedule() {
   };
 
   const handleExportPDF = async () => {
-    if (!canExportSchedulePDF) {
-      toast({ variant: "destructive", title: "Export Denied", description: "You do not have permission to export schedule PDFs." });
+    if (!canExportVisibleSchedule) {
+      toast({ variant: "destructive", title: "Export Denied", description: "The selected schedule is not available for export." });
       return;
     }
-    if (!shifts || !employees) {
+    if (!shifts || !employees || shiftsStale) {
       toast({ variant: "destructive", title: "Export Failed", description: "Schedule data is not loaded yet." });
       return;
     }
@@ -969,9 +977,9 @@ export default function Schedule() {
     const lastAutoTable = (doc as any).lastAutoTable;
     const finalY = lastAutoTable?.finalY ? lastAutoTable.finalY + 10 : 150;
     
+    const exportedEmployeeIds = new Set(filteredEmployees.map(emp => emp.id));
     const totalScheduledHours = shifts.reduce((sum, s) => {
-      const emp = employeeById.get(s.employeeId);
-      if (selectedLocation && selectedLocation !== "all" && emp?.location !== selectedLocation) return sum;
+      if (!exportedEmployeeIds.has(s.employeeId)) return sum;
       return sum + calculatePaidHours(new Date(s.startTime), new Date(s.endTime));
     }, 0);
     
@@ -1377,9 +1385,10 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Actions Bar - permission driven, hidden on mobile */}
-      {!isMobile && canActOnSchedule && (
+      {/* Export is available in both layouts, independently of edit/publish actions. */}
+      {((!isMobile && canActOnSchedule) || canExportVisibleSchedule) && (
         <div className="flex items-center justify-center gap-2 flex-wrap" data-testid="actions-bar">
+          {!isMobile && <>
           {/* Publish/Unpublish Button */}
           {canPublishSchedule && (isSchedulePublished ? (
             <Button
@@ -1500,15 +1509,6 @@ export default function Schedule() {
           </DropdownMenu>
           )}
           
-          {canExportSchedulePDF && <Button
-            variant="outline" 
-            onClick={handleExportPDF}
-            data-testid="button-export-pdf"
-          >
-            <Printer className="w-4 h-4 mr-2" />
-            Export PDF
-          </Button>}
-          
           {canEditSchedule && (
           <Button 
             variant="outline" 
@@ -1521,6 +1521,16 @@ export default function Schedule() {
             {isClearing ? "Clearing..." : "Clear Week"}
           </Button>
           )}
+          </>}
+          {canExportVisibleSchedule && <Button
+            variant="outline"
+            onClick={handleExportPDF}
+            disabled={shiftsStale}
+            data-testid="button-export-pdf"
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Export PDF
+          </Button>}
         </div>
       )}
 

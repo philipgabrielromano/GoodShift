@@ -26,9 +26,13 @@ test("missing export config starts from effective view roles, including legacy g
   );
 });
 
-test("browser PDF export checks its own permission at the button and inside the handler", () => {
+test("browser PDF export is available in both layouts without edit rights, only for visible authorized schedules", () => {
   const source = readFileSync(new URL("../client/src/pages/Schedule.tsx", import.meta.url), "utf8");
   assert.match(source, /const canExportSchedulePDF = can\("schedule\.export_pdf"\)/);
-  assert.match(source, /const handleExportPDF = async \(\) => \{\s*if \(!canExportSchedulePDF\) \{[\s\S]*?return;\s*\}/);
-  assert.match(source, /\{canExportSchedulePDF && <Button[\s\S]*?onClick=\{handleExportPDF\}[\s\S]*?Export PDF[\s\S]*?<\/Button>\}/);
+  assert.match(source, /const canExportVisibleSchedule = canExportSchedulePDF\s*&& canViewSchedule\s*&& \(userRole !== "viewer" \|\| isSchedulePublished\)\s*&& \(isAdmin \|\| userLocations\.some\(location => location\.name === selectedLocation\)\)/);
+  assert.match(source, /const handleExportPDF = async \(\) => \{\s*if \(!canExportVisibleSchedule\) \{[\s\S]*?return;\s*\}/);
+  assert.match(source, /\(\(!isMobile && canActOnSchedule\) \|\| canExportVisibleSchedule\)/);
+  assert.match(source, /\{canExportVisibleSchedule && <Button[\s\S]*?onClick=\{handleExportPDF\}[\s\S]*?Export PDF[\s\S]*?<\/Button>\}/);
+  assert.match(source, /if \(!shifts \|\| !employees \|\| shiftsStale\)/);
+  assert.match(source, /const exportedEmployeeIds = new Set\(filteredEmployees\.map\(emp => emp\.id\)\)/);
 });
