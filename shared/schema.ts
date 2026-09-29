@@ -1697,6 +1697,7 @@ export const FEATURE_CATEGORIES = [
 export const SYSTEM_FEATURES = [
   // Scheduling
   { category: "Scheduling", feature: "schedule.view", label: "View Schedule", description: "See the weekly schedule" },
+  { category: "Scheduling", feature: "schedule.export_pdf", label: "Export Schedule PDF", description: "Download the weekly schedule as a PDF" },
   { category: "Scheduling", feature: "schedule.edit", label: "Edit Shifts", description: "Create, update, delete shifts; clear the schedule" },
   { category: "Scheduling", feature: "schedule.publish", label: "Publish Schedule", description: "Publish schedules and send notifications" },
   { category: "Scheduling", feature: "schedule.generate", label: "Auto-Generate Schedule", description: "Run the automatic schedule generator" },
@@ -1782,6 +1783,7 @@ export const SYSTEM_FEATURES = [
 export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   // Scheduling
   "schedule.view": ["admin", "manager", "optimizer", "viewer"],
+  "schedule.export_pdf": ["admin", "manager", "optimizer", "viewer"],
   "schedule.edit": ["admin", "manager"],
   "schedule.publish": ["admin", "manager"],
   "schedule.generate": ["admin", "manager"],
@@ -1862,11 +1864,25 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "users.delete": ["admin"],
 };
 
+// Until schedule.export_pdf has an explicit row, preserve the schedule access
+// that existed before the export permission was introduced (including legacy
+// "schedule" grants). Once saved, export is independent of schedule.view.
+export function initialScheduleExportRoles(
+  rows: ReadonlyArray<{ feature: string; allowedRoles: string[] }>,
+): string[] {
+  const viewRoles = rows.find(row => row.feature === "schedule.view")?.allowedRoles
+    ?? DEFAULT_FEATURE_PERMISSIONS["schedule.view"];
+  const legacyRoles = rows.find(row => row.feature === "schedule")?.allowedRoles ?? [];
+  return Array.from(new Set([...viewRoles, ...legacyRoles]));
+}
+
 // Backward-compatibility: old single-key features were split into multiple
 // granular keys. If a DB row still uses a legacy key, its allowedRoles are
 // unioned into each of its granular children at runtime so existing
 // customizations continue to work until an admin re-saves with new keys.
 export const LEGACY_FEATURE_EXPANSIONS: Record<string, string[]> = {
+  // Export inherits effective view grants only when no explicit export row
+  // exists; it must not be permanently unioned with legacy schedule grants.
   schedule: ["schedule.view", "schedule.edit", "schedule.publish", "schedule.generate", "schedule.templates", "schedule.roster_targets"],
   employees: ["employees.view", "employees.edit"],
   attendance: ["attendance.view", "attendance.edit"],

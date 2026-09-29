@@ -66,7 +66,7 @@ export function requireOptimizer(req: Request, res: Response, next: NextFunction
 // Dynamic feature-based permission middleware
 // Checks the feature_permissions table to see if the user's role has access
 import { db } from "./db";
-import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, LEGACY_FEATURE_EXPANSIONS } from "@shared/schema";
+import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, LEGACY_FEATURE_EXPANSIONS, initialScheduleExportRoles } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 let permissionsCache: Record<string, string[]> | null = null;
@@ -100,6 +100,11 @@ export async function getFeaturePermissions(): Promise<Record<string, string[]>>
         for (const r of legacyRoles) merged.add(r);
         perms[child] = Array.from(merged);
       }
+    }
+    // An absent export row inherits the pre-existing effective schedule view
+    // grants. An explicit row (including []) is authoritative and independent.
+    if (!rows.some(row => row.feature === "schedule.export_pdf")) {
+      perms["schedule.export_pdf"] = initialScheduleExportRoles(rows);
     }
     permissionsCache = perms;
     cacheTimestamp = now;

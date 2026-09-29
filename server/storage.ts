@@ -45,7 +45,7 @@ import {
   driverInspections, type DriverInspection, type InsertDriverInspection, type DriverInspectionItem,
   managerDirectReports, type ManagerDirectReport,
   jobTitleVisibility, type JobTitleVisibility,
-  featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS,
+  featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS, initialScheduleExportRoles,
 } from "@shared/schema";
 import { eq, ne, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
 
@@ -669,7 +669,9 @@ export class DatabaseStorage implements IStorage {
         if (dot <= 0) continue;
         const group = f.feature.slice(0, dot);
         if (!groupsWithExplicitRows.has(group)) continue;
-        const defaults = DEFAULT_FEATURE_PERMISSIONS[f.feature] || ["admin"];
+        const defaults = f.feature === "schedule.export_pdf"
+          ? initialScheduleExportRoles(existingRows)
+          : DEFAULT_FEATURE_PERMISSIONS[f.feature] || ["admin"];
         const withAdmin = defaults.includes("admin") ? defaults : ["admin", ...defaults];
         toInsert.push({
           feature: f.feature,

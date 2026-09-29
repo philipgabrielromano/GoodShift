@@ -36,12 +36,13 @@ import express, { type Express } from "express";
 import session from "express-session";
 import http from "http";
 import type { AddressInfo } from "net";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { db, pool } from "../server/db";
 import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, SYSTEM_FEATURES, users } from "../shared/schema";
 import { storage } from "../server/storage";
 import {
+  getFeaturePermissions,
   invalidatePermissionsCache,
   requireFeatureAccess,
 } from "../server/middleware";
@@ -756,6 +757,7 @@ for (const fleet of ["trailers", "tractors"] as const) {
 // gain a middleware gate without being moved into ROUTE_GATES.
 const EXEMPT_FEATURES: Record<string, string> = {
   "schedule.view": "Display-only filter; schedule listing is gated by requireAuth, not feature middleware.",
+  "schedule.export_pdf": "PDF is generated in the browser; the button and export handler are gated with usePermissions, with no server PDF endpoint.",
   "employees.view": "Employee directory listing is gated by requireAuth; visibility filtering happens in handlers, not via requireFeatureAccess middleware.",
   "raw_shifts.view": "Client-side navigation guard only (Navigation.tsx); no server route gates it.",
   "employees.has_direct_reports": "Role capability flag consumed by direct-report assignment logic, not a route gate.",
@@ -1059,6 +1061,43 @@ test("fixtures: database and external services cannot reach shared records", asy
     /Unexpected object storage operation/,
   );
   await assert.rejects(fetch("http://127.0.0.1:1106/"), /Unexpected network operation/);
+});
+
+test("schedule export inherits view only while unconfigured, then remains independently revocable", async () => {
+  const expandedViewRoles = ["admin", "manager", "optimizer", "viewer", "dmdirector", "team_lead", "asstmanager", "hradmin", "transportation", "ordering"];
+  try {
+    await setAllowedRoles("schedule.view", expandedViewRoles);
+    let perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], expandedViewRoles, "missing export row inherits existing view grants");
+
+    await storage.seedFeaturePermissions();
+    assert.deepEqual(await getAllowedRoles("schedule.export_pdf"), expandedViewRoles, "backfill must snapshot existing view grants");
+
+    await setAllowedRoles("schedule.export_pdf", ["admin"]);
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], ["admin"], "explicit export grant is not unioned with view");
+    await storage.seedFeaturePermissions();
+    assert.deepEqual(await getAllowedRoles("schedule.export_pdf"), ["admin"], "backfill must not overwrite an explicit export row");
+
+    await setAllowedRoles("schedule.export_pdf", []);
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], [], "explicit empty row does not inherit view");
+
+    await setAllowedRoles("schedule", ["legacy_only_role"]);
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], [], "legacy schedule grants cannot override explicit revocation");
+    await db.delete(featurePermissions).where(eq(featurePermissions.feature, "schedule.export_pdf"));
+    invalidatePermissionsCache();
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], [...expandedViewRoles, "legacy_only_role"], "missing export row follows effective view without duplicates");
+  } finally {
+    await db.delete(featurePermissions).where(eq(featurePermissions.feature, "schedule"));
+    await db.delete(featurePermissions).where(inArray(
+      featurePermissions.feature,
+      SYSTEM_FEATURES.filter(feature => feature.feature.startsWith("schedule.")).map(feature => feature.feature),
+    ));
+    invalidatePermissionsCache();
+  }
 });
 
 test("admin shortcut: even with no permission row, admin role bypasses the gate", async () => {

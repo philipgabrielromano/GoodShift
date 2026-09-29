@@ -357,6 +357,7 @@ export default function Schedule() {
   const isSchedulePublished = publishStatus?.isPublished ?? false;
   const { can, role: userRole } = usePermissions();
   const canEditSchedule = can("schedule.edit");
+  const canExportSchedulePDF = can("schedule.export_pdf");
   const canPublishSchedule = can("schedule.publish");
   const canGenerateSchedule = can("schedule.generate");
   const canManageTemplates = can("schedule.templates");
@@ -797,6 +798,10 @@ export default function Schedule() {
   };
 
   const handleExportPDF = async () => {
+    if (!canExportSchedulePDF) {
+      toast({ variant: "destructive", title: "Export Denied", description: "You do not have permission to export schedule PDFs." });
+      return;
+    }
     if (!shifts || !employees) {
       toast({ variant: "destructive", title: "Export Failed", description: "Schedule data is not loaded yet." });
       return;
@@ -1495,14 +1500,14 @@ export default function Schedule() {
           </DropdownMenu>
           )}
           
-          <Button 
+          {canExportSchedulePDF && <Button
             variant="outline" 
             onClick={handleExportPDF}
             data-testid="button-export-pdf"
           >
             <Printer className="w-4 h-4 mr-2" />
             Export PDF
-          </Button>
+          </Button>}
           
           {canEditSchedule && (
           <Button 
