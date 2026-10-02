@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { unambiguousOrderLocationNames } from "../order-location-access";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
 import { requireFeatureAccess, requireAdmin, userHasFeature } from "../middleware";
 import type { PoolConnection } from "mysql2/promise";
@@ -79,11 +80,7 @@ export async function getUserAllowedLocationNames(
 
   const idSet = new Set(ids);
   const allLocations = await storage.getLocations();
-  const names = allLocations
-    .filter((l: any) => idSet.has(String(l.id)))
-    .map((l: any) => (l.orderFormName ?? l.name) as string);
-  // De-dupe in case orderFormName collides across rows.
-  return Array.from(new Set(names));
+  return unambiguousOrderLocationNames(allLocations, idSet);
 }
 
 // Writes an audit row to the Postgres `order_events` table. State-change
@@ -444,7 +441,8 @@ interface LocationBalance {
   seasons: SeasonBalance[];
 }
 
-async function loadBalances(location?: string): Promise<LocationBalance[]> {
+async function loadBalances(location?: string, allowedLocations: string[] | null = null): Promise<LocationBalance[]> {
+  if (allowedLocations?.length === 0) return [];
   // Only count non-denied orders toward the seasonal balance display.
   // Denied orders never reserved anything; submitted orders are a soft hold
   // so the store cannot keep stacking pending requests against the same
@@ -453,15 +451,21 @@ async function loadBalances(location?: string): Promise<LocationBalance[]> {
   const conds: string[] = [`status IN (${statusPlaceholders})`];
   const params: (string | number)[] = [...SEASONAL_HOLD_STATUSES];
   if (location) {
-    conds.push("location = ?");
+    conds.push("BINARY location = ?");
     params.push(location);
+  }
+  if (allowedLocations !== null) {
+    conds.push(`BINARY location IN (${allowedLocations.map(() => "?").join(", ")})`);
+    params.push(...allowedLocations);
   }
   const where = `WHERE ${conds.join(" AND ")}`;
   const selectCols = SEASONAL_CATEGORIES
     .map(c => `COALESCE(SUM(${c.returnedCol}), 0) AS ret_${c.key}, COALESCE(SUM(${c.requestedCol}), 0) AS req_${c.key}`)
     .join(", ");
   const [rows] = await mysqlPool.execute<RowDataPacket[]>(
-    `SELECT location, ${selectCols} FROM orders ${where} GROUP BY location ORDER BY location`,
+    // MIN returns text (rather than a binary buffer) within an exact-identity
+    // group and remains valid with ONLY_FULL_GROUP_BY enabled.
+    `SELECT MIN(location) AS location, ${selectCols} FROM orders ${where} GROUP BY BINARY location ORDER BY location`,
     params
   );
   return (rows as Array<Record<string, string | number | null>>).map(r => ({
@@ -730,7 +734,9 @@ export function registerOrderRoutes(app: Express) {
         filterParams.push(status);
       }
       if (allowedLocations !== null) {
-        filters.push(`location IN (${allowedLocations.map(() => "?").join(", ")})`);
+        // Match the exact authorized identity, not the database's potentially
+        // accent/case-insensitive display-name collation.
+        filters.push(`BINARY location IN (${allowedLocations.map(() => "?").join(", ")})`);
         filterParams.push(...allowedLocations);
       }
 
@@ -782,7 +788,7 @@ export function registerOrderRoutes(app: Express) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
-      let balances = await loadBalances(filter);
+      let balances = await loadBalances(filter, allowedLocations);
       // Trim aggregate results down to the caller's allowed stores when
       // they're store-scoped. Cheap post-filter — there are ~50 stores at
       // most so this is fine without pushing the filter into the SQL.

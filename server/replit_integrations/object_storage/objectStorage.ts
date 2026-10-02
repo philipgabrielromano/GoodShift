@@ -324,8 +324,8 @@ export class ObjectStorageService {
   }
 
   // Checks if the user can access the object entity using its ACL policy.
-  // Returns false (deny) when no ACL policy is present — callers that need a
-  // broader fallback (e.g., privileged-role bypass) must implement it separately.
+  // Returns false (deny) when no ACL policy is present. Session roles are not
+  // object grants and must not bypass this check on generic download routes.
   async canAccessObjectEntityOrFallback({
     userId,
     objectFile,

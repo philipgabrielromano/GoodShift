@@ -226,7 +226,7 @@ export const locations = pgTable("locations", {
   notificationEmail: text("notification_email"), // Destination email for trailer manifest in-transit notifications
   formOnly: boolean("form_only").notNull().default(false), // True for entries that exist only for Order Form (ADCs, Wired Up, etc.) — hidden from scheduling, roster, users, etc.
   availableForOrderForm: boolean("available_for_order_form").notNull().default(true), // Whether this location appears in the Order Form location dropdown
-  orderFormName: text("order_form_name"), // Optional alias used in the Order Form dropdown (when null, falls back to name)
+  orderFormName: text("order_form_name"), // Falls back to name; effective identity uniqueness is enforced transactionally by storage (including alias/name collisions).
   availableForScheduling: boolean("available_for_scheduling").notNull().default(true), // Whether this location appears in scheduling, roster, task assignment, and optimization pickers
   schedulingName: text("scheduling_name"), // Optional alias used in scheduling/roster/task-assignment dropdowns (when null, falls back to name)
   availableForRosterTargets: boolean("available_for_roster_targets").notNull().default(true), // Whether this location appears in the Roster Targets page dropdown (independent of general scheduling availability)

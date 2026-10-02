@@ -2,6 +2,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { OrderLocationConflictError } from "./order-location-access";
 import { applyUserUpdate } from "./users-update";
 import { db } from "./db";
 import { api } from "@shared/routes";
@@ -263,7 +264,7 @@ export async function registerRoutes(
   });
 
   // === Shifts ===
-  app.get(api.shifts.list.path, requireAuth, async (req, res) => {
+  app.get(api.shifts.list.path, requireFeatureAccess("schedule.view"), async (req, res) => {
     const user = (req.session as any)?.user;
     const start = req.query.start ? new Date(req.query.start as string) : undefined;
     const end = req.query.end ? new Date(req.query.end as string) : undefined;
@@ -395,7 +396,7 @@ export async function registerRoutes(
 
   // === PAL (Paid Annual Leave) Entries ===
   // Get PAL entries from UKG time clock data (paycodeId = 2) for a date range
-  app.get("/api/pal-entries", requireAuth, async (req, res) => {
+  app.get("/api/pal-entries", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const startDate = req.query.start as string;
       const endDate = req.query.end as string;
@@ -449,7 +450,7 @@ export async function registerRoutes(
 
   // === Unpaid Time Off Entries ===
   // Get unpaid time off entries from UKG time clock data (paycodeId = 4) for a date range
-  app.get("/api/unpaid-time-off-entries", requireAuth, async (req, res) => {
+  app.get("/api/unpaid-time-off-entries", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const startDate = req.query.start as string;
       const endDate = req.query.end as string;
@@ -1130,6 +1131,7 @@ export async function registerRoutes(
       const location = await storage.createLocation(input);
       res.status(201).json(location);
     } catch (err) {
+      if (err instanceof OrderLocationConflictError) return res.status(409).json({ message: err.message });
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
@@ -1176,6 +1178,7 @@ export async function registerRoutes(
       const location = await storage.updateLocation(locationId, input);
       res.json(location);
     } catch (err) {
+      if (err instanceof OrderLocationConflictError) return res.status(409).json({ message: err.message });
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }

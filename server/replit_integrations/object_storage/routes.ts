@@ -129,10 +129,8 @@ export function registerObjectStorageRoutes(app: Express): void {
    *
    * GET /objects/{*objectPath}
    *
-   * Requires authentication. Enforces ACL when a policy has been set on the object.
-   * Objects without an ACL policy are denied to non-privileged users (default-deny).
-   * Privileged roles (admin, manager, optimizer) can access any object regardless
-   * of ACL to ensure supervisors retain access to attachments uploaded by reports.
+   * Requires authentication and an ACL grant, regardless of the caller's role.
+   * Objects without an ACL policy are denied by default.
    * Forces Content-Disposition: attachment to prevent browser execution of
    * uploaded HTML/JS files (defense against same-origin content injection).
    */
@@ -141,12 +139,8 @@ export function registerObjectStorageRoutes(app: Express): void {
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
 
-      // Privileged roles (admin, manager, optimizer) can access any private object
-      // so that supervisors retain access to attachments uploaded by their reports.
-      const privilegedRoles = ["admin", "manager", "optimizer"];
-      const isPrivileged = privilegedRoles.includes(sessionUser.role);
-
-      const canAccess = isPrivileged || await objectStorageService.canAccessObjectEntityOrFallback({
+      // A supervisory role is not an object ACL grant.
+      const canAccess = await objectStorageService.canAccessObjectEntityOrFallback({
         userId: String(sessionUser.id),
         objectFile,
         requestedPermission: ObjectPermission.READ,

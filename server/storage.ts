@@ -48,6 +48,7 @@ import {
   featurePermissions, SYSTEM_FEATURES, DEFAULT_FEATURE_PERMISSIONS, initialScheduleExportRoles,
 } from "@shared/schema";
 import { eq, ne, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
+import { orderLocationKey, OrderLocationConflictError } from "./order-location-access";
 
 export class ShiftTradeConflictError extends Error {
   constructor() {
@@ -310,10 +311,11 @@ export interface IStorage {
 
   // Task Assignments
   getTaskAssignments(date: string): Promise<TaskAssignment[]>;
+  getTaskAssignment(id: number): Promise<TaskAssignment | undefined>;
   createTaskAssignment(assignment: InsertTaskAssignment): Promise<TaskAssignment>;
   updateTaskAssignment(id: number, assignment: Partial<InsertTaskAssignment>): Promise<TaskAssignment>;
   deleteTaskAssignment(id: number): Promise<void>;
-  deleteTaskAssignmentsByDate(date: string): Promise<number>;
+  deleteTaskAssignmentsByDate(date: string, employeeIds?: number[]): Promise<number>;
 
   // Custom Tasks
   getCustomTasks(userId: number): Promise<CustomTask[]>;
@@ -1820,13 +1822,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLocation(location: InsertLocation): Promise<Location> {
-    const [newLocation] = await db.insert(locations).values(location).returning();
-    return newLocation;
+    return db.transaction(async tx => {
+      // Serialize identity changes so concurrent requests cannot create aliases
+      // that pass independent preflight uniqueness checks.
+      await tx.execute(sql`LOCK TABLE locations IN SHARE ROW EXCLUSIVE MODE`);
+      const existing = await tx.select().from(locations);
+      const key = orderLocationKey({ ...location, orderFormName: location.orderFormName ?? null });
+      if (!key || existing.some(row => orderLocationKey(row) === key)) throw new OrderLocationConflictError();
+      const [created] = await tx.insert(locations).values(location).returning();
+      return created;
+    });
   }
 
   async updateLocation(id: number, location: Partial<InsertLocation>): Promise<Location> {
-    const [updated] = await db.update(locations).set(location).where(eq(locations.id, id)).returning();
-    return updated;
+    return db.transaction(async tx => {
+      await tx.execute(sql`LOCK TABLE locations IN SHARE ROW EXCLUSIVE MODE`);
+      const existing = await tx.select().from(locations);
+      const current = existing.find(row => row.id === id);
+      if (!current) throw new Error("Location not found");
+      if (location.name !== undefined || location.orderFormName !== undefined) {
+        const key = orderLocationKey({ ...current, ...location });
+        if (!key || existing.some(row => row.id !== id && orderLocationKey(row) === key)) throw new OrderLocationConflictError();
+      }
+      const [updated] = await tx.update(locations).set(location).where(eq(locations.id, id)).returning();
+      return updated;
+    });
   }
 
   async deleteLocation(id: number): Promise<void> {
@@ -1846,11 +1866,11 @@ export class DatabaseStorage implements IStorage {
     }
     
     // Create new location with 0 hours (admin will set the allocation)
-    const [newLocation] = await db.insert(locations).values({
+    const newLocation = await this.createLocation({
       name: trimmedName,
       weeklyHoursLimit: 0,
       isActive: true,
-    }).returning();
+    });
     
     console.log(`[Storage] Auto-created location: ${trimmedName}`);
     return newLocation;
@@ -2757,6 +2777,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Task Assignments
+  async getTaskAssignment(id: number): Promise<TaskAssignment | undefined> {
+    const [assignment] = await db.select().from(taskAssignments).where(eq(taskAssignments.id, id));
+    return assignment;
+  }
+
   async getTaskAssignments(date: string): Promise<TaskAssignment[]> {
     return await db.select().from(taskAssignments)
       .where(eq(taskAssignments.date, date));
@@ -2779,9 +2804,10 @@ export class DatabaseStorage implements IStorage {
     await db.delete(taskAssignments).where(eq(taskAssignments.id, id));
   }
 
-  async deleteTaskAssignmentsByDate(date: string): Promise<number> {
+  async deleteTaskAssignmentsByDate(date: string, employeeIds?: number[]): Promise<number> {
+    if (employeeIds?.length === 0) return 0;
     const result = await db.delete(taskAssignments)
-      .where(eq(taskAssignments.date, date))
+      .where(and(eq(taskAssignments.date, date), employeeIds ? inArray(taskAssignments.employeeId, employeeIds) : undefined))
       .returning({ id: taskAssignments.id });
     return result.length;
   }

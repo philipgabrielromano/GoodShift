@@ -63,6 +63,85 @@ import { registerUKGRoutes } from "../server/routes/ukg";
 import { registerTruckRouteRoutes } from "../server/routes/truckRoutes";
 import { registerTrailerRoutes } from "../server/routes/trailers";
 import { registerTractorRoutes } from "../server/routes/tractors";
+import { registerObjectStorageRoutes } from "../server/replit_integrations/object_storage/routes";
+import { ObjectStorageService } from "../server/replit_integrations/object_storage/objectStorage";
+import { canAccessObject } from "../server/replit_integrations/object_storage/objectAcl";
+import { unambiguousOrderLocationNames, OrderLocationConflictError } from "../server/order-location-access";
+
+test("task assignments enforce employee scope for reads, writes, batches, copying and clearing", async () => {
+  const a = await storage.createLocation({ name: "Task scope A" });
+  const b = await storage.createLocation({ name: "Task scope B" });
+  const ea = await storage.createEmployee({ name: "A", email: "a@scope.test", jobTitle: "TEST", location: a.name });
+  const eb = await storage.createEmployee({ name: "B", email: "b@scope.test", jobTitle: "TEST", location: b.name });
+  const sourceDate = "2035-01-01", targetDate = "2035-01-02";
+  const data = (employeeId: number, date = sourceDate) => ({ employeeId, date, taskName: "Sort", startMinute: 600, durationMinutes: 60 });
+  const own = await storage.createTaskAssignment(data(ea.id));
+  const other = await storage.createTaskAssignment(data(eb.id));
+  const otherTarget = await storage.createTaskAssignment(data(eb.id, targetDate));
+  const login = await request({ method: "POST", path: "/_test/login", body: { role: "manager", locationIds: [String(a.id)] } });
+  const cookie = login.cookie!;
+  const call = (method: string, path: string, body?: unknown) => request({ method, path, body, cookie });
+  const root = "/api/task-assignments";
+  const listed = await call("GET", `${root}?date=${sourceDate}`);
+  assert.deepEqual(listed.body.map((row: any) => row.id), [own.id]);
+  assert.deepEqual((await call("GET", `${root}?date=${sourceDate}&location=${encodeURIComponent(b.name)}`)).body, []);
+  assert.equal((await call("POST", root, data(eb.id))).status, 403);
+  assert.equal((await call("PUT", `${root}/${other.id}`, { taskName: "Changed" })).status, 403);
+  assert.equal((await call("PUT", `${root}/${own.id}`, { employeeId: eb.id })).status, 403);
+  assert.equal((await call("DELETE", `${root}/${other.id}`)).status, 403);
+  assert.equal((await call("POST", `${root}/batch`, { assignments: [data(ea.id), data(eb.id)] })).status, 403);
+  assert.equal((await storage.getTaskAssignments(sourceDate)).length, 2, "batch denial must not partially insert");
+  assert.equal((await call("POST", `${root}/copy-day`, { sourceDate, targetDate })).status, 201);
+  const target = await storage.getTaskAssignments(targetDate);
+  assert.equal(target.length, 2);
+  assert.ok(target.some(row => row.id === otherTarget.id), "copy must preserve other stores");
+  assert.equal((await call("DELETE", `${root}?date=${sourceDate}`)).body.deleted, 1);
+  assert.deepEqual((await storage.getTaskAssignments(sourceDate)).map(row => row.id), [other.id]);
+  assert.equal((await call("POST", root, data(ea.id))).status, 201);
+  const noLocations = (await request({ method: "POST", path: "/_test/login", body: { role: "manager", locationIds: [] } })).cookie!;
+  assert.deepEqual((await request({ method: "GET", path: `${root}?date=${targetDate}`, cookie: noLocations })).body, []);
+  assert.equal((await request({ method: "DELETE", path: `${root}?date=${targetDate}`, cookie: noLocations })).body.deleted, 0);
+  const admin = await loginAs("admin");
+  assert.equal((await request({ method: "GET", path: `${root}?date=${targetDate}`, cookie: admin })).body.length, 2);
+});
+
+test("private object downloads require ACL even for supervisory roles", async t => {
+  let owner: string | undefined = "someone-else";
+  // The external fixture guards the service wrapper; exercise the real ACL
+  // evaluator against in-memory file metadata, with no bucket access.
+  t.mock.method(ObjectStorageService.prototype, "canAccessObjectEntityOrFallback", canAccessObject);
+  t.mock.method(ObjectStorageService.prototype, "getObjectEntityFile", async () => ({
+    getMetadata: async () => [{ metadata: owner ? { "custom:aclPolicy": JSON.stringify({ owner, visibility: "private" }) } : {} }],
+  }));
+  t.mock.method(ObjectStorageService.prototype, "downloadObject", async (_file: unknown, res: any) => res.send("file"));
+  for (const role of ["manager", "optimizer", "admin"]) {
+    const cookie = await loginAs(role);
+    owner = "someone-else";
+    assert.equal((await request({ method: "GET", path: "/objects/uploads/test", cookie })).status, 403);
+    owner = undefined;
+    assert.equal((await request({ method: "GET", path: "/objects/uploads/test", cookie })).status, 403);
+    owner = "9001";
+    assert.equal((await request({ method: "GET", path: "/objects/uploads/test", cookie })).status, 200);
+  }
+  assert.equal((await request({ method: "GET", path: "/objects/uploads/test" })).status, 401);
+});
+
+test("order identities reject collisions and legacy ambiguous aliases fail closed", async () => {
+  const a = await storage.createLocation({ name: "Alias A", orderFormName: "Alias Shared" });
+  const b = await storage.createLocation({ name: "Alias B" });
+  await assert.rejects(storage.createLocation({ name: "Alias C", orderFormName: " alias shared " }), OrderLocationConflictError);
+  await assert.rejects(storage.createLocation({ name: "Alias Shared" }), OrderLocationConflictError);
+  await assert.rejects(storage.updateLocation(b.id, { orderFormName: "Alias Shared" }), OrderLocationConflictError);
+  await assert.rejects(storage.updateLocation(b.id, { name: "Alias Shared" }), OrderLocationConflictError);
+  const concurrent = await Promise.allSettled([
+    storage.createLocation({ name: "Concurrent alias A", orderFormName: "Concurrent shared" }),
+    storage.createLocation({ name: "Concurrent alias B", orderFormName: "Concurrent shared" }),
+  ]);
+  assert.equal(concurrent.filter(result => result.status === "fulfilled").length, 1);
+  assert.deepEqual(unambiguousOrderLocationNames([a, b], new Set([String(a.id)])), ["Alias Shared"]);
+  assert.deepEqual(unambiguousOrderLocationNames([a, { ...b, orderFormName: "Alias Shared" }], new Set([String(a.id)])), []);
+  assert.deepEqual(unambiguousOrderLocationNames([a, { ...b, name: "Alias Shared", orderFormName: null }], new Set([String(a.id)])), []);
+});
 
 // A unique synthetic role per test run so we never collide with real data.
 const TEST_ROLE = `test_dm_${process.pid}_${Date.now()}`;
@@ -97,6 +176,16 @@ type RouteGate = {
 const BROADLY_OK = [200, 201, 204, 400, 404, 409, 500];
 
 const ROUTE_GATES: RouteGate[] = [
+  {
+    feature: "schedule.view", method: "GET", path: "/api/shifts",
+    kind: "stub", sourceFile: "server/routes.ts",
+    sourcePattern: /app\.get\(api\.shifts\.list\.path,\s*requireFeatureAccess\("schedule.view"\)/,
+  },
+  ...["pal-entries", "unpaid-time-off-entries"].map(path => ({
+    feature: "attendance.view", method: "GET" as const, path: `/api/${path}`,
+    kind: "stub" as const, sourceFile: "server/routes.ts",
+    sourcePattern: new RegExp(`app\\.get\\("/api/${path}",\\s*requireFeatureAccess\\("attendance.view"\\)`),
+  })),
   // -------------------- Scheduling --------------------
   {
     feature: "schedule.edit",
@@ -756,7 +845,6 @@ for (const fleet of ["trailers", "tractors"] as const) {
 // EXEMPT_FEATURES negative test below asserts none of these accidentally
 // gain a middleware gate without being moved into ROUTE_GATES.
 const EXEMPT_FEATURES: Record<string, string> = {
-  "schedule.view": "Display-only filter; schedule listing is gated by requireAuth, not feature middleware.",
   "schedule.export_pdf": "PDF is generated in the browser; the button and export handler are gated with usePermissions, with no server PDF endpoint.",
   "employees.view": "Employee directory listing is gated by requireAuth; visibility filtering happens in handlers, not via requireFeatureAccess middleware.",
   "raw_shifts.view": "Client-side navigation guard only (Navigation.tsx); no server route gates it.",
@@ -834,6 +922,7 @@ function buildTestApp() {
   registerCoachingRoutes(app);
   registerShiftTradeRoutes(app);
   registerTaskAssignmentRoutes(app);
+  registerObjectStorageRoutes(app);
   registerOptimizationRoutes(app);
   registerDriverInspectionRoutes(app);
   registerCreditCardInspectionRoutes(app);
@@ -1193,6 +1282,60 @@ test("seasonal balances enforce store scope and the aggregate's second grant", a
     assert.deepEqual(aggregate.body.balances.map((b: any) => b.location), ["Test Store A"]);
     const other = await request({ method: "GET", path: "/api/orders/seasonal-balances?location=Test%20Store%20B", cookie });
     assert.equal(other.status, 403, "aggregate grant does not bypass store scope");
+  } finally {
+    await setAllowedRoles("orders.submit", originalSubmit);
+    await setAllowedRoles("seasonal_inventory.view", originalSeasonal);
+  }
+});
+
+test("seasonal aggregation isolates accent-equivalent order identities before summing", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  const locations = [
+    { id: 1, name: "Cafe", orderFormName: null },
+    { id: 2, name: "Café", orderFormName: null },
+  ];
+  t.mock.method(storage, "getLocations", async () => locations);
+  const totals = new Map([["Cafe", 7], ["Café", 93]]);
+  // Model an accent-insensitive database: without exact predicates/grouping,
+  // these two rows would merge into a 100-unit balance.
+  const execute = t.mock.method(mysqlPool, "execute", async (sql: string, params: unknown[]) => {
+    assert.match(sql, /GROUP BY BINARY location/);
+    assert.match(sql, /SELECT MIN\(location\) AS location/);
+    const scoped = /BINARY location IN \(/.test(sql);
+    const single = /BINARY location = \?/.test(sql);
+    const hasPlainEquality = /(?<!BINARY )location = \?/.test(sql);
+    assert.equal(hasPlainEquality, false);
+    const identities = params.filter(p => typeof p === "string" && totals.has(p)) as string[];
+    if (scoped || single) assert.ok(identities.length > 0);
+    const columns = [...sql.matchAll(/AS (ret_\w+|req_\w+)/g)].map(m => m[1]);
+    return [[...totals].filter(([name]) => !(scoped || single) || identities.includes(name)).map(([name, total]) => ({
+      location: name,
+      ...Object.fromEntries(columns.map(column => [column, column.startsWith("ret_") ? total : 0])),
+    })), []];
+  });
+  const originalSubmit = await grantTestRole("orders.submit");
+  const originalSeasonal = await grantTestRole("seasonal_inventory.view");
+  try {
+    for (const location of locations) {
+      const cookie = (await request({ method: "POST", path: "/_test/login",
+        body: { role: TEST_ROLE, locationIds: [String(location.id)] } })).cookie!;
+      for (const suffix of [`?location=${encodeURIComponent(location.name)}`, ""]) {
+        const response = await request({ method: "GET", path: `/api/orders/seasonal-balances${suffix}`, cookie });
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body.balances.map((b: any) => b.location), [location.name]);
+        assert.ok(response.body.balances[0].seasons.every((s: any) => s.onDeposit === totals.get(location.name)));
+        const sql = execute.mock.calls.at(-1)!.arguments[0];
+        assert.match(sql, /BINARY location IN \(/, "authorization must precede aggregation");
+        if (suffix) assert.match(sql, /BINARY location = \?/);
+      }
+    }
+    const cookie = await loginAs("admin");
+    const response = await request({ method: "GET", path: "/api/orders/seasonal-balances", cookie });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.balances.length, 2, "global aggregate must keep both identities separate");
+    for (const balance of response.body.balances) {
+      assert.ok(balance.seasons.every((s: any) => s.onDeposit === totals.get(balance.location)));
+    }
   } finally {
     await setAllowedRoles("orders.submit", originalSubmit);
     await setAllowedRoles("seasonal_inventory.view", originalSeasonal);

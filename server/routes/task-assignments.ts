@@ -1,7 +1,7 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireFeatureAccess } from "../middleware";
-import { insertTaskAssignmentSchema, TASK_LIST } from "@shared/schema";
+import { requireFeatureAccess } from "../middleware";
+import { filterEmployeesByLocationScope } from "../access-control";
 import { z } from "zod";
 
 const taskAssignmentValidation = z.object({
@@ -13,22 +13,19 @@ const taskAssignmentValidation = z.object({
   createdBy: z.number().int().positive().nullable().optional(),
 });
 
+async function scopedEmployeeIds(req: Request, location?: string): Promise<Set<number>> {
+  const employees = await filterEmployeesByLocationScope((req.session as any).user, await storage.getEmployees());
+  return new Set(employees.filter(e => !location || location === "all" || e.location === location).map(e => e.id));
+}
+
 export function registerTaskAssignmentRoutes(app: Express) {
   app.get("/api/task-assignments", requireFeatureAccess("task_assignment.view"), async (req, res) => {
     const date = req.query.date as string;
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
     }
-    let assignments = await storage.getTaskAssignments(date);
-
-    const location = req.query.location as string;
-    if (location && location !== "all") {
-      const employees = await storage.getEmployees();
-      const locationEmpIds = new Set(
-        employees.filter(e => e.location === location).map(e => e.id)
-      );
-      assignments = assignments.filter(a => locationEmpIds.has(a.employeeId));
-    }
+    const ids = await scopedEmployeeIds(req, req.query.location as string);
+    const assignments = (await storage.getTaskAssignments(date)).filter(a => ids.has(a.employeeId));
 
     res.json(assignments);
   });
@@ -42,6 +39,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!employee) {
       return res.status(400).json({ message: "Employee not found" });
     }
+    if (!(await scopedEmployeeIds(req)).has(employee.id)) return res.status(403).json({ message: "Access denied" });
     const assignment = await storage.createTaskAssignment(parsed.data);
     res.status(201).json(assignment);
   });
@@ -51,15 +49,18 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!Array.isArray(assignments) || assignments.length === 0) {
       return res.status(400).json({ message: "assignments array is required" });
     }
-    const results = [];
+    const ids = await scopedEmployeeIds(req);
+    const validated = [];
     for (const item of assignments) {
       const parsed = taskAssignmentValidation.safeParse(item);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.errors[0].message });
       }
-      const created = await storage.createTaskAssignment(parsed.data);
-      results.push(created);
+      if (!ids.has(parsed.data.employeeId)) return res.status(403).json({ message: "Access denied" });
+      validated.push(parsed.data);
     }
+    const results = [];
+    for (const assignment of validated) results.push(await storage.createTaskAssignment(assignment));
     res.status(201).json(results);
   });
 
@@ -70,6 +71,12 @@ export function registerTaskAssignmentRoutes(app: Express) {
       const parsed = updateSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.errors[0].message });
+      }
+      const existing = await storage.getTaskAssignment(id);
+      if (!existing) return res.status(404).json({ message: "Task assignment not found" });
+      const ids = await scopedEmployeeIds(req);
+      if (!ids.has(existing.employeeId) || (parsed.data.employeeId !== undefined && !ids.has(parsed.data.employeeId))) {
+        return res.status(403).json({ message: "Access denied" });
       }
       const updated = await storage.updateTaskAssignment(id, parsed.data);
       if (!updated) {
@@ -90,30 +97,14 @@ export function registerTaskAssignmentRoutes(app: Express) {
       return res.status(400).json({ message: "Dates must be YYYY-MM-DD format" });
     }
 
-    let sourceAssignments = await storage.getTaskAssignments(sourceDate);
-    let locationEmpIds: Set<number> | null = null;
-    if (location && location !== "all") {
-      const employees = await storage.getEmployees();
-      locationEmpIds = new Set(
-        employees.filter(e => e.location === location).map(e => e.id)
-      );
-      sourceAssignments = sourceAssignments.filter(a => locationEmpIds!.has(a.employeeId));
-    }
+    const locationEmpIds = await scopedEmployeeIds(req, location);
+    const sourceAssignments = (await storage.getTaskAssignments(sourceDate)).filter(a => locationEmpIds.has(a.employeeId));
 
     if (sourceAssignments.length === 0) {
       return res.status(400).json({ message: "No task assignments to copy from source date" });
     }
 
-    if (locationEmpIds) {
-      const existingTarget = await storage.getTaskAssignments(targetDate);
-      for (const a of existingTarget) {
-        if (locationEmpIds.has(a.employeeId)) {
-          await storage.deleteTaskAssignment(a.id);
-        }
-      }
-    } else {
-      await storage.deleteTaskAssignmentsByDate(targetDate);
-    }
+    await storage.deleteTaskAssignmentsByDate(targetDate, [...locationEmpIds]);
 
     const results = [];
     for (const a of sourceAssignments) {
@@ -132,6 +123,9 @@ export function registerTaskAssignmentRoutes(app: Express) {
   });
 
   app.delete("/api/task-assignments/:id", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
+    const existing = await storage.getTaskAssignment(Number(req.params.id));
+    if (!existing) return res.status(404).json({ message: "Task assignment not found" });
+    if (!(await scopedEmployeeIds(req)).has(existing.employeeId)) return res.status(403).json({ message: "Access denied" });
     await storage.deleteTaskAssignment(Number(req.params.id));
     res.status(204).send();
   });
@@ -141,7 +135,8 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
     }
-    const count = await storage.deleteTaskAssignmentsByDate(date);
+    const ids = await scopedEmployeeIds(req, req.query.location as string);
+    const count = await storage.deleteTaskAssignmentsByDate(date, [...ids]);
     res.json({ deleted: count });
   });
 
