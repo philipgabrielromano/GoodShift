@@ -60,7 +60,7 @@
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
     "csurf": "^1.11.0",
-    "csv-parse": "^6.2.1",
+    "csv-parse": "^7.0.3",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.2.0",
     "drizzle-orm": "^0.45.2",
@@ -68,7 +68,7 @@
     "embla-carousel-react": "^8.6.0",
     "exceljs": "^4.4.0",
     "express": "^5.0.1",
-    "express-rate-limit": "^8.2.1",
+    "express-rate-limit": "^8.7.0",
     "express-session": "^1.19.0",
     "framer-motion": "^11.13.1",
     "google-auth-library": "^10.5.0",
@@ -129,6 +129,9 @@
     "vite": "^7.3.2"
   },
   "overrides": {
+    "express-rate-limit": {
+      "ip-address": "^10.7.3"
+    },
     "drizzle-kit": {
       "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
     },
