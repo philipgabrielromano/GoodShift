@@ -21,6 +21,7 @@ import { EMAIL_TYPE_IDS, emailBrandingConfigSchema } from "@shared/schema";
 import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
+import { registerGlobalSettingsRoutes } from "./routes/globalSettings";
 import { registerOccurrenceRoutes } from "./routes/occurrences";
 import { registerShiftTradeRoutes } from "./routes/shift-trades";
 import { registerReportRoutes } from "./routes/reports";
@@ -779,29 +780,7 @@ export async function registerRoutes(
   });
 
   // === Global Settings ===
-  app.get(api.globalSettings.get.path, requireAuth, async (req, res) => {
-    const user = (req.session as any)?.user;
-    const settings = await storage.getGlobalSettings();
-    if (!settings) return res.json(settings);
-    if (user?.role !== "admin") {
-      const { ukgApiUrl, ukgUsername, ukgPassword, hrNotificationEmail, orderNotificationEmails, firstAidNotificationEmails, driverInspectionEmails, warehouseVarianceEmailsCleveland, warehouseVarianceEmailsCanton, ...safeSettings } = settings;
-      return res.json(safeSettings);
-    }
-    res.json(settings);
-  });
-
-  app.post(api.globalSettings.update.path, requireFeatureAccess("settings.global_config"), async (req, res) => {
-    try {
-      const input = api.globalSettings.update.input.parse(req.body);
-      const settings = await storage.updateGlobalSettings(input);
-      res.json(settings);
-    } catch (err) {
-      if (err instanceof z.ZodError) {
-        return res.status(400).json({ message: err.errors[0].message });
-      }
-      throw err;
-    }
-  });
+  registerGlobalSettingsRoutes(app);
 
   // Test Outlook connection for HR notifications
   app.get("/api/outlook/test", requireAuth, requireAdmin, async (req, res) => {

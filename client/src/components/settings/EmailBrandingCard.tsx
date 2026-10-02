@@ -135,7 +135,7 @@ export function EmailBrandingCard() {
 
   const handleSave = () => {
     updateSettings.mutate(
-      { ...(settings as any), emailBranding: state },
+      { emailBranding: state },
       {
         onSuccess: () => toast({ title: "Email branding saved" }),
         onError: (e: any) => toast({ title: "Save failed", description: e.message, variant: "destructive" }),

@@ -400,7 +400,7 @@ export default function Settings() {
   const saveHrEmail = () => {
     if (settings) {
       updateSettings.mutate(
-        { ...settings, hrNotificationEmail: hrEmail || null },
+        { hrNotificationEmail: hrEmail || null },
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "HR notification email updated" });
@@ -416,7 +416,7 @@ export default function Settings() {
   const saveOrderEmails = () => {
     if (settings) {
       updateSettings.mutate(
-        { ...settings, orderNotificationEmails: orderEmails || null },
+        { orderNotificationEmails: orderEmails || null },
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Order notification emails updated" });
@@ -432,7 +432,7 @@ export default function Settings() {
   const saveFirstAidEmails = () => {
     if (settings) {
       updateSettings.mutate(
-        { ...settings, firstAidNotificationEmails: firstAidEmails || null },
+        { firstAidNotificationEmails: firstAidEmails || null },
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "First Aid notification emails updated" });
@@ -448,7 +448,7 @@ export default function Settings() {
   const saveLoginTagline = () => {
     if (settings) {
       updateSettings.mutate(
-        { ...settings, loginTagline: loginTagline.trim() || null },
+        { loginTagline: loginTagline.trim() || null },
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Login tagline updated" });
@@ -465,7 +465,6 @@ export default function Settings() {
     if (settings) {
       updateSettings.mutate(
         {
-          ...settings,
           warehouseVarianceEmailsCleveland: warehouseVarianceEmailsCleveland || null,
           warehouseVarianceEmailsCanton: warehouseVarianceEmailsCanton || null,
         },
@@ -510,7 +509,7 @@ export default function Settings() {
   const saveDriverInspectionEmails = () => {
     if (settings) {
       updateSettings.mutate(
-        { ...settings, driverInspectionEmails: driverInspectionEmails || null },
+        { driverInspectionEmails: driverInspectionEmails || null },
         {
           onSuccess: () => {
             toast({ title: "Settings Saved", description: "Driver inspection alert emails updated" });

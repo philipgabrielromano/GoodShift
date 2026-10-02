@@ -317,6 +317,13 @@ export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true }).extend({
   emailBranding: emailBrandingConfigSchema.nullish(),
 });
+// Integration credentials are writable only through the dedicated UKG endpoint.
+export const updateGeneralSettingsSchema = insertGlobalSettingsSchema.omit({
+  ukgApiUrl: true,
+  ukgUsername: true,
+  ukgPassword: true,
+}).strict();
+export type GeneralSettings = Omit<typeof globalSettings.$inferSelect, "ukgApiUrl" | "ukgUsername" | "ukgPassword">;
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ id: true });

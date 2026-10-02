@@ -60,6 +60,7 @@ import { registerWarehouseInventoryRoutes } from "../server/routes/warehouseInve
 import { registerReportRoutes } from "../server/routes/reports";
 import { registerRosterRoutes } from "../server/routes/roster";
 import { registerUKGRoutes } from "../server/routes/ukg";
+import { registerGlobalSettingsRoutes } from "../server/routes/globalSettings";
 import { registerTruckRouteRoutes } from "../server/routes/truckRoutes";
 import { registerTrailerRoutes } from "../server/routes/trailers";
 import { registerTractorRoutes } from "../server/routes/tractors";
@@ -708,8 +709,8 @@ const ROUTE_GATES: RouteGate[] = [
     method: "POST",
     path: "/api/global-settings",
     body: {},
-    kind: "stub",
-    sourceFile: "server/routes.ts",
+    kind: "real",
+    sourceFile: "server/routes/globalSettings.ts",
     sourcePattern:
       /app\.post\(\s*api\.globalSettings\.update\.path\s*,\s*requireFeatureAccess\(\s*"settings\.global_config"\s*\)/,
   },
@@ -932,6 +933,7 @@ function buildTestApp() {
   registerReportRoutes(app);
   registerRosterRoutes(app);
   registerUKGRoutes(app);
+  registerGlobalSettingsRoutes(app);
   registerTruckRouteRoutes(app);
   registerTrailerRoutes(app);
   registerTractorRoutes(app);
@@ -1129,6 +1131,117 @@ after(async () => {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test("general settings never expose or modify UKG credentials", async () => {
+  const originalPermissionRows = await db.select().from(featurePermissions)
+    .where(inArray(featurePermissions.feature, ["settings.global_config", "settings.ukg_config"]));
+  const globalRoles = await getAllowedRoles("settings.global_config");
+  const ukgRoles = await getAllowedRoles("settings.ukg_config");
+  const credentials = {
+    ukgApiUrl: "https://fixture.ukg.com",
+    ukgUsername: "fixture-user",
+    ukgPassword: "fixture-password",
+  };
+  const assertRedacted = (body: any) => {
+    for (const key of Object.keys(credentials)) assert.equal(Object.hasOwn(body, key), false, key);
+    assert.ok(!JSON.stringify(body).includes(credentials.ukgPassword));
+  };
+  try {
+    await setAllowedRoles("settings.global_config", ["admin", "general-only"]);
+    await setAllowedRoles("settings.ukg_config", ["admin", "ukg-only"]);
+    await storage.updateGlobalSettings(credentials);
+    const general = await loginAs("general-only");
+    const ukg = await loginAs("ukg-only");
+    const admin = await loginAs("admin");
+    const viewer = await loginAs("viewer");
+    assert.equal((await request({ method: "GET", path: "/api/global-settings" })).status, 401);
+    assert.equal((await request({ method: "POST", path: "/api/global-settings", body: {} })).status, 401);
+    for (const cookie of [general, ukg, admin, viewer]) {
+      const read = await request({ method: "GET", path: "/api/global-settings", cookie });
+      assert.equal(read.status, 200);
+      assertRedacted(read.body);
+    }
+    for (const cookie of [general, admin]) {
+      const save = await request({ method: "POST", path: "/api/global-settings", cookie,
+        body: { hrNotificationEmail: "fixture@example.com" } });
+      assert.equal(save.status, 200);
+      assert.equal(save.body.hrNotificationEmail, "fixture@example.com");
+      assertRedacted(save.body);
+      for (const key of Object.keys(credentials)) {
+        for (const value of ["replacement", null, ""]) {
+          const denied = await request({ method: "POST", path: "/api/global-settings", cookie,
+            body: { [key]: value, hrNotificationEmail: "not-saved@example.com" } });
+          assert.equal(denied.status, 400);
+          const stored = await storage.getGlobalSettings();
+          assert.equal(stored.hrNotificationEmail, "fixture@example.com");
+          for (const field of Object.keys(credentials) as (keyof typeof credentials)[]) {
+            assert.equal(stored[field], credentials[field]);
+          }
+        }
+      }
+    }
+    for (const cookie of [ukg, viewer]) {
+      assert.equal((await request({ method: "POST", path: "/api/global-settings", cookie, body: {} })).status, 403);
+    }
+    // The Settings page saves only edited fields, not the fetched row (which
+    // contains a read-only id). Cover every save handler's payload shape.
+    const fs = await import("node:fs/promises");
+    const settingsPage = await fs.readFile("client/src/pages/Settings.tsx", "utf8");
+    assert.doesNotMatch(settingsPage, /\.\.\.settings\b/);
+    const brandingCard = await fs.readFile("client/src/components/settings/EmailBrandingCard.tsx", "utf8");
+    assert.match(brandingCard, /updateSettings\.mutate\(\s*\{\s*emailBranding: state\s*\}/);
+    const beforeBranding = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+    const emailBranding = { dynamicValueColor: "#123456", dynamicValueWeight: "bold" };
+    const brandingSave = await request({ method: "POST", path: "/api/global-settings", cookie: admin,
+      body: { emailBranding } });
+    assert.equal(brandingSave.status, 200);
+    assertRedacted(brandingSave.body);
+    const afterBranding = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+    assert.deepEqual(afterBranding.body, { ...beforeBranding.body, emailBranding });
+    const storedAfterBranding = await storage.getGlobalSettings();
+    for (const field of Object.keys(credentials) as (keyof typeof credentials)[]) {
+      assert.equal(storedAfterBranding[field], credentials[field]);
+    }
+    for (const fields of [
+      ["hrNotificationEmail"], ["orderNotificationEmails"], ["firstAidNotificationEmails"],
+      ["loginTagline"], ["driverInspectionEmails"],
+      ["warehouseVarianceEmailsCleveland", "warehouseVarianceEmailsCanton"],
+    ]) {
+      const before = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+      assert.ok(before.body.id);
+      const edited = Object.fromEntries(fields.map(field => [field, field === "loginTagline" ? "Updated tagline" : "edited@example.com"]));
+      const saved = await request({ method: "POST", path: "/api/global-settings", cookie: admin, body: edited });
+      assert.equal(saved.status, 200);
+      assertRedacted(saved.body);
+      const after = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+      for (const [field, value] of Object.entries(edited)) assert.equal(after.body[field], value);
+      assert.equal(after.body.id, before.body.id);
+    }
+    for (const method of ["GET", "POST"]) {
+      assert.equal((await request({ method, path: "/api/ukg/credentials", cookie: general,
+        ...(method === "POST" ? { body: credentials } : {}) })).status, 403);
+    }
+    for (const cookie of [ukg, admin]) {
+      const save = await request({ method: "POST", path: "/api/ukg/credentials", cookie, body: credentials });
+      assert.equal(save.status, 200);
+      const read = await request({ method: "GET", path: "/api/ukg/credentials", cookie });
+      assert.equal(read.status, 200);
+      assert.equal(read.body.ukgUsername, credentials.ukgUsername);
+      assert.equal(read.body.hasPassword, true);
+      assert.equal(Object.hasOwn(read.body, "ukgPassword"), false);
+    }
+  } finally {
+    await setAllowedRoles("settings.global_config", globalRoles);
+    await setAllowedRoles("settings.ukg_config", ukgRoles);
+    // Preserve absence as well as values in this disposable test database.
+    for (const feature of ["settings.global_config", "settings.ukg_config"]) {
+      if (!originalPermissionRows.some(row => row.feature === feature)) {
+        await db.delete(featurePermissions).where(eq(featurePermissions.feature, feature));
+      }
+    }
+    invalidatePermissionsCache();
+  }
+});
 
 test("occurrence adjustments accept only numeric -100 and preserve scope and yearly limits", async () => {
   const location = await storage.createLocation({ name: "Adjustment scope" });
