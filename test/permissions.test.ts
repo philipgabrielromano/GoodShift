@@ -1130,6 +1130,48 @@ after(async () => {
 // Tests
 // ---------------------------------------------------------------------------
 
+test("occurrence adjustments accept only numeric -100 and preserve scope and yearly limits", async () => {
+  const location = await storage.createLocation({ name: "Adjustment scope" });
+  const employee = await storage.createEmployee({
+    name: "Adjustment employee", email: "adjustment@scope.test", jobTitle: "TEST", location: location.name,
+  });
+  const otherLocation = await storage.createLocation({ name: "Other adjustment scope" });
+  const otherEmployee = await storage.createEmployee({
+    name: "Other employee", email: "other-adjustment@scope.test", jobTitle: "TEST", location: otherLocation.name,
+  });
+  const cookie = (await request({
+    method: "POST", path: "/_test/login", body: { role: "manager", locationIds: [String(location.id)] },
+  })).cookie!;
+  const year = new Date().getUTCFullYear();
+  const payload = {
+    employeeId: employee.id, adjustmentType: "unscheduled_shift",
+    adjustmentDate: `${year}-01-01`, calendarYear: year,
+  };
+  const post = (body: unknown, auth = cookie) => request({
+    method: "POST", path: "/api/occurrence-adjustments", body, cookie: auth,
+  });
+  for (const value of [-100000, -101, -99, -100.5, -1, 0, 100, "-100", null, true, [], [-100], {}]) {
+    const result = await post({ ...payload, adjustmentValue: value });
+    assert.equal(result.status, 400, `must reject ${JSON.stringify(value)}`);
+    assert.match(result.body.message, /adjustmentValue must be the number -100/);
+  }
+  assert.equal((await post(payload)).status, 400, "missing value is rejected");
+  assert.deepEqual(await storage.getOccurrenceAdjustmentsForYear(employee.id, year), [], "invalid values must not be stored");
+  assert.equal((await post({ ...payload, employeeId: otherEmployee.id, adjustmentValue: -100 })).status, 403);
+  const viewer = await loginAs("viewer");
+  assert.equal((await post({ ...payload, adjustmentValue: -100 }, viewer)).status, 403);
+  assert.equal((await post({ ...payload, adjustmentValue: -100, adjustmentType: "perfect_attendance" })).status, 400);
+  const valid = await post({ ...payload, adjustmentValue: -100 });
+  assert.equal(valid.status, 201);
+  assert.equal(valid.body.adjustmentValue, -100);
+  const duplicate = await post({ ...payload, adjustmentValue: -100 });
+  assert.equal(duplicate.status, 400);
+  assert.match(duplicate.body.message, /already used their adjustment/);
+  const saved = await storage.getOccurrenceAdjustmentsForYear(employee.id, year);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].adjustmentValue, -100);
+});
+
 test("fixtures: database and external services cannot reach shared records", async () => {
   assert.equal(pool.options.database, "permissions_test");
   assert.ok(pool.options.host?.startsWith("/"), "Postgres must use the private Unix socket");

@@ -619,6 +619,12 @@ export function registerOccurrenceRoutes(app: Express) {
         return res.status(400).json({ message: "employeeId, adjustmentValue, and adjustmentType are required" });
       }
 
+      // Manual forgiveness is exactly one point (stored in hundredths).
+      // Strict equality also rejects strings, null, and other coercible values.
+      if (adjustmentValue !== -100) {
+        return res.status(400).json({ message: "adjustmentValue must be the number -100 (one occurrence point)" });
+      }
+
       const hasAccess = await canAccessEmployee(user, employeeId);
       if (!hasAccess) {
         return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
