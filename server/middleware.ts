@@ -211,16 +211,16 @@ export async function checkAndSendHRNotification(
     };
 
     // Check if a threshold was JUST crossed (previousTally < threshold <= netTally)
-    let threshold: 5 | 7 | 8 | null = null;
+    let threshold: 6 | 7 | 8 | null = null;
     if (justCrossedThreshold(8)) {
       const hasTerminationAction = correctiveActions.some(a => a.actionType === 'termination');
       if (!hasTerminationAction) threshold = 8;
     } else if (justCrossedThreshold(7)) {
       const hasFinalWarning = correctiveActions.some(a => a.actionType === 'final_warning');
       if (!hasFinalWarning) threshold = 7;
-    } else if (justCrossedThreshold(5)) {
+    } else if (justCrossedThreshold(6)) {
       const hasWarning = correctiveActions.some(a => a.actionType === 'warning');
-      if (!hasWarning) threshold = 5;
+      if (!hasWarning) threshold = 6;
     }
 
     if (threshold) {

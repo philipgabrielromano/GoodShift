@@ -24,14 +24,14 @@ interface OccurrenceRow {
 function getThresholdBadge(points: number) {
   if (points >= 8) return <Badge variant="destructive" data-testid={`badge-termination`}>Termination</Badge>;
   if (points >= 7) return <Badge variant="destructive" data-testid={`badge-final-warning`}>Final Warning</Badge>;
-  if (points >= 5) return <Badge className="bg-orange-500" data-testid={`badge-warning`}>Warning</Badge>;
+  if (points >= 6) return <Badge className="bg-orange-500" data-testid={`badge-warning`}>Warning</Badge>;
   return null;
 }
 
 function getRowHighlight(points: number) {
   if (points >= 8) return "bg-red-50 dark:bg-red-950/20";
   if (points >= 7) return "bg-orange-50 dark:bg-orange-950/20";
-  if (points >= 5) return "bg-yellow-50 dark:bg-yellow-950/20";
+  if (points >= 6) return "bg-yellow-50 dark:bg-yellow-950/20";
   return "";
 }
 

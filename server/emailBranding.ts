@@ -21,7 +21,7 @@ export interface EmailTypeMeta {
 }
 
 export const EMAIL_TYPES: EmailTypeMeta[] = [
-  { id: "occurrence_alert",    label: "Attendance Alert",          description: "Sent to HR when an employee reaches a points threshold (5/7/8). Severity overrides this header color.", defaultHeaderColor: "#DF4E51" },
+  { id: "occurrence_alert",    label: "Attendance Alert",          description: "Sent to HR when an employee reaches a points threshold (6/7/8). Severity overrides this header color.", defaultHeaderColor: "#DF4E51" },
   { id: "order_submitted",     label: "Order Submitted",           description: "Sent to warehouse recipients when a store submits an order.",      defaultHeaderColor: "#00539F" },
   { id: "order_confirmation",  label: "Order Confirmation",        description: "Receipt sent to the submitter after their order is recorded.",    defaultHeaderColor: "#4FBC86" },
   { id: "order_fulfilled",     label: "Order Fulfilled",           description: "Sent to the requesting store when warehouse marks an order fulfilled.", defaultHeaderColor: "#4FBC86" },

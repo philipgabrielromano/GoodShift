@@ -813,8 +813,8 @@ export async function registerRoutes(
         employeeName: "Test Employee",
         jobTitle: "Test Position",
         location: "Test Location",
-        netTally: 5.0,
-        threshold: 5,
+        netTally: 6.0,
+        threshold: 6,
         appUrl
       };
 

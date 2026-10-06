@@ -144,7 +144,7 @@ export interface OccurrenceAlert {
   jobTitle: string;
   occurrenceTotal: number;
   netTally: number;
-  threshold: 5 | 7 | 8;
+  threshold: 6 | 7 | 8;
   message: string;
 }
 
