@@ -129,6 +129,7 @@
     "vite": "^7.3.2"
   },
   "overrides": {
+    "proxy-addr": "^2.0.8",
     "axios": "^1.20.0",
     "express-rate-limit": {
       "ip-address": "^10.7.3"
