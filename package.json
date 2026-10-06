@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "test:permissions": "npx tsx --test test/permissions.test.ts",
+    "test:occurrences": "tsx --test test/occurrence-thresholds.test.ts",
     "validate:release": "npm run check && npm run test:permissions",
     "prebuild": "npm run validate:release",
     "build": "tsx script/build.ts",

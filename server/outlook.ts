@@ -53,24 +53,24 @@ export interface OccurrenceAlertEmailData {
   jobTitle: string;
   location: string;
   netTally: number;
-  threshold: 6 | 7 | 8;
+  threshold: 5 | 7 | 8;
   appUrl: string;
 }
 
-function getThresholdLabel(threshold: 6 | 7 | 8): string {
+function getThresholdLabel(threshold: 5 | 7 | 8): string {
   switch (threshold) {
     case 8: return "Termination Threshold";
     case 7: return "Final Warning Threshold";
-    case 6: return "Warning Threshold";
+    case 5: return "Warning Threshold";
     default: return "Threshold";
   }
 }
 
-function getThresholdAction(threshold: 6 | 7 | 8): string {
+function getThresholdAction(threshold: 5 | 7 | 8): string {
   switch (threshold) {
     case 8: return "This employee has reached 8 occurrence points and may be subject to termination per company policy.";
     case 7: return "This employee has reached 7 occurrence points and should receive a final written warning.";
-    case 6: return "This employee has reached 6 occurrence points and should receive a verbal or written warning.";
+    case 5: return "This employee has reached 5 occurrence points and should receive a verbal or written warning.";
     default: return "Please review this employee's attendance record.";
   }
 }

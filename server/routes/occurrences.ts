@@ -482,7 +482,7 @@ export function registerOccurrenceRoutes(app: Express) {
     }
   });
 
-  // Get occurrence alerts - employees at 6, 7, or 8+ occurrences
+  // Get occurrence alerts - employees at 5, 7, or 8+ occurrences
   app.get("/api/occurrence-alerts", requireFeatureAccess("attendance.view"), async (req, res) => {
     try {
       const user = (req.session as any)?.user;
@@ -536,7 +536,7 @@ export function registerOccurrenceRoutes(app: Express) {
         jobTitle: string;
         occurrenceTotal: number;
         netTally: number;
-        threshold: 6 | 7 | 8;
+        threshold: 5 | 7 | 8;
         message: string;
       }> = [];
 
@@ -558,7 +558,7 @@ export function registerOccurrenceRoutes(app: Express) {
 
         // Check thresholds (using netTally for accurate count)
         // Only show alert if the appropriate corrective action hasn't been recorded
-        // 6 = warning, 7 = final warning, 8 = termination
+        // 5 = warning, 7 = final warning, 8 = termination
         if (netTally >= 8 && !hasTermination) {
           alerts.push({
             employeeId: emp.id,
@@ -581,7 +581,7 @@ export function registerOccurrenceRoutes(app: Express) {
             threshold: 7,
             message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Final warning.`
           });
-        } else if (netTally >= 6 && !hasWarning) {
+        } else if (netTally >= 5 && !hasWarning) {
           alerts.push({
             employeeId: emp.id,
             employeeName: emp.name,
@@ -589,13 +589,13 @@ export function registerOccurrenceRoutes(app: Express) {
             jobTitle: emp.jobTitle,
             occurrenceTotal: totalPoints,
             netTally,
-            threshold: 6,
+            threshold: 5,
             message: `${emp.name} is at ${netTally.toFixed(1)} occurrences. Warning.`
           });
         }
       }
 
-      // Sort by severity (8 first, then 7, then 6) and then by netTally descending
+      // Sort by severity (8 first, then 7, then 5) and then by netTally descending
       alerts.sort((a, b) => {
         if (a.threshold !== b.threshold) return b.threshold - a.threshold;
         return b.netTally - a.netTally;

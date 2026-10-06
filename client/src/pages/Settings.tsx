@@ -1211,7 +1211,7 @@ export default function Settings() {
             HR Email Notifications
           </CardTitle>
           <CardDescription>
-            Automatically send email alerts to HR when employees reach occurrence thresholds (6, 7, or 8 points).
+            Automatically send email alerts to HR when employees reach occurrence thresholds (5, 7, or 8 points).
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -22,20 +22,20 @@ interface TradeNotification {
   createdAt: string;
 }
 
-function getThresholdColor(threshold: 6 | 7 | 8) {
+function getThresholdColor(threshold: 5 | 7 | 8) {
   switch (threshold) {
     case 8: return "bg-red-600 text-white";
     case 7: return "bg-red-500 text-white";
-    case 6: return "bg-orange-500 text-white";
+    case 5: return "bg-orange-500 text-white";
     default: return "bg-muted";
   }
 }
 
-function getThresholdLabel(threshold: 6 | 7 | 8) {
+function getThresholdLabel(threshold: 5 | 7 | 8) {
   switch (threshold) {
     case 8: return "Termination";
     case 7: return "Final Warning";
-    case 6: return "Warning";
+    case 5: return "Warning";
     default: return "";
   }
 }

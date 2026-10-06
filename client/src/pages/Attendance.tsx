@@ -525,7 +525,7 @@ export default function Attendance() {
                   <CardContent className="p-3 sm:p-6 pt-0">
                     <div className="flex items-end gap-1 sm:gap-2">
                       <span 
-                        className={`text-2xl sm:text-4xl font-bold ${summary.netTally >= 7 ? 'text-red-600' : summary.netTally >= 6 ? 'text-orange-500' : ''}`}
+                        className={`text-2xl sm:text-4xl font-bold ${summary.netTally >= 7 ? 'text-red-600' : summary.netTally >= 5 ? 'text-orange-500' : ''}`}
                         data-testid="text-net-tally"
                       >
                         {summary.netTally.toFixed(1)}
@@ -536,7 +536,7 @@ export default function Attendance() {
                       <Badge variant="destructive" className="mt-2">Termination</Badge>
                     ) : summary.netTally >= 7 ? (
                       <Badge variant="destructive" className="mt-2">Final Warning</Badge>
-                    ) : summary.netTally >= 6 ? (
+                    ) : summary.netTally >= 5 ? (
                       <Badge className="mt-2 bg-orange-500 hover:bg-orange-600">Warning</Badge>
                     ) : null}
                   </CardContent>
@@ -561,7 +561,7 @@ export default function Attendance() {
               )}
 
               {/* Corrective Actions Card */}
-              {canManageOccurrences && summary.netTally >= 6 && (
+              {canManageOccurrences && summary.netTally >= 5 && (
                 <Card className="border-orange-200 dark:border-orange-800">
                   <CardHeader className="p-3 sm:p-6 pb-2 sm:pb-3">
                     <CardTitle className="flex items-center gap-2 text-sm sm:text-base">
@@ -573,13 +573,13 @@ export default function Attendance() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-3 sm:p-6 pt-0 space-y-2 sm:space-y-4">
-                    {/* Warning - available at 6+ occurrences */}
+                    {/* Warning - available at 5+ occurrences */}
                     <div className="flex items-center justify-between gap-2 p-2 sm:p-3 rounded border bg-muted/50">
                       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                         <Checkbox 
                           id="warning" 
                           checked={hasWarning}
-                          disabled={hasWarning || summary.netTally < 6}
+                          disabled={hasWarning || summary.netTally < 5}
                           onCheckedChange={(checked) => {
                             if (checked && !hasWarning) {
                               setCorrectiveActionType('warning');
@@ -591,7 +591,7 @@ export default function Attendance() {
                         />
                         <Label htmlFor="warning" className="flex flex-col gap-0.5 min-w-0">
                           <span className="font-medium text-sm">Warning</span>
-                          <span className="text-[10px] sm:text-xs text-muted-foreground">At 6+ occurrences</span>
+                          <span className="text-[10px] sm:text-xs text-muted-foreground">At 5+ occurrences</span>
                         </Label>
                       </div>
                       {hasWarning && (
