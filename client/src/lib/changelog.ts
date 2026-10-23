@@ -8,9 +8,27 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.3.0";
+export const APP_VERSION = "4.4.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.4.0",
+    date: "2026-10-23",
+    title: "Schedule export permissions, attendance consistency & security improvements",
+    changes: [
+      { type: "feature", description: "Schedule PDF export now has its own permission, separate from viewing or editing schedules. Authorized viewers can access the export option on desktop and mobile, with exports limited to schedules and locations they are allowed to see." },
+      { type: "fix", description: "Managers with publishing permission can publish schedules for their assigned locations without requiring administrator access. Publishing, unpublishing, and clearing schedules now consistently respect location access while preserving visibility of previously published weeks." },
+      { type: "fix", description: "Attendance notification emails, alerts, summaries, and reports now use the same net-occurrence calculation, including applicable adjustments and exemptions. Warning thresholds remain 5 net occurrences for a warning, 7 for a final warning, and 8 for termination." },
+      { type: "fix", description: "Covered Unscheduled Shift adjustments are validated server-side as a one-point reduction, with employee access and calendar-year limits enforced." },
+      { type: "fix", description: "Current-user details and permissions refresh regularly and when returning to the app. The sidebar and mobile menu no longer label a missing role as Viewer; they show Role unavailable instead." },
+      { type: "improvement", description: "Order forms now explain when to request equipment, return unused empty containers or equipment, and request raw, unsorted product from the warehouse." },
+      { type: "security", description: "Strengthened permission and assigned-location checks across employee and attendance records, coaching, schedules, shift trades, reports, and logistics. Ambiguous legacy order identifiers no longer grant access to orders from an uncertain location." },
+      { type: "security", description: "Signed-in accounts are rechecked against current account status and permissions so disabled accounts and access changes take effect without waiting for the session to expire." },
+      { type: "security", description: "UKG credentials are isolated from general settings and protected by dedicated permissions. HR attachment paths and outbound UKG requests have additional safeguards." },
+      { type: "security", description: "Updated vulnerable application dependencies, including PDF sanitization, development tooling, IP-address handling, and parsers, and added regression coverage for security fixes." },
+      { type: "improvement", description: "Release builds now require TypeScript checks and isolated permission tests to pass. Test fixtures protect shared databases and external services from test writes." },
+    ],
+  },
   {
     version: "4.3.0",
     date: "2026-08-18",
