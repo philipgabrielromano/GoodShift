@@ -7,6 +7,34 @@ import test from "node:test";
 const rootRequire = createRequire(new URL("../package.json", import.meta.url));
 const sandboxRequire = createRequire(new URL("../artifacts/mockup-sandbox/package.json", import.meta.url));
 
+// All five advisories below affect Vite 7.0.0 through 7.3.6 and are
+// patched in 7.3.7. Check the artifact as well as the main application.
+const viteAdvisories = [
+  "GHSA-587h-7wmj-h5pm",
+  "GHSA-698v-4r3x-3vcv",
+  "GHSA-r825-w8mm-5pxw",
+  "GHSA-rq7h-c2jc-7f22",
+  "GHSA-9jrq-w75r-8gcw",
+];
+
+test("both projects require and lock Vite with all five security fixes", () => {
+  for (const relative of ["../", "../artifacts/mockup-sandbox/"]) {
+    const manifest = JSON.parse(readFileSync(new URL(`${relative}package.json`, import.meta.url), "utf8"));
+    const lock = JSON.parse(readFileSync(new URL(`${relative}package-lock.json`, import.meta.url), "utf8"));
+    assert.equal(manifest.devDependencies.vite, "^7.3.7", relative);
+    assert.equal(lock.packages[""].devDependencies.vite, manifest.devDependencies.vite, relative);
+    const viteEntries = Object.entries(lock.packages).filter(([path]) => path.endsWith("/node_modules/vite") || path === "node_modules/vite");
+    assert.ok(viteEntries.length > 0, `${relative}: Vite must be present`);
+    for (const [path, entry] of viteEntries as [string, any][]) {
+      // Stay on the verified compatible major; a major upgrade needs its own review.
+      assert.match(entry.version, /^7\.\d+\.\d+$/);
+      const [, minor, patch] = entry.version.split(".").map(Number);
+      assert.ok(minor > 3 || (minor === 3 && patch >= 7),
+        `${relative}${path}@${entry.version} is affected by ${viteAdvisories.join(", ")}`);
+    }
+  }
+});
+
 // Use isolated processes: a regressed parser must fail the test, not hang or
 // exhaust the stack of the test runner. Resolve the copies consumers actually use.
 function runBounded(code: string) {
