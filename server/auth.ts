@@ -275,8 +275,15 @@ export function setupAuth(app: Express) {
       return res.redirect("/?error=invalid_state");
     }
 
+    // The nonce sent at login must be passed back so MSAL can check it against
+    // the ID token; MSAL 7 rejects an ID token nonce it can't verify.
+    const nonce = req.session.oauthNonce;
     delete req.session.oauthState;
     delete req.session.oauthNonce;
+    if (!nonce) {
+      console.error("OAuth nonce missing from session");
+      return res.redirect("/?error=invalid_state");
+    }
 
     const redirectUri = `${req.protocol}://${req.get("host")}/api/auth/callback`;
 
@@ -285,6 +292,7 @@ export function setupAuth(app: Express) {
         code,
         scopes: ["user.read", "openid", "profile", "email"],
         redirectUri,
+        nonce,
       };
 
       const response = await client.acquireTokenByCode(tokenRequest);
