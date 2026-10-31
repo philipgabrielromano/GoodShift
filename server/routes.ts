@@ -17,7 +17,7 @@ import { brandingFromSettings, EMAIL_TYPES, GOODWILL_BRAND_PALETTE, DEFAULT_EMAI
 import { renderSampleEmail } from "./emailSamples";
 import type { EmailTypeId } from "@shared/schema";
 import { EMAIL_TYPE_IDS, emailBrandingConfigSchema } from "@shared/schema";
-import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature, addDaysInET } from "./middleware";
+import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature, addDaysInET, bulkActionLimiter } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
 import { registerOccurrenceRoutes } from "./routes/occurrences";
@@ -962,7 +962,7 @@ export async function registerRoutes(
     res.json(logs);
   });
 
-  app.post(api.schedule.generate.path, requireFeatureAccess("schedule.generate"), async (req, res) => {
+  app.post(api.schedule.generate.path, requireFeatureAccess("schedule.generate"), bulkActionLimiter, async (req, res) => {
     try {
       const { weekStart, location } = api.schedule.generate.input.parse(req.body);
       // A non-admin must generate for one of their own stores; with no
@@ -1015,7 +1015,7 @@ export async function registerRoutes(
   });
 
   // Clear schedule for a week (optionally filtered by location)
-  app.post("/api/schedule/clear", requireFeatureAccess("schedule.edit"), async (req, res) => {
+  app.post("/api/schedule/clear", requireFeatureAccess("schedule.edit"), bulkActionLimiter, async (req, res) => {
     try {
       const parsed = api.schedule.generate.input.parse(req.body);
       // Clearing with no location would wipe every store's week; non-admins
@@ -1302,7 +1302,7 @@ export async function registerRoutes(
   });
 
   // Publish a week's schedule (anyone with schedule.publish feature)
-  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), async (req, res) => {
+  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), bulkActionLimiter, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       
@@ -1367,7 +1367,7 @@ export async function registerRoutes(
   });
 
   // Unpublish a week's schedule (anyone with schedule.publish feature)
-  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), async (req, res) => {
+  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), bulkActionLimiter, async (req, res) => {
     try {
       
       const weekStart = req.params.weekStart as string;

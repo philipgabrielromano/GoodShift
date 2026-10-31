@@ -109,8 +109,15 @@ app.use((req, res, next) => {
       const isZod = err instanceof ZodError;
       const status = isZod ? 400 : (err.status || err.statusCode || errorStatus(err));
 
+      // Constant format string: the path is user-controlled and must not be
+      // interpreted as format specifiers.
       console.error(
-        `[Error] ${req.method} ${req.path} -> ${status} (dependency: ${dependencyOf(err)}, code: ${err?.code ?? err?.cause?.code ?? "none"}):`,
+        "[Error] %s %s -> %d (dependency: %s, code: %s):",
+        req.method,
+        req.path,
+        status,
+        dependencyOf(err),
+        String(err?.code ?? err?.cause?.code ?? "none"),
         err,
       );
 

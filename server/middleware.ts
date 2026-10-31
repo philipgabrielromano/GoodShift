@@ -1,5 +1,6 @@
 
 import type { Request, Response, NextFunction } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { storage } from "./storage";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { sendOccurrenceAlertEmail, type OccurrenceAlertEmailData } from "./outlook";
@@ -37,6 +38,21 @@ export function addDaysInET(baseDate: Date, days: number): Date {
 }
 
 // Middleware to require authentication (uses session user like rest of codebase)
+// Rate limit for expensive or destructive bulk actions (schedule generate,
+// clear, publish/unpublish, order delete): at most 20 per minute per signed-in
+// user, so a stuck client or script can't hammer them. Per instance.
+export const bulkActionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req.session as any)?.user?.id;
+    return userId ? `user:${userId}` : ipKeyGenerator(req.ip ?? "");
+  },
+  message: { message: "Too many requests. Please wait a minute and try again." },
+});
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const user = (req.session as any)?.user;
   if (!user) {

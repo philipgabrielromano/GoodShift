@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { requireFeatureAccess, requireAdmin, userHasFeature } from "../middleware";
+import { requireFeatureAccess, requireAdmin, userHasFeature, bulkActionLimiter } from "../middleware";
 import type { PoolConnection } from "mysql2/promise";
 import { mysqlPool } from "../mysql";
 import { errorStatus } from "../errors";
@@ -2078,7 +2078,7 @@ export function registerOrderRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/orders/:id", requireFeatureAccess("orders.delete"), async (req, res) => {
+  app.delete("/api/orders/:id", requireFeatureAccess("orders.delete"), bulkActionLimiter, async (req, res) => {
     let conn: PoolConnection | null = null;
     try {
       const id = Number(req.params.id);
