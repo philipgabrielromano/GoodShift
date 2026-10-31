@@ -8,9 +8,17 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.2.0";
+export const APP_VERSION = "4.2.1";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.2.1",
+    date: "2026-10-31",
+    title: "Dependency security updates",
+    changes: [
+      { type: "security", description: "Patched 56 dependency vulnerabilities (1 critical, 28 high, 22 moderate, 5 low) by updating Microsoft sign-in (MSAL 7), mysql2, xmldom, dompurify, axios, vite and several indirect packages. The unused csv-parse package was removed." },
+    ],
+  },
   {
     version: "4.2.0",
     date: "2026-08-16",

@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",
-    "@azure/msal-node": "^5.0.2",
+    "@azure/msal-node": "^7.1.2",
     "@google-cloud/storage": "^7.18.0",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
@@ -50,13 +50,12 @@
     "@uppy/core": "^5.2.0",
     "@uppy/dashboard": "^5.1.0",
     "@uppy/react": "^5.1.1",
-    "@xmldom/xmldom": "^0.8.13",
+    "@xmldom/xmldom": "^0.8.15",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "connect-pg-simple": "^10.0.0",
     "csurf": "^1.11.0",
-    "csv-parse": "^6.2.1",
     "date-fns": "^3.6.0",
     "date-fns-tz": "^3.2.0",
     "drizzle-orm": "^0.45.2",
@@ -73,7 +72,7 @@
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.453.0",
     "memorystore": "^1.6.7",
-    "mysql2": "^3.22.0",
+    "mysql2": "^3.24.6",
     "next-themes": "^0.4.6",
     "openai": "^6.16.0",
     "p-limit": "^7.2.0",
@@ -122,14 +121,15 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
     "typescript": "5.6.3",
-    "vite": "^7.3.2"
+    "vite": "^7.3.7"
   },
   "overrides": {
     "drizzle-kit": {
       "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
     },
-    "@xmldom/xmldom": "^0.8.13",
-    "dompurify": "^3.4.0",
+    "@xmldom/xmldom": "^0.8.15",
+    "dompurify": "^3.4.17",
+    "postcss-selector-parser": "^6.1.5",
     "fast-xml-parser": "^5.7.0",
     "cookie": "^0.7.0",
     "@tootallnate/once": "^3.0.1",
