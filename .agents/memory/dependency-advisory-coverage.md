@@ -9,13 +9,12 @@ Do not treat a clean npm audit as proof that every assigned dependency advisory 
 
 **How to apply:** Check the upstream advisory's affected ranges and patched versions when a security finding does not appear in npm audit. Report unresolved findings explicitly; do not silently substitute a major build-tool migration for a dependency patch.
 
-When upstream has no patched release, a minimal API-compatible security fork is
-preferred over migrating the styling toolchain solely to remove a transitive
-dependency.
+Do not replace an upstream package with a third-party fork. The owner reverted
+the `@dieub/braces-depth-guard` alias to upstream `braces` (2026-10-31).
 
-**Why:** A toolchain migration can change generated CSS across the entire app;
-a bounded-nesting fix addresses the specific denial of service without that scope.
+**Why:** A fork from an unvetted publisher is a supply-chain risk in every build,
+and the advisory it addressed (GHSA-vfj7-8cjw-p6xm) was withdrawn on 2026-10-23.
 
-**How to apply:** Inspect the fork's changes and lifecycle scripts, pin its exact
-release, test malicious inputs and ordinary patterns through real consumer
-resolution, and revisit the replacement when upstream publishes a fix.
+**How to apply:** Check whether an advisory is withdrawn before acting on it.
+When upstream has no patched release, report the finding and ask the owner;
+prefer upstream packages, and use overrides only to select upstream versions.

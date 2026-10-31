@@ -10,8 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "overrides": {
-    "source-map-js": "^1.2.2",
-    "braces": "npm:@dieub/braces-depth-guard@3.0.3-pn.3"
+    "source-map-js": "^1.2.2"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

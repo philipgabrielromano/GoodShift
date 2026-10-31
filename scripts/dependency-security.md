@@ -6,17 +6,13 @@ The application and mockup sandbox use overrides for transitive build dependenci
 - `postcss-selector-parser` 7.1.7 fixes GHSA-rj75-hqrm-r3gf (fixed upstream
   starting with 7.1.6). The override also covers Tailwind 3, its typography
   plugin, and postcss-nested; verify CSS generation when changing this override.
-- GHSA-vfj7-8cjw-p6xm has no patched upstream `braces` release. Both projects
-  alias it to the exact `@dieub/braces-depth-guard@3.0.3-pn.3` release.
-  Its published JavaScript was compared with braces 3.0.3: it retains the API
-  and adds bounded nesting to the parser and recursive AST walkers, validates
-  limits, and rejects parent cycles in expansion. The package has the same
-  `fill-range` dependency and no install lifecycle scripts.
+- `braces` is the upstream package (3.0.3). GHSA-vfj7-8cjw-p6xm, which had no
+  patched release, was withdrawn on 2026-10-23, so the earlier alias to the
+  third-party `@dieub/braces-depth-guard` fork was removed. Don't reintroduce
+  forks of upstream packages without the owner's approval.
 
-The fork is a temporary security replacement, not an upstream patched version.
-Reassess it when upstream publishes a fix. Do not remove the overrides solely
-because `npm audit` is clean: npm's advisory coverage may differ from the
-project's dependency scanner.
+Do not remove the remaining overrides solely because `npm audit` is clean:
+npm's advisory coverage may differ from the project's dependency scanner.
 
 Run `npm run test:dependency-security` for lockfile checks and bounded-process
 regressions against the actual dependency copies used by both projects. Also

@@ -60,8 +60,12 @@ test("both lockfiles exclude the three affected dependency versions", () => {
         assert.ok(major > 7 || (major === 7 && (minor > 1 || (minor === 1 && patch >= 6))), path);
       }
       if (path.endsWith("/braces")) {
-        assert.equal(entry.name, "@dieub/braces-depth-guard", path);
-        assert.equal(entry.version, "3.0.3-pn.3", path);
+        // Upstream braces, not an alias: GHSA-vfj7-8cjw-p6xm was withdrawn
+        // (2026-10-23), so the third-party depth-guard fork is no longer used.
+        assert.equal(entry.name, undefined, path);
+        assert.match(entry.resolved, /^https:\/\/registry\.npmjs\.org\/braces\/-\/braces-/, path);
+        const [major, minor, patch] = entry.version.split(".").map(Number);
+        assert.ok(major > 3 || (major === 3 && (minor > 0 || patch >= 3)), path);
       }
     }
   }
@@ -71,7 +75,7 @@ for (const [name, require] of [["application", rootRequire], ["sandbox", sandbox
   const parents = name === "application" ? ["micromatch", "chokidar"] : ["micromatch"];
   for (const parent of parents) {
     const bracesPath = createRequire(require.resolve(parent)).resolve("braces");
-    test(`${name}/${parent}: brace parsing and AST walkers reject excessive nesting`, () => {
+    test(`${name}/${parent}: brace expansion behaves normally`, () => {
       runBounded(`
         const assert = require("node:assert/strict");
         const braces = require(${JSON.stringify(bracesPath)});
@@ -82,20 +86,6 @@ for (const [name, require] of [["application", rootRequire], ["sandbox", sandbox
         assert.deepEqual(braces.expand("{1..3}"), ["1", "2", "3"]);
         assert.deepEqual(braces.expand("a/{b,{c,d}}/e"), ["a/b/e", "a/c/e", "a/d/e"]);
         assert.equal(braces.stringify(braces.parse("a/{b,c}/d")), "a/{b,c}/d");
-        for (const [open, close] of [["{", "}"], ["(", ")"], ["{(", ")}"]]) {
-          const input = open.repeat(2000) + "a,b" + close.repeat(2000);
-          for (const method of ["parse", "compile", "expand", "stringify"]) {
-            assert.throws(() => braces[method](input), /exceeds max depth/);
-          }
-          assert.throws(() => braces(input), /exceeds max depth/);
-          assert.throws(() => braces.parse(input, {maxDepth: Infinity}), /exceeds max depth/);
-        }
-        for (const method of ["compile", "expand", "stringify"]) {
-          let ast = {type: "text", value: "x"};
-          for (let i = 0; i < 2000; i++) ast = {type: "paren", nodes: [ast]};
-          ast = {type: "root", nodes: [ast]};
-          assert.throws(() => braces[method](ast), /exceeds max depth/);
-        }
       `);
     });
   }
