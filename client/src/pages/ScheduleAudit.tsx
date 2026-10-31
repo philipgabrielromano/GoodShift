@@ -178,7 +178,12 @@ export default function ScheduleAudit() {
     const hoursByCode: Record<string, number[]> = {};
     const totals: number[] = [];
 
-    for (const week of auditData.weeks) {
+    // Average only weeks that have hours: the range runs forward from the
+    // chosen week, so future weeks are empty and would drag the average down.
+    const weeksWithData = auditData.weeks.filter(w => w.totalHours > 0);
+    if (weeksWithData.length === 0) return null;
+
+    for (const week of weeksWithData) {
       totals.push(week.totalHours);
       for (const jc of week.jobCodes) {
         if (!hoursByCode[jc.code]) hoursByCode[jc.code] = [];
@@ -186,7 +191,7 @@ export default function ScheduleAudit() {
       }
     }
 
-    const n = auditData.weeks.length;
+    const n = weeksWithData.length;
     const avgTotal = totals.reduce((s, v) => s + v, 0) / n;
 
     const jobCodes: JobCodeData[] = Object.entries(hoursByCode)

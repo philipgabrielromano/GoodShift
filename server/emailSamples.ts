@@ -2,7 +2,7 @@ import { renderEmailLayout, dv, type ResolvedBranding } from "./emailBranding";
 import type { EmailTypeId } from "@shared/schema";
 
 /**
- * Returns rendered HTML for any of the 10 email types using believable sample
+ * Returns rendered HTML for any of the 12 email types using believable sample
  * data. Used by the Settings preview pane so admins can see exactly how each
  * template will look with the current branding.
  */
@@ -158,6 +158,20 @@ export function renderSampleEmail(type: EmailTypeId, branding: ResolvedBranding,
         <h3 style="margin:16px 0 8px;font-size:14px;color:#374151;">Items Requested</h3>
         <table style="width:100%;border-collapse:collapse;">${fieldsHtml}</table>`;
       return renderEmailLayout({ type, title: "First Aid Replenishment Request", bodyHtml, ctaLabel: "View Order", ctaHref: `${appUrl}/orders`, branding });
+    }
+    case "order_approved":
+    case "order_denied": {
+      const approved = type === "order_approved";
+      const bodyHtml = `
+        <p>Your order has been <strong>${approved ? "approved" : "denied"}</strong> by the warehouse.</p>
+        <table style="width:100%;border-collapse:collapse;margin:0 0 16px 0;">
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Date:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">4/22/2026</td></tr>
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Type:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv("Equipment", branding)}</td></tr>
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>Location:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv("Wheeling Store", branding)}</td></tr>
+          <tr><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;"><strong>${approved ? "Approved" : "Denied"} By:</strong></td><td style="padding:6px 0;border-bottom:1px solid #e5e7eb;">${dv("Marcus Chen", branding)}</td></tr>
+        </table>
+        ${approved ? "" : `<div style="background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 12px 16px; margin: 16px 0;"><strong>Reason:</strong><br>Duplicate of an order submitted earlier today.</div>`}`;
+      return renderEmailLayout({ type, title: approved ? "Order Approved" : "Order Denied", bodyHtml, ctaLabel: "View Order", ctaHref: `${appUrl}/orders`, branding });
     }
   }
 }

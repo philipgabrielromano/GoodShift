@@ -115,6 +115,8 @@ const formSchema = z.object({
   stopBleedKit: z.number().nullable().optional(),
   instantColdPack: z.number().nullable().optional(),
   spillKit: z.number().nullable().optional(),
+  eyeWash16oz: z.number().nullable().optional(),
+  eyeWash32oz: z.number().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
 
@@ -176,6 +178,8 @@ const FIRST_AID_FIELDS = [
   { field: "stopBleedKit" as const, label: "Stop the Bleed Kit", testId: "input-stop-bleed-kit" },
   { field: "instantColdPack" as const, label: "Instant Cold Pack", testId: "input-instant-cold-pack" },
   { field: "spillKit" as const, label: "Spill Kit (BBP/Vomit)", testId: "input-spill-kit" },
+  { field: "eyeWash16oz" as const, label: "Eye Wash (16oz)", testId: "input-eye-wash-16oz" },
+  { field: "eyeWash32oz" as const, label: "Eye Wash (32oz)", testId: "input-eye-wash-32oz" },
 ];
 
 interface AuthStatus {
@@ -185,7 +189,8 @@ interface AuthStatus {
 
 export default function OrderForm() {
   const { toast } = useToast();
-  const today = new Date().toISOString().split("T")[0];
+  // Today in Eastern Time (the UTC date is tomorrow in the evening).
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: dbLocations } = useLocations();
   const { can } = usePermissions();
@@ -464,6 +469,12 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Equipment Requested</CardTitle>
+                <div
+                  className="mt-2 rounded border-2 border-red-600 bg-red-50 px-4 py-3 text-base font-bold uppercase tracking-wide text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300"
+                  data-testid="notice-equipment-requested"
+                >
+                  Request containers and other equipment to manage donations.
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -480,6 +491,12 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Equipment Returned</CardTitle>
+                <div
+                  className="mt-2 rounded border-2 border-red-600 bg-red-50 px-4 py-3 text-base font-bold uppercase tracking-wide text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300"
+                  data-testid="notice-equipment-returned-empty-only"
+                >
+                  Return containers and other equipment. Only use this if you are sending back unused, EMPTY containers or equipment.
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -496,6 +513,12 @@ export default function OrderForm() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Category Gaylords Requested</CardTitle>
+                <div
+                  className="mt-2 rounded border-2 border-red-600 bg-red-50 px-4 py-3 text-base font-bold uppercase tracking-wide text-red-700 dark:border-red-500 dark:bg-red-950 dark:text-red-300"
+                  data-testid="notice-category-gaylords-requested"
+                >
+                  Request raw, unsorted product from the warehouse.
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">

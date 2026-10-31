@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real, jsonb, varchar, json } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -108,6 +108,8 @@ export const EMAIL_TYPE_IDS = [
   "driver_inspection",
   "warehouse_variance",
   "first_aid_notification",
+  "order_approved",
+  "order_denied",
 ] as const;
 export type EmailTypeId = typeof EMAIL_TYPE_IDS[number];
 
@@ -226,7 +228,7 @@ export const locations = pgTable("locations", {
   notificationEmail: text("notification_email"), // Destination email for trailer manifest in-transit notifications
   formOnly: boolean("form_only").notNull().default(false), // True for entries that exist only for Order Form (ADCs, Wired Up, etc.) — hidden from scheduling, roster, users, etc.
   availableForOrderForm: boolean("available_for_order_form").notNull().default(true), // Whether this location appears in the Order Form location dropdown
-  orderFormName: text("order_form_name"), // Optional alias used in the Order Form dropdown (when null, falls back to name)
+  orderFormName: text("order_form_name"), // Falls back to name; effective identity uniqueness is enforced transactionally by storage (including alias/name collisions).
   availableForScheduling: boolean("available_for_scheduling").notNull().default(true), // Whether this location appears in scheduling, roster, task assignment, and optimization pickers
   schedulingName: text("scheduling_name"), // Optional alias used in scheduling/roster/task-assignment dropdowns (when null, falls back to name)
   availableForRosterTargets: boolean("available_for_roster_targets").notNull().default(true), // Whether this location appears in the Roster Targets page dropdown (independent of general scheduling availability)
@@ -317,6 +319,13 @@ export const insertRoleRequirementSchema = createInsertSchema(roleRequirements).
 export const insertGlobalSettingsSchema = createInsertSchema(globalSettings).omit({ id: true }).extend({
   emailBranding: emailBrandingConfigSchema.nullish(),
 });
+// Integration credentials are writable only through the dedicated UKG endpoint.
+export const updateGeneralSettingsSchema = insertGlobalSettingsSchema.omit({
+  ukgApiUrl: true,
+  ukgUsername: true,
+  ukgPassword: true,
+}).strict();
+export type GeneralSettings = Omit<typeof globalSettings.$inferSelect, "ukgApiUrl" | "ukgUsername" | "ukgPassword">;
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertShiftPresetSchema = createInsertSchema(shiftPresets).omit({ id: true });
@@ -401,9 +410,46 @@ export const publishedSchedules = pgTable("published_schedules", {
   publishedAt: timestamp("published_at").defaultNow(),
 });
 
+// Express sessions (connect-pg-simple). Shared by every instance so a user
+// stays signed in whichever autoscale instance serves the request. Matches
+// connect-pg-simple's table.sql; server/auth.ts also creates it if missing.
+export const sessions = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+}, (table) => [
+  index("IDX_session_expire").on(table.expire),
+]);
+
 export const insertPublishedScheduleSchema = createInsertSchema(publishedSchedules).omit({ id: true, publishedAt: true });
 export type PublishedSchedule = typeof publishedSchedules.$inferSelect;
 export type InsertPublishedSchedule = z.infer<typeof insertPublishedScheduleSchema>;
+
+// A location-specific publication state. The legacy published_schedules row
+// remains the global marker; these rows are only used when a schedule is
+// published (or unpublished) for one location at a time. Locations are kept
+// as names, matching employees.location, rather than location IDs because UKG
+// employee location values are the canonical schedule scope.
+export const publishedScheduleOverrides = pgTable("published_schedule_overrides", {
+  id: serial("id").primaryKey(),
+  weekStart: date("week_start").notNull(),
+  location: text("location").notNull(),
+  isPublished: boolean("is_published").notNull().default(false),
+  publishedBy: integer("published_by"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("published_schedule_overrides_week_location_idx").on(table.weekStart, table.location),
+]);
+
+export const insertPublishedScheduleOverrideSchema = createInsertSchema(publishedScheduleOverrides).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type PublishedScheduleOverride = typeof publishedScheduleOverrides.$inferSelect;
+export type InsertPublishedScheduleOverride = z.infer<typeof insertPublishedScheduleOverrideSchema>;
 
 // === OCCURRENCES (Attendance Tracking) ===
 
@@ -1411,7 +1457,7 @@ export const warehouseInventoryAudits = pgTable("warehouse_inventory_audits", {
   id: serial("id").primaryKey(),
   countId: integer("count_id").notNull(),
   itemName: text("item_name"), // nullable: item-level edits set this; count-level events (finalize/reopen) leave it null
-  action: text("action").notNull(), // 'update' | 'finalize' | 'reopen'
+  action: text("action").notNull(), // 'update' | 'finalize' | 'reopen' | 'delete'
   changedById: integer("changed_by_id"),
   changedByName: text("changed_by_name"),
   changedAt: timestamp("changed_at").notNull().defaultNow(),
@@ -1671,6 +1717,7 @@ export const FEATURE_CATEGORIES = [
 export const SYSTEM_FEATURES = [
   // Scheduling
   { category: "Scheduling", feature: "schedule.view", label: "View Schedule", description: "See the weekly schedule" },
+  { category: "Scheduling", feature: "schedule.export_pdf", label: "Export Schedule PDF", description: "Download the weekly schedule as a PDF" },
   { category: "Scheduling", feature: "schedule.edit", label: "Edit Shifts", description: "Create, update, delete shifts; clear the schedule" },
   { category: "Scheduling", feature: "schedule.publish", label: "Publish Schedule", description: "Publish schedules and send notifications" },
   { category: "Scheduling", feature: "schedule.generate", label: "Auto-Generate Schedule", description: "Run the automatic schedule generator" },
@@ -1756,6 +1803,7 @@ export const SYSTEM_FEATURES = [
 export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   // Scheduling
   "schedule.view": ["admin", "manager", "optimizer", "viewer"],
+  "schedule.export_pdf": ["admin", "manager", "optimizer", "viewer"],
   "schedule.edit": ["admin", "manager"],
   "schedule.publish": ["admin", "manager"],
   "schedule.generate": ["admin", "manager"],
@@ -1836,11 +1884,25 @@ export const DEFAULT_FEATURE_PERMISSIONS: Record<string, string[]> = {
   "users.delete": ["admin"],
 };
 
+// Until schedule.export_pdf has an explicit row, preserve the schedule access
+// that existed before the export permission was introduced (including legacy
+// "schedule" grants). Once saved, export is independent of schedule.view.
+export function initialScheduleExportRoles(
+  rows: ReadonlyArray<{ feature: string; allowedRoles: string[] }>,
+): string[] {
+  const viewRoles = rows.find(row => row.feature === "schedule.view")?.allowedRoles
+    ?? DEFAULT_FEATURE_PERMISSIONS["schedule.view"];
+  const legacyRoles = rows.find(row => row.feature === "schedule")?.allowedRoles ?? [];
+  return Array.from(new Set([...viewRoles, ...legacyRoles]));
+}
+
 // Backward-compatibility: old single-key features were split into multiple
 // granular keys. If a DB row still uses a legacy key, its allowedRoles are
 // unioned into each of its granular children at runtime so existing
 // customizations continue to work until an admin re-saves with new keys.
 export const LEGACY_FEATURE_EXPANSIONS: Record<string, string[]> = {
+  // Export inherits effective view grants only when no explicit export row
+  // exists; it must not be permanently unioned with legacy schedule grants.
   schedule: ["schedule.view", "schedule.edit", "schedule.publish", "schedule.generate", "schedule.templates", "schedule.roster_targets"],
   employees: ["employees.view", "employees.edit"],
   attendance: ["attendance.view", "attendance.edit"],

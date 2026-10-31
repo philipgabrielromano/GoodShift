@@ -9,6 +9,10 @@
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "overrides": {
+    "source-map-js": "^1.2.2",
+    "braces": "npm:@dieub/braces-depth-guard@3.0.3-pn.3"
+  },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.12",
@@ -69,7 +73,7 @@
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.4.0",
     "vaul": "^1.1.2",
-    "vite": "^7.3.0",
+    "vite": "^7.3.7",
     "zod": "^3.25.76"
   }
 }

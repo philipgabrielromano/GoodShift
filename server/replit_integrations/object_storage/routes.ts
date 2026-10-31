@@ -1,7 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
-import { requireAuth, requireFeatureAccessAny } from "../../middleware";
+import { requireAuth, requireFeatureAccessAny, userHasFeature } from "../../middleware";
+import { storage } from "../../storage";
+import { canAccessEmployee } from "../../routes/occurrences";
+import { canViewCoachingFor } from "../../routes/coaching";
 
 // Allowlist of content types accepted for generic private uploads.
 // Module-specific upload endpoints (coaching, inspections) enforce their own
@@ -129,10 +132,12 @@ export function registerObjectStorageRoutes(app: Express): void {
    *
    * GET /objects/{*objectPath}
    *
-   * Requires authentication. Enforces ACL when a policy has been set on the object.
-   * Objects without an ACL policy are denied to non-privileged users (default-deny).
-   * Privileged roles (admin, manager, optimizer) can access any object regardless
-   * of ACL to ensure supervisors retain access to attachments uploaded by reports.
+   * Requires authentication. A file that belongs to a record is authorized
+   * through that record: occurrence and coaching PDFs follow the same
+   * employee-visibility rules as the attendance and coaching pages, manifest
+   * photos need trailer_manifest.view, and inspection photos need the
+   * inspection's view_all permission (or to be the uploader). Files with no
+   * owning record need an ACL grant (the uploader), whatever the caller's role.
    * Forces Content-Disposition: attachment to prevent browser execution of
    * uploaded HTML/JS files (defense against same-origin content injection).
    */
@@ -141,16 +146,37 @@ export function registerObjectStorageRoutes(app: Express): void {
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
 
-      // Privileged roles (admin, manager, optimizer) can access any private object
-      // so that supervisors retain access to attachments uploaded by their reports.
-      const privilegedRoles = ["admin", "manager", "optimizer"];
-      const isPrivileged = privilegedRoles.includes(sessionUser.role);
-
-      const canAccess = isPrivileged || await objectStorageService.canAccessObjectEntityOrFallback({
+      const isUploader = () => objectStorageService.canAccessObjectEntityOrFallback({
         userId: String(sessionUser.id),
         objectFile,
         requestedPermission: ObjectPermission.READ,
       });
+
+      const owner = await storage.findObjectOwner(req.path);
+      let canAccess: boolean;
+      switch (owner?.kind) {
+        case "occurrence":
+          canAccess = await userHasFeature(sessionUser, "attendance.view") &&
+            await canAccessEmployee(sessionUser, owner.employeeId);
+          break;
+        case "coaching":
+          canAccess = await userHasFeature(sessionUser, "coaching.view") &&
+            await canViewCoachingFor(sessionUser, owner.employeeId);
+          break;
+        case "manifest_photo":
+          canAccess = await userHasFeature(sessionUser, "trailer_manifest.view");
+          break;
+        case "driver_inspection":
+          canAccess = await userHasFeature(sessionUser, "driver_inspection.view_all") || await isUploader();
+          break;
+        case "credit_card_inspection":
+          canAccess = await userHasFeature(sessionUser, "credit_card_inspection.view_all") || await isUploader();
+          break;
+        default:
+          // No owning record (a legacy or never-attached file): only an ACL
+          // grant (the uploader). A supervisory role, admin included, is not one.
+          canAccess = await isUploader();
+      }
 
       if (!canAccess) {
         return res.status(403).json({ error: "Access denied" });

@@ -7,13 +7,5 @@ set -e
 npm install --no-audit --no-fund --prefer-offline
 npm run db:push
 
-# Permissions test is informational only here — run it so regressions are
-# visible in the post-merge log, but don't fail the whole merge if a few
-# subtests fail. The post-merge runner's job is to land deps + migrations;
-# permission-table drift should be caught in PR review / CI, not here.
-# (Without this guard, ANY merge would also fail post-merge whenever
-# someone introduces a new SYSTEM_FEATURES row that hasn't been wired
-# into ROUTE_GATES yet.)
-if ! npx tsx --test test/permissions.test.ts; then
-  echo "post-merge: permissions test had failures (non-blocking); see output above"
-fi
+# Release validation runs separately via npm run validate:release (and
+# automatically before npm run build). This hook only installs deps/schema.

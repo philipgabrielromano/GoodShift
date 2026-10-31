@@ -1,13 +1,56 @@
 import mysql from "mysql2/promise";
-import { ORDER_RECONCILABLE_COLUMNS } from "@shared/schema";
+import type { Pool } from "mysql2/promise";
+import { ORDER_RECONCILABLE_COLUMNS, SEASONAL_CONFIRMABLE_COLUMNS } from "@shared/schema";
 
 const LOCAL_PROXY_PORT = 13306;
+const TEST_POOL_SYMBOL = Symbol.for("goodshift.external-fixtures.mysql-pool");
+const TEST_FIXTURE_ENV = "GOODSHIFT_EXTERNAL_FIXTURES";
+const NODE_TEST_CONTEXT_ENV = "NODE_TEST_CONTEXT";
+
+/**
+ * Permission tests install an isolated pool before importing any route module.
+ *
+ * Keeping the injection point here (rather than replacing mysql2 throughout
+ * the application) means the production path remains exactly the same while
+ * tests can guarantee that a route can never open a real MySQL connection.
+ * The test helper deliberately owns the fixture implementation; this module
+ * only consumes the already-installed pool.
+ */
+function getInstalledTestPool(): Pool | undefined {
+  const candidate = (globalThis as unknown as Record<symbol, unknown>)[TEST_POOL_SYMBOL];
+  const fixtureRequested =
+    process.env[TEST_FIXTURE_ENV] === "1" || candidate !== undefined;
+  if (!fixtureRequested) return undefined;
+  if (!process.env[NODE_TEST_CONTEXT_ENV]) {
+    throw new Error("[MySQL] External fixtures require node --test");
+  }
+  const validPool =
+    candidate &&
+    typeof candidate === "object" &&
+    typeof (candidate as { execute?: unknown }).execute === "function" &&
+    typeof (candidate as { query?: unknown }).query === "function" &&
+    typeof (candidate as { getConnection?: unknown }).getConnection === "function" &&
+    typeof (candidate as { end?: unknown }).end === "function";
+  if (validPool) {
+    return candidate as Pool;
+  }
+  throw new Error("[MySQL] Fixture mode requested without a valid isolated pool");
+}
 
 const useTailscale = !!process.env.TAILSCALE_AUTH_KEY;
 const mysqlHost = useTailscale ? "127.0.0.1" : process.env.MYSQL_HOST;
 const mysqlPort = useTailscale ? LOCAL_PROXY_PORT : (Number(process.env.MYSQL_PORT) || 3306);
 
-const pool = mysql.createPool({
+const testPool = getInstalledTestPool();
+// Created on first use: with maxIdle below connectionLimit, mysql2 starts an
+// idle-reaper timer as soon as the pool exists, which would keep any process
+// that merely imports this module (tests, scripts) from exiting.
+let realPool: mysql.Pool | undefined;
+function getPool(): mysql.Pool {
+  return testPool ?? (realPool ??= createRealPool());
+}
+
+const createRealPool = () => mysql.createPool({
   host: mysqlHost,
   port: mysqlPort,
   database: process.env.MYSQL_DATABASE,
@@ -15,13 +58,119 @@ const pool = mysql.createPool({
   password: process.env.MYSQL_PASSWORD,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0,
+  // Keep few idle connections and drop them after a minute, so connections
+  // that sat idle through the tunnel are replaced rather than reused.
+  maxIdle: 2,
+  idleTimeout: 60_000,
+  // Bounded wait queue: when MySQL is unreachable, requests fail fast (503)
+  // instead of piling up behind hung connections.
+  queueLimit: 50,
+  enableKeepAlive: true,
   ssl: useTailscale ? undefined : { rejectUnauthorized: true },
   connectTimeout: 10000,
 });
 
+// ---- Timeouts and self-healing ----
+//
+// Through the Tailscale tunnel the client socket goes to socat on
+// 127.0.0.1, which stays healthy even when the far side is dead, so TCP
+// keepalive never notices a half-open tunnel. The per-query timeout below is
+// what does: a query that gets no answer fails, and its connection is
+// destroyed (mysql2 leaves a timed-out connection mid-command, so it must
+// never go back to the pool). Do not remove the timeout.
+const QUERY_TIMEOUT_MS = 25_000;
+const ACQUIRE_TIMEOUT_MS = 15_000;
+
+// The connection itself is unusable after these.
+const BROKEN_CONNECTION_CODES = new Set([
+  "PROTOCOL_CONNECTION_LOST",
+  "PROTOCOL_SEQUENCE_TIMEOUT",
+  "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+]);
+// Safe to retry once on a fresh connection: the connection dropped, so the
+// statement may not have reached MySQL. Not timeouts (that would double the wait).
+const RETRYABLE_CODES = new Set(["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "EPIPE"]);
+
+function withQueryTimeout(sql: unknown): unknown {
+  if (typeof sql === "string") return { sql, timeout: QUERY_TIMEOUT_MS };
+  if (sql && typeof sql === "object" && (sql as any).timeout === undefined) {
+    return { ...(sql as object), timeout: QUERY_TIMEOUT_MS };
+  }
+  return sql;
+}
+
+// Patches a checked-out connection so every statement has a timeout and a
+// broken connection is destroyed instead of being returned to the pool.
+// release() after destroy() is a no-op, so callers' cleanup stays correct.
+function guardConnection(conn: mysql.PoolConnection): mysql.PoolConnection {
+  for (const method of ["query", "execute"] as const) {
+    const original = (conn as any)[method].bind(conn);
+    (conn as any)[method] = (sql: unknown, ...rest: unknown[]) =>
+      original(withQueryTimeout(sql), ...rest).catch((err: any) => {
+        if (BROKEN_CONNECTION_CODES.has(err?.code) || err?.fatal === true) conn.destroy();
+        throw err;
+      });
+  }
+  return conn;
+}
+
+async function acquireConnection(): Promise<mysql.PoolConnection> {
+  const pending = getPool().getConnection();
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(Object.assign(new Error("Timed out waiting for a MySQL connection"), { code: "MYSQL_ACQUIRE_TIMEOUT" }));
+    }, ACQUIRE_TIMEOUT_MS);
+  });
+  try {
+    return guardConnection(await Promise.race([pending, timeout]));
+  } catch (err: any) {
+    // If the timeout won, hand the connection back whenever it does arrive.
+    pending.then(c => c.release(), () => {});
+    if (err?.message === "Queue limit reached.") err.code = "MYSQL_QUEUE_FULL";
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runOnPool(method: "query" | "execute", args: unknown[]): Promise<any> {
+  const attempt = async () => {
+    const conn = await acquireConnection();
+    try {
+      return await (conn as any)[method](...args);
+    } finally {
+      conn.release();
+    }
+  };
+  try {
+    return await attempt();
+  } catch (err: any) {
+    const sqlText = typeof args[0] === "string" ? args[0] : (args[0] as any)?.sql;
+    const isRead = typeof sqlText === "string" && /^\s*(SELECT|SHOW)\b/i.test(sqlText);
+    if (isRead && RETRYABLE_CODES.has(err?.code)) {
+      console.warn(`[MySQL] ${err.code} on a read; retrying once on a fresh connection`);
+      return attempt();
+    }
+    throw err;
+  }
+}
+
+// What the rest of the app uses. Same call shapes as the mysql2 promise pool
+// (so typed calls like execute<OrderRow[]>() still check), with the timeouts
+// and recovery above.
+const guardedPool = {
+  query: (...args: unknown[]) => runOnPool("query", args),
+  execute: (...args: unknown[]) => runOnPool("execute", args),
+  getConnection: acquireConnection,
+  end: () => (testPool ?? realPool)?.end() ?? Promise.resolve(),
+} as unknown as mysql.Pool;
+
 export async function initOrdersTable(): Promise<void> {
-  const conn = await pool.getConnection();
+  const conn = await getPool().getConnection();
   try {
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS orders (
@@ -192,6 +341,11 @@ export async function initOrdersTable(): Promise<void> {
     for (const col of ORDER_RECONCILABLE_COLUMNS) {
       await ensureCol(`${col}_actual`, "INT DEFAULT NULL");
     }
+    // Seasonal saved-stock lines can also be recorded at confirmation (record
+    // only — they don't feed on-hand), so they need mirror columns too.
+    for (const col of SEASONAL_CONFIRMABLE_COLUMNS) {
+      await ensureCol(`${col}_actual`, "INT DEFAULT NULL");
+    }
     // confirmed_at / confirmed_by drive the "reconciled" state. A goods-moving
     // order does NOT count toward inventory until confirmed_at is set.
     const confirmedAtJustAdded = await ensureCol("confirmed_at", "DATETIME DEFAULT NULL");
@@ -230,4 +384,9 @@ export async function initOrdersTable(): Promise<void> {
   }
 }
 
-export { pool as mysqlPool };
+// initOrdersTable (above) uses the raw pool: its ALTER TABLE statements on a
+// large live table can legitimately run longer than the query timeout.
+// A test fixture pool is used as-is: the timeout/recovery wrapper is for the
+// real tunnel connection.
+const exportedPool = testPool ?? guardedPool;
+export { exportedPool as mysqlPool };

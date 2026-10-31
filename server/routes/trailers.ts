@@ -11,7 +11,7 @@ export function registerTrailerRoutes(app: Express) {
     // inspection — they all need the fleet list to populate dropdowns.
     requireFeatureAccessAny([
       "trailers.view",
-      "trailer_manifest.create",
+      "trailer_manifest.edit",
       "trailer_manifest.view",
       "driver_inspection.submit",
     ]),

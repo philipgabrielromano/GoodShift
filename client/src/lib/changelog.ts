@@ -8,9 +8,48 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.2.0";
+export const APP_VERSION = "4.5.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.5.0",
+    date: "2026-10-31",
+    title: "Reliability, scheduling accuracy & security fixes",
+    changes: [
+      { type: "fix", description: "Generated and AI schedules place shifts on the right days in daylight-saving weeks, staff paid holidays (only closed holidays are skipped), honor morning/evening preferences in Eastern time, and keep fixed shifts within Sunday store hours. Copying a week no longer shifts times by an hour across a DST change." },
+      { type: "fix", description: "Order dates in approval, denial and fulfillment emails no longer show the previous day, and the Order Form defaults to today's Eastern-time date. Seasonal inventory pages no longer claim that requests above the available balance are blocked." },
+      { type: "improvement", description: "When the warehouse order database or its connection is briefly unavailable, order pages now respond within seconds with a 'try again' message instead of hanging, and the connection is restarted automatically if it drops." },
+      { type: "fix", description: "Shift trades, manifest counts, warehouse count finalizing, repair resolutions and attendance entries are protected against double-submits and simultaneous edits. Delivered manifests can no longer change status or counts except through an admin reopen." },
+      { type: "security", description: "HR and coaching PDFs, manifest photos and inspection photos are authorized through the record they belong to, and uploads are checked before the record is saved. Sign-in sessions are stored in the database so users stay signed in across servers." },
+      { type: "security", description: "Updated Microsoft sign-in (MSAL 7) and other vulnerable dependencies, and tightened role administration so non-admins can't grant themselves or others admin access." },
+    ],
+  },
+  {
+    version: "4.4.0",
+    date: "2026-10-23",
+    title: "Schedule export permissions, attendance consistency & security improvements",
+    changes: [
+      { type: "feature", description: "Schedule PDF export now has its own permission, separate from viewing or editing schedules. Authorized viewers can access the export option on desktop and mobile, with exports limited to schedules and locations they are allowed to see." },
+      { type: "fix", description: "Managers with publishing permission can publish schedules for their assigned locations without requiring administrator access. Publishing, unpublishing, and clearing schedules now consistently respect location access while preserving visibility of previously published weeks." },
+      { type: "fix", description: "Attendance notification emails, alerts, summaries, and reports now use the same net-occurrence calculation, including applicable adjustments and exemptions. Warning thresholds remain 5 net occurrences for a warning, 7 for a final warning, and 8 for termination." },
+      { type: "fix", description: "Covered Unscheduled Shift adjustments are validated server-side as a one-point reduction, with employee access and calendar-year limits enforced." },
+      { type: "fix", description: "Current-user details and permissions refresh regularly and when returning to the app. The sidebar and mobile menu no longer label a missing role as Viewer; they show Role unavailable instead." },
+      { type: "improvement", description: "Order forms now explain when to request equipment, return unused empty containers or equipment, and request raw, unsorted product from the warehouse." },
+      { type: "security", description: "Strengthened permission and assigned-location checks across employee and attendance records, coaching, schedules, shift trades, reports, and logistics. Ambiguous legacy order identifiers no longer grant access to orders from an uncertain location." },
+      { type: "security", description: "Signed-in accounts are rechecked against current account status and permissions so disabled accounts and access changes take effect without waiting for the session to expire." },
+      { type: "security", description: "UKG credentials are isolated from general settings and protected by dedicated permissions. HR attachment paths and outbound UKG requests have additional safeguards." },
+      { type: "security", description: "Updated vulnerable application dependencies, including PDF sanitization, development tooling, IP-address handling, and parsers, and added regression coverage for security fixes." },
+      { type: "improvement", description: "Release builds now require TypeScript checks and isolated permission tests to pass. Test fixtures protect shared databases and external services from test writes." },
+    ],
+  },
+  {
+    version: "4.3.0",
+    date: "2026-08-18",
+    title: "Eye Wash added to First Aid orders",
+    changes: [
+      { type: "feature", description: "First Aid orders now include Eye Wash in two sizes — 16oz and 32oz — as separate lines in the First Aid Items grid. Counts appear on order details and in the first-aid restock notification emails like every other item." },
+    ],
+  },
   {
     version: "4.2.0",
     date: "2026-08-16",

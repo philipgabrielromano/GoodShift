@@ -182,6 +182,8 @@ export function isClosedHoliday(date: Date): string | null {
 }
 
 // Get all holidays that fall within a date range
+// Half-open range [startDate, endDate), matching server/holidays.ts: callers
+// pass weekStart and weekStart + 7 days, so the next Sunday isn't included.
 export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
   const holidays: Holiday[] = [];
   const startYear = startDate.getFullYear();
@@ -190,7 +192,7 @@ export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
   for (let year = startYear; year <= endYear; year++) {
     const yearHolidays = getHolidaysForYear(year);
     for (const holiday of yearHolidays) {
-      if (holiday.date >= startDate && holiday.date <= endDate) {
+      if (holiday.date >= startDate && holiday.date < endDate) {
         holidays.push(holiday);
       }
     }

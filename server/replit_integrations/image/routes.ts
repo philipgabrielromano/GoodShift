@@ -26,7 +26,10 @@ export function registerImageRoutes(app: Express): void {
         size: validatedSize,
       });
 
-      const imageData = response.data[0];
+       const imageData = response.data?.[0];
+       if (!imageData) {
+         return res.status(502).json({ error: "Image service returned no image data" });
+       }
       res.json({
         url: imageData.url,
         b64_json: imageData.b64_json,

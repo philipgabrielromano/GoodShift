@@ -1,7 +1,7 @@
 import { storage } from "./storage";
-import { TIMEZONE, createESTTime } from "./middleware";
+import { TIMEZONE, createESTTime, addDaysInET } from "./middleware";
 import { toZonedTime, fromZonedTime, formatInTimeZone } from "date-fns-tz";
-import { isHoliday, getPaidHolidaysInRange, isEligibleForPaidHoliday } from "./holidays";
+import { isClosedHoliday, getPaidHolidaysInRange, isEligibleForPaidHoliday } from "./holidays";
 import { RETAIL_JOB_CODES } from "@shared/schema";
 
 export async function generateSchedule(weekStart: string, location?: string): Promise<any[]> {
@@ -21,7 +21,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       const selectedLocation = location ? locations.find(l => l.name === location) : null;
       
       // Fetch PAL (Paid Annual Leave) and UTO (Unpaid Time Off) entries for the week
-      const weekEndDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const weekEndDate = addDaysInET(startDate, 7);
       const startDateStr = startDate.toISOString().split('T')[0];
       const endDateStr = weekEndDate.toISOString().split('T')[0];
       const palEntries = await storage.getPALEntries(startDateStr, endDateStr);
@@ -192,7 +192,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         if (existingShiftsByEmpDay.has(existingKey)) return true;
         
         // Check PAL/UTO entries from UKG
-        const dayStr = day.toISOString().split('T')[0];
+        const dayStr = formatInTimeZone(day, TIMEZONE, 'yyyy-MM-dd');
         const hasPaidLeave = paidLeaveByEmpDate.has(`${empId}-${dayStr}`);
         if (hasPaidLeave) return true;
         
@@ -448,7 +448,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       
       // ========== SHIFT TIME DEFINITIONS ==========
       const getShiftTimes = (day: Date) => {
-        const dayOfWeek = day.getDay(); // 0 = Sunday
+        const dayOfWeek = toZonedTime(day, TIMEZONE).getDay(); // 0 = Sunday (ET calendar day)
         const isSunday = dayOfWeek === 0;
         
         // Sunday openers start at 10am instead of 8am
@@ -561,7 +561,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       const matchesShiftPreference = (emp: typeof employees[0], shiftStart: Date, dayIndex: number): boolean => {
         const pref = emp.shiftPreference;
         if (!pref || pref === 'no_preference') return true;
-        const startHour = shiftStart.getHours();
+        const startHour = toZonedTime(shiftStart, TIMEZONE).getHours(); // ET wall-clock hour, not server-local
         if (pref === 'morning_only') {
           // Allow opener (8am) and early9 (9am) on weekdays; allow Sunday opener (10am = earliest)
           return startHour <= 9 || (dayIndex === 0 && startHour === 10);
@@ -591,8 +591,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             for (let d = 0; d < 7; d++) {
               const dayEntry = parsed[dayNames[d]];
               if (!dayEntry || !dayEntry.start || !dayEntry.end) continue;
-              const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-              if (isHoliday(currentDay)) continue;
+              const currentDay = addDaysInET(startDate, d);
+              if (isClosedHoliday(currentDay)) continue;
               if (isOnTimeOff(emp.id, currentDay, d)) continue;
               const [sH, sM] = dayEntry.start.split(':').map(Number);
               const [eH, eM] = dayEntry.end.split(':').map(Number);
@@ -627,22 +627,28 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           for (const emp of fixedEmps) {
             const [fStartH, fStartM] = emp.fixedShiftStart!.split(':').map(Number);
             const [fEndH, fEndM] = emp.fixedShiftEnd!.split(':').map(Number);
-            const fixedShiftPaidHours = calculateShiftPaidHours(
-              createESTTime(startDate, fStartH, fStartM),
-              createESTTime(startDate, fEndH, fEndM)
-            );
             let daysScheduled = 0;
             for (let d = 0; d < 7; d++) {
               if (daysScheduled >= getMaxDays(emp)) break;
-              if (employeeState[emp.id].hoursScheduled + fixedShiftPaidHours > emp.maxWeeklyHours) {
+              // Sunday (day 0) store hours are 10:00–19:30: clamp the fixed
+              // times to them, and skip Sunday if nothing is left.
+              let [sH, sM, eH, eM] = [fStartH, fStartM, fEndH, fEndM];
+              if (d === 0) {
+                if (sH * 60 + sM < 10 * 60) { sH = 10; sM = 0; }
+                if (eH * 60 + eM > 19 * 60 + 30) { eH = 19; eM = 30; }
+                if (eH * 60 + eM <= sH * 60 + sM) continue;
+              }
+              const currentDay = addDaysInET(startDate, d);
+              const shiftStart = createESTTime(currentDay, sH, sM);
+              const shiftEnd = createESTTime(currentDay, eH, eM);
+              if (employeeState[emp.id].hoursScheduled + calculateShiftPaidHours(shiftStart, shiftEnd) > emp.maxWeeklyHours) {
                 console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} SKIPPED (would exceed ${emp.maxWeeklyHours}h max)`);
                 break;
               }
-              const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-              if (isHoliday(currentDay)) continue;
+              if (isClosedHoliday(currentDay)) continue;
               if (isOnTimeOff(emp.id, currentDay, d)) continue;
               if (employeeState[emp.id].daysWorkedOn.has(d)) { daysScheduled++; continue; }
-              scheduleShift(emp, createESTTime(currentDay, fStartH, fStartM), createESTTime(currentDay, fEndH, fEndM), d);
+              scheduleShift(emp, shiftStart, shiftEnd, d);
               existingShiftsByEmpDay.add(`${emp.id}-${d}`);
               daysScheduled++;
               console.log(`[Scheduler] Fixed-shift: ${emp.name} → Day ${d} ${emp.fixedShiftStart}–${emp.fixedShiftEnd} (${employeeState[emp.id].hoursScheduled.toFixed(1)}h total)`);
@@ -802,8 +808,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const maxDays = getMaxDays(mgr);
         const potentialDays: number[] = [];
         for (let d = 0; d < 7; d++) {
-          const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-          if (isHoliday(currentDay)) continue;
+          const currentDay = addDaysInET(startDate, d);
+          if (isClosedHoliday(currentDay)) continue;
           if (isOnTimeOff(mgr.id, currentDay, d)) continue;
           potentialDays.push(d);
         }
@@ -900,12 +906,12 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       console.log(`[Scheduler] Pass 1 day order: ${pass1DayOrder.map(d => shortDayNames[d]).join(', ')} (team-lead-dependent days first)`);
       
       for (const dayIndex of pass1DayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const currentDay = addDaysInET(startDate, dayIndex);
         
         // Skip holidays
-        const holidayName = isHoliday(currentDay);
+        const holidayName = isClosedHoliday(currentDay);
         if (holidayName) {
-          console.log(`[Scheduler] Skipping ${holidayName} - store is closed`);
+          console.log(`[Scheduler] Skipping ${holidayName} - store is closed (closed holiday)`);
           continue;
         }
         
@@ -966,10 +972,10 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       console.log(`[Scheduler] Pass 2 - TL-dependent: ${stillTlDependent.map(d => shortDayNames[d]).join(', ') || 'none'}, Other uncovered: ${plainUncovered.map(d => shortDayNames[d]).join(', ') || 'none'}`);
       
       for (const dayIndex of pass2DayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const currentDay = addDaysInET(startDate, dayIndex);
         
         // Skip holidays
-        if (isHoliday(currentDay)) continue;
+        if (isClosedHoliday(currentDay)) continue;
         
         const shifts = getShiftTimes(currentDay);
         const coverage = leadershipCoverage[dayIndex];
@@ -1013,8 +1019,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         // BUT only if all days already have at least one higher-tier manager — otherwise
         // save the capacity for primary coverage on uncovered days
         const allDaysCoveredForOpposite = [0,1,2,3,4,5,6].every(d => {
-          const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-          return isHoliday(cd) || leadershipCoverage[d].hasHigherTier;
+          const cd = addDaysInET(startDate, d);
+          return isClosedHoliday(cd) || leadershipCoverage[d].hasHigherTier;
         });
         
         if (stillAvailableHigherTier.length > 0) {
@@ -1057,8 +1063,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         const availableForMid = shuffleArray(allHigherTierManagers.filter(m => canManagerWorkDay(m, currentDay, dayIndex)));
         if (availableForMid.length > 0 && !coverage.mid && coverage.opener && coverage.closer) {
           const allDaysFullyCoveredForMid = [0,1,2,3,4,5,6].every(d => {
-            const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-            return isHoliday(cd) || (leadershipCoverage[d].opener && leadershipCoverage[d].closer);
+            const cd = addDaysInET(startDate, d);
+            return isClosedHoliday(cd) || (leadershipCoverage[d].opener && leadershipCoverage[d].closer);
           });
           if (allDaysFullyCoveredForMid) {
             const midShift = randomPick([shifts.mid10, shifts.mid11, shifts.early9]);
@@ -1090,8 +1096,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
             // Mid shift ONLY if opener AND closer are covered on ALL days — never waste
             // a team lead's day quota on mid when other days still need opener/closer
             const allDaysFullyCovered = [0,1,2,3,4,5,6].every(dd => {
-              const cd = new Date(startDate.getTime() + dd * 24 * 60 * 60 * 1000);
-              return isHoliday(cd) || (leadershipCoverage[dd].opener && leadershipCoverage[dd].closer);
+              const cd = addDaysInET(startDate, dd);
+              return isClosedHoliday(cd) || (leadershipCoverage[dd].opener && leadershipCoverage[dd].closer);
             });
             if (coverage.opener && coverage.closer && !coverage.mid && allDaysFullyCovered && leadershipSlotMatchesPreference(teamLead, 'mid')) {
               openSlots.push('mid');
@@ -1138,8 +1144,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       // IMPORTANT: Try higher-tier managers first, then team leads only for slots where
       // the opposite slot already has higher-tier coverage
       for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        if (isHoliday(currentDay)) continue;
+        const currentDay = addDaysInET(startDate, dayIndex);
+        if (isClosedHoliday(currentDay)) continue;
         
         const coverage = leadershipCoverage[dayIndex];
         if (coverage.opener && coverage.closer) continue;
@@ -1188,8 +1194,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       // allow team leads to fill slots alone. A team lead with no store/assistant manager
       // is not ideal, but it's better than zero leadership coverage for the day.
       for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        if (isHoliday(currentDay)) continue;
+        const currentDay = addDaysInET(startDate, dayIndex);
+        if (isClosedHoliday(currentDay)) continue;
         
         const coverage = leadershipCoverage[dayIndex];
         if (coverage.opener && coverage.closer) continue;
@@ -1224,8 +1230,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       {
         const gapDays: number[] = [];
         for (let d = 0; d < 7; d++) {
-          const cd = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-          if (isHoliday(cd)) continue;
+          const cd = addDaysInET(startDate, d);
+          if (isClosedHoliday(cd)) continue;
           const c = leadershipCoverage[d];
           if (!c.opener || !c.closer) gapDays.push(d);
         }
@@ -1235,7 +1241,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           const allLeadership = [...allHigherTierManagers, ...allTeamLeads];
 
           for (const dayIndex of gapDays) {
-            const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+            const currentDay = addDaysInET(startDate, dayIndex);
             const shifts = getShiftTimes(currentDay);
             const coverage = leadershipCoverage[dayIndex];
 
@@ -1316,8 +1322,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       let totalLeadershipShifts = 0;
       for (let d = 0; d < 7; d++) {
         const c = leadershipCoverage[d];
-        const currentDay = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-        const isHolidayDay = isHoliday(currentDay);
+        const currentDay = addDaysInET(startDate, d);
+        const isHolidayDay = isClosedHoliday(currentDay);
         
         if (isHolidayDay) {
           console.log(`[Scheduler]   ${shortDayNames[d]}: HOLIDAY - store closed`);
@@ -1384,8 +1390,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       while (prodProgress) {
         prodProgress = false;
         for (const dayIndex of prodDayOrder) {
-          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-          if (isHoliday(currentDay)) continue;
+          const currentDay = addDaysInET(startDate, dayIndex);
+          if (isClosedHoliday(currentDay)) continue;
           const shifts = getShiftTimes(currentDay);
 
           // ── PRICERS ────────────────────────────────────────────────────────
@@ -1442,8 +1448,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       console.log(`[Scheduler] Phase 1a-afternoon: Scheduling afternoon production coverage (4:30-8:30 PM)`);
       
       for (const dayIndex of dayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        if (isHoliday(currentDay)) continue;
+        const currentDay = addDaysInET(startDate, dayIndex);
+        if (isClosedHoliday(currentDay)) continue;
         
         const shifts = getShiftTimes(currentDay);
         
@@ -1505,8 +1511,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       // Calculate adaptive targets: every day gets 2 (opener+closer) if capacity allows
       // Then add mid-shifts for busy days with remaining capacity
       const nonHolidayDays = [0,1,2,3,4,5,6].filter(d => {
-        const day = new Date(startDate.getTime() + d * 24 * 60 * 60 * 1000);
-        return !isHoliday(day);
+        const day = addDaysInET(startDate, d);
+        return !isClosedHoliday(day);
       });
       const baseNeeded = nonHolidayDays.length * 2; // opener+closer for every day
       const extraCapacity = Math.max(0, greeterMaxDays - baseNeeded);
@@ -1578,9 +1584,9 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       
       // Round 1: Schedule 1 opener per day
       for (const dayIndex of greeterDayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const currentDay = addDaysInET(startDate, dayIndex);
         const dayName = shortDayNames[dayIndex];
-        if (isHoliday(currentDay)) continue;
+        if (isClosedHoliday(currentDay)) continue;
 
         // Skip if opener slot is already filled:
         //   a) a fixed-shift greeter is confirmed as an opener, OR
@@ -1610,9 +1616,9 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       
       // Round 2: Schedule 1 closer per day (to ensure opener+closer coverage everywhere)
       for (const dayIndex of greeterDayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const currentDay = addDaysInET(startDate, dayIndex);
         const dayName = shortDayNames[dayIndex];
-        if (isHoliday(currentDay)) continue;
+        if (isClosedHoliday(currentDay)) continue;
         
         const isSunday = dayIndex === 0;
         // For Sunday: don't exceed Saturday's greeter count
@@ -1649,9 +1655,9 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       
       // Round 3: Add mid-shifts where targets allow (Saturday-first priority)
       for (const dayIndex of greeterDayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const currentDay = addDaysInET(startDate, dayIndex);
         const dayName = shortDayNames[dayIndex];
-        if (isHoliday(currentDay)) continue;
+        if (isClosedHoliday(currentDay)) continue;
         
         const target = greeterTargets[dayIndex] || 2;
         const isSunday = dayIndex === 0;
@@ -1702,11 +1708,11 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       console.log(`[Scheduler] Total cashiers available: ${cashiers.length}`);
       
       for (const dayIndex of cashierDayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+        const currentDay = addDaysInET(startDate, dayIndex);
         const dayName = shortDayNames[dayIndex];
         
         // Skip holidays
-        if (isHoliday(currentDay)) {
+        if (isClosedHoliday(currentDay)) {
           console.log(`[Scheduler] Cashier ${dayName}: Skipping - holiday`);
           continue;
         }
@@ -1773,8 +1779,8 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
       
       // Log any days that couldn't get full cashier coverage
       for (const dayIndex of cashierDayOrder) {
-        const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-        if (isHoliday(currentDay)) continue;
+        const currentDay = addDaysInET(startDate, dayIndex);
+        if (isClosedHoliday(currentDay)) continue;
         
         const dayName = shortDayNames[dayIndex];
         const target = cashierTargets[dayIndex] || openersRequired;
@@ -1814,10 +1820,10 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         for (const dayIndex of phase2DayOrder) {
           if (additionalAssigned[dayIndex] >= additionalTargets[dayIndex]) continue;
           
-          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          const currentDay = addDaysInET(startDate, dayIndex);
           
           // Skip holidays
-          if (isHoliday(currentDay)) continue;
+          if (isClosedHoliday(currentDay)) continue;
           
           const shifts = getShiftTimes(currentDay);
           
@@ -1939,10 +1945,10 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
         
         // Process each day in Saturday-first order
         for (const dayIndex of phase3DayOrder) {
-          const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+          const currentDay = addDaysInET(startDate, dayIndex);
           
           // Skip holidays
-          if (isHoliday(currentDay)) continue;
+          if (isClosedHoliday(currentDay)) continue;
           
           const shifts = getShiftTimes(currentDay);
           const isSunday = dayIndex === 0;
@@ -2082,7 +2088,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           for (const dayIndex of phase4DayOrder) { // Saturday-first distribution
             if (state.daysWorkedOn.has(dayIndex)) continue;
             
-            const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+            const currentDay = addDaysInET(startDate, dayIndex);
             if (isOnTimeOff(emp.id, currentDay, dayIndex)) continue;
             if (!canWorkGapShift(emp, currentDay, dayIndex)) continue;
             
@@ -2117,7 +2123,7 @@ export async function generateSchedule(weekStart: string, location?: string): Pr
           for (const dayIndex of phase4DayOrder) { // Saturday-first distribution
             if (state.daysWorkedOn.has(dayIndex)) continue;
             
-            const currentDay = new Date(startDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+            const currentDay = addDaysInET(startDate, dayIndex);
             if (isOnTimeOff(emp.id, currentDay, dayIndex)) continue;
             if (!canWorkShortShift(emp, currentDay, dayIndex)) continue;
             

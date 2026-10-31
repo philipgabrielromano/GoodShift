@@ -16,13 +16,17 @@ pkill -f "tailscaled" 2>/dev/null || true
 pkill -f "socat.*$LOCAL_MYSQL_PORT" 2>/dev/null || true
 sleep 1
 
+start_tailscaled() {
+  tailscaled \
+    --tun=userspace-networking \
+    --state="$TAILSCALE_STATE_DIR/tailscaled.state" \
+    --socket="$TAILSCALE_SOCK" \
+    --no-logs-no-support \
+    &
+}
+
 echo "[Tailscale] Starting tailscaled in userspace networking mode..."
-tailscaled \
-  --tun=userspace-networking \
-  --state="$TAILSCALE_STATE_DIR/tailscaled.state" \
-  --socket="$TAILSCALE_SOCK" \
-  --no-logs-no-support \
-  &
+start_tailscaled
 sleep 3
 
 echo "[Tailscale] Connecting to tailnet..."
@@ -41,7 +45,9 @@ if ! tailscale --socket="$TAILSCALE_SOCK" up \
 fi
 
 echo "[Tailscale] Connected. Status:"
-tailscale --socket="$TAILSCALE_SOCK" status
+# Informational only: under `set -e` a failing status call here used to stop
+# the script before the app started.
+tailscale --socket="$TAILSCALE_SOCK" status || true
 
 REPLITPROXY_HOST="${REPLITPROXY_HOST:-}"
 for i in 1 2 3 4 5 6 7 8 9 10; do
@@ -55,9 +61,57 @@ if [ -z "$REPLITPROXY_HOST" ]; then
   REPLITPROXY_HOST="replitproxy"
 fi
 
+start_socat() {
+  socat TCP-LISTEN:$LOCAL_MYSQL_PORT,fork,reuseaddr EXEC:"tailscale --socket=$TAILSCALE_SOCK nc $REPLITPROXY_HOST 3306" &
+}
+
 echo "[Tailscale] Starting MySQL TCP proxy on localhost:$LOCAL_MYSQL_PORT -> $REPLITPROXY_HOST:3306..."
-socat TCP-LISTEN:$LOCAL_MYSQL_PORT,fork,reuseaddr EXEC:"tailscale --socket=$TAILSCALE_SOCK nc $REPLITPROXY_HOST 3306" &
+start_socat
 sleep 1
 
 echo "[Tailscale] MySQL proxy ready on localhost:$LOCAL_MYSQL_PORT"
+
+# Watchdog: if tailscaled or socat dies after startup, every MySQL-backed
+# page fails until a redeploy. Check every 30s and restart whichever is down.
+# tailscaled keeps its node key in the state file, so a restart normally
+# reconnects on its own; `tailscale up` is only retried with backoff, so an
+# expired key can't spin.
+(
+  set +e
+  up_failures=0
+  next_up_attempt=0
+  while true; do
+    sleep 30
+    if ! pgrep -x tailscaled >/dev/null 2>&1; then
+      echo "[Tailscale] Watchdog: tailscaled is not running; restarting it"
+      start_tailscaled
+      sleep 5
+    fi
+    if ! tailscale --socket="$TAILSCALE_SOCK" status >/dev/null 2>&1; then
+      now=$(date +%s)
+      if [ "$now" -ge "$next_up_attempt" ]; then
+        echo "[Tailscale] Watchdog: not connected to the tailnet; running tailscale up"
+        if tailscale --socket="$TAILSCALE_SOCK" up \
+          --auth-key="$TAILSCALE_AUTH_KEY" \
+          --hostname="replit-goodshift" \
+          --accept-routes \
+          --timeout=60s; then
+          echo "[Tailscale] Watchdog: reconnected"
+          up_failures=0
+          next_up_attempt=0
+        else
+          up_failures=$((up_failures + 1))
+          delay=$((60 * (1 << (up_failures < 5 ? up_failures : 5))))
+          next_up_attempt=$((now + delay))
+          echo "[Tailscale] Watchdog: tailscale up failed ($up_failures in a row); next try in ${delay}s"
+        fi
+      fi
+    fi
+    if ! pgrep -f "socat TCP-LISTEN:$LOCAL_MYSQL_PORT" >/dev/null 2>&1; then
+      echo "[Tailscale] Watchdog: MySQL proxy (socat) is not running; restarting it"
+      start_socat
+    fi
+  done
+) &
+
 echo "[Tailscale] Setup complete"

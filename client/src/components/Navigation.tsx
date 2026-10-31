@@ -305,7 +305,7 @@ export function Navigation() {
               <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-accent to-primary"></div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold break-words">{authStatus?.user?.name || "Guest"}</p>
-                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role === "optimizer" ? "Store Optimizer" : authStatus?.user?.role || "Viewer"}</p>
+                <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role === "optimizer" ? "Store Optimizer" : authStatus?.user?.role || "Role unavailable"}</p>
               </div>
             </div>
             <div className="flex items-center justify-end gap-1">
@@ -353,7 +353,7 @@ export function Navigation() {
                     <ThemeToggle />
                   </div>
                   <p className="text-sm font-semibold truncate">{authStatus?.user?.name || "Guest"}</p>
-                  <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role === "optimizer" ? "Store Optimizer" : authStatus?.user?.role || "Viewer"}</p>
+                  <p className="text-xs text-muted-foreground capitalize">{authStatus?.user?.role === "optimizer" ? "Store Optimizer" : authStatus?.user?.role || "Role unavailable"}</p>
                 </div>
                 <Button
                   variant="outline"

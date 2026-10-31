@@ -183,6 +183,10 @@ export default function Schedule() {
   };
   
   const [currentDate, setCurrentDate] = useState(getInitialDate);
+  const [selectedLocation, setSelectedLocation] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("location") || "all";
+  });
   
   // Get auth status for location-based filtering
   const { data: authStatus } = useQuery<AuthStatus>({
@@ -211,8 +215,9 @@ export default function Schedule() {
   const updateSettings = useUpdateGlobalSettings();
 
   // Fetch time clock data for the current week
-  const weekStartStr = format(weekStart, "yyyy-MM-dd");
-  const weekEndStr = format(addDays(weekStart, 6), "yyyy-MM-dd");
+  // ET calendar dates (the publish key and PAL/UTO range), not the browser's zone.
+  const weekStartStr = formatInTimeZone(weekStart, TIMEZONE, "yyyy-MM-dd");
+  const weekEndStr = formatInTimeZone(addDays(weekStart, 6), TIMEZONE, "yyyy-MM-dd");
   
   interface TimeClockEntry {
     employeeId: string;
@@ -262,6 +267,16 @@ export default function Schedule() {
     staleTime: 5 * 60 * 1000,
   });
   
+  // PAL hours per employee for the week (passed to the validator so its
+  // max-hours check matches the grid and the generator).
+  const palHoursByEmployee = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const entry of palEntries ?? []) {
+      if (entry.employeeId) map.set(entry.employeeId, (map.get(entry.employeeId) ?? 0) + entry.hoursDecimal);
+    }
+    return map;
+  }, [palEntries]);
+
   // Create a lookup map for PAL entries by employee ID and date
   const palByEmpDate = useMemo(() => {
     const map = new Map<string, PALEntry>();
@@ -339,10 +354,12 @@ export default function Schedule() {
   }, [weatherData]);
 
   // Check if current week's schedule is published (for viewer access control)
-  const { data: publishStatus, refetch: refetchPublishStatus } = useQuery<{ weekStart: string; isPublished: boolean }>({
-    queryKey: ["/api/schedule/published", weekStartStr],
+  const { data: publishStatus } = useQuery<{ weekStart: string; isPublished: boolean }>({
+    queryKey: ["/api/schedule/published", weekStartStr, selectedLocation],
     queryFn: async () => {
-      const res = await fetch(`/api/schedule/published/${weekStartStr}`);
+      const res = await fetch(
+        `/api/schedule/published/${weekStartStr}?location=${encodeURIComponent(selectedLocation)}`
+      );
       if (!res.ok) throw new Error("Failed to check publish status");
       return res.json();
     },
@@ -351,6 +368,7 @@ export default function Schedule() {
   const isSchedulePublished = publishStatus?.isPublished ?? false;
   const { can, role: userRole } = usePermissions();
   const canEditSchedule = can("schedule.edit");
+  const canExportSchedulePDF = can("schedule.export_pdf");
   const canPublishSchedule = can("schedule.publish");
   const canGenerateSchedule = can("schedule.generate");
   const canManageTemplates = can("schedule.templates");
@@ -393,10 +411,6 @@ export default function Schedule() {
     const now = toZonedTime(new Date(), TIMEZONE);
     return now.getDay();
   });
-  const [selectedLocation, setSelectedLocation] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("location") || "all";
-  });
   const [isCopyMode, setIsCopyMode] = useState(false);
   
   // Admin-only: see every schedulable location regardless of assignment.
@@ -417,6 +431,40 @@ export default function Schedule() {
       isSchedulableLocation(l) && userLocationIds.includes(String(l.id))
     );
   }, [locations, isAdmin, userLocationIds]);
+
+  // Export only the selected, authorized scope. A viewer's shifts are served
+  // only for published weeks, so do not export roster/leave data for an
+  // unpublished week even when the export permission is granted.
+  const canExportVisibleSchedule = canExportSchedulePDF
+    && canViewSchedule
+    && (userRole !== "viewer" || isSchedulePublished)
+    && (isAdmin || userLocations.some(location => location.name === selectedLocation));
+
+  // A multi-location non-admin must select one assigned location before
+  // publishing. The API cannot resolve an "all" scope for that user. Users
+  // without a valid assigned location cannot publish either.
+  const hasMultipleAssignedLocations = !isAdmin && (
+    userLocationIds.length > 1 || userLocations.length > 1
+  );
+  const hasNoValidAssignedLocations = !isAdmin && userLocations.length === 0;
+  const isPublicationScopeInvalid = hasNoValidAssignedLocations || (
+    selectedLocation === "all" && hasMultipleAssignedLocations
+  );
+  const canPublishInSelectedScope = canPublishSchedule && !isPublicationScopeInvalid;
+  // A single assigned non-admin location is the effective scope when the
+  // initial "all" selection has not yet been replaced by the location effect.
+  const effectivePublicationLocation = selectedLocation === "all" && !isAdmin && userLocations.length === 1
+    ? userLocations[0].name
+    : selectedLocation;
+  const publicationScopeLabel = effectivePublicationLocation === "all"
+    ? "all locations"
+    : effectivePublicationLocation;
+  const publicationScopeTitle = effectivePublicationLocation === "all"
+    ? "All Locations"
+    : effectivePublicationLocation;
+  const publicationScopeError = hasNoValidAssignedLocations
+    ? "You must have an assigned location before publishing a schedule."
+    : "Select one assigned location before publishing a schedule.";
   
   // O(1) employee lookup map — eliminates employees.find() in hot render paths
   const employeeById = useMemo(() => {
@@ -649,6 +697,7 @@ export default function Schedule() {
         employeeId: targetEmployeeId,
         startTime: newStartUTC,
         endTime: newEndUTC,
+        crossTrainedRole: null,
       };
       
       if (previousShifts) {
@@ -768,7 +817,11 @@ export default function Schedule() {
   };
 
   const handleExportPDF = async () => {
-    if (!shifts || !employees) {
+    if (!canExportVisibleSchedule) {
+      toast({ variant: "destructive", title: "Export Denied", description: "The selected schedule is not available for export." });
+      return;
+    }
+    if (!shifts || !employees || shiftsStale) {
       toast({ variant: "destructive", title: "Export Failed", description: "Schedule data is not loaded yet." });
       return;
     }
@@ -935,9 +988,9 @@ export default function Schedule() {
     const lastAutoTable = (doc as any).lastAutoTable;
     const finalY = lastAutoTable?.finalY ? lastAutoTable.finalY + 10 : 150;
     
+    const exportedEmployeeIds = new Set(filteredEmployees.map(emp => emp.id));
     const totalScheduledHours = shifts.reduce((sum, s) => {
-      const emp = employeeById.get(s.employeeId);
-      if (selectedLocation && selectedLocation !== "all" && emp?.location !== selectedLocation) return sum;
+      if (!exportedEmployeeIds.has(s.employeeId)) return sum;
       return sum + calculatePaidHours(new Date(s.startTime), new Date(s.endTime));
     }, 0);
     
@@ -1006,13 +1059,29 @@ export default function Schedule() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
 
+  const invalidateSchedulePublicationQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/schedule/published"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
+  };
+
   const handlePublishSchedule = async () => {
     setPublishConfirmOpen(false);
+    if (isPublicationScopeInvalid) {
+      toast({
+        variant: "destructive",
+        title: "Location Required",
+        description: publicationScopeError,
+      });
+      return;
+    }
     setIsPublishing(true);
     try {
       await apiRequest("POST", "/api/schedule/publish", { weekStart: weekStartStr, location: selectedLocation });
-      refetchPublishStatus();
-      toast({ title: "Schedule Published", description: "This week's schedule is now visible to all employees. Email notifications are being sent." });
+      invalidateSchedulePublicationQueries();
+      toast({
+        title: "Schedule Published",
+        description: `This week's schedule for ${publicationScopeLabel} is now visible to scheduled employees. Email notifications are being sent.`,
+      });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Publish Failed", description: error?.message || "Could not publish schedule." });
     } finally {
@@ -1021,11 +1090,27 @@ export default function Schedule() {
   };
 
   const handleUnpublishSchedule = async () => {
+    if (isPublicationScopeInvalid) {
+      toast({
+        variant: "destructive",
+        title: "Location Required",
+        description: hasNoValidAssignedLocations
+          ? "You must have an assigned location before unpublishing a schedule."
+          : "Select one assigned location before unpublishing a schedule.",
+      });
+      return;
+    }
     setIsPublishing(true);
     try {
-      await apiRequest("DELETE", `/api/schedule/publish/${weekStartStr}`);
-      refetchPublishStatus();
-      toast({ title: "Schedule Unpublished", description: "This week's schedule is now hidden from employees." });
+      await apiRequest(
+        "DELETE",
+        `/api/schedule/publish/${weekStartStr}?location=${encodeURIComponent(selectedLocation)}`
+      );
+      invalidateSchedulePublicationQueries();
+      toast({
+        title: "Schedule Unpublished",
+        description: `This week's schedule for ${publicationScopeLabel} is now hidden from employees.`,
+      });
     } catch (error: any) {
       toast({ variant: "destructive", title: "Unpublish Failed", description: error?.message || "Could not unpublish schedule." });
     } finally {
@@ -1057,7 +1142,7 @@ export default function Schedule() {
   };
 
   const handleClearSchedule = async () => {
-    const locationLabel = selectedLocation === "all" ? "ALL locations" : selectedLocation;
+    const locationLabel = publicationScopeLabel;
     if (!confirm(`Are you sure you want to clear shifts for ${locationLabel} this week? This cannot be undone.`)) {
       return;
     }
@@ -1068,8 +1153,7 @@ export default function Schedule() {
         location: selectedLocation !== "all" ? selectedLocation : undefined,
       });
       const result = await res.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/shifts"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/schedule/published"] });
+      invalidateSchedulePublicationQueries();
       const unpublishMsg = result.unpublished ? " Schedule has been unpublished." : "";
       toast({ title: "Schedule Cleared", description: `Shifts for ${locationLabel} this week have been removed.${unpublishMsg}` });
     } catch (error) {
@@ -1312,29 +1396,45 @@ export default function Schedule() {
         </div>
       </div>
 
-      {/* Actions Bar - permission driven, hidden on mobile */}
-      {!isMobile && canActOnSchedule && (
+      {/* Export is available in both layouts, independently of edit/publish actions. */}
+      {((!isMobile && canActOnSchedule) || canExportVisibleSchedule) && (
         <div className="flex items-center justify-center gap-2 flex-wrap" data-testid="actions-bar">
+          {!isMobile && <>
           {/* Publish/Unpublish Button */}
           {canPublishSchedule && (isSchedulePublished ? (
             <Button
               variant="outline"
               onClick={handleUnpublishSchedule}
-              disabled={isPublishing}
+              disabled={isPublishing || !canPublishInSelectedScope}
+              title={isPublicationScopeInvalid ? "Select one assigned location first" : undefined}
               data-testid="button-unpublish-schedule"
             >
               <EyeOff className="w-4 h-4 mr-2" />
               {isPublishing ? "Unpublishing..." : "Unpublish"}
             </Button>
           ) : (
-            <Button
-              onClick={() => setPublishConfirmOpen(true)}
-              disabled={isPublishing}
-              data-testid="button-publish-schedule"
-            >
-              <Send className="w-4 h-4 mr-2" />
-              {isPublishing ? "Publishing..." : "Publish"}
-            </Button>
+            <>
+              <Button
+                onClick={() => setPublishConfirmOpen(true)}
+                disabled={isPublishing || !canPublishInSelectedScope}
+                title={isPublicationScopeInvalid ? "Select one assigned location first" : undefined}
+                data-testid="button-publish-schedule"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {isPublishing ? "Publishing..." : "Publish"}
+              </Button>
+              {isAdmin && selectedLocation === "all" && (
+                <Button
+                  variant="outline"
+                  onClick={handleUnpublishSchedule}
+                  disabled={isPublishing || !canPublishInSelectedScope}
+                  data-testid="button-unpublish-all-schedule"
+                >
+                  <EyeOff className="w-4 h-4 mr-2" />
+                  {isPublishing ? "Unpublishing All..." : "Unpublish All"}
+                </Button>
+              )}
+            </>
           ))}
           
           {canGenerateSchedule && (
@@ -1420,15 +1520,6 @@ export default function Schedule() {
           </DropdownMenu>
           )}
           
-          <Button 
-            variant="outline" 
-            onClick={handleExportPDF}
-            data-testid="button-export-pdf"
-          >
-            <Printer className="w-4 h-4 mr-2" />
-            Export PDF
-          </Button>
-          
           {canEditSchedule && (
           <Button 
             variant="outline" 
@@ -1441,16 +1532,26 @@ export default function Schedule() {
             {isClearing ? "Clearing..." : "Clear Week"}
           </Button>
           )}
+          </>}
+          {canExportVisibleSchedule && <Button
+            variant="outline"
+            onClick={handleExportPDF}
+            disabled={shiftsStale}
+            data-testid="button-export-pdf"
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Export PDF
+          </Button>}
         </div>
       )}
 
-      {/* Show message for viewers when schedule is not published */}
+      {/* Show message for viewers when the selected scope is not published */}
       {!canViewSchedule && (
         <div className="flex flex-col items-center justify-center py-20 px-8 bg-card rounded border">
           <EyeOff className="w-16 h-16 text-muted-foreground mb-4" />
           <h2 className="text-xl font-semibold mb-2">Schedule Not Available</h2>
           <p className="text-muted-foreground text-center max-w-md">
-            The schedule for this week hasn't been published yet. Please check back later or contact your manager.
+            The schedule for {publicationScopeLabel} this week hasn't been published yet. Please check back later or contact your manager.
           </p>
         </div>
       )}
@@ -1516,7 +1617,7 @@ export default function Schedule() {
           })()}
           
           {/* Schedule Validator */}
-          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />}
+          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} palHoursByEmployee={palHoursByEmployee} />}
           
         </div>
         
@@ -2210,16 +2311,20 @@ export default function Schedule() {
       <Dialog open={publishConfirmOpen} onOpenChange={setPublishConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Publish Schedule</DialogTitle>
+            <DialogTitle>Publish Schedule for {publicationScopeTitle}</DialogTitle>
             <DialogDescription>
-              This will notify ALL scheduled employees that a new schedule has been posted. Are you sure you want to publish?
+              This will notify scheduled employees for {publicationScopeLabel} that a new schedule has been posted. Are you sure you want to publish it?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPublishConfirmOpen(false)} data-testid="button-cancel-publish">
               Cancel
             </Button>
-            <Button onClick={handlePublishSchedule} data-testid="button-confirm-publish">
+            <Button
+              onClick={handlePublishSchedule}
+              disabled={!canPublishInSelectedScope || isPublishing}
+              data-testid="button-confirm-publish"
+            >
               Yes, Publish
             </Button>
           </DialogFooter>

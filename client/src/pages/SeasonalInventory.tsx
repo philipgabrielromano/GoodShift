@@ -57,7 +57,7 @@ export default function SeasonalInventory() {
         <CardContent className="text-sm text-muted-foreground space-y-1">
           <p><strong>On Deposit</strong> — total seasonal items each store has sent in across all order submissions.</p>
           <p><strong>Pending Requested</strong> — total seasonal items each store has asked back across all submitted orders.</p>
-          <p><strong>Available</strong> — what the store can still request before being blocked. New requests cannot exceed this number.</p>
+          <p><strong>Available</strong> — On Deposit minus Pending Requested. This is for reference only: requests above it are not blocked.</p>
         </CardContent>
       </Card>
 

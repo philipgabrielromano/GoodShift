@@ -47,6 +47,19 @@ export class ObjectNotFoundError extends Error {
 }
 
 // The object storage service is used to interact with the object storage service.
+// A file that can't be attached to a record (bad path, missing, already
+// claimed, or failing the upload constraints). Routes report it as a 400.
+export class UploadClaimError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UploadClaimError";
+    Object.setPrototypeOf(this, UploadClaimError.prototype);
+  }
+}
+
+// Paths issued by getObjectEntityUploadURL / uploadObject.
+const UPLOAD_PATH_RE = /^\/objects\/uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class ObjectStorageService {
   constructor() {}
 
@@ -261,7 +274,7 @@ export class ObjectStorageService {
 
     const existingAcl = await getObjectAclPolicy(objectFile);
     if (existingAcl) {
-      throw new Error(
+      throw new UploadClaimError(
         `Object at ${normalizedPath} already has an ACL policy and cannot be re-bound`
       );
     }
@@ -284,7 +297,7 @@ export class ObjectStorageService {
         await objectFile.delete().catch((err: unknown) =>
           console.warn("[ObjectStorage] Failed to delete non-conforming object", normalizedPath, ":", err)
         );
-        throw new Error(
+        throw new UploadClaimError(
           `Uploaded object has disallowed content type: ${actualContentType}`
         );
       }
@@ -296,7 +309,7 @@ export class ObjectStorageService {
         await objectFile.delete().catch((err: unknown) =>
           console.warn("[ObjectStorage] Failed to delete oversized object", normalizedPath, ":", err)
         );
-        throw new Error(
+        throw new UploadClaimError(
           `Uploaded object exceeds maximum allowed size of ${constraints.maxSizeBytes} bytes`
         );
       }
@@ -304,6 +317,30 @@ export class ObjectStorageService {
 
     await setObjectAclPolicy(objectFile, aclPolicy);
     return normalizedPath;
+  }
+
+  // Binds a just-uploaded file to the record that references it. Call this
+  // before saving the record, so a record never points at a file that was
+  // rejected or will be swept by cleanupOrphanedUploads. Only paths from our
+  // own upload flow are accepted. Throws UploadClaimError for anything the
+  // user can fix by uploading again; other errors propagate.
+  async claimUpload(
+    rawPath: string,
+    aclPolicy: ObjectAclPolicy,
+    constraints?: UploadConstraints
+  ): Promise<string> {
+    const normalizedPath = this.normalizeObjectEntityPath(rawPath);
+    if (!UPLOAD_PATH_RE.test(normalizedPath)) {
+      throw new UploadClaimError("Invalid attachment path");
+    }
+    try {
+      return await this.trySetObjectEntityAclPolicy(normalizedPath, aclPolicy, constraints);
+    } catch (err) {
+      if (err instanceof ObjectNotFoundError) {
+        throw new UploadClaimError("The uploaded file was not found. Please upload it again.");
+      }
+      throw err;
+    }
   }
 
   // Checks if the user can access the object entity.
@@ -324,8 +361,8 @@ export class ObjectStorageService {
   }
 
   // Checks if the user can access the object entity using its ACL policy.
-  // Returns false (deny) when no ACL policy is present — callers that need a
-  // broader fallback (e.g., privileged-role bypass) must implement it separately.
+  // Returns false (deny) when no ACL policy is present. Session roles are not
+  // object grants and must not bypass this check on generic download routes.
   async canAccessObjectEntityOrFallback({
     userId,
     objectFile,
@@ -354,7 +391,10 @@ export class ObjectStorageService {
   // never bound to an application record. Without this cleanup, an attacker
   // who passes the feature gate can fill the bucket by uploading and never
   // submitting a form.
-  async cleanupOrphanedUploads(maxAgeMs: number = 2 * 60 * 60 * 1000): Promise<void> {
+  async cleanupOrphanedUploads(
+    maxAgeMs: number = 2 * 60 * 60 * 1000,
+    isReferenced?: (objectPath: string) => Promise<boolean>,
+  ): Promise<void> {
     let privateObjectDir: string;
     try {
       privateObjectDir = this.getPrivateObjectDir();
@@ -393,6 +433,11 @@ export class ObjectStorageService {
 
         const aclPolicy = await getObjectAclPolicy(file);
         if (aclPolicy) continue;
+
+        // A record may point at a file whose ACL bind failed in the past;
+        // never delete a file something still references.
+        const entityId = file.name.slice(file.name.indexOf("uploads/"));
+        if (isReferenced && await isReferenced(`/objects/${entityId}`)) continue;
 
         await file.delete();
         deleted++;

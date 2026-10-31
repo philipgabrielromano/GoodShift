@@ -4,7 +4,8 @@ import {
   insertEmployeeSchema, 
   insertShiftSchema, 
   insertRoleRequirementSchema,
-  insertGlobalSettingsSchema,
+  updateGeneralSettingsSchema,
+  type GeneralSettings,
   insertUserSchema,
   insertLocationSchema,
   insertShiftPresetSchema,
@@ -179,15 +180,15 @@ export const api = {
       method: 'GET' as const,
       path: '/api/global-settings',
       responses: {
-        200: z.custom<typeof globalSettings.$inferSelect>(),
+        200: z.custom<GeneralSettings>(),
       },
     },
     update: {
       method: 'POST' as const,
       path: '/api/global-settings',
-      input: insertGlobalSettingsSchema,
+      input: updateGeneralSettingsSchema,
       responses: {
-        200: z.custom<typeof globalSettings.$inferSelect>(),
+        200: z.custom<GeneralSettings>(),
         400: errorSchemas.validation,
       },
     },

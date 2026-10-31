@@ -11,6 +11,7 @@ import {
   type Warehouse,
 } from "@shared/schema";
 import { computeWarehouseOnHand } from "../services/warehouseOnHand";
+import { errorStatus } from "../errors";
 import { sendWarehouseVarianceCsvEmail } from "../outlook";
 
 function getSessionUser(req: Request): { id: number; name: string; role?: string } | null {
@@ -32,10 +33,7 @@ const itemsUpdateSchema = z.object({
 
 const createSchema = insertWarehouseInventoryCountSchema.omit({
   status: true,
-  finalizedAt: true,
-  finalizedById: true,
-  finalizedByName: true,
-} as any).extend({
+}).extend({
   copyFromCountId: z.number().int().positive().optional(),
   copyFromLatest: z.boolean().optional(),
   prefillFromEngine: z.boolean().optional(), // Default true: pre-fill qty AND expectedQty from on-hand engine
@@ -108,7 +106,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.json(result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Auto-assignment failed";
-      res.status(500).json({ message: msg });
+      res.status(errorStatus(err)).json({ message: msg });
     }
   });
 
@@ -126,7 +124,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.json(result);
     } catch (err) {
       console.error("[WarehouseInventory] On-hand error:", err);
-      res.status(500).json({ message: "Failed to compute on-hand" });
+      res.status(errorStatus(err)).json({ message: "Failed to compute on-hand" });
     }
   });
 
@@ -146,7 +144,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.json(rows);
     } catch (err) {
       console.error("[WarehouseTransfers] List error:", err);
-      res.status(500).json({ message: "Failed to load transfers" });
+      res.status(errorStatus(err)).json({ message: "Failed to load transfers" });
     }
   });
 
@@ -206,6 +204,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
           message: "Purchase quantity must be positive — purchases add inventory.",
         });
       }
+      if (input.reason === "salvage_pickup" && input.qty >= 0) {
+        return res.status(400).json({
+          message: "Salvage pickup quantity must be negative — pickups remove inventory.",
+        });
+      }
       const cat = WAREHOUSE_INVENTORY_CATEGORIES.find(c => c.items.includes(input.itemName));
       const created = await storage.createWarehouseTransfer({
         ...input,
@@ -215,7 +218,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ message: err.errors?.[0]?.message || "Invalid input" });
       console.error("[WarehouseTransfers] Create error:", err);
-      res.status(500).json({ message: err?.message || "Failed to create transfer" });
+      res.status(errorStatus(err)).json({ message: err?.message || "Failed to create transfer" });
     }
   });
 
@@ -233,6 +236,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
       const id = Number(req.params.id);
+      if (!Number.isInteger(id)) return res.status(400).json({ message: "Invalid id" });
       const input = transferEditSchema.parse(req.body);
       if (input.notes === undefined && input.transferDate === undefined) {
         return res.status(400).json({ message: "Nothing to update" });
@@ -242,7 +246,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     } catch (err: any) {
       if (err?.name === "ZodError") return res.status(400).json({ message: err.errors?.[0]?.message || "Invalid input" });
       console.error("[WarehouseTransfers] Update error:", err);
-      res.status(500).json({ message: err?.message || "Failed to update transfer" });
+      res.status(errorStatus(err)).json({ message: err?.message || "Failed to update transfer" });
     }
   });
 
@@ -257,7 +261,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.json(audits);
     } catch (err) {
       console.error("[WarehouseTransfers] History error:", err);
-      res.status(500).json({ message: "Failed to load transfer history" });
+      res.status(errorStatus(err)).json({ message: "Failed to load transfer history" });
     }
   });
 
@@ -302,7 +306,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.end();
     } catch (err) {
       console.error("[WarehouseTransferAudits] Export error:", err);
-      res.status(500).json({ message: "Failed to export transfer audits" });
+      res.status(errorStatus(err)).json({ message: "Failed to export transfer audits" });
     }
   });
 
@@ -332,7 +336,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       }
       console.error("[WarehouseTransferAudits] Purge error:", err);
       const message = err instanceof Error ? err.message : "Failed to purge transfer audits";
-      res.status(500).json({ message });
+      res.status(errorStatus(err)).json({ message });
     }
   });
 
@@ -344,11 +348,13 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       if (user.role !== "admin") {
         return res.status(403).json({ message: "Only admins can delete recorded transfers" });
       }
-      await storage.deleteWarehouseTransfer(Number(req.params.id), user);
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) return res.status(400).json({ message: "Invalid id" });
+      await storage.deleteWarehouseTransfer(id, user);
       res.status(204).send();
     } catch (err) {
       console.error("[WarehouseTransfers] Delete error:", err);
-      res.status(500).json({ message: "Failed to delete transfer" });
+      res.status(errorStatus(err)).json({ message: "Failed to delete transfer" });
     }
   });
 
@@ -367,7 +373,9 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const today = todayInTZ();
       const results = await Promise.all(WAREHOUSES.map(async (w) => {
         const onHand = await computeWarehouseOnHand(w as Warehouse, today);
-        const latest = await storage.getLatestWarehouseInventoryCount(w);
+        // Only finalized counts dated today or earlier: an abandoned draft or a
+        // mis-dated future count must not hide staleness.
+        const latest = await storage.getLatestWarehouseInventoryCount(w, undefined, { finalOnly: true, onOrBefore: today });
         if (!latest) {
           return {
             warehouse: w,
@@ -383,7 +391,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
             onHand,
           };
         }
-        const prior = await storage.getLatestWarehouseInventoryCount(w, latest.countDate);
+        const prior = await storage.getLatestWarehouseInventoryCount(w, latest.countDate, { finalOnly: true });
         const [items, priorItems] = await Promise.all([
           storage.getWarehouseInventoryCountItems(latest.id),
           prior ? storage.getWarehouseInventoryCountItems(prior.id) : Promise.resolve([]),
@@ -442,7 +450,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.json({ warehouses: results, today });
     } catch (err) {
       console.error("[WarehouseInventory] Dashboard error:", err);
-      res.status(500).json({ message: "Failed to load dashboard" });
+      res.status(errorStatus(err)).json({ message: "Failed to load dashboard" });
     }
   });
 
@@ -460,15 +468,15 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       }
       const counts = await storage.getWarehouseInventoryCounts({ warehouse, limit });
       const ordered = counts.slice().reverse();
-      const series = await Promise.all(ordered.map(async c => {
-        const items = await storage.getWarehouseInventoryCountItems(c.id);
-        const hit = items.find(i => i.itemName === item);
+      const itemsByCount = await storage.getWarehouseInventoryCountItemsForCounts(ordered.map(c => c.id));
+      const series = ordered.map(c => {
+        const hit = (itemsByCount.get(c.id) ?? []).find(i => i.itemName === item);
         return { date: c.countDate, qty: hit?.qty ?? 0, status: c.status };
-      }));
+      });
       res.json({ warehouse, item, series });
     } catch (err) {
       console.error("[WarehouseInventory] Trend error:", err);
-      res.status(500).json({ message: "Failed to load trend" });
+      res.status(errorStatus(err)).json({ message: "Failed to load trend" });
     }
   });
 
@@ -484,8 +492,9 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       // meaningful when expectedQty was snapshotted (post on-hand-engine
       // counts). Legacy counts have no expectedQty → hasExpected=false so the
       // UI shows "—" instead of a misleading 0.
-      const withTotals = await Promise.all(counts.map(async c => {
-        const items = await storage.getWarehouseInventoryCountItems(c.id);
+      const itemsByCount = await storage.getWarehouseInventoryCountItemsForCounts(counts.map(c => c.id));
+      const withTotals = counts.map(c => {
+        const items = itemsByCount.get(c.id) ?? [];
         const total = items.reduce((a, b) => a + b.qty, 0);
         let varianceNet = 0;
         let varianceAbs = 0;
@@ -507,11 +516,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
             ? { net: varianceNet, abs: varianceAbs, expectedTotal, hasExpected: true }
             : { net: 0, abs: 0, expectedTotal: 0, hasExpected: false },
         };
-      }));
+      });
       res.json(withTotals);
     } catch (err) {
       console.error("[WarehouseInventory] List error:", err);
-      res.status(500).json({ message: "Failed to load counts" });
+      res.status(errorStatus(err)).json({ message: "Failed to load counts" });
     }
   });
 
@@ -558,7 +567,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.end();
     } catch (err) {
       console.error("[WarehouseInventory] Audit CSV export error:", err);
-      res.status(500).json({ message: "Failed to export inventory audits" });
+      res.status(errorStatus(err)).json({ message: "Failed to export inventory audits" });
     }
   });
 
@@ -573,8 +582,9 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const rows: string[] = [
         ["Date", "Warehouse", "Status", "Group", "Item", "Qty", "Counted By", "Notes"].join(","),
       ];
+      const itemsByCount = await storage.getWarehouseInventoryCountItemsForCounts(counts.map(c => c.id));
       for (const c of counts) {
-        const items = await storage.getWarehouseInventoryCountItems(c.id);
+        const items = itemsByCount.get(c.id) ?? [];
         for (const it of items) {
           rows.push([
             csv(c.countDate),
@@ -596,7 +606,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.send(rows.join("\n"));
     } catch (err) {
       console.error("[WarehouseInventory] Export error:", err);
-      res.status(500).json({ message: "Failed to export" });
+      res.status(errorStatus(err)).json({ message: "Failed to export" });
     }
   });
 
@@ -730,7 +740,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("[WarehouseInventory] Email CSV error:", err);
-      res.status(500).json({ message: err?.message || "Failed to email CSV" });
+      res.status(errorStatus(err)).json({ message: err?.message || "Failed to email CSV" });
     }
   });
 
@@ -750,7 +760,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       // counts, the snapshotted expectedQty on each item row is authoritative.
       let expectedMap: Record<string, number> | undefined;
       if (count.status !== "final") {
-        const live = await computeWarehouseOnHand(count.warehouse, count.countDate);
+        const warehouse = WAREHOUSES.find(value => value === count.warehouse);
+        if (!warehouse) {
+          return res.status(500).json({ message: "Count has an invalid warehouse" });
+        }
+        const live = await computeWarehouseOnHand(warehouse, count.countDate);
         expectedMap = {};
         for (const it of live.items) expectedMap[it.itemName] = it.onHand;
       }
@@ -775,7 +789,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       });
     } catch (err) {
       console.error("[WarehouseInventory] Detail error:", err);
-      res.status(500).json({ message: "Failed to load count" });
+      res.status(errorStatus(err)).json({ message: "Failed to load count" });
     }
   });
 
@@ -785,6 +799,9 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const user = getSessionUser(req);
       if (!user) return res.status(401).json({ message: "Authentication required" });
       const input = createSchema.parse(req.body);
+      if (input.countDate > todayInTZ()) {
+        return res.status(400).json({ message: "A count can't be dated in the future." });
+      }
 
       const existing = await storage.getWarehouseInventoryCountByWarehouseDate(
         input.warehouse,
@@ -824,7 +841,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
 
       const { copyFromCountId: _a, copyFromLatest: _b, prefillFromEngine: _c, ...baseInput } = input;
       const created = await storage.createWarehouseInventoryCount(
-        baseInput as any,
+        baseInput,
         user,
         copyFromCountId ? { copyFromCountId } : prefillFromEngine ? { prefillFromEngine } : undefined,
       );
@@ -836,7 +853,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         return res.status(409).json({ message: "A count already exists for this warehouse and date." });
       }
       console.error("[WarehouseInventory] Create error:", err);
-      res.status(500).json({ message: "Failed to create count" });
+      res.status(errorStatus(err)).json({ message: "Failed to create count" });
     }
   });
 
@@ -850,6 +867,9 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         return res.status(409).json({ message: "Finalized counts cannot be edited. Reopen first." });
       }
       const input = updateSchema.parse(req.body);
+      if (input.countDate && input.countDate > todayInTZ()) {
+        return res.status(400).json({ message: "A count can't be dated in the future." });
+      }
       // Guard countDate uniqueness
       if (input.countDate && input.countDate !== count.countDate) {
         const clash = await storage.getWarehouseInventoryCountByWarehouseDate(count.warehouse, input.countDate);
@@ -869,7 +889,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         return res.status(409).json({ message: "A count already exists for this warehouse and date." });
       }
       console.error("[WarehouseInventory] Update error:", err);
-      res.status(500).json({ message: "Failed to update count" });
+      res.status(errorStatus(err)).json({ message: "Failed to update count" });
     }
   });
 
@@ -883,7 +903,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       res.json(audits);
     } catch (err) {
       console.error("[WarehouseInventory] History error:", err);
-      res.status(500).json({ message: "Failed to load count history" });
+      res.status(errorStatus(err)).json({ message: "Failed to load count history" });
     }
   });
 
@@ -908,7 +928,7 @@ export function registerWarehouseInventoryRoutes(app: Express) {
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("[WarehouseInventory] Items update error:", err);
-      res.status(500).json({ message: "Failed to update items" });
+      res.status(errorStatus(err)).json({ message: "Failed to update items" });
     }
   });
 
@@ -927,12 +947,12 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const onHand = await computeWarehouseOnHand(count.warehouse as Warehouse, count.countDate);
       const expected: Record<string, number> = {};
       for (const it of onHand.items) expected[it.itemName] = it.onHand;
-      await storage.snapshotExpectedQtys(id, expected);
-      const updated = await storage.finalizeWarehouseInventoryCount(id, user);
+      const updated = await storage.finalizeWarehouseInventoryCount(id, user, expected);
+      if (!updated) return res.status(409).json({ message: "This count was already finalized." });
       res.json(updated);
     } catch (err) {
       console.error("[WarehouseInventory] Finalize error:", err);
-      res.status(500).json({ message: "Failed to finalize count" });
+      res.status(errorStatus(err)).json({ message: "Failed to finalize count" });
     }
   });
 
@@ -946,10 +966,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
       const count = await storage.getWarehouseInventoryCount(id);
       if (!count) return res.status(404).json({ message: "Count not found" });
       const updated = await storage.reopenWarehouseInventoryCount(id, user);
+      if (!updated) return res.status(409).json({ message: "Only a finalized count can be reopened." });
       res.json(updated);
     } catch (err) {
       console.error("[WarehouseInventory] Reopen error:", err);
-      res.status(500).json({ message: "Failed to reopen count" });
+      res.status(errorStatus(err)).json({ message: "Failed to reopen count" });
     }
   });
 
@@ -961,11 +982,11 @@ export function registerWarehouseInventoryRoutes(app: Express) {
         return res.status(403).json({ message: "Admin access required to delete counts" });
       }
       const id = Number(req.params.id);
-      await storage.deleteWarehouseInventoryCount(id);
+      await storage.deleteWarehouseInventoryCount(id, user);
       res.status(204).send();
     } catch (err) {
       console.error("[WarehouseInventory] Delete error:", err);
-      res.status(500).json({ message: "Failed to delete count" });
+      res.status(errorStatus(err)).json({ message: "Failed to delete count" });
     }
   });
 }

@@ -1,3 +1,4 @@
+import { normalizeUkgApiUrl } from "./security/urlValidation";
 import { InsertEmployee } from "@shared/schema";
 
 interface UKGODataEmployee {
@@ -113,6 +114,10 @@ interface UKGSyncResult {
   durationMs: number;
 }
 
+// Thrown when a UKG request fails part-way through a multi-page fetch, so a
+// sync aborts instead of acting on a silently truncated result.
+export class UKGFetchError extends Error {}
+
 class UKGClient {
   private baseUrl: string;
   private username: string;
@@ -127,14 +132,13 @@ class UKGClient {
   private lastFailedSync: string | null = null;
 
   constructor() {
-    let url = process.env.UKG_API_URL || "";
-    if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
-      url = `https://${url}`;
+    const configuredUrl = process.env.UKG_API_URL || "";
+    try {
+      this.baseUrl = configuredUrl ? normalizeUkgApiUrl(configuredUrl) : "";
+    } catch (err) {
+      console.error("[UKG] Ignoring unsafe UKG_API_URL:", err instanceof Error ? err.message : err);
+      this.baseUrl = "";
     }
-    if (url.endsWith("/")) {
-      url = url.slice(0, -1);
-    }
-    this.baseUrl = url;
     this.username = process.env.UKG_USERNAME || "";
     this.password = process.env.UKG_PASSWORD || "";
   }
@@ -182,14 +186,7 @@ class UKGClient {
   private credentialsFromDb = false;
 
   updateCredentials(apiUrl: string, username: string, password: string) {
-    let url = apiUrl || "";
-    if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
-      url = `https://${url}`;
-    }
-    if (url.endsWith("/")) {
-      url = url.slice(0, -1);
-    }
-    this.baseUrl = url;
+    this.baseUrl = normalizeUkgApiUrl(apiUrl);
     this.username = username || "";
     this.password = password || "";
     this.lastError = null;
@@ -243,6 +240,7 @@ class UKGClient {
           method,
           headers: this.getAuthHeaders(),
           signal: controller.signal,
+          redirect: "error",
         });
 
         clearTimeout(timeoutId);
@@ -351,8 +349,14 @@ class UKGClient {
       }
 
       const result = await this.apiRequest<ODataResponse>(`/${endpoint}?$top=${pageSize}&$skip=${skip}`);
-      
-      if (!result?.value || result.value.length === 0) {
+
+      // apiRequest returns null on failure (after its retries). Treating that
+      // as "no more pages" would hand callers a partial list as if complete.
+      if (result === null) {
+        throw new UKGFetchError(`UKG ${endpoint} fetch failed at offset ${skip}: ${this.lastError ?? "unknown error"}`);
+      }
+
+      if (!result.value || result.value.length === 0) {
         hasMore = false;
       } else {
         allItems.push(...result.value);
@@ -379,13 +383,12 @@ class UKGClient {
     // Fetch OrgLevel1 for location/store names (Location API times out)
     console.log("UKG: Fetching OrgLevel1 for locations...");
     const orgLevels = await this.fetchAllPaginated<UKGOrgLevel1>("OrgLevel1");
-    
+    const locations = new Map<number, string>();
     for (const org of orgLevels) {
       // Use Description for store names like "Massillon Store", fall back to Name/Id
       const name = org.Description || org.Name || `Location ${org.Id}`;
-      this.locationCache.set(org.Id, name);
+      locations.set(org.Id, name);
     }
-    console.log(`UKG: Loaded ${this.locationCache.size} locations from OrgLevel1`);
 
     // Small delay before fetching jobs
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -393,12 +396,20 @@ class UKGClient {
     // Then fetch jobs
     console.log("UKG: Fetching jobs...");
     const jobs = await this.fetchAllPaginated<UKGJob>("Job");
-
+    const jobNames = new Map<number, string>();
     for (const job of jobs) {
       const name = job.Name || job.Description || job.Code || `Job ${job.Id}`;
-      this.jobCache.set(job.Id, name);
+      jobNames.set(job.Id, name);
     }
-    console.log(`UKG: Loaded ${this.jobCache.size} jobs`);
+
+    // Only install the lookups once both loaded, so a failure never leaves a
+    // half-filled cache that later syncs would trust.
+    if (locations.size === 0 || jobNames.size === 0) {
+      throw new UKGFetchError(`UKG lookup tables came back empty (locations=${locations.size}, jobs=${jobNames.size})`);
+    }
+    this.locationCache = locations;
+    this.jobCache = jobNames;
+    console.log(`UKG: Loaded ${this.locationCache.size} locations from OrgLevel1 and ${this.jobCache.size} jobs`);
   }
 
   async getLocations(): Promise<UKGLocationInfo[]> {
@@ -432,8 +443,13 @@ class UKGClient {
     const rawEmployees = await this.fetchAllPaginated<UKGODataEmployee>("Employee");
     console.log(`UKG: Total employees fetched: ${rawEmployees.length}`);
     
+    let unknownJobs = 0;
     const employees: UKGProEmployee[] = rawEmployees.map(emp => {
-      const jobTitle = this.jobCache.get(emp.JobId) || "Staff";
+      // Empty when the JobId isn't in the lookup. Sync callers must not
+      // overwrite a stored title with a guess ("Staff" breaks job-code
+      // filters, hierarchy levels and HR alert routing).
+      const jobTitle = this.jobCache.get(emp.JobId) || "";
+      if (!jobTitle) unknownJobs++;
       // Use OrgLevel1Id for location (maps to store names like "Massillon Store")
       const orgLevel1Id = emp.OrgLevel1Id || 0;
       // Use empty string if location not found (avoid "Location X" fallbacks)
@@ -457,6 +473,9 @@ class UKGClient {
     });
 
     console.log(`UKG: Processed ${employees.length} employees`);
+    if (unknownJobs > 0) {
+      console.warn(`UKG: ${unknownJobs} employee(s) have a JobId missing from the Job lookup; their stored job titles will be left unchanged`);
+    }
     console.log(`UKG: Active: ${employees.filter(e => e.isActive).length}, Terminated: ${employees.filter(e => !e.isActive).length}`);
     
     return employees;
@@ -612,6 +631,7 @@ class UKGClient {
         method: "GET",
         headers: this.getAuthHeaders(),
         signal: controller.signal,
+        redirect: "error",
       });
 
       clearTimeout(timeoutId);
@@ -683,8 +703,7 @@ class UKGClient {
 
   // Debug method to probe various UKG APIs that might have location data
   async probeLocationAPI(): Promise<{ success: boolean; data?: unknown; error?: string; results?: Record<string, unknown> }> {
-    const baseUrl = process.env.UKG_API_URL;
-    if (!baseUrl) {
+    if (!this.isConfigured()) {
       return { success: false, error: "UKG_API_URL not configured" };
     }
 
@@ -697,7 +716,7 @@ class UKGClient {
 
     for (const endpoint of endpointsToProbe) {
       // Get more records from OrgLevel1 to see all locations
-      const url = `${baseUrl}/${endpoint}?$top=200`;
+      const url = `${this.baseUrl}/${endpoint}?$top=200`;
       console.log(`UKG DEBUG: Probing ${endpoint}...`);
 
       const controller = new AbortController();
@@ -709,6 +728,7 @@ class UKGClient {
           method: "GET",
           headers: this.getAuthHeaders(),
           signal: controller.signal,
+          redirect: "error",
         });
 
         clearTimeout(timeoutId);

@@ -23,23 +23,26 @@
  *
  * Run with:   npx tsx --test test/permissions.test.ts
  *
- * Requires DATABASE_URL to be set so the real feature_permissions table can
- * be read/written. The tests scope all changes to a unique synthetic role
- * string per run and restore allowed_roles after each test.
+ * Requires PostgreSQL binaries on PATH. A disposable local database is
+ * created automatically; DATABASE_URL and external service credentials are
+ * never used. Shared rows and real records cannot be modified.
  */
 
+import { cleanupPermissionDatabase } from "./helpers/permission-database";
+import { allowTestServer } from "./helpers/external-fixtures";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import express, { type Express } from "express";
 import session from "express-session";
 import http from "http";
 import type { AddressInfo } from "net";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
-import { db } from "../server/db";
+import { db, pool } from "../server/db";
 import { featurePermissions, DEFAULT_FEATURE_PERMISSIONS, SYSTEM_FEATURES, users } from "../shared/schema";
 import { storage } from "../server/storage";
 import {
+  getFeaturePermissions,
   invalidatePermissionsCache,
   requireFeatureAccess,
 } from "../server/middleware";
@@ -57,6 +60,89 @@ import { registerWarehouseInventoryRoutes } from "../server/routes/warehouseInve
 import { registerReportRoutes } from "../server/routes/reports";
 import { registerRosterRoutes } from "../server/routes/roster";
 import { registerUKGRoutes } from "../server/routes/ukg";
+import { registerGlobalSettingsRoutes } from "../server/routes/globalSettings";
+import { registerTruckRouteRoutes } from "../server/routes/truckRoutes";
+import { registerTrailerRoutes } from "../server/routes/trailers";
+import { registerTractorRoutes } from "../server/routes/tractors";
+import { registerObjectStorageRoutes } from "../server/replit_integrations/object_storage/routes";
+import { ObjectStorageService } from "../server/replit_integrations/object_storage/objectStorage";
+import { canAccessObject } from "../server/replit_integrations/object_storage/objectAcl";
+import { unambiguousOrderLocationNames, OrderLocationConflictError } from "../server/order-location-access";
+
+test("task assignments enforce employee scope for reads, writes, batches, copying and clearing", async () => {
+  const a = await storage.createLocation({ name: "Task scope A" });
+  const b = await storage.createLocation({ name: "Task scope B" });
+  const ea = await storage.createEmployee({ name: "A", email: "a@scope.test", jobTitle: "TEST", location: a.name });
+  const eb = await storage.createEmployee({ name: "B", email: "b@scope.test", jobTitle: "TEST", location: b.name });
+  const sourceDate = "2035-01-01", targetDate = "2035-01-02";
+  const data = (employeeId: number, date = sourceDate) => ({ employeeId, date, taskName: "Sort", startMinute: 600, durationMinutes: 60 });
+  const own = await storage.createTaskAssignment(data(ea.id));
+  const other = await storage.createTaskAssignment(data(eb.id));
+  const otherTarget = await storage.createTaskAssignment(data(eb.id, targetDate));
+  const login = await request({ method: "POST", path: "/_test/login", body: { role: "manager", locationIds: [String(a.id)] } });
+  const cookie = login.cookie!;
+  const call = (method: string, path: string, body?: unknown) => request({ method, path, body, cookie });
+  const root = "/api/task-assignments";
+  const listed = await call("GET", `${root}?date=${sourceDate}`);
+  assert.deepEqual(listed.body.map((row: any) => row.id), [own.id]);
+  assert.deepEqual((await call("GET", `${root}?date=${sourceDate}&location=${encodeURIComponent(b.name)}`)).body, []);
+  assert.equal((await call("POST", root, data(eb.id))).status, 403);
+  assert.equal((await call("PUT", `${root}/${other.id}`, { taskName: "Changed" })).status, 403);
+  assert.equal((await call("PUT", `${root}/${own.id}`, { employeeId: eb.id })).status, 403);
+  assert.equal((await call("DELETE", `${root}/${other.id}`)).status, 403);
+  assert.equal((await call("POST", `${root}/batch`, { assignments: [data(ea.id), data(eb.id)] })).status, 403);
+  assert.equal((await storage.getTaskAssignments(sourceDate)).length, 2, "batch denial must not partially insert");
+  assert.equal((await call("POST", `${root}/copy-day`, { sourceDate, targetDate })).status, 201);
+  const target = await storage.getTaskAssignments(targetDate);
+  assert.equal(target.length, 2);
+  assert.ok(target.some(row => row.id === otherTarget.id), "copy must preserve other stores");
+  assert.equal((await call("DELETE", `${root}?date=${sourceDate}`)).body.deleted, 1);
+  assert.deepEqual((await storage.getTaskAssignments(sourceDate)).map(row => row.id), [other.id]);
+  assert.equal((await call("POST", root, data(ea.id))).status, 201);
+  const noLocations = (await request({ method: "POST", path: "/_test/login", body: { role: "manager", locationIds: [] } })).cookie!;
+  assert.deepEqual((await request({ method: "GET", path: `${root}?date=${targetDate}`, cookie: noLocations })).body, []);
+  assert.equal((await request({ method: "DELETE", path: `${root}?date=${targetDate}`, cookie: noLocations })).body.deleted, 0);
+  const admin = await loginAs("admin");
+  assert.equal((await request({ method: "GET", path: `${root}?date=${targetDate}`, cookie: admin })).body.length, 2);
+});
+
+test("private object downloads require ACL even for supervisory roles", async t => {
+  let owner: string | undefined = "someone-else";
+  // The external fixture guards the service wrapper; exercise the real ACL
+  // evaluator against in-memory file metadata, with no bucket access.
+  t.mock.method(ObjectStorageService.prototype, "canAccessObjectEntityOrFallback", canAccessObject);
+  t.mock.method(ObjectStorageService.prototype, "getObjectEntityFile", async () => ({
+    getMetadata: async () => [{ metadata: owner ? { "custom:aclPolicy": JSON.stringify({ owner, visibility: "private" }) } : {} }],
+  }));
+  t.mock.method(ObjectStorageService.prototype, "downloadObject", async (_file: unknown, res: any) => res.send("file"));
+  for (const role of ["manager", "optimizer", "admin"]) {
+    const cookie = await loginAs(role);
+    owner = "someone-else";
+    assert.equal((await request({ method: "GET", path: "/objects/uploads/test", cookie })).status, 403);
+    owner = undefined;
+    assert.equal((await request({ method: "GET", path: "/objects/uploads/test", cookie })).status, 403);
+    owner = "9001";
+    assert.equal((await request({ method: "GET", path: "/objects/uploads/test", cookie })).status, 200);
+  }
+  assert.equal((await request({ method: "GET", path: "/objects/uploads/test" })).status, 401);
+});
+
+test("order identities reject collisions and legacy ambiguous aliases fail closed", async () => {
+  const a = await storage.createLocation({ name: "Alias A", orderFormName: "Alias Shared" });
+  const b = await storage.createLocation({ name: "Alias B" });
+  await assert.rejects(storage.createLocation({ name: "Alias C", orderFormName: " alias shared " }), OrderLocationConflictError);
+  await assert.rejects(storage.createLocation({ name: "Alias Shared" }), OrderLocationConflictError);
+  await assert.rejects(storage.updateLocation(b.id, { orderFormName: "Alias Shared" }), OrderLocationConflictError);
+  await assert.rejects(storage.updateLocation(b.id, { name: "Alias Shared" }), OrderLocationConflictError);
+  const concurrent = await Promise.allSettled([
+    storage.createLocation({ name: "Concurrent alias A", orderFormName: "Concurrent shared" }),
+    storage.createLocation({ name: "Concurrent alias B", orderFormName: "Concurrent shared" }),
+  ]);
+  assert.equal(concurrent.filter(result => result.status === "fulfilled").length, 1);
+  assert.deepEqual(unambiguousOrderLocationNames([a, b], new Set([String(a.id)])), ["Alias Shared"]);
+  assert.deepEqual(unambiguousOrderLocationNames([a, { ...b, orderFormName: "Alias Shared" }], new Set([String(a.id)])), []);
+  assert.deepEqual(unambiguousOrderLocationNames([a, { ...b, name: "Alias Shared", orderFormName: null }], new Set([String(a.id)])), []);
+});
 
 // A unique synthetic role per test run so we never collide with real data.
 const TEST_ROLE = `test_dm_${process.pid}_${Date.now()}`;
@@ -70,6 +156,7 @@ let baseUrl = "";
 
 type RouteGate = {
   feature: string;
+  prerequisites?: string[];
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   body?: unknown;
@@ -86,10 +173,21 @@ type RouteGate = {
 };
 
 // Default broad set of "passed the gate" statuses; specific entries can
-// narrow this when we know exactly what the handler returns.
-const BROADLY_OK = [200, 201, 204, 400, 404, 409, 500];
+// narrow this when we know exactly what the handler returns. 503 is what a
+// MySQL-backed handler answers when MySQL isn't reachable (as in this test).
+const BROADLY_OK = [200, 201, 204, 400, 404, 409, 500, 503];
 
 const ROUTE_GATES: RouteGate[] = [
+  {
+    feature: "schedule.view", method: "GET", path: "/api/shifts",
+    kind: "stub", sourceFile: "server/routes.ts",
+    sourcePattern: /app\.get\(api\.shifts\.list\.path,\s*requireFeatureAccess\("schedule.view"\)/,
+  },
+  ...["pal-entries", "unpaid-time-off-entries"].map(path => ({
+    feature: "attendance.view", method: "GET" as const, path: `/api/${path}`,
+    kind: "stub" as const, sourceFile: "server/routes.ts",
+    sourcePattern: new RegExp(`app\\.get\\("/api/${path}",\\s*requireFeatureAccess\\("attendance.view"\\)`),
+  })),
   // -------------------- Scheduling --------------------
   {
     feature: "schedule.edit",
@@ -322,6 +420,7 @@ const ROUTE_GATES: RouteGate[] = [
     feature: "orders.submit",
     method: "GET",
     path: "/api/orders/seasonal-balances",
+    prerequisites: ["seasonal_inventory.view"],
     okStatuses: [200, 500],
     kind: "real",
     sourceFile: "server/routes/orders.ts",
@@ -329,7 +428,7 @@ const ROUTE_GATES: RouteGate[] = [
       /app\.get\(\s*"\/api\/orders\/seasonal-balances"\s*,\s*requireFeatureAccess\(\s*"orders\.submit"\s*\)/,
   },
   {
-    feature: "orders.edit",
+    feature: "orders.receive",
     method: "POST",
     path: "/api/orders/999999/fulfill",
     body: {},
@@ -337,10 +436,10 @@ const ROUTE_GATES: RouteGate[] = [
     kind: "real",
     sourceFile: "server/routes/orders.ts",
     sourcePattern:
-      /app\.post\(\s*"\/api\/orders\/:id\/fulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+      /app\.post\(\s*"\/api\/orders\/:id\/fulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.receive"\s*\)/,
   },
   {
-    feature: "orders.edit",
+    feature: "orders.receive",
     method: "POST",
     path: "/api/orders/999999/unfulfill",
     body: {},
@@ -348,7 +447,7 @@ const ROUTE_GATES: RouteGate[] = [
     kind: "real",
     sourceFile: "server/routes/orders.ts",
     sourcePattern:
-      /app\.post\(\s*"\/api\/orders\/:id\/unfulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.edit"\s*\)/,
+      /app\.post\(\s*"\/api\/orders\/:id\/unfulfill"\s*,\s*requireFeatureAccess\(\s*"orders\.receive"\s*\)/,
   },
 
   // -------------------- Credit Card Inspections --------------------
@@ -464,7 +563,7 @@ const ROUTE_GATES: RouteGate[] = [
     okStatuses: [200, 500],
     kind: "real",
     sourceFile: "server/routes/truckRoutes.ts",
-    sourcePattern: /app\.get\(\s*"\/api\/truck-routes"\s*,\s*requireFeatureAccess\(\s*"truck_routes\.view"\s*\)/,
+    sourcePattern: /app\.get\(\s*"\/api\/truck-routes"\s*,\s*(?:\/\/[^\n]*\n\s*)*requireFeatureAccessAny\(\s*\[\s*"truck_routes\.view",\s*"trailer_manifest\.edit",\s*"trailer_manifest\.view",\s*"driver_inspection\.submit",?\s*\]\s*\)/,
   },
   {
     feature: "truck_routes.edit",
@@ -503,6 +602,7 @@ const ROUTE_GATES: RouteGate[] = [
     // inline check exists in source and that an unauthorized request to the
     // aggregate branch is rejected.
     feature: "seasonal_inventory.view",
+    prerequisites: ["orders.submit"],
     method: "GET",
     path: "/api/orders/seasonal-balances",
     okStatuses: [200, 403, 500],
@@ -610,8 +710,8 @@ const ROUTE_GATES: RouteGate[] = [
     method: "POST",
     path: "/api/global-settings",
     body: {},
-    kind: "stub",
-    sourceFile: "server/routes.ts",
+    kind: "real",
+    sourceFile: "server/routes/globalSettings.ts",
     sourcePattern:
       /app\.post\(\s*api\.globalSettings\.update\.path\s*,\s*requireFeatureAccess\(\s*"settings\.global_config"\s*\)/,
   },
@@ -685,12 +785,69 @@ const ROUTE_GATES: RouteGate[] = [
   },
 ];
 
+// Keep expectations independent of production source: changing a route's gate
+// must fail these tests, not silently change the expected permission.
+function realGate(
+  feature: string,
+  method: RouteGate["method"],
+  path: string,
+  sourceFile: string,
+  alternatives?: string[],
+): RouteGate {
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const keys = (alternatives ?? [feature]).map(key => `"${escape(key)}"`).join("\\s*,\\s*");
+  const middleware = alternatives
+    ? `requireFeatureAccessAny\\(\\s*\\[\\s*${keys}\\s*,?\\s*\\]\\s*\\)`
+    : `requireFeatureAccess\\(\\s*${keys}\\s*\\)`;
+  return {
+    feature, method, path: path.replace(":id", "999999"), sourceFile,
+    kind: "real",
+    body: method === "GET" || method === "DELETE" ? undefined : {},
+    sourcePattern: new RegExp(`app\\.${method.toLowerCase()}\\(\\s*"${escape(path)}"\\s*,\\s*(?:\\/\\/[^\\n]*\\n\\s*)*${middleware}`),
+  };
+}
+
+for (const [feature, actions] of [
+  ["orders.receive", ["receive", "unreceive", "confirm-receipt", "unconfirm-receipt"]],
+  ["orders.confirm_export", ["confirm-export", "unconfirm-export"]],
+  ["orders.approve", ["approve", "deny"]],
+] as const) {
+  for (const action of actions) ROUTE_GATES.push(realGate(feature, "POST", `/api/orders/:id/${action}`, "server/routes/orders.ts"));
+}
+ROUTE_GATES.push(
+  realGate("orders.approve", "POST", "/api/orders/bulk-approve", "server/routes/orders.ts"),
+  realGate("orders.view_all", "GET", "/api/orders/:id/events", "server/routes/orders.ts"),
+  realGate("orders.view_all", "GET", "/api/orders/:id", "server/routes/orders.ts"),
+  realGate("reports.schedule_audit", "GET", "/api/reports/schedule-audit", "server/routes/reports.ts"),
+  realGate("truck_routes.edit", "PUT", "/api/truck-routes/:id", "server/routes/truckRoutes.ts"),
+);
+
+// Each alternative must work alone; revocation must deny with all others absent.
+for (const [path, sourceFile, alternatives] of [
+  ["/api/truck-routes", "server/routes/truckRoutes.ts", ["truck_routes.view", "trailer_manifest.edit", "trailer_manifest.view", "driver_inspection.submit"]],
+  ["/api/truck-routes/:id", "server/routes/truckRoutes.ts", ["truck_routes.view", "trailer_manifest.edit", "trailer_manifest.view", "driver_inspection.submit"]],
+  ["/api/trailers", "server/routes/trailers.ts", ["trailers.view", "trailer_manifest.edit", "trailer_manifest.view", "driver_inspection.submit"]],
+  ["/api/tractors", "server/routes/tractors.ts", ["tractors.view", "driver_inspection.submit"]],
+] as const) {
+  for (const feature of alternatives) {
+    if (path === "/api/truck-routes" && feature === "truck_routes.view") continue;
+    ROUTE_GATES.push(realGate(feature, "GET", path, sourceFile, [...alternatives]));
+  }
+}
+for (const fleet of ["trailers", "tractors"] as const) {
+  for (const [method, suffix, permission] of [
+    ["POST", "", "edit"], ["PUT", "/:id", "edit"], ["DELETE", "/:id", "delete"],
+  ] as const) {
+    ROUTE_GATES.push(realGate(`${fleet}.${permission}`, method, `/api/${fleet}${suffix}`, `server/routes/${fleet}.ts`));
+  }
+}
+
 // Features intentionally NOT covered by ROUTE_GATES because they are not
 // enforced via requireFeatureAccess middleware on a server route. The
 // EXEMPT_FEATURES negative test below asserts none of these accidentally
 // gain a middleware gate without being moved into ROUTE_GATES.
 const EXEMPT_FEATURES: Record<string, string> = {
-  "schedule.view": "Display-only filter; schedule listing is gated by requireAuth, not feature middleware.",
+  "schedule.export_pdf": "PDF is generated in the browser; the button and export handler are gated with usePermissions, with no server PDF endpoint.",
   "employees.view": "Employee directory listing is gated by requireAuth; visibility filtering happens in handlers, not via requireFeatureAccess middleware.",
   "raw_shifts.view": "Client-side navigation guard only (Navigation.tsx); no server route gates it.",
   "employees.has_direct_reports": "Role capability flag consumed by direct-report assignment logic, not a route gate.",
@@ -746,14 +903,14 @@ function buildTestApp() {
   // Test-only login endpoint to seed req.session.user without going through
   // Microsoft SSO (which can't be exercised from a test runner).
   app.post("/_test/login", (req, res) => {
-    const { id, email, name, role } = req.body ?? {};
+    const { id, email, name, role, locationIds } = req.body ?? {};
     (req.session as any).user = {
       id: id ?? 9001,
       microsoftId: "test-msid",
       name: name ?? "Test User",
       email: email ?? "test@example.com",
       role: role ?? "viewer",
-      locationIds: null,
+      locationIds: locationIds ?? null,
     };
     (req.session as any).isAuthenticated = true;
     req.session.save((err) => {
@@ -767,6 +924,7 @@ function buildTestApp() {
   registerCoachingRoutes(app);
   registerShiftTradeRoutes(app);
   registerTaskAssignmentRoutes(app);
+  registerObjectStorageRoutes(app);
   registerOptimizationRoutes(app);
   registerDriverInspectionRoutes(app);
   registerCreditCardInspectionRoutes(app);
@@ -776,6 +934,10 @@ function buildTestApp() {
   registerReportRoutes(app);
   registerRosterRoutes(app);
   registerUKGRoutes(app);
+  registerGlobalSettingsRoutes(app);
+  registerTruckRouteRoutes(app);
+  registerTrailerRoutes(app);
+  registerTractorRoutes(app);
 
   // Mount stubs for routes registered inline in server/routes.ts (which we
   // can't import in isolation). Source-grep tests verify the production
@@ -880,6 +1042,7 @@ async function revokeTestRole(feature: string): Promise<void> {
  */
 async function assertGated(opts: {
   feature: string;
+  prerequisites?: string[];
   method: string;
   path: string;
   body?: unknown;
@@ -888,25 +1051,30 @@ async function assertGated(opts: {
   const { feature, method, path, body } = opts;
   const okStatuses = opts.okStatuses ?? BROADLY_OK;
 
-  const original = await grantTestRole(feature);
+  const originals = new Map<string, string[]>();
   try {
+    for (const key of [...(opts.prerequisites ?? []), feature]) {
+      originals.set(key, await grantTestRole(key));
+    }
     const cookie = await loginAs(TEST_ROLE);
 
     const granted = await request({ method, path, body, cookie });
-    // The gate passed iff we don't see the middleware's 401/403 responses.
-    // A downstream 403 from a different check (e.g. an inline admin-only
-    // guard inside the handler) is fine: it proves the request reached the
-    // handler.
+    assert.ok(
+      typeof granted.body !== "string" || !granted.body.includes(`Cannot ${method} `),
+      `${method} ${path} is not mounted in the test harness`,
+    );
+    // Only the documented manifest admin override may deny a granted role.
+    // Arbitrary downstream 403s must not mask regressions in compound gates.
     assert.notEqual(
       granted.status,
       401,
       `[${feature}] granted role should be authenticated`,
     );
     if (granted.status === 403) {
-      assert.notEqual(
+      assert.equal(feature, "trailer_manifest.delete", `[${feature}] granted role was forbidden`);
+      assert.equal(
         granted.body?.message,
-        "Access denied",
-        `[${feature}] granted role hit the feature-gate middleware (got "Access denied")`,
+        "Admin access required to delete manifests",
       );
     }
     const allowed = [...okStatuses, 403];
@@ -928,7 +1096,7 @@ async function assertGated(opts: {
       `[${feature}] revoked role should hit the feature-gate middleware (got ${JSON.stringify(revoked.body)})`,
     );
   } finally {
-    await setAllowedRoles(feature, original);
+    for (const [key, roles] of originals) await setAllowedRoles(key, roles);
   }
 }
 
@@ -943,6 +1111,7 @@ before(async () => {
   });
   const addr = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${addr.port}`;
+  allowTestServer(baseUrl);
 });
 
 after(async () => {
@@ -955,14 +1124,226 @@ after(async () => {
   // MySQL pool the node test runner hangs at exit (its idle connections
   // keep the event loop alive), which previously caused post-merge to
   // time out with a "river CANCEL" error.
-  const { pool } = await import("../server/db");
   const { mysqlPool } = await import("../server/mysql");
   await Promise.all([pool.end(), mysqlPool.end()]);
+  cleanupPermissionDatabase();
 });
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test("general settings never expose or modify UKG credentials", async () => {
+  const originalPermissionRows = await db.select().from(featurePermissions)
+    .where(inArray(featurePermissions.feature, ["settings.global_config", "settings.ukg_config"]));
+  const globalRoles = await getAllowedRoles("settings.global_config");
+  const ukgRoles = await getAllowedRoles("settings.ukg_config");
+  const credentials = {
+    ukgApiUrl: "https://fixture.ukg.com",
+    ukgUsername: "fixture-user",
+    ukgPassword: "fixture-password",
+  };
+  const assertRedacted = (body: any) => {
+    for (const key of Object.keys(credentials)) assert.equal(Object.hasOwn(body, key), false, key);
+    assert.ok(!JSON.stringify(body).includes(credentials.ukgPassword));
+  };
+  try {
+    await setAllowedRoles("settings.global_config", ["admin", "general-only"]);
+    await setAllowedRoles("settings.ukg_config", ["admin", "ukg-only"]);
+    await storage.updateGlobalSettings(credentials);
+    const general = await loginAs("general-only");
+    const ukg = await loginAs("ukg-only");
+    const admin = await loginAs("admin");
+    const viewer = await loginAs("viewer");
+    assert.equal((await request({ method: "GET", path: "/api/global-settings" })).status, 401);
+    assert.equal((await request({ method: "POST", path: "/api/global-settings", body: {} })).status, 401);
+    for (const cookie of [general, ukg, admin, viewer]) {
+      const read = await request({ method: "GET", path: "/api/global-settings", cookie });
+      assert.equal(read.status, 200);
+      assertRedacted(read.body);
+    }
+    for (const cookie of [general, admin]) {
+      const save = await request({ method: "POST", path: "/api/global-settings", cookie,
+        body: { hrNotificationEmail: "fixture@example.com" } });
+      assert.equal(save.status, 200);
+      assert.equal(save.body.hrNotificationEmail, "fixture@example.com");
+      assertRedacted(save.body);
+      for (const key of Object.keys(credentials)) {
+        for (const value of ["replacement", null, ""]) {
+          const denied = await request({ method: "POST", path: "/api/global-settings", cookie,
+            body: { [key]: value, hrNotificationEmail: "not-saved@example.com" } });
+          assert.equal(denied.status, 400);
+          const stored = await storage.getGlobalSettings();
+          assert.equal(stored.hrNotificationEmail, "fixture@example.com");
+          for (const field of Object.keys(credentials) as (keyof typeof credentials)[]) {
+            assert.equal(stored[field], credentials[field]);
+          }
+        }
+      }
+    }
+    for (const cookie of [ukg, viewer]) {
+      assert.equal((await request({ method: "POST", path: "/api/global-settings", cookie, body: {} })).status, 403);
+    }
+    // The Settings page saves only edited fields, not the fetched row (which
+    // contains a read-only id). Cover every save handler's payload shape.
+    const fs = await import("node:fs/promises");
+    const settingsPage = await fs.readFile("client/src/pages/Settings.tsx", "utf8");
+    assert.doesNotMatch(settingsPage, /\.\.\.settings\b/);
+    const brandingCard = await fs.readFile("client/src/components/settings/EmailBrandingCard.tsx", "utf8");
+    assert.match(brandingCard, /updateSettings\.mutate\(\s*\{\s*emailBranding: state\s*\}/);
+    const beforeBranding = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+    const emailBranding = { dynamicValueColor: "#123456", dynamicValueWeight: "bold" };
+    const brandingSave = await request({ method: "POST", path: "/api/global-settings", cookie: admin,
+      body: { emailBranding } });
+    assert.equal(brandingSave.status, 200);
+    assertRedacted(brandingSave.body);
+    const afterBranding = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+    assert.deepEqual(afterBranding.body, { ...beforeBranding.body, emailBranding });
+    const storedAfterBranding = await storage.getGlobalSettings();
+    for (const field of Object.keys(credentials) as (keyof typeof credentials)[]) {
+      assert.equal(storedAfterBranding[field], credentials[field]);
+    }
+    for (const fields of [
+      ["hrNotificationEmail"], ["orderNotificationEmails"], ["firstAidNotificationEmails"],
+      ["loginTagline"], ["driverInspectionEmails"],
+      ["warehouseVarianceEmailsCleveland", "warehouseVarianceEmailsCanton"],
+    ]) {
+      const before = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+      assert.ok(before.body.id);
+      const edited = Object.fromEntries(fields.map(field => [field, field === "loginTagline" ? "Updated tagline" : "edited@example.com"]));
+      const saved = await request({ method: "POST", path: "/api/global-settings", cookie: admin, body: edited });
+      assert.equal(saved.status, 200);
+      assertRedacted(saved.body);
+      const after = await request({ method: "GET", path: "/api/global-settings", cookie: admin });
+      for (const [field, value] of Object.entries(edited)) assert.equal(after.body[field], value);
+      assert.equal(after.body.id, before.body.id);
+    }
+    for (const method of ["GET", "POST"]) {
+      assert.equal((await request({ method, path: "/api/ukg/credentials", cookie: general,
+        ...(method === "POST" ? { body: credentials } : {}) })).status, 403);
+    }
+    for (const cookie of [ukg, admin]) {
+      const save = await request({ method: "POST", path: "/api/ukg/credentials", cookie, body: credentials });
+      assert.equal(save.status, 200);
+      const read = await request({ method: "GET", path: "/api/ukg/credentials", cookie });
+      assert.equal(read.status, 200);
+      assert.equal(read.body.ukgUsername, credentials.ukgUsername);
+      assert.equal(read.body.hasPassword, true);
+      assert.equal(Object.hasOwn(read.body, "ukgPassword"), false);
+    }
+  } finally {
+    await setAllowedRoles("settings.global_config", globalRoles);
+    await setAllowedRoles("settings.ukg_config", ukgRoles);
+    // Preserve absence as well as values in this disposable test database.
+    for (const feature of ["settings.global_config", "settings.ukg_config"]) {
+      if (!originalPermissionRows.some(row => row.feature === feature)) {
+        await db.delete(featurePermissions).where(eq(featurePermissions.feature, feature));
+      }
+    }
+    invalidatePermissionsCache();
+  }
+});
+
+test("occurrence adjustments accept only numeric -100 and preserve scope and yearly limits", async () => {
+  const location = await storage.createLocation({ name: "Adjustment scope" });
+  const employee = await storage.createEmployee({
+    name: "Adjustment employee", email: "adjustment@scope.test", jobTitle: "TEST", location: location.name,
+  });
+  const otherLocation = await storage.createLocation({ name: "Other adjustment scope" });
+  const otherEmployee = await storage.createEmployee({
+    name: "Other employee", email: "other-adjustment@scope.test", jobTitle: "TEST", location: otherLocation.name,
+  });
+  const cookie = (await request({
+    method: "POST", path: "/_test/login", body: { role: "manager", locationIds: [String(location.id)] },
+  })).cookie!;
+  const year = new Date().getUTCFullYear();
+  const payload = {
+    employeeId: employee.id, adjustmentType: "unscheduled_shift",
+    adjustmentDate: `${year}-01-01`, calendarYear: year,
+  };
+  const post = (body: unknown, auth = cookie) => request({
+    method: "POST", path: "/api/occurrence-adjustments", body, cookie: auth,
+  });
+  for (const value of [-100000, -101, -99, -100.5, -1, 0, 100, "-100", null, true, [], [-100], {}]) {
+    const result = await post({ ...payload, adjustmentValue: value });
+    assert.equal(result.status, 400, `must reject ${JSON.stringify(value)}`);
+    assert.match(result.body.message, /adjustmentValue must be the number -100/);
+  }
+  assert.equal((await post(payload)).status, 400, "missing value is rejected");
+  assert.deepEqual(await storage.getOccurrenceAdjustmentsForYear(employee.id, year), [], "invalid values must not be stored");
+  assert.equal((await post({ ...payload, employeeId: otherEmployee.id, adjustmentValue: -100 })).status, 403);
+  const viewer = await loginAs("viewer");
+  assert.equal((await post({ ...payload, adjustmentValue: -100 }, viewer)).status, 403);
+  assert.equal((await post({ ...payload, adjustmentValue: -100, adjustmentType: "perfect_attendance" })).status, 400);
+  const valid = await post({ ...payload, adjustmentValue: -100 });
+  assert.equal(valid.status, 201);
+  assert.equal(valid.body.adjustmentValue, -100);
+  const duplicate = await post({ ...payload, adjustmentValue: -100 });
+  assert.equal(duplicate.status, 400);
+  assert.match(duplicate.body.message, /already used their adjustment/);
+  const saved = await storage.getOccurrenceAdjustmentsForYear(employee.id, year);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].adjustmentValue, -100);
+});
+
+test("fixtures: database and external services cannot reach shared records", async () => {
+  assert.equal(pool.options.database, "permissions_test");
+  assert.ok(pool.options.host?.startsWith("/"), "Postgres must use the private Unix socket");
+  assert.equal(pool.options.connectionString, undefined, "No inherited database URL");
+  const result = await pool.query("SELECT count(*)::int AS count FROM feature_permissions");
+  assert.equal(result.rows[0].count, 0, "Each run starts with empty permission rows");
+
+  const { mysqlPool } = await import("../server/mysql");
+  const [rows] = await mysqlPool.execute("SELECT * FROM orders WHERE id = 999999");
+  assert.deepEqual(rows, [], "Missing IDs come from an empty fixture, not real storage");
+  await assert.rejects(
+    mysqlPool.execute("DELETE FROM orders WHERE id = 999999"),
+    /Unexpected MySQL operation/,
+  );
+  const { ObjectStorageService } = await import("../server/replit_integrations/object_storage/objectStorage");
+  assert.throws(
+    () => new ObjectStorageService().getObjectEntityUploadURL(),
+    /Unexpected object storage operation/,
+  );
+  await assert.rejects(fetch("http://127.0.0.1:1106/"), /Unexpected network operation/);
+});
+
+test("schedule export inherits view only while unconfigured, then remains independently revocable", async () => {
+  const expandedViewRoles = ["admin", "manager", "optimizer", "viewer", "dmdirector", "team_lead", "asstmanager", "hradmin", "transportation", "ordering"];
+  try {
+    await setAllowedRoles("schedule.view", expandedViewRoles);
+    let perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], expandedViewRoles, "missing export row inherits existing view grants");
+
+    await storage.seedFeaturePermissions();
+    assert.deepEqual(await getAllowedRoles("schedule.export_pdf"), expandedViewRoles, "backfill must snapshot existing view grants");
+
+    await setAllowedRoles("schedule.export_pdf", ["admin"]);
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], ["admin"], "explicit export grant is not unioned with view");
+    await storage.seedFeaturePermissions();
+    assert.deepEqual(await getAllowedRoles("schedule.export_pdf"), ["admin"], "backfill must not overwrite an explicit export row");
+
+    await setAllowedRoles("schedule.export_pdf", []);
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], [], "explicit empty row does not inherit view");
+
+    await setAllowedRoles("schedule", ["legacy_only_role"]);
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], [], "legacy schedule grants cannot override explicit revocation");
+    await db.delete(featurePermissions).where(eq(featurePermissions.feature, "schedule.export_pdf"));
+    invalidatePermissionsCache();
+    perms = await getFeaturePermissions();
+    assert.deepEqual(perms["schedule.export_pdf"], [...expandedViewRoles, "legacy_only_role"], "missing export row follows effective view without duplicates");
+  } finally {
+    await db.delete(featurePermissions).where(eq(featurePermissions.feature, "schedule"));
+    await db.delete(featurePermissions).where(inArray(
+      featurePermissions.feature,
+      SYSTEM_FEATURES.filter(feature => feature.feature.startsWith("schedule.")).map(feature => feature.feature),
+    ));
+    invalidatePermissionsCache();
+  }
+});
 
 test("admin shortcut: even with no permission row, admin role bypasses the gate", async () => {
   // attendance.edit removed for everyone except the synthetic role; admin must
@@ -1012,12 +1393,118 @@ test("custom role with no permissions is denied across a sample of gated endpoin
   }
 });
 
+test("anonymous requests cannot reach any inventoried route", async () => {
+  for (const gate of ROUTE_GATES) {
+    const res = await request({ method: gate.method, path: gate.path, body: gate.body });
+    assert.equal(res.status, 401, `${gate.method} ${gate.path} must require authentication`);
+  }
+});
+
+test("seasonal balances enforce store scope and the aggregate's second grant", async (t) => {
+  const { mysqlPool } = await import("../server/mysql");
+  const locations = [
+    { id: 1, name: "Test Store A", orderFormName: "Test Store A" },
+    { id: 2, name: "Test Store B", orderFormName: "Test Store B" },
+  ];
+  t.mock.method(storage, "getLocations", async () => locations);
+  const execute = t.mock.method(mysqlPool, "execute", async (_sql: string, params: unknown[]) => [
+    locations.filter(location => !params.includes("Test Store A") || location.id === 1)
+      .map(location => ({ location: location.name })),
+    [],
+  ]);
+  const originalSubmit = await grantTestRole("orders.submit");
+  const originalSeasonal = await getAllowedRoles("seasonal_inventory.view");
+  try {
+    await revokeTestRole("seasonal_inventory.view");
+    const login = await request({
+      method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1"] },
+    });
+    const cookie = login.cookie;
+    assert.ok(cookie);
+    const own = await request({ method: "GET", path: "/api/orders/seasonal-balances?location=Test%20Store%20A", cookie });
+    assert.equal(own.status, 200, "own-store lookup needs orders.submit only");
+    assert.deepEqual(own.body.balances.map((b: any) => b.location), ["Test Store A"]);
+    const callsBeforeDenial = execute.mock.callCount();
+    for (const path of ["/api/orders/seasonal-balances?location=Test%20Store%20B", "/api/orders/seasonal-balances"]) {
+      const denied = await request({ method: "GET", path, cookie });
+      assert.equal(denied.status, 403);
+      assert.equal(denied.body.message, "Access denied");
+    }
+    assert.equal(execute.mock.callCount(), callsBeforeDenial, "denied requests must not query balances");
+    await grantTestRole("seasonal_inventory.view");
+    const aggregate = await request({ method: "GET", path: "/api/orders/seasonal-balances", cookie });
+    assert.equal(aggregate.status, 200);
+    assert.deepEqual(aggregate.body.balances.map((b: any) => b.location), ["Test Store A"]);
+    const other = await request({ method: "GET", path: "/api/orders/seasonal-balances?location=Test%20Store%20B", cookie });
+    assert.equal(other.status, 403, "aggregate grant does not bypass store scope");
+  } finally {
+    await setAllowedRoles("orders.submit", originalSubmit);
+    await setAllowedRoles("seasonal_inventory.view", originalSeasonal);
+  }
+});
+
+test("seasonal aggregation isolates accent-equivalent order identities before summing", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  const locations = [
+    { id: 1, name: "Cafe", orderFormName: null },
+    { id: 2, name: "Café", orderFormName: null },
+  ];
+  t.mock.method(storage, "getLocations", async () => locations);
+  const totals = new Map([["Cafe", 7], ["Café", 93]]);
+  // Model an accent-insensitive database: without exact predicates/grouping,
+  // these two rows would merge into a 100-unit balance.
+  const execute = t.mock.method(mysqlPool, "execute", async (sql: string, params: unknown[]) => {
+    assert.match(sql, /GROUP BY BINARY location/);
+    assert.match(sql, /SELECT MIN\(location\) AS location/);
+    const scoped = /BINARY location IN \(/.test(sql);
+    const single = /BINARY location = \?/.test(sql);
+    const hasPlainEquality = /(?<!BINARY )location = \?/.test(sql);
+    assert.equal(hasPlainEquality, false);
+    const identities = params.filter(p => typeof p === "string" && totals.has(p)) as string[];
+    if (scoped || single) assert.ok(identities.length > 0);
+    const columns = [...sql.matchAll(/AS (ret_\w+|req_\w+)/g)].map(m => m[1]);
+    return [[...totals].filter(([name]) => !(scoped || single) || identities.includes(name)).map(([name, total]) => ({
+      location: name,
+      ...Object.fromEntries(columns.map(column => [column, column.startsWith("ret_") ? total : 0])),
+    })), []];
+  });
+  const originalSubmit = await grantTestRole("orders.submit");
+  const originalSeasonal = await grantTestRole("seasonal_inventory.view");
+  try {
+    for (const location of locations) {
+      const cookie = (await request({ method: "POST", path: "/_test/login",
+        body: { role: TEST_ROLE, locationIds: [String(location.id)] } })).cookie!;
+      for (const suffix of [`?location=${encodeURIComponent(location.name)}`, ""]) {
+        const response = await request({ method: "GET", path: `/api/orders/seasonal-balances${suffix}`, cookie });
+        assert.equal(response.status, 200);
+        assert.deepEqual(response.body.balances.map((b: any) => b.location), [location.name]);
+        assert.ok(response.body.balances[0].seasons.every((s: any) => s.onDeposit === totals.get(location.name)));
+        const sql = execute.mock.calls.at(-1)!.arguments[0];
+        assert.match(sql, /BINARY location IN \(/, "authorization must precede aggregation");
+        if (suffix) assert.match(sql, /BINARY location = \?/);
+      }
+    }
+    const cookie = await loginAs("admin");
+    const response = await request({ method: "GET", path: "/api/orders/seasonal-balances", cookie });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.balances.length, 2, "global aggregate must keep both identities separate");
+    for (const balance of response.body.balances) {
+      assert.ok(balance.seasons.every((s: any) => s.onDeposit === totals.get(balance.location)));
+    }
+  } finally {
+    await setAllowedRoles("orders.submit", originalSubmit);
+    await setAllowedRoles("seasonal_inventory.view", originalSeasonal);
+  }
+});
+
 // One concrete test per feature — generated from ROUTE_GATES so adding a new
 // SYSTEM_FEATURES entry only requires extending the table above.
 for (const gate of ROUTE_GATES) {
   test(`gate ${gate.feature} → ${gate.method} ${gate.path}`, async () => {
     await assertGated({
       feature: gate.feature,
+      prerequisites: gate.prerequisites,
       method: gate.method,
       path: gate.path,
       body: gate.body,

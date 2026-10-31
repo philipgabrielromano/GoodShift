@@ -30,6 +30,9 @@ export interface OnHandResult {
     transfersDelta: number;
     byGroup: Record<string, { onHand: number; baseline: number; ordersDelta: number; transfersDelta: number }>;
   };
+  // Active stores with no warehouse assignment: their orders count toward
+  // neither warehouse, so the UI warns about them.
+  unassignedStores: string[];
 }
 
 interface OrderRowMin extends RowDataPacket {
@@ -176,6 +179,9 @@ export async function computeWarehouseOnHand(
     asOfDate: asOf,
     items,
     totals,
+    unassignedStores: allLocations
+      .filter(l => l.isActive && !(l as any).warehouseAssignment)
+      .map(l => l.name),
   };
 }
 

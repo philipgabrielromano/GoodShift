@@ -707,7 +707,7 @@ export default function Attendance() {
                 <CardHeader>
                   <CardTitle>Occurrence History</CardTitle>
                   <CardDescription>
-                    Full history. Only entries from {format(new Date(summary.periodStart), "MMM d, yyyy")} – {format(new Date(summary.periodEnd), "MMM d, yyyy")} count toward the rolling 12-month tally.
+                    Full history. Only entries from {format(new Date(summary.periodStart + "T00:00:00"), "MMM d, yyyy")} – {format(new Date(summary.periodEnd + "T00:00:00"), "MMM d, yyyy")} count toward the rolling 12-month tally.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -777,7 +777,7 @@ export default function Attendance() {
                                     Reason: {occurrence.retractedReason}
                                   </span>
                                 )}
-                                {occurrence.documentUrl && (
+                                {occurrence.documentUrl?.startsWith("/objects/") && (
                                   <a 
                                     href={occurrence.documentUrl} 
                                     target="_blank" 

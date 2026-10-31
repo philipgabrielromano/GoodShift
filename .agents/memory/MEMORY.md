@@ -1,2 +1,8 @@
-- [Employee hierarchy visibility](employee-hierarchy-visibility.md) — 3 modules re-implement job-title visibility; level-0 (HR) sees all; email→employee match unreliable — coaching clamps level by account role.
+- [Dependency advisory coverage](dependency-advisory-coverage.md) — a clean npm audit can omit reviewed advisories; verify assigned findings against upstream ranges.
+- [Employee hierarchy visibility](employee-hierarchy-visibility.md) — level-0 sees all only inside assigned locations; non-admins without locations see none; explicit reports never bypass location scope.
 - [Tailscale key & secret propagation](tailscale-prod-outage.md) — expired auth key can down prod (dev looks fine); dev shells serve stale secret values for minutes after user updates.
+- [Schedule publication scope](schedule-publication-scope.md) — preserve legacy published-week visibility while limiting manager publication and clearing to authorized locations.
+- [Permission test contracts](permission-test-contracts.md) — verify form lookup dependencies, not just current route wiring, when repairing stale permission tests.
+- [Permission test isolation](permission-test-isolation.md) — direct test invocations must be safe; restoring shared permission snapshots can erase concurrent edits.
+- [Order identity ambiguity](order-identity-ambiguity.md) — deny scoped access to ambiguous legacy aliases rather than guessing which store owns historical orders.
+- [Production crash diagnostics](production-crash-diagnostics.md) — compact fatal logs and helper cleanup; never swallow crashes or replay submissions.

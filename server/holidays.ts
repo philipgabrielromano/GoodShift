@@ -14,6 +14,25 @@
 //    - Christmas Day (December 25)
 //
 // Full-time employees with 30+ days of service receive 8 hours holiday pay.
+//
+// Holiday dates are built with `new Date(y, m, d)`, so their local calendar
+// components are the holiday's date. Instants passed in by callers (shift
+// days, week bounds) are compared by their Eastern Time calendar date.
+
+import { formatInTimeZone } from "date-fns-tz";
+
+// Same value as TIMEZONE in ./middleware (kept local so this module stays dependency-free)
+const TIMEZONE = "America/New_York";
+
+function holidayKey(holidayDate: Date): string {
+  const m = String(holidayDate.getMonth() + 1).padStart(2, "0");
+  const d = String(holidayDate.getDate()).padStart(2, "0");
+  return `${holidayDate.getFullYear()}-${m}-${d}`;
+}
+
+function etDateKey(instant: Date): string {
+  return formatInTimeZone(instant, TIMEZONE, "yyyy-MM-dd");
+}
 
 export interface Holiday {
   date: Date;
@@ -101,33 +120,34 @@ export function getHolidaysForYear(year: number): Holiday[] {
   ];
 }
 
-// Check if a date is a holiday (returns holiday name or null)
+function findHolidayOn(date: Date, getForYear: (year: number) => Holiday[]): string | null {
+  const key = etDateKey(date);
+  const holiday = getForYear(Number(key.slice(0, 4))).find(h => holidayKey(h.date) === key);
+  return holiday ? holiday.name : null;
+}
+
+// Check if a date (by its Eastern Time calendar day) is any holiday, closed or paid
 export function isHoliday(date: Date): string | null {
-  const year = date.getFullYear();
-  const holidays = getHolidaysForYear(year);
-  
-  for (const holiday of holidays) {
-    if (
-      holiday.date.getFullYear() === date.getFullYear() &&
-      holiday.date.getMonth() === date.getMonth() &&
-      holiday.date.getDate() === date.getDate()
-    ) {
-      return holiday.name;
-    }
-  }
-  return null;
+  return findHolidayOn(date, getHolidaysForYear);
 }
 
-// Get all holidays that fall within a date range
-export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
+// Check if the store is closed on a date. Paid holidays are NOT closures —
+// the store is open and should be staffed.
+export function isClosedHoliday(date: Date): string | null {
+  return findHolidayOn(date, getClosedHolidaysForYear);
+}
+
+// Holidays whose ET calendar date falls in the half-open range [startDate, endDate).
+// Pass endDate = start of the following week so a holiday on that next Sunday
+// is not credited to this week.
+function holidaysInRange(startDate: Date, endDate: Date, getForYear: (year: number) => Holiday[]): Holiday[] {
+  const startKey = etDateKey(startDate);
+  const endKey = etDateKey(endDate);
   const holidays: Holiday[] = [];
-  const startYear = startDate.getFullYear();
-  const endYear = endDate.getFullYear();
-  
-  for (let year = startYear; year <= endYear; year++) {
-    const yearHolidays = getHolidaysForYear(year);
-    for (const holiday of yearHolidays) {
-      if (holiday.date >= startDate && holiday.date <= endDate) {
+  for (let year = Number(startKey.slice(0, 4)); year <= Number(endKey.slice(0, 4)); year++) {
+    for (const holiday of getForYear(year)) {
+      const key = holidayKey(holiday.date);
+      if (key >= startKey && key < endKey) {
         holidays.push(holiday);
       }
     }
@@ -135,21 +155,9 @@ export function getHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
   return holidays;
 }
 
-// Get paid holidays that fall within a date range
+// Get paid holidays that fall within [startDate, endDate)
 export function getPaidHolidaysInRange(startDate: Date, endDate: Date): Holiday[] {
-  const holidays: Holiday[] = [];
-  const startYear = startDate.getFullYear();
-  const endYear = endDate.getFullYear();
-  
-  for (let year = startYear; year <= endYear; year++) {
-    const yearHolidays = getPaidHolidaysForYear(year);
-    for (const holiday of yearHolidays) {
-      if (holiday.date >= startDate && holiday.date <= endDate) {
-        holidays.push(holiday);
-      }
-    }
-  }
-  return holidays;
+  return holidaysInRange(startDate, endDate, getPaidHolidaysForYear);
 }
 
 // Check if an employee is eligible for paid holiday (full-time with 30+ days of service)

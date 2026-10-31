@@ -126,6 +126,7 @@ export default function CreditCardInspectionForm() {
   });
 
   const canSubmit = (() => {
+    if (!locationId) return false;
     for (const t of terminals) {
       if (!t.present) continue;
       if (t.issueFound === null) return false;

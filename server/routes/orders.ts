@@ -1,8 +1,10 @@
 import type { Express } from "express";
+import { unambiguousOrderLocationNames } from "../order-location-access";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { requireFeatureAccess, requireAdmin, userHasFeature } from "../middleware";
+import { requireFeatureAccess, requireAdmin, userHasFeature, bulkActionLimiter } from "../middleware";
 import type { PoolConnection } from "mysql2/promise";
 import { mysqlPool } from "../mysql";
+import { errorStatus } from "../errors";
 import { z } from "zod";
 import {
   sendOrderNotificationEmail,
@@ -20,6 +22,7 @@ import {
   ADJUSTABLE_ORDER_FIELDS_SET,
   ORDER_CONFIRMATION_KIND,
   ORDER_RECONCILABLE_COLUMNS,
+  SEASONAL_CONFIRMABLE_COLUMNS,
   ORDER_RECONCILABLE_FIELDS,
   RECEIPT_CONFIRM_FIELDS,
   RECEIPT_CONFIRM_FIELDS_SET,
@@ -79,18 +82,13 @@ export async function getUserAllowedLocationNames(
 
   const idSet = new Set(ids);
   const allLocations = await storage.getLocations();
-  const names = allLocations
-    .filter((l: any) => idSet.has(String(l.id)))
-    .map((l: any) => (l.orderFormName ?? l.name) as string);
-  // De-dupe in case orderFormName collides across rows.
-  return Array.from(new Set(names));
+  return unambiguousOrderLocationNames(allLocations, idSet);
 }
 
-// Writes an audit row to the Postgres `order_events` table. State-change
-// callers (approve/deny/receive/unreceive) MUST `await` this so they can
-// surface a 500 if the audit write fails — we don't want a state change to
-// silently commit without a history row. Best-effort callers (background
-// emails, etc.) can keep using `void`.
+// Writes an audit row to the Postgres `order_events` table. Callers that
+// write it BEFORE committing (delete) await it so a failure aborts the action.
+// After a MySQL commit, use logCommittedOrderEvent: the action already
+// happened, so the request must still succeed.
 async function logOrderEvent(args: {
   orderId: number;
   eventType: "created" | "modified" | "approved" | "denied" | "received" | "unreceived" | "confirmed_receipt" | "confirmed_export" | "deleted";
@@ -113,7 +111,50 @@ async function logOrderEvent(args: {
   });
 }
 
-const nonNegInt = z.number().int().min(0).nullable().optional();
+// Audit write for an action that has already committed in MySQL. A failure
+// can't undo the action, so it is logged loudly (with the full event, so the
+// history row can be restored by hand) and the request still succeeds,
+// instead of returning a 500 that invites a retry into a 409.
+async function logCommittedOrderEvent(args: Parameters<typeof logOrderEvent>[0]): Promise<void> {
+  try {
+    await logOrderEvent(args);
+  } catch (err) {
+    console.error("[Orders] AUDIT GAP: order %d %s committed but its history row failed to write. Event: %s", args.orderId, args.eventType, JSON.stringify(args), err);
+  }
+}
+
+// mysql2 returns a DATE column as a Date at local midnight. Read it back as
+// the calendar date it stores, never through a time-zone conversion (doing
+// that on a UTC host showed the previous day in ET).
+function orderDateYMD(value: unknown): string {
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return "";
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  return typeof value === "string" ? value.slice(0, 10) : "";
+}
+
+// Fire-and-forget audit write. A bare `void logOrderEvent(...)` would turn a
+// Postgres hiccup into an unhandled rejection that takes the process down.
+function logOrderEventInBackground(args: Parameters<typeof logOrderEvent>[0]): void {
+  logOrderEvent(args).catch(err => {
+    console.error("[Orders] Failed to write %s audit event for order %d:", args.eventType, args.orderId, err);
+  });
+}
+
+// Donors, Supplemental Production, and End-of-Day/Equipment Count
+// orders don't require warehouse approval — they're informational /
+// counts. Auto-approve on submit so they don't sit in the queue, and
+// suppress all confirmation/notification emails for these types.
+const AUTO_APPROVE_ORDER_TYPES = new Set<string>([
+  "Donors",
+  "Supplemental production",
+  "End of Day/Equipment Count",
+]);
+
+// Capped like the approval/confirm quantities: larger values overflow the
+// MySQL INT columns and came back as a 500.
+const nonNegInt = z.number().int().min(0).max(99999).nullable().optional();
 
 const ORDER_TYPES = ["Transfer and Receive", "End of Day/Equipment Count", "Donors", "Supplemental production", "First Aid"] as const;
 type OrderType = typeof ORDER_TYPES[number];
@@ -205,6 +246,8 @@ const orderSchema = z.object({
   stopBleedKit: nonNegInt,
   instantColdPack: nonNegInt,
   spillKit: nonNegInt,
+  eyeWash16oz: nonNegInt,
+  eyeWash32oz: nonNegInt,
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -313,6 +356,8 @@ const FIELD_LABELS: Record<string, string> = {
   stopBleedKit: "Stop the Bleed Kit",
   instantColdPack: "Instant Cold Pack",
   spillKit: "Spill Kit (BBP/Vomit)",
+  eyeWash16oz: "Eye Wash (16oz)",
+  eyeWash32oz: "Eye Wash (32oz)",
 };
 
 const SKIP_KEYS = new Set(["orderDate", "orderType", "location", "notes"]);
@@ -403,6 +448,8 @@ const CAMEL_TO_SNAKE: Record<keyof OrderInput, string> = {
   stopBleedKit: "stop_bleed_kit",
   instantColdPack: "instant_cold_pack",
   spillKit: "spill_kit",
+  eyeWash16oz: "eye_wash_16oz",
+  eyeWash32oz: "eye_wash_32oz",
   notes: "notes",
 };
 
@@ -438,7 +485,8 @@ interface LocationBalance {
   seasons: SeasonBalance[];
 }
 
-async function loadBalances(location?: string): Promise<LocationBalance[]> {
+async function loadBalances(location?: string, allowedLocations: string[] | null = null): Promise<LocationBalance[]> {
+  if (allowedLocations?.length === 0) return [];
   // Only count non-denied orders toward the seasonal balance display.
   // Denied orders never reserved anything; submitted orders are a soft hold
   // so the store cannot keep stacking pending requests against the same
@@ -447,15 +495,21 @@ async function loadBalances(location?: string): Promise<LocationBalance[]> {
   const conds: string[] = [`status IN (${statusPlaceholders})`];
   const params: (string | number)[] = [...SEASONAL_HOLD_STATUSES];
   if (location) {
-    conds.push("location = ?");
+    conds.push("BINARY location = ?");
     params.push(location);
+  }
+  if (allowedLocations !== null) {
+    conds.push(`BINARY location IN (${allowedLocations.map(() => "?").join(", ")})`);
+    params.push(...allowedLocations);
   }
   const where = `WHERE ${conds.join(" AND ")}`;
   const selectCols = SEASONAL_CATEGORIES
     .map(c => `COALESCE(SUM(${c.returnedCol}), 0) AS ret_${c.key}, COALESCE(SUM(${c.requestedCol}), 0) AS req_${c.key}`)
     .join(", ");
   const [rows] = await mysqlPool.execute<RowDataPacket[]>(
-    `SELECT location, ${selectCols} FROM orders ${where} GROUP BY location ORDER BY location`,
+    // MIN returns text (rather than a binary buffer) within an exact-identity
+    // group and remains valid with ONLY_FULL_GROUP_BY enabled.
+    `SELECT MIN(location) AS location, ${selectCols} FROM orders ${where} GROUP BY BINARY location ORDER BY location`,
     params
   );
   return (rows as Array<Record<string, string | number | null>>).map(r => ({
@@ -478,7 +532,7 @@ async function loadBalances(location?: string): Promise<LocationBalance[]> {
 function toCamel(row: RowDataPacket): Record<string, string | number | boolean | null> {
   const result: Record<string, string | number | boolean | null> = {};
   for (const [key, val] of Object.entries(row)) {
-    const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    const camelKey = key.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
     if (camelKey === "isCentralProcessing") {
       result[camelKey] = val === 1 ? true : val === 0 ? false : null;
     } else {
@@ -548,16 +602,7 @@ export function registerOrderRoutes(app: Express) {
       columns.push("submitted_by");
       values.push(actor.name);
 
-      // Donors, Supplemental Production, and End-of-Day/Equipment Count
-      // orders don't require warehouse approval — they're informational /
-      // counts. Auto-approve on submit so they don't sit in the queue, and
-      // suppress all confirmation/notification emails for these types.
-      const AUTO_APPROVE_TYPES = new Set([
-        "Donors",
-        "Supplemental production",
-        "End of Day/Equipment Count",
-      ]);
-      const isAutoApproved = AUTO_APPROVE_TYPES.has(parsed.orderType);
+      const isAutoApproved = AUTO_APPROVE_ORDER_TYPES.has(parsed.orderType);
 
       columns.push("status");
       values.push(isAutoApproved ? "approved" : "submitted");
@@ -586,7 +631,7 @@ export function registerOrderRoutes(app: Express) {
       conn = null;
 
       const newOrderId = result.insertId;
-      void logOrderEvent({
+      logOrderEventInBackground({
         orderId: newOrderId,
         eventType: "created",
         toStatus: isAutoApproved ? "approved" : "submitted",
@@ -679,7 +724,7 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("[Orders] Error creating order:", err);
-      res.status(500).json({ message: "Failed to submit order" });
+      res.status(errorStatus(err)).json({ message: "Failed to submit order" });
     }
   });
 
@@ -724,7 +769,9 @@ export function registerOrderRoutes(app: Express) {
         filterParams.push(status);
       }
       if (allowedLocations !== null) {
-        filters.push(`location IN (${allowedLocations.map(() => "?").join(", ")})`);
+        // Match the exact authorized identity, not the database's potentially
+        // accent/case-insensitive display-name collation.
+        filters.push(`BINARY location IN (${allowedLocations.map(() => "?").join(", ")})`);
         filterParams.push(...allowedLocations);
       }
 
@@ -746,7 +793,7 @@ export function registerOrderRoutes(app: Express) {
       res.json({ orders: camelRows, total, limit: pageLimit, offset: pageOffset });
     } catch (err) {
       console.error("[Orders] Error fetching orders:", err);
-      res.status(500).json({ message: "Failed to fetch orders" });
+      res.status(errorStatus(err)).json({ message: "Failed to fetch orders" });
     }
   });
 
@@ -776,7 +823,7 @@ export function registerOrderRoutes(app: Express) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
-      let balances = await loadBalances(filter);
+      let balances = await loadBalances(filter, allowedLocations);
       // Trim aggregate results down to the caller's allowed stores when
       // they're store-scoped. Cheap post-filter — there are ~50 stores at
       // most so this is fine without pushing the filter into the SQL.
@@ -787,7 +834,7 @@ export function registerOrderRoutes(app: Express) {
       res.json({ balances });
     } catch (err) {
       console.error("[Orders] Error fetching seasonal balances:", err);
-      res.status(500).json({ message: "Failed to fetch seasonal balances" });
+      res.status(errorStatus(err)).json({ message: "Failed to fetch seasonal balances" });
     }
   });
 
@@ -817,8 +864,11 @@ export function registerOrderRoutes(app: Express) {
           }
 
           const allLocations = await storage.getLocations();
-          const dest = allLocations.find(
-            l => l.name.trim().toLowerCase() === orderLocation.toLowerCase(),
+          // The order holds the Order Form name, which may be an alias.
+          const dest = allLocations.find(l =>
+            [l.name, (l as any).orderFormName].some(
+              (n: string | null | undefined) => n?.trim().toLowerCase() === orderLocation.toLowerCase(),
+            ),
           );
           const recipients = new Set<string>();
           const locEmail = dest?.notificationEmail?.trim();
@@ -837,10 +887,8 @@ export function registerOrderRoutes(app: Express) {
           }
 
           const fulfilledAt = new Date().toLocaleString("en-US", { timeZone: "America/New_York" });
-          const orderDateRaw = order.orderDate;
-          const orderDate = orderDateRaw
-            ? new Date(orderDateRaw as string).toLocaleDateString("en-US", { timeZone: "America/New_York" })
-            : "";
+          const ymd = orderDateYMD(order.orderDate);
+          const orderDate = ymd ? `${Number(ymd.slice(5, 7))}/${Number(ymd.slice(8, 10))}/${ymd.slice(0, 4)}` : "";
           await Promise.all(
             Array.from(recipients).map(addr =>
               sendOrderFulfilledEmail(addr, {
@@ -907,6 +955,9 @@ export function registerOrderRoutes(app: Express) {
       }
       const actor = getActor(req);
 
+      // Postgres lookups happen before the MySQL transaction so no row lock is
+      // held while waiting on them.
+      const scopeLocations = await getUserAllowedLocationNames((req.session as any)?.user);
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
       const [rows] = await conn.execute<OrderRow[]>(
@@ -924,7 +975,7 @@ export function registerOrderRoutes(app: Express) {
       // holders are unrestricted across stores. 404 (not 403) so we don't leak
       // the existence of other stores' orders.
       if (kind === "receipt") {
-        const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+        const allowedLocations = scopeLocations;
         if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
           await conn.rollback(); conn.release(); conn = null;
           return res.status(404).json({ message: "Order not found" });
@@ -1030,7 +1081,7 @@ export function registerOrderRoutes(app: Express) {
         plannedChanges[camel] = plannedSnapshot[camel] ?? 0;
         actualChanges[camel] = value;
       }
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: kind === "receipt" ? "confirmed_receipt" : "confirmed_export",
         fromStatus,
@@ -1057,7 +1108,7 @@ export function registerOrderRoutes(app: Express) {
         try { conn.release(); } catch { /* ignore */ }
       }
       console.error("[Orders] Error confirming order:", err);
-      res.status(500).json({ message: "Failed to confirm order" });
+      res.status(errorStatus(err)).json({ message: "Failed to confirm order" });
     }
   };
 
@@ -1082,6 +1133,9 @@ export function registerOrderRoutes(app: Express) {
       }
       const actor = getActor(req);
 
+      // Postgres lookups happen before the MySQL transaction so no row lock is
+      // held while waiting on them.
+      const scopeLocations = await getUserAllowedLocationNames((req.session as any)?.user);
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
       const [rows] = await conn.execute<OrderRow[]>(
@@ -1095,7 +1149,7 @@ export function registerOrderRoutes(app: Express) {
       const order = rows[0] as any;
       // Store-scope guard — only the assigned store(s) can receive; admins /
       // approvers are unrestricted (allowedLocations === null).
-      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      const allowedLocations = scopeLocations;
       if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
         await conn.rollback(); conn.release(); conn = null;
         return res.status(404).json({ message: "Order not found" });
@@ -1128,7 +1182,7 @@ export function registerOrderRoutes(app: Express) {
       }
       await conn.commit(); conn.release(); conn = null;
 
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: "received",
         fromStatus,
@@ -1144,7 +1198,7 @@ export function registerOrderRoutes(app: Express) {
         try { conn.release(); } catch { /* ignore */ }
       }
       console.error("[Orders] Error receiving order:", err);
-      res.status(500).json({ message: "Failed to mark order as received" });
+      res.status(errorStatus(err)).json({ message: "Failed to mark order as received" });
     }
   };
   app.post("/api/orders/:id/receive", requireFeatureAccess("orders.receive"), handleSimpleReceive);
@@ -1164,10 +1218,13 @@ export function registerOrderRoutes(app: Express) {
       }
       const actor = getActor(req);
 
+      // Postgres lookups happen before the MySQL transaction so no row lock is
+      // held while waiting on them.
+      const scopeLocations = await getUserAllowedLocationNames((req.session as any)?.user);
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
       const [rows] = await conn.execute<OrderRow[]>(
-        "SELECT id, status, location, order_type FROM orders WHERE id = ? FOR UPDATE",
+        "SELECT id, status, location, order_type, confirmed_at FROM orders WHERE id = ? FOR UPDATE",
         [id]
       );
       if (rows.length === 0) {
@@ -1178,7 +1235,7 @@ export function registerOrderRoutes(app: Express) {
       // Receipt undo is store-scoped; export undo is unrestricted (gated by
       // orders.confirm_export). 404 (not 403) to avoid leaking existence.
       if (kind === "receipt") {
-        const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+        const allowedLocations = scopeLocations;
         if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
           await conn.rollback(); conn.release(); conn = null;
           return res.status(404).json({ message: "Order not found" });
@@ -1200,7 +1257,11 @@ export function registerOrderRoutes(app: Express) {
           message: "This order is closed. Closed orders can't be reverted to approved.",
         });
       }
-      if (fromStatus !== "received") {
+      // An approved order with confirmed_at set was stamped by the one-time
+      // confirmed_at backfill before it was delivered; undoing that is the
+      // only way to record its real receipt.
+      const strandedByBackfill = fromStatus === "approved" && order.confirmed_at != null;
+      if (fromStatus !== "received" && !strandedByBackfill) {
         await conn.rollback(); conn.release(); conn = null;
         return res.status(409).json({
           message: `Order is currently "${fromStatus}", not received — nothing to undo.`,
@@ -1208,7 +1269,7 @@ export function registerOrderRoutes(app: Express) {
       }
       // Wipe every actual column + the reconciliation flags and revert to
       // approved. Column names come only from the constant list.
-      const clearParts = ORDER_RECONCILABLE_COLUMNS.map(c => `${c}_actual = NULL`);
+      const clearParts = [...ORDER_RECONCILABLE_COLUMNS, ...SEASONAL_CONFIRMABLE_COLUMNS].map(c => `${c}_actual = NULL`);
       clearParts.push(
         "confirmed_at = NULL",
         "confirmed_by = NULL",
@@ -1218,8 +1279,8 @@ export function registerOrderRoutes(app: Express) {
         "status = 'approved'",
       );
       const [result] = await conn.execute<ResultSetHeader>(
-        `UPDATE orders SET ${clearParts.join(", ")} WHERE id = ? AND status = 'received'`,
-        [id]
+        `UPDATE orders SET ${clearParts.join(", ")} WHERE id = ? AND status = ?`,
+        [id, fromStatus]
       );
       if (result.affectedRows === 0) {
         await conn.rollback(); conn.release(); conn = null;
@@ -1227,7 +1288,7 @@ export function registerOrderRoutes(app: Express) {
       }
       await conn.commit(); conn.release(); conn = null;
 
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: "unreceived",
         fromStatus,
@@ -1242,7 +1303,7 @@ export function registerOrderRoutes(app: Express) {
         try { conn.release(); } catch { /* ignore */ }
       }
       console.error("[Orders] Error undoing confirmation:", err);
-      res.status(500).json({ message: "Failed to undo confirmation" });
+      res.status(errorStatus(err)).json({ message: "Failed to undo confirmation" });
     }
   };
   // Undo confirmation for goods-moving orders (clears typed actuals + flags).
@@ -1260,6 +1321,9 @@ export function registerOrderRoutes(app: Express) {
       }
       const actor = getActor(req);
 
+      // Postgres lookups happen before the MySQL transaction so no row lock is
+      // held while waiting on them.
+      const scopeLocations = await getUserAllowedLocationNames((req.session as any)?.user);
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
       const [rows] = await conn.execute<OrderRow[]>(
@@ -1271,7 +1335,7 @@ export function registerOrderRoutes(app: Express) {
         return res.status(404).json({ message: "Order not found" });
       }
       const order = rows[0] as any;
-      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      const allowedLocations = scopeLocations;
       if (allowedLocations !== null && !allowedLocations.includes(order.location as string)) {
         await conn.rollback(); conn.release(); conn = null;
         return res.status(404).json({ message: "Order not found" });
@@ -1299,7 +1363,7 @@ export function registerOrderRoutes(app: Express) {
       }
       await conn.commit(); conn.release(); conn = null;
 
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: "unreceived",
         fromStatus,
@@ -1314,7 +1378,7 @@ export function registerOrderRoutes(app: Express) {
         try { conn.release(); } catch { /* ignore */ }
       }
       console.error("[Orders] Error undoing receive:", err);
-      res.status(500).json({ message: "Failed to move order back to approved" });
+      res.status(errorStatus(err)).json({ message: "Failed to move order back to approved" });
     }
   };
   app.post("/api/orders/:id/unreceive", requireFeatureAccess("orders.receive"), handleSimpleUnreceive);
@@ -1458,12 +1522,11 @@ export function registerOrderRoutes(app: Express) {
       if (changedFields.length > 0) {
         const summary = changedFields.map(f => `${f.label}: ${f.original} → ${f.adjusted}`).join("; ");
         note = body.reason ? `${summary} — ${body.reason}` : summary;
+      } else if (body.reason) {
+        note = body.reason;
       }
 
-      // Await the audit write — if it fails the route returns 500 so the
-      // operator sees a state-change without a history row, instead of a
-      // silent partial commit.
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: "approved",
         fromStatus,
@@ -1499,7 +1562,7 @@ export function registerOrderRoutes(app: Express) {
           }
           await sendOrderApprovedEmail(submittedBy.toLowerCase(), {
             orderId: id,
-            orderDate: String(camel.orderDate || ""),
+            orderDate: orderDateYMD(camel.orderDate),
             orderType: String(camel.orderType || ""),
             location: String(camel.location || ""),
             approvedBy: actor.name,
@@ -1520,7 +1583,7 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("[Orders] Error approving order:", err);
-      res.status(500).json({ message: "Failed to approve order" });
+      res.status(errorStatus(err)).json({ message: "Failed to approve order" });
     }
   });
 
@@ -1592,7 +1655,7 @@ export function registerOrderRoutes(app: Express) {
       conn.release();
       conn = null;
 
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: "approved",
         fromStatus,
@@ -1615,7 +1678,7 @@ export function registerOrderRoutes(app: Express) {
           }
           await sendOrderApprovedEmail(submittedBy.toLowerCase(), {
             orderId: id,
-            orderDate: String(camel.orderDate || ""),
+            orderDate: orderDateYMD(camel.orderDate),
             orderType: String(camel.orderType || ""),
             location,
             approvedBy: actor.name,
@@ -1701,7 +1764,7 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("[Orders] Bulk approve failed:", err);
-      res.status(500).json({ message: "Bulk approve failed" });
+      res.status(errorStatus(err)).json({ message: "Bulk approve failed" });
     }
   });
 
@@ -1757,7 +1820,7 @@ export function registerOrderRoutes(app: Express) {
       conn.release();
       conn = null;
 
-      await logOrderEvent({
+      await logCommittedOrderEvent({
         orderId: id,
         eventType: "denied",
         fromStatus,
@@ -1775,7 +1838,7 @@ export function registerOrderRoutes(app: Express) {
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submittedBy)) return;
           await sendOrderDeniedEmail(submittedBy.toLowerCase(), {
             orderId: id,
-            orderDate: String(camel.orderDate || ""),
+            orderDate: orderDateYMD(camel.orderDate),
             orderType: String(camel.orderType || ""),
             location: String(camel.location || ""),
             deniedBy: actor.name,
@@ -1795,7 +1858,7 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("[Orders] Error denying order:", err);
-      res.status(500).json({ message: "Failed to deny order" });
+      res.status(errorStatus(err)).json({ message: "Failed to deny order" });
     }
   });
 
@@ -1826,7 +1889,7 @@ export function registerOrderRoutes(app: Express) {
       res.json(events);
     } catch (err) {
       console.error("[Orders] Error fetching order events:", err);
-      res.status(500).json({ message: "Failed to fetch order events" });
+      res.status(errorStatus(err)).json({ message: "Failed to fetch order events" });
     }
   });
 
@@ -1844,7 +1907,7 @@ export function registerOrderRoutes(app: Express) {
       res.json(toCamel(rows[0]));
     } catch (err) {
       console.error("[Orders] Error fetching order:", err);
-      res.status(500).json({ message: "Failed to fetch order" });
+      res.status(errorStatus(err)).json({ message: "Failed to fetch order" });
     }
   });
 
@@ -1865,6 +1928,10 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: mappedFieldError });
       }
 
+      // Postgres lookups happen before the MySQL transaction so no row lock is
+      // held while waiting on them.
+      const scopeLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      const callerIsApprover = await userHasFeature((req.session as any)?.user, "orders.approve");
       conn = await mysqlPool.getConnection();
       await conn.beginTransaction();
 
@@ -1899,16 +1966,50 @@ export function registerOrderRoutes(app: Express) {
       // Store-scope guard: edits must come from a user assigned to either
       // the original store OR the new store (so they can't move an order
       // out of their scope, and can't pull one in from someone else's).
-      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      const allowedLocations = scopeLocations;
       if (allowedLocations !== null) {
         const beforeLoc = (existing[0].location as string) || "";
-        if (!allowedLocations.includes(beforeLoc) || !allowedLocations.includes(parsed.location)) {
+        // Another store's order: 404, like every other order route, so its
+        // existence isn't revealed. Moving your own order to a store you
+        // don't cover: 403, since you can already see the order.
+        if (!allowedLocations.includes(beforeLoc)) {
+          await conn.rollback();
+          conn.release();
+          conn = null;
+          return res.status(404).json({ message: "Order not found" });
+        }
+        if (!allowedLocations.includes(parsed.location)) {
           await conn.rollback();
           conn.release();
           conn = null;
           return res.status(403).json({
             message: "You can only edit orders for your assigned store(s).",
           });
+        }
+      }
+
+      // An edit by someone who can't approve must not keep an approval nobody
+      // gave the new contents. Edits to an approved/denied order send it back
+      // to the warehouse queue. Switching between auto-approved and
+      // warehouse-approved types, or editing a received order, needs an approver.
+      const isApprover = callerIsApprover;
+      let resetToSubmitted = false;
+      if (!isApprover) {
+        const wasAutoType = AUTO_APPROVE_ORDER_TYPES.has(existingType);
+        const isAutoType = AUTO_APPROVE_ORDER_TYPES.has(parsed.orderType);
+        let blockedMessage: string | null = null;
+        if (wasAutoType !== isAutoType) {
+          blockedMessage = "Changing between auto-approved and warehouse-approved order types needs an approver. Delete this order and submit a new one instead.";
+        } else if (beforeStatus === "received" || beforeStatus === "closed") {
+          blockedMessage = "This order has already been received. Ask the warehouse to undo the receipt before editing it.";
+        } else if (!isAutoType && beforeStatus !== "submitted") {
+          resetToSubmitted = true;
+        }
+        if (blockedMessage) {
+          await conn.rollback();
+          conn.release();
+          conn = null;
+          return res.status(409).json({ message: blockedMessage });
         }
       }
 
@@ -1922,6 +2023,16 @@ export function registerOrderRoutes(app: Express) {
       for (const [key, val] of Object.entries(parsed)) {
         fields.push(`${camelToSnake(key)} = ?`);
         values.push(val === undefined ? null : (val as string | number | boolean | null));
+      }
+      if (resetToSubmitted) {
+        fields.push(
+          "status = 'submitted'",
+          "approved_at = NULL",
+          "approved_by = NULL",
+          "denied_at = NULL",
+          "denied_by = NULL",
+          "denial_reason = NULL",
+        );
       }
       values.push(id);
 
@@ -1938,7 +2049,7 @@ export function registerOrderRoutes(app: Express) {
       const before: Record<string, any> = {};
       const after: Record<string, any> = {};
       for (const [key, newVal] of Object.entries(parsed)) {
-        const oldVal = beforeRow[key];
+        const oldVal = key === "orderDate" ? orderDateYMD(beforeRow[key]) : beforeRow[key];
         const oldNorm = oldVal === undefined ? null : oldVal;
         const newNorm = newVal === undefined ? null : newVal;
         if (oldNorm !== newNorm) {
@@ -1946,17 +2057,23 @@ export function registerOrderRoutes(app: Express) {
           after[key] = newNorm;
         }
       }
-      void logOrderEvent({
+      logOrderEventInBackground({
         orderId: id,
         eventType: "modified",
         fromStatus: beforeStatus,
-        toStatus: beforeStatus,
+        toStatus: resetToSubmitted ? "submitted" : beforeStatus,
         byUserId: actor.id,
         byUserName: actor.name,
+        note: resetToSubmitted ? `Edited after ${beforeStatus}; sent back for warehouse approval` : null,
         changes: { before, after },
       });
 
-      res.json({ message: "Order updated successfully" });
+      res.json({
+        message: resetToSubmitted
+          ? "Order updated and sent back to the warehouse for approval"
+          : "Order updated successfully",
+        status: resetToSubmitted ? "submitted" : beforeStatus,
+      });
     } catch (err) {
       if (conn) {
         try { await conn.rollback(); } catch { /* ignore */ }
@@ -1966,52 +2083,71 @@ export function registerOrderRoutes(app: Express) {
         return res.status(400).json({ message: err.errors[0].message });
       }
       console.error("[Orders] Error updating order:", err);
-      res.status(500).json({ message: "Failed to update order" });
+      res.status(errorStatus(err)).json({ message: "Failed to update order" });
     }
   });
 
-  app.delete("/api/orders/:id", requireFeatureAccess("orders.delete"), async (req, res) => {
+  app.delete("/api/orders/:id", requireFeatureAccess("orders.delete"), bulkActionLimiter, async (req, res) => {
+    let conn: PoolConnection | null = null;
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ message: "Invalid order id" });
       }
       const actor = getActor(req);
-      const [rows] = await mysqlPool.execute<OrderRow[]>(
-        "SELECT id, status, location FROM orders WHERE id = ?",
+      // Resolve scope before taking the row lock so we don't hold it across
+      // a Postgres round-trip.
+      const allowedDelLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+
+      conn = await mysqlPool.getConnection();
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<OrderRow[]>(
+        "SELECT * FROM orders WHERE id = ? FOR UPDATE",
         [id]
       );
       // Store-scope guard: a non-approver can only delete an order from a
       // store they're assigned to. We return 404 (not 403) for cross-store
       // attempts so we don't leak existence.
-      const allowedDelLocations = await getUserAllowedLocationNames((req.session as any)?.user);
-      if (rows.length > 0 && allowedDelLocations !== null && !allowedDelLocations.includes(rows[0].location as string)) {
+      if (rows.length === 0 || (allowedDelLocations !== null && !allowedDelLocations.includes(rows[0].location as string))) {
+        await conn.rollback(); conn.release(); conn = null;
         return res.status(404).json({ message: "Order not found" });
       }
-      const fromStatus = (rows[0]?.status as OrderStatus | undefined) || null;
-      const [result] = await mysqlPool.execute<ResultSetHeader>(
-        "DELETE FROM orders WHERE id = ?",
-        [id]
-      );
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Order not found" });
+      const row = rows[0] as any;
+
+      // Same rule as edits: a confirmed goods-moving order's actuals drive
+      // warehouse on-hand, so deleting it would silently change inventory.
+      if (row.confirmed_at && ORDER_CONFIRMATION_KIND[String(row.order_type || "")]) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({
+          message: "This order has been confirmed. Undo the confirmation before deleting it.",
+        });
       }
-      // Keep the audit trail around even though the order itself is gone —
-      // delete the order_events row only if a future operator decides to
-      // purge them. For now we log the deletion and leave prior events in
-      // place for forensics.
-      void logOrderEvent({
+
+      // Write the audit row (with a full snapshot, since the order itself is
+      // about to disappear) before deleting, so a deletion is never left
+      // untraced. Prior events stay in place for forensics.
+      await logOrderEvent({
         orderId: id,
         eventType: "deleted",
-        fromStatus,
+        fromStatus: (row.status as OrderStatus | undefined) || null,
         toStatus: null,
         byUserId: actor.id,
         byUserName: actor.name,
+        changes: { before: toCamel(row) },
       });
+
+      await conn.execute<ResultSetHeader>("DELETE FROM orders WHERE id = ?", [id]);
+      await conn.commit();
+      conn.release();
+      conn = null;
       res.json({ message: "Order deleted" });
     } catch (err) {
+      if (conn) {
+        try { await conn.rollback(); } catch { /* ignore */ }
+        try { conn.release(); } catch { /* ignore */ }
+      }
       console.error("[Orders] Error deleting order:", err);
-      res.status(500).json({ message: "Failed to delete order" });
+      res.status(errorStatus(err)).json({ message: "Failed to delete order" });
     }
   });
 }

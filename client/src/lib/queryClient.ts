@@ -128,3 +128,15 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+// Roles and grants may change in another user's admin session. Keep every
+// auth-status consumer (navigation, routes, and permission hooks) in sync,
+// without changing caching for the rest of the application's data.
+queryClient.setQueryDefaults(["/api/auth/status"], {
+  staleTime: 0,
+  refetchInterval: 30_000,
+  refetchIntervalInBackground: false,
+  refetchOnWindowFocus: "always",
+  refetchOnReconnect: "always",
+  refetchOnMount: "always",
+});
