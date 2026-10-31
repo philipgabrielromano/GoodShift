@@ -18,7 +18,7 @@ import { brandingFromSettings, EMAIL_TYPES, GOODWILL_BRAND_PALETTE, DEFAULT_EMAI
 import { renderSampleEmail } from "./emailSamples";
 import type { EmailTypeId } from "@shared/schema";
 import { EMAIL_TYPE_IDS, emailBrandingConfigSchema } from "@shared/schema";
-import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature, addDaysInET, bulkActionLimiter } from "./middleware";
+import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature, addDaysInET, bulkActionLimiter, readLimiter } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
 import { registerGlobalSettingsRoutes } from "./routes/globalSettings";
@@ -1247,7 +1247,7 @@ export async function registerRoutes(
   });
 
   // === Published Schedules ===
-  app.get("/api/schedule/published/:weekStart", requireAuth, async (req, res) => {
+  app.get("/api/schedule/published/:weekStart", requireAuth, readLimiter, async (req, res) => {
     try {
       const weekStart = req.params.weekStart as string;
       if (!isPublicationWeek(weekStart)) {

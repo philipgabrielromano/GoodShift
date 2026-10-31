@@ -53,6 +53,20 @@ export const bulkActionLimiter = rateLimit({
   message: { message: "Too many requests. Please wait a minute and try again." },
 });
 
+// Rate limit for frequently polled authorized reads (e.g. schedule publish
+// status): generous enough for normal browsing, 120 per minute per user.
+export const readLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req.session as any)?.user?.id;
+    return userId ? `user:${userId}` : ipKeyGenerator(req.ip ?? "");
+  },
+  message: { message: "Too many requests. Please wait a minute and try again." },
+});
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const user = (req.session as any)?.user;
   if (!user) {
