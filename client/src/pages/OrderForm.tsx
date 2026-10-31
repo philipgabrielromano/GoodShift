@@ -185,7 +185,8 @@ interface AuthStatus {
 
 export default function OrderForm() {
   const { toast } = useToast();
-  const today = new Date().toISOString().split("T")[0];
+  // Today in Eastern Time (the UTC date is tomorrow in the evening).
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const { data: authStatus } = useQuery<AuthStatus>({ queryKey: ["/api/auth/status"] });
   const { data: dbLocations } = useLocations();
   const { can } = usePermissions();

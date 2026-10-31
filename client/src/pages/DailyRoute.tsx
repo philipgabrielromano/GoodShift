@@ -140,11 +140,13 @@ export default function DailyRoute() {
     },
   });
 
-  const { data: existingManifests = [] } = useQuery<ExistingManifest[]>({
+  const { data: existingManifests = [], isError: manifestsLoadFailed } = useQuery<ExistingManifest[]>({
     queryKey: ["/api/daily-route/manifests", { date }],
     queryFn: async () => {
       const res = await fetch(`/api/daily-route/manifests?date=${encodeURIComponent(date)}`, { credentials: "include" });
-      if (!res.ok) return [];
+      // Throw so the failure is visible (and retried) instead of looking like
+      // "no manifests yet".
+      if (!res.ok) throw new Error("Could not load existing manifests");
       return res.json();
     },
   });
@@ -464,6 +466,11 @@ export default function DailyRoute() {
           <p className="text-sm text-muted-foreground mt-1">
             Approved Transfer-and-Receive orders for the selected date, by location.
           </p>
+          {manifestsLoadFailed && (
+            <p className="text-sm text-amber-600 mt-1" data-testid="text-manifests-load-failed">
+              Couldn't load existing manifests for this date, so routes that already have one may not show it.
+            </p>
+          )}
         </div>
         <div className="flex items-end gap-3">
           <div>

@@ -3,7 +3,8 @@ import { requireAuth, requireFeatureAccess } from "../middleware";
 import { storage } from "../storage";
 import { insertCreditCardInspectionSchema } from "@shared/schema";
 import { z } from "zod";
-import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints, UploadClaimError } from "../replit_integrations/object_storage/objectStorage";
+import { getUserLocationScope, isLocationInScope } from "../locationScope";
 
 const INSPECTION_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -67,27 +68,42 @@ export function registerCreditCardInspectionRoutes(app: Express) {
 
       const anyIssuesFound = terminals.some(t => t.present && t.issueFound);
 
+      // The store is required and must be one of the submitter's stores; its
+      // name comes from the locations table, not the request.
+      const location = input.locationId ? await storage.getLocation(Number(input.locationId)) : undefined;
+      if (!location) {
+        return res.status(400).json({ message: "Please select a valid location." });
+      }
+      if (!isLocationInScope(await getUserLocationScope(sessionUser), location.name)) {
+        return res.status(403).json({ message: "You can only submit inspections for your assigned store(s)." });
+      }
+
+      // Validate and claim the photos before saving, so the record never
+      // points at a rejected or deleted file.
+      for (const t of terminals) {
+        if (t.photoUrl) {
+          t.photoUrl = await objectStorageService.claimUpload(t.photoUrl, {
+            owner: String(sessionUser.id),
+            visibility: "private",
+          }, INSPECTION_PHOTO_UPLOAD_CONSTRAINTS);
+        }
+      }
+
       const created = await storage.createCreditCardInspection({
         ...input,
+        locationId: String(location.id),
+        locationName: location.name,
         terminals,
         submittedById: sessionUser?.id ?? null,
         submittedByName: sessionUser?.name ?? null,
         anyIssuesFound,
       });
 
-      if (sessionUser?.id) {
-        for (const t of terminals) {
-          if (t.photoUrl) {
-            await objectStorageService.trySetObjectAclSilent(t.photoUrl, {
-              owner: String(sessionUser.id),
-              visibility: "private",
-            }, INSPECTION_PHOTO_UPLOAD_CONSTRAINTS);
-          }
-        }
-      }
-
       res.status(201).json(created);
     } catch (err) {
+      if (err instanceof UploadClaimError) {
+        return res.status(400).json({ message: `Photo could not be attached: ${err.message}` });
+      }
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
@@ -108,8 +124,8 @@ export function registerCreditCardInspectionRoutes(app: Express) {
       if (!fileName || !contentType) {
         return res.status(400).json({ message: "Missing fileName or contentType" });
       }
-      if (!String(contentType).startsWith("image/")) {
-        return res.status(400).json({ message: "Only image uploads are allowed" });
+      if (!INSPECTION_PHOTO_UPLOAD_CONSTRAINTS.allowedContentTypes!.has(String(contentType))) {
+        return res.status(400).json({ message: "Only JPEG, PNG, WebP or GIF photos are allowed" });
       }
       const maxSize = 10 * 1024 * 1024;
       if (fileSize && fileSize > maxSize) {

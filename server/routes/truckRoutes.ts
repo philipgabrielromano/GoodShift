@@ -13,7 +13,7 @@ export function registerTruckRouteRoutes(app: Express) {
     "/api/truck-routes",
     // Drivers filling out an inspection also need to read the route list to
     // populate the Route Number dropdown.
-    requireFeatureAccessAny(["truck_routes.view", "driver_inspection.submit"]),
+    requireFeatureAccessAny(["truck_routes.view", "trailer_manifest.view", "driver_inspection.submit"]),
     async (_req, res) => {
       try {
         const routes = await storage.getTruckRoutes();
@@ -31,7 +31,7 @@ export function registerTruckRouteRoutes(app: Express) {
     // a route in a downstream form (manifest creators, drivers, etc.).
     requireFeatureAccessAny([
       "truck_routes.view",
-      "trailer_manifest.create",
+      "trailer_manifest.edit",
       "trailer_manifest.view",
       "driver_inspection.submit",
     ]),

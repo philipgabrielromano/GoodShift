@@ -48,6 +48,32 @@ import {
 } from "@shared/schema";
 import { eq, ne, and, gt, gte, lte, lt, inArray, or, desc, sql, type SQL } from "drizzle-orm";
 
+// A count change on a manifest that is (or just became) delivered/closed.
+export class ManifestLockedError extends Error {
+  constructor() {
+    super("Delivered manifests cannot be edited (they are locked)");
+    this.name = "ManifestLockedError";
+  }
+}
+
+// Locks the manifest row for the rest of the transaction and re-checks that
+// it is still editable, so a concurrent "delivered" can't slip in between
+// the route's check and the count write.
+async function lockEditableManifest(tx: any, manifestId: number): Promise<void> {
+  const result = await tx.execute(sql`
+    SELECT status FROM trailer_manifests WHERE id = ${manifestId} FOR UPDATE
+  `);
+  const status = (result as any).rows?.[0]?.status;
+  if (status === "delivered" || status === "closed") throw new ManifestLockedError();
+}
+
+export type ObjectOwner =
+  | { kind: "occurrence"; employeeId: number }
+  | { kind: "coaching"; employeeId: number }
+  | { kind: "manifest_photo" }
+  | { kind: "driver_inspection" }
+  | { kind: "credit_card_inspection"; locationName: string | null };
+
 export interface IStorage {
   // Employees
   getEmployees(): Promise<Employee[]>;
@@ -61,10 +87,12 @@ export interface IStorage {
   // Shifts
   getShifts(start?: Date, end?: Date, employeeId?: number): Promise<Shift[]>;
   createShift(shift: InsertShift): Promise<Shift>;
+  getShift(id: number): Promise<Shift | undefined>;
   createShiftsBatch(shiftsData: InsertShift[]): Promise<Shift[]>;
   updateShift(id: number, shift: Partial<InsertShift>): Promise<Shift>;
   deleteShift(id: number): Promise<void>;
   deleteShiftsByDateRange(start: Date, end: Date, location?: string): Promise<number>;
+  replaceShiftsInRange(start: Date, end: Date, location: string | undefined, shiftsData: InsertShift[]): Promise<{ deleted: number; created: Shift[] }>;
 
   // Role Requirements
   getRoleRequirements(): Promise<RoleRequirement[]>;
@@ -108,7 +136,7 @@ export interface IStorage {
   getTrailerManifest(id: number): Promise<TrailerManifest | undefined>;
   createTrailerManifest(input: InsertTrailerManifest, user: { id: number; name: string }): Promise<TrailerManifest>;
   updateTrailerManifest(id: number, input: Partial<InsertTrailerManifest>): Promise<TrailerManifest>;
-  setTrailerManifestStatus(id: number, status: string): Promise<TrailerManifest>;
+  setTrailerManifestStatus(id: number, status: string, expectedStatus?: string): Promise<TrailerManifest | undefined>;
   deleteTrailerManifest(id: number): Promise<void>;
   getTrailerManifestItems(manifestId: number): Promise<TrailerManifestItem[]>;
   adjustTrailerManifestItem(input: {
@@ -161,8 +189,9 @@ export interface IStorage {
   }): Promise<WarehouseInventoryCount[]>;
   getWarehouseInventoryCount(id: number): Promise<WarehouseInventoryCount | undefined>;
   getWarehouseInventoryCountByWarehouseDate(warehouse: string, countDate: string): Promise<WarehouseInventoryCount | undefined>;
-  getLatestWarehouseInventoryCount(warehouse: string, before?: string): Promise<WarehouseInventoryCount | undefined>;
+  getLatestWarehouseInventoryCount(warehouse: string, before?: string, opts?: { finalOnly?: boolean; onOrBefore?: string }): Promise<WarehouseInventoryCount | undefined>;
   getWarehouseInventoryCountItems(countId: number): Promise<WarehouseInventoryCountItem[]>;
+  getWarehouseInventoryCountItemsForCounts(countIds: number[]): Promise<Map<number, WarehouseInventoryCountItem[]>>;
   createWarehouseInventoryCount(
     input: InsertWarehouseInventoryCount,
     user: { id: number; name: string },
@@ -174,9 +203,9 @@ export interface IStorage {
     items: { itemName: string; qty: number }[],
     user?: { id: number; name: string } | null,
   ): Promise<WarehouseInventoryCountItem[] | null>;
-  finalizeWarehouseInventoryCount(id: number, user: { id: number; name: string }): Promise<WarehouseInventoryCount>;
-  reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount>;
-  deleteWarehouseInventoryCount(id: number): Promise<void>;
+  finalizeWarehouseInventoryCount(id: number, user: { id: number; name: string }, expected?: Record<string, number>): Promise<WarehouseInventoryCount | undefined>;
+  reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount | undefined>;
+  deleteWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<void>;
   getWarehouseInventoryAudits(countId: number): Promise<WarehouseInventoryAudit[]>;
   exportWarehouseInventoryAudits(filters?: { warehouse?: string; from?: string; to?: string }): Promise<Array<WarehouseInventoryAudit & { warehouse: string | null; countDate: string | null }>>;
   // Warehouse transfers
@@ -215,6 +244,7 @@ export interface IStorage {
   insertTimeClockPunches(punches: InsertTimeClockPunch[]): Promise<number>;
   deleteTimeClockPunches(startDate: string, endDate: string, paycodeIds?: number[]): Promise<void>;
   deleteTimeClockPunchesByKeys(keys: { ukgEmployeeId: string; workDate: string }[]): Promise<number>;
+  replaceTimeClockPunches(keys: { ukgEmployeeId: string; workDate: string }[], punches: InsertTimeClockPunch[]): Promise<{ deleted: number; inserted: number }>;
 
   // Schedule Templates
   getScheduleTemplates(): Promise<ScheduleTemplate[]>;
@@ -223,9 +253,10 @@ export interface IStorage {
   deleteScheduleTemplate(id: number): Promise<void>;
 
   // Published Schedules
-  isSchedulePublished(weekStart: string): Promise<boolean>;
-  publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule>;
-  unpublishSchedule(weekStart: string): Promise<void>;
+  getPublishedLocations(weekStart: string): Promise<Set<string>>;
+  isSchedulePublished(weekStart: string, location: string): Promise<boolean>;
+  publishSchedule(weekStart: string, location: string, publishedBy?: number): Promise<PublishedSchedule>;
+  unpublishSchedule(weekStart: string, location: string): Promise<void>;
 
   // Shift Presets
   getShiftPresets(): Promise<ShiftPreset[]>;
@@ -244,17 +275,21 @@ export interface IStorage {
   getOccurrences(employeeId: number, startDate: string, endDate: string): Promise<Occurrence[]>;
   getAllOccurrencesInDateRange(startDate: string, endDate: string): Promise<Occurrence[]>;
   getOccurrence(id: number): Promise<Occurrence | undefined>;
+  findObjectOwner(objectPath: string): Promise<ObjectOwner | null>;
   createOccurrence(occurrence: InsertOccurrence): Promise<Occurrence>;
+  createOccurrenceUnlessDuplicate(occurrence: InsertOccurrence): Promise<Occurrence | undefined>;
   updateOccurrence(id: number, occurrence: Partial<InsertOccurrence>): Promise<Occurrence>;
-  retractOccurrence(id: number, reason: string, retractedBy: number): Promise<Occurrence>;
+  retractOccurrence(id: number, reason: string, retractedBy: number): Promise<Occurrence | undefined>;
   
   // Occurrence Adjustments
   getOccurrenceAdjustments(employeeId: number, startDate: string, endDate: string): Promise<OccurrenceAdjustment[]>;
   getOccurrenceAdjustmentsForYear(employeeId: number, year: number): Promise<OccurrenceAdjustment[]>;
   getAllOccurrenceAdjustmentsForYear(year: number): Promise<OccurrenceAdjustment[]>;
+  getAllOccurrenceAdjustmentsInDateRange(startDate: string, endDate: string): Promise<OccurrenceAdjustment[]>;
   getOccurrenceAdjustmentById(id: number): Promise<OccurrenceAdjustment | undefined>;
   createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment>;
-  retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment>;
+  createManualAdjustmentWithinYearlyCap(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment | undefined>;
+  retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment | undefined>;
   
   // Corrective Actions
   getCorrectiveActions(employeeId: number): Promise<CorrectiveAction[]>;
@@ -267,6 +302,9 @@ export interface IStorage {
   getShiftTrade(id: number): Promise<ShiftTrade | undefined>;
   createShiftTrade(trade: InsertShiftTrade): Promise<ShiftTrade>;
   updateShiftTrade(id: number, trade: Partial<InsertShiftTrade>): Promise<ShiftTrade>;
+  transitionShiftTrade(id: number, fromStatuses: string[], trade: Partial<InsertShiftTrade>): Promise<ShiftTrade | undefined>;
+  clearTradeApprovalNotifications(tradeId: number): Promise<void>;
+  approveShiftTrade(trade: ShiftTrade, patch: Partial<InsertShiftTrade>): Promise<{ trade: ShiftTrade } | { error: string }>;
   deleteShiftTrade(id: number): Promise<void>;
 
   // Notifications
@@ -290,6 +328,8 @@ export interface IStorage {
   updateTaskAssignment(id: number, assignment: Partial<InsertTaskAssignment>): Promise<TaskAssignment>;
   deleteTaskAssignment(id: number): Promise<void>;
   deleteTaskAssignmentsByDate(date: string): Promise<number>;
+  getTaskAssignment(id: number): Promise<TaskAssignment | undefined>;
+  deleteTaskAssignmentsForEmployees(date: string, employeeIds: number[]): Promise<number>;
 
   // Custom Tasks
   getCustomTasks(userId: number): Promise<CustomTask[]>;
@@ -316,6 +356,7 @@ export interface IStorage {
   getDriverInspection(id: number): Promise<DriverInspection | undefined>;
   createDriverInspection(inspection: InsertDriverInspection & { driverId?: number | null; driverName?: string | null; anyRepairsNeeded?: boolean; openRepairCount?: number }): Promise<DriverInspection>;
   updateDriverInspectionItems(id: number, items: DriverInspectionItem[], openRepairCount: number): Promise<DriverInspection | undefined>;
+  modifyDriverInspectionItems(id: number, change: (items: DriverInspectionItem[]) => DriverInspectionItem[]): Promise<DriverInspection | undefined>;
   deleteDriverInspection(id: number): Promise<void>;
 
   // Truck Routes
@@ -339,6 +380,9 @@ export interface IStorage {
   updateTractor(id: number, input: Partial<InsertTractor>): Promise<Tractor>;
   deleteTractor(id: number): Promise<void>;
 }
+
+// Rolls back approveShiftTrade's transaction with a user-facing reason.
+class TradeApprovalError extends Error {}
 
 export class DatabaseStorage implements IStorage {
   // Employees
@@ -388,6 +432,11 @@ export class DatabaseStorage implements IStorage {
       return await query.where(and(...conditions));
     }
     return await query;
+  }
+
+  async getShift(id: number): Promise<Shift | undefined> {
+    const [shift] = await db.select().from(shifts).where(eq(shifts.id, id));
+    return shift;
   }
 
   async createShift(shift: InsertShift): Promise<Shift> {
@@ -440,6 +489,53 @@ export class DatabaseStorage implements IStorage {
       .where(and(gte(shifts.startTime, start), lt(shifts.startTime, end)))
       .returning({ id: shifts.id });
     return result.length;
+  }
+
+  // Delete a week's shifts (optionally for one location's employees) and insert
+  // replacements atomically. A per-range advisory lock serialises concurrent
+  // requests for the same week/location (double-click, two tabs), which would
+  // otherwise both delete and both insert, doubling every shift.
+  async replaceShiftsInRange(
+    start: Date,
+    end: Date,
+    location: string | undefined,
+    shiftsData: InsertShift[],
+  ): Promise<{ deleted: number; created: Shift[] }> {
+    const validated = shiftsData.filter(s => {
+      const startMs = new Date(s.startTime).getTime();
+      const endMs = new Date(s.endTime).getTime();
+      if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+        console.error(`[Storage] Rejecting invalid shift: emp=${s.employeeId} start=${s.startTime} end=${s.endTime}`);
+        return false;
+      }
+      return true;
+    });
+    return await db.transaction(async (tx) => {
+      const lockKey = `shifts:${start.toISOString()}:${location ?? "*"}`;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+
+      const rangeCondition = and(gte(shifts.startTime, start), lt(shifts.startTime, end));
+      let deleted = 0;
+      if (location) {
+        const locationEmployees = await tx.select({ id: employees.id })
+          .from(employees)
+          .where(eq(employees.location, location));
+        const empIds = locationEmployees.map(e => e.id);
+        if (empIds.length > 0) {
+          const result = await tx.delete(shifts)
+            .where(and(rangeCondition, inArray(shifts.employeeId, empIds)))
+            .returning({ id: shifts.id });
+          deleted = result.length;
+        }
+      } else {
+        const result = await tx.delete(shifts).where(rangeCondition).returning({ id: shifts.id });
+        deleted = result.length;
+      }
+      const created = validated.length > 0
+        ? await tx.insert(shifts).values(validated).returning()
+        : [];
+      return { deleted, created };
+    });
   }
 
   // Role Requirements
@@ -700,26 +796,30 @@ export class DatabaseStorage implements IStorage {
       if (!u) throw new Error(`Unknown driverUserId: ${input.driverUserId}`);
       resolvedDriverName = u.name;
     }
-    const [created] = await db.insert(trailerManifests).values({
-      ...input,
-      driverName: resolvedDriverName,
-      createdById: user.id,
-      createdByName: user.name,
-    }).returning();
+    // Header and seeded items commit together, so a failed item insert can't
+    // leave an empty manifest behind.
+    return await db.transaction(async (tx) => {
+      const [created] = await tx.insert(trailerManifests).values({
+        ...input,
+        driverName: resolvedDriverName,
+        createdById: user.id,
+        createdByName: user.name,
+      }).returning();
 
-    // Seed all category items at qty 0
-    const itemRows = TRAILER_MANIFEST_CATEGORIES.flatMap(cat =>
-      cat.items.map(name => ({
-        manifestId: created.id,
-        groupName: cat.group,
-        itemName: name,
-        qty: 0,
-      })),
-    );
-    if (itemRows.length > 0) {
-      await db.insert(trailerManifestItems).values(itemRows);
-    }
-    return created;
+      // Seed all category items at qty 0
+      const itemRows = TRAILER_MANIFEST_CATEGORIES.flatMap(cat =>
+        cat.items.map(name => ({
+          manifestId: created.id,
+          groupName: cat.group,
+          itemName: name,
+          qty: 0,
+        })),
+      );
+      if (itemRows.length > 0) {
+        await tx.insert(trailerManifestItems).values(itemRows);
+      }
+      return created;
+    });
   }
 
   // Create a manifest from one day's daily-route data. Two key differences
@@ -866,7 +966,9 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async setTrailerManifestStatus(id: number, status: string): Promise<TrailerManifest> {
+  // When expectedStatus is given, the update only applies if the manifest is
+  // still in that status; returns undefined if another request changed it.
+  async setTrailerManifestStatus(id: number, status: string, expectedStatus?: string): Promise<TrailerManifest | undefined> {
     const update: any = { status, updatedAt: new Date() };
     if (status === "in_transit") update.departedAt = new Date();
     // "delivered" is now the terminal locked state (the old "closed" status
@@ -877,18 +979,30 @@ export class DatabaseStorage implements IStorage {
       update.arrivedAt = now;
       update.closedAt = now;
     }
+    // Back to loading (reopened by an admin, or a departure undone): clear
+    // the trip timestamps so the next departure/arrival is recorded fresh.
+    if (status === "loading") {
+      update.departedAt = null;
+      update.arrivedAt = null;
+      update.closedAt = null;
+    }
+    const condition = expectedStatus
+      ? and(eq(trailerManifests.id, id), eq(trailerManifests.status, expectedStatus))
+      : eq(trailerManifests.id, id);
     const [updated] = await db.update(trailerManifests)
       .set(update)
-      .where(eq(trailerManifests.id, id))
+      .where(condition)
       .returning();
     return updated;
   }
 
   async deleteTrailerManifest(id: number): Promise<void> {
-    await db.delete(trailerManifestPhotos).where(eq(trailerManifestPhotos.manifestId, id));
-    await db.delete(trailerManifestEvents).where(eq(trailerManifestEvents.manifestId, id));
-    await db.delete(trailerManifestItems).where(eq(trailerManifestItems.manifestId, id));
-    await db.delete(trailerManifests).where(eq(trailerManifests.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(trailerManifestPhotos).where(eq(trailerManifestPhotos.manifestId, id));
+      await tx.delete(trailerManifestEvents).where(eq(trailerManifestEvents.manifestId, id));
+      await tx.delete(trailerManifestItems).where(eq(trailerManifestItems.manifestId, id));
+      await tx.delete(trailerManifests).where(eq(trailerManifests.id, id));
+    });
   }
 
   // Truck Routes
@@ -1077,6 +1191,7 @@ export class DatabaseStorage implements IStorage {
     user: { id: number; name: string };
   }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }> {
     return await db.transaction(async (tx) => {
+      await lockEditableManifest(tx, input.manifestId);
       const lockResult = await tx.execute(sql`
         SELECT id, qty FROM trailer_manifest_items
         WHERE manifest_id = ${input.manifestId} AND item_name = ${input.itemName}
@@ -1116,6 +1231,7 @@ export class DatabaseStorage implements IStorage {
     user: { id: number; name: string };
   }): Promise<{ item: TrailerManifestItem; event: TrailerManifestEvent }> {
     return await db.transaction(async (tx) => {
+      await lockEditableManifest(tx, input.manifestId);
       const lockResult = await tx.execute(sql`
         SELECT id, qty FROM trailer_manifest_items
         WHERE manifest_id = ${input.manifestId} AND item_name = ${input.itemName}
@@ -1226,9 +1342,12 @@ export class DatabaseStorage implements IStorage {
   async getLatestWarehouseInventoryCount(
     warehouse: string,
     before?: string,
+    opts?: { finalOnly?: boolean; onOrBefore?: string },
   ): Promise<WarehouseInventoryCount | undefined> {
     const conds: any[] = [eq(warehouseInventoryCounts.warehouse, warehouse)];
     if (before) conds.push(lt(warehouseInventoryCounts.countDate, before));
+    if (opts?.onOrBefore) conds.push(lte(warehouseInventoryCounts.countDate, opts.onOrBefore));
+    if (opts?.finalOnly) conds.push(eq(warehouseInventoryCounts.status, "final"));
     const [c] = await db.select().from(warehouseInventoryCounts)
       .where(and(...conds))
       .orderBy(desc(warehouseInventoryCounts.countDate), desc(warehouseInventoryCounts.id))
@@ -1240,6 +1359,18 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(warehouseInventoryCountItems)
       .where(eq(warehouseInventoryCountItems.countId, countId))
       .orderBy(warehouseInventoryCountItems.id);
+  }
+
+  // Items for many counts in one query (grouped by count id), so list and
+  // trend pages don't open one query per count on the 10-connection pool.
+  async getWarehouseInventoryCountItemsForCounts(countIds: number[]): Promise<Map<number, WarehouseInventoryCountItem[]>> {
+    const byCount = new Map<number, WarehouseInventoryCountItem[]>(countIds.map(id => [id, []]));
+    if (countIds.length === 0) return byCount;
+    const rows = await db.select().from(warehouseInventoryCountItems)
+      .where(inArray(warehouseInventoryCountItems.countId, countIds))
+      .orderBy(warehouseInventoryCountItems.id);
+    for (const row of rows) byCount.get(row.countId)?.push(row);
+    return byCount;
   }
 
   async createWarehouseInventoryCount(
@@ -1283,22 +1414,6 @@ export class DatabaseStorage implements IStorage {
       }
       return created;
     });
-  }
-
-  /**
-   * Snapshot the expected qty (from the on-hand engine) onto each line of a
-   * count. Called immediately before finalize so over/under is preserved
-   * historically even if later orders/transfers shift the engine result.
-   */
-  async snapshotExpectedQtys(countId: number, expected: Record<string, number>): Promise<void> {
-    for (const [itemName, qty] of Object.entries(expected)) {
-      await db.update(warehouseInventoryCountItems)
-        .set({ expectedQty: qty })
-        .where(and(
-          eq(warehouseInventoryCountItems.countId, countId),
-          eq(warehouseInventoryCountItems.itemName, itemName),
-        ));
-    }
   }
 
   async updateWarehouseInventoryCount(
@@ -1380,10 +1495,11 @@ export class DatabaseStorage implements IStorage {
   async finalizeWarehouseInventoryCount(
     id: number,
     user: { id: number; name: string },
-  ): Promise<WarehouseInventoryCount> {
-    // Status flip + audit row are written in one transaction so we never end
-    // up with a finalized count that has no corresponding audit entry (or
-    // an orphan audit row for a finalize that didn't take).
+    expected?: Record<string, number>,
+  ): Promise<WarehouseInventoryCount | undefined> {
+    // Status flip, expected-qty snapshot and audit row are written in one
+    // transaction. The flip only applies to a draft, so a double-click can't
+    // re-snapshot an already-final count. Returns undefined if it wasn't a draft.
     return await db.transaction(async (tx) => {
       const [updated] = await tx.update(warehouseInventoryCounts)
         .set({
@@ -1393,8 +1509,17 @@ export class DatabaseStorage implements IStorage {
           finalizedByName: user.name,
           updatedAt: new Date(),
         })
-        .where(eq(warehouseInventoryCounts.id, id))
+        .where(and(eq(warehouseInventoryCounts.id, id), eq(warehouseInventoryCounts.status, "draft")))
         .returning();
+      if (!updated) return undefined;
+      for (const [itemName, qty] of Object.entries(expected ?? {})) {
+        await tx.update(warehouseInventoryCountItems)
+          .set({ expectedQty: qty })
+          .where(and(
+            eq(warehouseInventoryCountItems.countId, id),
+            eq(warehouseInventoryCountItems.itemName, itemName),
+          ));
+      }
       await tx.insert(warehouseInventoryAudits).values({
         countId: id,
         itemName: null,
@@ -1407,8 +1532,9 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount> {
+  async reopenWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<WarehouseInventoryCount | undefined> {
     // Same atomicity as finalize: status flip and audit row land together.
+    // Only a final count can be reopened; returns undefined otherwise.
     return await db.transaction(async (tx) => {
       const [updated] = await tx.update(warehouseInventoryCounts)
         .set({
@@ -1418,8 +1544,9 @@ export class DatabaseStorage implements IStorage {
           finalizedByName: null,
           updatedAt: new Date(),
         })
-        .where(eq(warehouseInventoryCounts.id, id))
+        .where(and(eq(warehouseInventoryCounts.id, id), eq(warehouseInventoryCounts.status, "final")))
         .returning();
+      if (!updated) return undefined;
       await tx.insert(warehouseInventoryAudits).values({
         countId: id,
         itemName: null,
@@ -1432,10 +1559,25 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-  async deleteWarehouseInventoryCount(id: number): Promise<void> {
+  // The count's audit history is kept, plus a "delete" row that snapshots the
+  // header and lines, so a deleted count can still be accounted for.
+  async deleteWarehouseInventoryCount(id: number, user?: { id: number; name: string } | null): Promise<void> {
     await db.transaction(async (tx) => {
+      const [count] = await tx.select().from(warehouseInventoryCounts).where(eq(warehouseInventoryCounts.id, id));
+      if (!count) return;
+      const items = await tx.select().from(warehouseInventoryCountItems).where(eq(warehouseInventoryCountItems.countId, id));
+      await tx.insert(warehouseInventoryAudits).values({
+        countId: id,
+        itemName: null,
+        action: "delete",
+        changedById: user?.id ?? null,
+        changedByName: user?.name ?? null,
+        changes: {
+          count: { before: count, after: null },
+          items: { before: items.map(i => ({ itemName: i.itemName, qty: i.qty, expectedQty: i.expectedQty })), after: null },
+        } satisfies WarehouseInventoryAuditChanges,
+      });
       await tx.delete(warehouseInventoryCountItems).where(eq(warehouseInventoryCountItems.countId, id));
-      await tx.delete(warehouseInventoryAudits).where(eq(warehouseInventoryAudits.countId, id));
       await tx.delete(warehouseInventoryCounts).where(eq(warehouseInventoryCounts.id, id));
     });
   }
@@ -2019,6 +2161,39 @@ export class DatabaseStorage implements IStorage {
     return deleted;
   }
 
+  // Replace the punches for the given (employee, date) pairs in one
+  // transaction, so readers never see a day with its punches deleted but not
+  // yet re-inserted, and a failed insert can't leave the day empty.
+  async replaceTimeClockPunches(
+    keys: { ukgEmployeeId: string; workDate: string }[],
+    punches: InsertTimeClockPunch[],
+  ): Promise<{ deleted: number; inserted: number }> {
+    return await db.transaction(async (tx) => {
+      let deleted = 0;
+      const chunkSize = 1000; // 2000 params per chunk, well under PG's limit
+      for (let i = 0; i < keys.length; i += chunkSize) {
+        const chunk = keys.slice(i, i + chunkSize);
+        const result = await tx.delete(timeClockPunches)
+          .where(or(
+            ...chunk.map(k => and(
+              eq(timeClockPunches.ukgEmployeeId, k.ukgEmployeeId),
+              eq(timeClockPunches.workDate, k.workDate),
+            )!)
+          ))
+          .returning({ id: timeClockPunches.id });
+        deleted += result.length;
+      }
+      let inserted = 0;
+      const batchSize = 100;
+      for (let i = 0; i < punches.length; i += batchSize) {
+        const batch = punches.slice(i, i + batchSize);
+        await tx.insert(timeClockPunches).values(batch);
+        inserted += batch.length;
+      }
+      return { deleted, inserted };
+    });
+  }
+
   // Schedule Templates
   async getScheduleTemplates(): Promise<ScheduleTemplate[]> {
     return await db.select().from(scheduleTemplates);
@@ -2038,27 +2213,64 @@ export class DatabaseStorage implements IStorage {
     await db.delete(scheduleTemplates).where(eq(scheduleTemplates.id, id));
   }
 
-  // Published Schedules
-  async isSchedulePublished(weekStart: string): Promise<boolean> {
-    const [published] = await db.select().from(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
-    return !!published;
+  // Published Schedules — one row per (week, store); location "" means the
+  // week is published for every store.
+  async getPublishedLocations(weekStart: string): Promise<Set<string>> {
+    const rows = await db.select({ location: publishedSchedules.location })
+      .from(publishedSchedules)
+      .where(eq(publishedSchedules.weekStart, weekStart));
+    return new Set(rows.map(r => r.location));
   }
 
-  async publishSchedule(weekStart: string, publishedBy?: number): Promise<PublishedSchedule> {
-    const existing = await this.isSchedulePublished(weekStart);
-    if (existing) {
-      const [updated] = await db.update(publishedSchedules)
-        .set({ publishedBy, publishedAt: new Date() })
-        .where(eq(publishedSchedules.weekStart, weekStart))
-        .returning();
-      return updated;
-    }
-    const [newPublished] = await db.insert(publishedSchedules).values({ weekStart, publishedBy }).returning();
-    return newPublished;
+  // location "" asks whether the whole week is published for every store.
+  async isSchedulePublished(weekStart: string, location: string): Promise<boolean> {
+    const published = await this.getPublishedLocations(weekStart);
+    return published.has("") || (location !== "" && published.has(location));
   }
 
-  async unpublishSchedule(weekStart: string): Promise<void> {
-    await db.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+  async publishSchedule(weekStart: string, location: string, publishedBy?: number): Promise<PublishedSchedule> {
+    const [row] = await db.insert(publishedSchedules)
+      .values({ weekStart, location, publishedBy })
+      .onConflictDoUpdate({
+        target: [publishedSchedules.weekStart, publishedSchedules.location],
+        set: { publishedBy, publishedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  // Unpublish one store, or (location "") the whole week. Unpublishing one
+  // store from an all-stores publish keeps every other store published.
+  async unpublishSchedule(weekStart: string, location: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      if (location === "") {
+        await tx.delete(publishedSchedules).where(eq(publishedSchedules.weekStart, weekStart));
+        return;
+      }
+      await tx.delete(publishedSchedules).where(and(
+        eq(publishedSchedules.weekStart, weekStart),
+        eq(publishedSchedules.location, location),
+      ));
+      const [allStoresRow] = await tx.delete(publishedSchedules).where(and(
+        eq(publishedSchedules.weekStart, weekStart),
+        eq(publishedSchedules.location, ""),
+      )).returning();
+      if (allStoresRow) {
+        const otherStores = (await tx.select({ name: locations.name }).from(locations))
+          .map(l => l.name)
+          .filter(name => name !== location);
+        if (otherStores.length > 0) {
+          await tx.insert(publishedSchedules)
+            .values(otherStores.map(name => ({
+              weekStart,
+              location: name,
+              publishedBy: allStoresRow.publishedBy,
+              publishedAt: allStoresRow.publishedAt,
+            })))
+            .onConflictDoNothing();
+        }
+      }
+    });
   }
 
   // Shift Presets
@@ -2236,6 +2448,29 @@ export class DatabaseStorage implements IStorage {
       .orderBy(occurrences.occurrenceDate);
   }
 
+  // Which record an uploaded file belongs to, so downloads can be authorized
+  // through that record (and orphan cleanup can skip referenced files).
+  async findObjectOwner(objectPath: string): Promise<ObjectOwner | null> {
+    const [occ] = await db.select({ employeeId: occurrences.employeeId })
+      .from(occurrences).where(eq(occurrences.documentUrl, objectPath)).limit(1);
+    if (occ) return { kind: "occurrence", employeeId: occ.employeeId };
+    const [log] = await db.select({ employeeId: coachingLogs.employeeId })
+      .from(coachingLogs).where(eq(coachingLogs.attachmentUrl, objectPath)).limit(1);
+    if (log) return { kind: "coaching", employeeId: log.employeeId };
+    const [photo] = await db.select({ manifestId: trailerManifestPhotos.manifestId })
+      .from(trailerManifestPhotos).where(eq(trailerManifestPhotos.objectPath, objectPath)).limit(1);
+    if (photo) return { kind: "manifest_photo" };
+    const [driver] = await db.select({ id: driverInspections.id })
+      .from(driverInspections).where(eq(driverInspections.photoUrl, objectPath)).limit(1);
+    if (driver) return { kind: "driver_inspection" };
+    const [card] = await db.select({ locationName: creditCardInspections.locationName })
+      .from(creditCardInspections)
+      .where(sql`${creditCardInspections.terminals} @> ${JSON.stringify([{ photoUrl: objectPath }])}::jsonb`)
+      .limit(1);
+    if (card) return { kind: "credit_card_inspection", locationName: card.locationName };
+    return null;
+  }
+
   async getOccurrence(id: number): Promise<Occurrence | undefined> {
     const [occurrence] = await db.select().from(occurrences).where(eq(occurrences.id, id));
     return occurrence;
@@ -2251,7 +2486,9 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async retractOccurrence(id: number, reason: string, retractedBy: number): Promise<Occurrence> {
+  // Only an active row can be retracted, so retracting again can't
+  // overwrite who retracted it, when and why. Undefined if not active.
+  async retractOccurrence(id: number, reason: string, retractedBy: number): Promise<Occurrence | undefined> {
     const [updated] = await db.update(occurrences)
       .set({ 
         status: 'retracted', 
@@ -2259,7 +2496,7 @@ export class DatabaseStorage implements IStorage {
         retractedAt: new Date(),
         retractedBy 
       })
-      .where(eq(occurrences.id, id))
+      .where(and(eq(occurrences.id, id), eq(occurrences.status, 'active')))
       .returning();
     return updated;
   }
@@ -2288,10 +2525,53 @@ export class DatabaseStorage implements IStorage {
       .where(eq(occurrenceAdjustments.calendarYear, year));
   }
 
+  async getAllOccurrenceAdjustmentsInDateRange(startDate: string, endDate: string): Promise<OccurrenceAdjustment[]> {
+    return await db.select().from(occurrenceAdjustments)
+      .where(and(
+        gte(occurrenceAdjustments.adjustmentDate, startDate),
+        lte(occurrenceAdjustments.adjustmentDate, endDate)
+      ));
+  }
+
   async getOccurrenceAdjustmentById(id: number): Promise<OccurrenceAdjustment | undefined> {
     const [row] = await db.select().from(occurrenceAdjustments)
       .where(eq(occurrenceAdjustments.id, id));
     return row;
+  }
+
+  // Inserts unless the employee already has an active occurrence of the same
+  // type on the same date (a double-submit). Serialized per employee.
+  async createOccurrenceUnlessDuplicate(occurrence: InsertOccurrence): Promise<Occurrence | undefined> {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"occurrence:" + occurrence.employeeId}))`);
+      const [dup] = await tx.select({ id: occurrences.id }).from(occurrences).where(and(
+        eq(occurrences.employeeId, occurrence.employeeId),
+        eq(occurrences.occurrenceDate, occurrence.occurrenceDate),
+        eq(occurrences.occurrenceType, occurrence.occurrenceType),
+        eq(occurrences.status, "active"),
+      )).limit(1);
+      if (dup) return undefined;
+      const [created] = await tx.insert(occurrences).values(occurrence).returning();
+      return created;
+    });
+  }
+
+  // Enforces the one-manual-adjustment-per-calendar-year rule atomically
+  // (perfect-attendance rows don't count toward it). Returns undefined when
+  // the year's adjustment is already used.
+  async createManualAdjustmentWithinYearlyCap(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment | undefined> {
+    return await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"adjustment:" + adjustment.employeeId}))`);
+      const [used] = await tx.select({ id: occurrenceAdjustments.id }).from(occurrenceAdjustments).where(and(
+        eq(occurrenceAdjustments.employeeId, adjustment.employeeId),
+        eq(occurrenceAdjustments.calendarYear, adjustment.calendarYear),
+        eq(occurrenceAdjustments.status, "active"),
+        ne(occurrenceAdjustments.adjustmentType, "perfect_attendance"),
+      )).limit(1);
+      if (used) return undefined;
+      const [created] = await tx.insert(occurrenceAdjustments).values(adjustment).returning();
+      return created;
+    });
   }
 
   async createOccurrenceAdjustment(adjustment: InsertOccurrenceAdjustment): Promise<OccurrenceAdjustment> {
@@ -2299,7 +2579,9 @@ export class DatabaseStorage implements IStorage {
     return newAdjustment;
   }
 
-  async retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment> {
+  // Only an active row can be retracted, so retracting again can't
+  // overwrite who retracted it, when and why. Undefined if not active.
+  async retractAdjustment(id: number, reason: string, retractedBy: number): Promise<OccurrenceAdjustment | undefined> {
     const [updated] = await db.update(occurrenceAdjustments)
       .set({ 
         status: 'retracted', 
@@ -2307,7 +2589,7 @@ export class DatabaseStorage implements IStorage {
         retractedAt: new Date(),
         retractedBy 
       })
-      .where(eq(occurrenceAdjustments.id, id))
+      .where(and(eq(occurrenceAdjustments.id, id), eq(occurrenceAdjustments.status, 'active')))
       .returning();
     return updated;
   }
@@ -2369,6 +2651,64 @@ export class DatabaseStorage implements IStorage {
       .where(eq(shiftTrades.id, id))
       .returning();
     return updated;
+  }
+
+  // Move a trade to a new status only if it is still in one of the expected
+  // statuses. Returns undefined when another request changed it first
+  // (e.g. a manager approving while the requester cancels).
+  async transitionShiftTrade(id: number, fromStatuses: string[], trade: Partial<InsertShiftTrade>): Promise<ShiftTrade | undefined> {
+    const [updated] = await db.update(shiftTrades)
+      .set({ ...trade, updatedAt: new Date() })
+      .where(and(eq(shiftTrades.id, id), inArray(shiftTrades.status, fromStatuses)))
+      .returning();
+    if (updated && updated.status !== "pending_manager") await this.clearTradeApprovalNotifications(id);
+    return updated;
+  }
+
+  // Once a trade no longer needs a manager, its "needs approval" alerts are
+  // stale; mark them read so approvers aren't sent to a closed trade.
+  async clearTradeApprovalNotifications(tradeId: number): Promise<void> {
+    await db.update(notifications)
+      .set({ isRead: true })
+      .where(and(eq(notifications.relatedTradeId, tradeId), eq(notifications.type, "trade_pending_manager")));
+  }
+
+  // Approve a pending_manager trade and swap the two shifts atomically. Both
+  // shifts are locked and re-checked: each must still belong to its original
+  // party and must not have started.
+  async approveShiftTrade(trade: ShiftTrade, patch: Partial<InsertShiftTrade>): Promise<{ trade: ShiftTrade } | { error: string }> {
+    try {
+      return await db.transaction(async (tx) => {
+        const locked = await tx.select().from(shifts)
+          .where(inArray(shifts.id, [trade.requesterShiftId, trade.responderShiftId]))
+          .for("update");
+        const requesterShift = locked.find(s => s.id === trade.requesterShiftId);
+        const responderShift = locked.find(s => s.id === trade.responderShiftId);
+        if (!requesterShift || !responderShift) {
+          throw new TradeApprovalError("One or both shifts no longer exist");
+        }
+        if (requesterShift.employeeId !== trade.requesterId || responderShift.employeeId !== trade.responderId) {
+          throw new TradeApprovalError("One of these shifts has been reassigned since the trade was requested");
+        }
+        const now = new Date();
+        if (new Date(requesterShift.startTime) <= now || new Date(responderShift.startTime) <= now) {
+          throw new TradeApprovalError("One of these shifts has already started");
+        }
+        const [updated] = await tx.update(shiftTrades)
+          .set({ ...patch, status: "approved", updatedAt: new Date() })
+          .where(and(eq(shiftTrades.id, trade.id), eq(shiftTrades.status, "pending_manager")))
+          .returning();
+        if (!updated) {
+          throw new TradeApprovalError("This trade was changed by someone else. Refresh and try again.");
+        }
+        await tx.update(shifts).set({ employeeId: trade.responderId }).where(eq(shifts.id, trade.requesterShiftId));
+        await tx.update(shifts).set({ employeeId: trade.requesterId }).where(eq(shifts.id, trade.responderShiftId));
+        return { trade: updated };
+      });
+    } catch (err) {
+      if (err instanceof TradeApprovalError) return { error: err.message };
+      throw err;
+    }
   }
 
   async deleteShiftTrade(id: number): Promise<void> {
@@ -2466,6 +2806,19 @@ export class DatabaseStorage implements IStorage {
     return result.length;
   }
 
+  async getTaskAssignment(id: number): Promise<TaskAssignment | undefined> {
+    const [row] = await db.select().from(taskAssignments).where(eq(taskAssignments.id, id));
+    return row;
+  }
+
+  async deleteTaskAssignmentsForEmployees(date: string, employeeIds: number[]): Promise<number> {
+    if (employeeIds.length === 0) return 0;
+    const result = await db.delete(taskAssignments)
+      .where(and(eq(taskAssignments.date, date), inArray(taskAssignments.employeeId, employeeIds)))
+      .returning({ id: taskAssignments.id });
+    return result.length;
+  }
+
   async getCustomTasks(userId: number): Promise<CustomTask[]> {
     return await db.select().from(customTasks).where(eq(customTasks.userId, userId));
   }
@@ -2546,6 +2899,28 @@ export class DatabaseStorage implements IStorage {
       .where(eq(driverInspections.id, id))
       .returning();
     return updated;
+  }
+
+  // Read-modify-write of an inspection's checklist under a row lock, so two
+  // managers resolving different items can't overwrite each other.
+  // `change` may throw to abort; openRepairCount is recomputed.
+  async modifyDriverInspectionItems(
+    id: number,
+    change: (items: DriverInspectionItem[]) => DriverInspectionItem[],
+  ): Promise<DriverInspection | undefined> {
+    return await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(driverInspections)
+        .where(eq(driverInspections.id, id))
+        .for("update");
+      if (!row) return undefined;
+      const items = change((row.items as DriverInspectionItem[]) || []);
+      const openRepairCount = items.filter(i => i.status === "repair" && !i.resolved).length;
+      const [updated] = await tx.update(driverInspections)
+        .set({ items, openRepairCount })
+        .where(eq(driverInspections.id, id))
+        .returning();
+      return updated;
+    });
   }
 
   async deleteDriverInspection(id: number): Promise<void> {

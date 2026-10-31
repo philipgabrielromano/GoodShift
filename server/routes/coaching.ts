@@ -3,9 +3,10 @@ import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { insertCoachingLogSchema, coachingLogs } from "@shared/schema";
-import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints, UploadClaimError } from "../replit_integrations/object_storage/objectStorage";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
+import { getUserLocationScope } from "../locationScope";
 
 const COACHING_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -34,16 +35,41 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
   return new Set(titles.map(t => t.toUpperCase()));
 }
 
+// Store scope (null = unrestricted). Delegates to the shared policy in
+// server/locationScope.ts: a non-admin with no assigned stores, or only
+// stores that no longer exist, sees no stores.
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
-  if (user.role === "admin") return null;
-  if (!user.locationIds || user.locationIds.length === 0) return null;
-  const allLocations = await storage.getLocations();
-  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
-  const names = new Set<string>();
-  for (const loc of allLocations) {
-    if (idSet.has(String(loc.id))) names.add(loc.name);
-  }
-  return names.size > 0 ? names : null;
+  return getUserLocationScope(user);
+}
+
+// Whether the user may see coaching logs (and their attachments) for this
+// employee. Mirrors the visibility rules of GET /api/coaching/logs, with
+// inactive employees included.
+export async function canViewCoachingFor(user: any, employeeId: number): Promise<boolean> {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  const allEmployees = await storage.getEmployees();
+  const target = allEmployees.find(e => e.id === employeeId);
+  if (!target) return false;
+  const selfEmployee = allEmployees.find(e =>
+    e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+  );
+
+  if (user.role === "viewer") return !!selfEmployee && selfEmployee.id === employeeId;
+
+  const explicitSet = await getExplicitReportsSet(user);
+  if (explicitSet) return explicitSet.has(employeeId);
+
+  const allowedNames = await getAllowedLocationNames(user);
+  if (allowedNames && (!target.location || !allowedNames.has(target.location))) return false;
+  if (selfEmployee && target.id === selfEmployee.id) return false;
+
+  const visibleTitleSet = await getVisibleJobTitleSet(selfEmployee?.jobTitle);
+  if (visibleTitleSet) return !!target.jobTitle && visibleTitleSet.has(target.jobTitle.toUpperCase());
+
+  const managerLevel = getEffectiveLevel(user, selfEmployee);
+  if (managerLevel === 0 || managerLevel >= 3) return true;
+  return getHierarchyLevel(target.jobTitle) < managerLevel;
 }
 
 export function registerCoachingRoutes(app: Express) {
@@ -56,8 +82,10 @@ export function registerCoachingRoutes(app: Express) {
 
       const showInactive = req.query.showInactive === "true";
       const allEmployees = await storage.getEmployees();
+      // "Show inactive" adds inactive employees; active ones stay listed so
+      // their logs keep their names.
       const filteredByStatus = showInactive
-        ? allEmployees.filter(e => !e.isActive)
+        ? allEmployees
         : allEmployees.filter(e => e.isActive);
 
       if (user.role === "admin") {
@@ -128,7 +156,14 @@ export function registerCoachingRoutes(app: Express) {
         })));
       }
 
-      return res.json([]);
+      // A viewer sees only their own logs; return their own record so those
+      // logs show their name.
+      const self = allEmployees.find(e =>
+        e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
+      );
+      return res.json(self ? [{
+        id: self.id, name: self.name, jobTitle: self.jobTitle, location: self.location, isActive: self.isActive
+      }] : []);
     } catch (err) {
       console.error("Error fetching coaching employees:", err);
       res.status(500).json({ error: "Failed to fetch employees" });
@@ -279,14 +314,15 @@ export function registerCoachingRoutes(app: Express) {
         }
       }
 
-      const newLog = await storage.createCoachingLog(parsed.data);
-
+      // Validate and claim the attachment before saving (see claimUpload).
       if (parsed.data.attachmentUrl) {
-        await objectStorageService.trySetObjectAclSilent(parsed.data.attachmentUrl, {
+        parsed.data.attachmentUrl = await objectStorageService.claimUpload(parsed.data.attachmentUrl, {
           owner: String(user.id),
           visibility: "private",
         }, COACHING_UPLOAD_CONSTRAINTS);
       }
+
+      const newLog = await storage.createCoachingLog(parsed.data);
 
       const employee = await storage.getEmployee(newLog.employeeId);
       const enriched = {
@@ -298,6 +334,9 @@ export function registerCoachingRoutes(app: Express) {
 
       res.status(201).json(enriched);
     } catch (err) {
+      if (err instanceof UploadClaimError) {
+        return res.status(400).json({ error: `Attachment could not be added: ${err.message}` });
+      }
       console.error("Error creating coaching log:", err);
       res.status(500).json({ error: "Failed to create coaching log" });
     }
@@ -387,9 +426,19 @@ export function registerCoachingRoutes(app: Express) {
         }
       }
 
+      // Validate and claim a new attachment before saving (see claimUpload).
+      // Re-saving the log's current attachment needs no claim.
+      let newAttachmentUrl: string | null = attachmentUrl || null;
+      if (newAttachmentUrl && newAttachmentUrl !== existingLog.attachmentUrl) {
+        newAttachmentUrl = await objectStorageService.claimUpload(newAttachmentUrl, {
+          owner: String(user.id),
+          visibility: "private",
+        }, COACHING_UPLOAD_CONSTRAINTS);
+      }
+
       const [updated] = await db.update(coachingLogs)
         .set({
-          attachmentUrl: attachmentUrl || null,
+          attachmentUrl: newAttachmentUrl,
           attachmentName: attachmentName || null,
         })
         .where(eq(coachingLogs.id, logId))
@@ -399,15 +448,11 @@ export function registerCoachingRoutes(app: Express) {
         return res.status(404).json({ error: "Coaching log not found" });
       }
 
-      if (attachmentUrl) {
-        await objectStorageService.trySetObjectAclSilent(attachmentUrl, {
-          owner: String(user.id),
-          visibility: "private",
-        }, COACHING_UPLOAD_CONSTRAINTS);
-      }
-
       res.json(updated);
     } catch (err) {
+      if (err instanceof UploadClaimError) {
+        return res.status(400).json({ error: `Attachment could not be added: ${err.message}` });
+      }
       console.error("Error updating coaching log attachment:", err);
       res.status(500).json({ error: "Failed to update attachment" });
     }

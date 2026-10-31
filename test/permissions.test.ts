@@ -86,8 +86,9 @@ type RouteGate = {
 };
 
 // Default broad set of "passed the gate" statuses; specific entries can
-// narrow this when we know exactly what the handler returns.
-const BROADLY_OK = [200, 201, 204, 400, 404, 409, 500];
+// narrow this when we know exactly what the handler returns. 503 is what a
+// MySQL-backed handler answers when MySQL isn't reachable (as in this test).
+const BROADLY_OK = [200, 201, 204, 400, 404, 409, 500, 503];
 
 const ROUTE_GATES: RouteGate[] = [
   // -------------------- Scheduling --------------------

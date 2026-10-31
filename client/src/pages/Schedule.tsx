@@ -211,8 +211,9 @@ export default function Schedule() {
   const updateSettings = useUpdateGlobalSettings();
 
   // Fetch time clock data for the current week
-  const weekStartStr = format(weekStart, "yyyy-MM-dd");
-  const weekEndStr = format(addDays(weekStart, 6), "yyyy-MM-dd");
+  // ET calendar dates (the publish key and PAL/UTO range), not the browser's zone.
+  const weekStartStr = formatInTimeZone(weekStart, TIMEZONE, "yyyy-MM-dd");
+  const weekEndStr = formatInTimeZone(addDays(weekStart, 6), TIMEZONE, "yyyy-MM-dd");
   
   interface TimeClockEntry {
     employeeId: string;
@@ -262,6 +263,16 @@ export default function Schedule() {
     staleTime: 5 * 60 * 1000,
   });
   
+  // PAL hours per employee for the week (passed to the validator so its
+  // max-hours check matches the grid and the generator).
+  const palHoursByEmployee = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const entry of palEntries ?? []) {
+      if (entry.employeeId) map.set(entry.employeeId, (map.get(entry.employeeId) ?? 0) + entry.hoursDecimal);
+    }
+    return map;
+  }, [palEntries]);
+
   // Create a lookup map for PAL entries by employee ID and date
   const palByEmpDate = useMemo(() => {
     const map = new Map<string, PALEntry>();
@@ -338,11 +349,17 @@ export default function Schedule() {
     return map;
   }, [weatherData]);
 
-  // Check if current week's schedule is published (for viewer access control)
+  const [selectedLocation, setSelectedLocation] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("location") || "all";
+  });
+
+  // Check if the current week's schedule is published for the selected store
+  // (publishing is per store; "all" asks whether every store is published).
   const { data: publishStatus, refetch: refetchPublishStatus } = useQuery<{ weekStart: string; isPublished: boolean }>({
-    queryKey: ["/api/schedule/published", weekStartStr],
+    queryKey: ["/api/schedule/published", weekStartStr, selectedLocation],
     queryFn: async () => {
-      const res = await fetch(`/api/schedule/published/${weekStartStr}`);
+      const res = await fetch(`/api/schedule/published/${weekStartStr}?location=${encodeURIComponent(selectedLocation)}`);
       if (!res.ok) throw new Error("Failed to check publish status");
       return res.json();
     },
@@ -392,10 +409,6 @@ export default function Schedule() {
   const [mobileDayIndex, setMobileDayIndex] = useState(() => {
     const now = toZonedTime(new Date(), TIMEZONE);
     return now.getDay();
-  });
-  const [selectedLocation, setSelectedLocation] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get("location") || "all";
   });
   const [isCopyMode, setIsCopyMode] = useState(false);
   
@@ -1023,7 +1036,7 @@ export default function Schedule() {
   const handleUnpublishSchedule = async () => {
     setIsPublishing(true);
     try {
-      await apiRequest("DELETE", `/api/schedule/publish/${weekStartStr}`);
+      await apiRequest("DELETE", `/api/schedule/publish/${weekStartStr}?location=${encodeURIComponent(selectedLocation)}`);
       refetchPublishStatus();
       toast({ title: "Schedule Unpublished", description: "This week's schedule is now hidden from employees." });
     } catch (error: any) {
@@ -1516,7 +1529,7 @@ export default function Schedule() {
           })()}
           
           {/* Schedule Validator */}
-          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />}
+          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} palHoursByEmployee={palHoursByEmployee} />}
           
         </div>
         

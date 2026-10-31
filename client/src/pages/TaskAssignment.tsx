@@ -447,7 +447,10 @@ export default function TaskAssignment() {
 
   const clearDayMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("DELETE", `/api/task-assignments?date=${selectedDate}`);
+      // Clear only the store being viewed, not every store's plan for the day.
+      const params = new URLSearchParams({ date: selectedDate });
+      if (selectedLocation !== "all") params.set("location", selectedLocation);
+      await apiRequest("DELETE", `/api/task-assignments?${params.toString()}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/task-assignments", selectedDate] });

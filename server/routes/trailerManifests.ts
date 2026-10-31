@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { storage } from "../storage";
+import { storage, ManifestLockedError } from "../storage";
 import { requireFeatureAccess } from "../middleware";
 import {
   insertTrailerManifestSchema,
@@ -8,7 +8,7 @@ import {
   TRAILER_MANIFEST_CATEGORIES,
 } from "@shared/schema";
 import { sendTrailerInTransitEmail } from "../outlook";
-import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadClaimError, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
 
 const MANIFEST_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -29,18 +29,39 @@ for (const c of TRAILER_MANIFEST_CATEGORIES) {
   for (const i of c.items) ITEM_TO_GROUP.set(i, c.group);
 }
 
+// New manifests always start in "loading"; later states are reached only via
+// the status endpoint, which stamps departedAt/arrivedAt and sends emails.
 const createSchema = insertTrailerManifestSchema.extend({
-  status: z.enum(TRAILER_MANIFEST_STATUSES).optional(),
+  status: z.literal("loading").optional(),
 });
-const updateSchema = createSchema.partial();
+// Header edits can't change status (use the status endpoint) or the
+// route/date pair the one-manifest-per-route-per-day index is keyed on.
+const updateSchema = insertTrailerManifestSchema
+  .omit({ status: true, routeId: true, serviceDate: true })
+  .partial();
+
+// Allowed status changes. "delivered" is the locked end state; only an admin
+// can reopen it. A manifest may go straight from loading to delivered (the
+// list page's "mark all delivered").
+const MANIFEST_TRANSITIONS: Record<string, string[]> = {
+  loading: ["in_transit", "delivered"],
+  in_transit: ["delivered", "loading"],
+  delivered: ["loading"],
+};
+
+function isUniqueViolation(err: any): boolean {
+  return err?.code === "23505" || err?.cause?.code === "23505";
+}
 const adjustSchema = z.object({
   itemName: z.string().refine(n => VALID_ITEM_NAMES.has(n), "Invalid item"),
-  delta: z.number().int(),
+  // Bounded so a huge value can't overflow the integer column (a 500), and
+  // non-zero so a no-op doesn't write a history event.
+  delta: z.number().int().min(-99999).max(99999).refine(d => d !== 0, "delta must not be 0"),
   note: z.string().max(500).optional(),
 });
 const setQtySchema = z.object({
   itemName: z.string().refine(n => VALID_ITEM_NAMES.has(n), "Invalid item"),
-  newQty: z.number().int().min(0),
+  newQty: z.number().int().min(0).max(99999),
   note: z.string().max(500).optional(),
 });
 const statusSchema = z.object({ status: z.enum(TRAILER_MANIFEST_STATUSES) });
@@ -103,6 +124,9 @@ export function registerTrailerManifestRoutes(app: Express) {
       if (typeof err?.message === "string" && err.message.startsWith("Unknown routeId")) {
         return res.status(400).json({ message: err.message });
       }
+      if (isUniqueViolation(err)) {
+        return res.status(409).json({ message: "A manifest already exists for this route and date." });
+      }
       console.error("[TrailerManifests] Create error:", err);
       res.status(500).json({ message: "Failed to create manifest" });
     }
@@ -137,7 +161,20 @@ export function registerTrailerManifestRoutes(app: Express) {
       const { status } = statusSchema.parse(req.body);
       const existing = await storage.getTrailerManifest(id);
       if (!existing) return res.status(404).json({ message: "Manifest not found" });
-      const updated = await storage.setTrailerManifestStatus(id, status);
+      // Legacy rows may still say "closed", which was merged into "delivered".
+      const currentStatus = existing.status === "closed" ? "delivered" : existing.status;
+      if (!(MANIFEST_TRANSITIONS[currentStatus] ?? []).includes(status)) {
+        return res.status(400).json({ message: `A manifest can't go from ${currentStatus.replace("_", " ")} to ${status.replace("_", " ")}` });
+      }
+      if (currentStatus === "delivered" && (req.session as any)?.user?.role !== "admin") {
+        return res.status(403).json({ message: "Only an admin can reopen a delivered manifest" });
+      }
+      // Conditional on the status we just checked, so two dispatchers
+      // clicking at once can't both apply (and both send emails).
+      const updated = await storage.setTrailerManifestStatus(id, status, existing.status);
+      if (!updated) {
+        return res.status(409).json({ message: "This manifest's status was changed by someone else. Refresh and try again." });
+      }
       res.json(updated);
 
       // Send notification email(s) when manifest transitions to in_transit.
@@ -259,6 +296,7 @@ export function registerTrailerManifestRoutes(app: Express) {
       });
       res.json(result);
     } catch (err) {
+      if (err instanceof ManifestLockedError) return res.status(400).json({ message: err.message });
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("[TrailerManifests] Adjust error:", err);
       res.status(500).json({ message: "Failed to adjust item" });
@@ -288,6 +326,7 @@ export function registerTrailerManifestRoutes(app: Express) {
       });
       res.json(result);
     } catch (err) {
+      if (err instanceof ManifestLockedError) return res.status(400).json({ message: err.message });
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("[TrailerManifests] Set qty error:", err);
       res.status(500).json({ message: "Failed to set quantity" });
@@ -306,16 +345,18 @@ export function registerTrailerManifestRoutes(app: Express) {
         return res.status(400).json({ message: "Delivered manifests cannot accept new photos (they are locked)" });
       }
       const input = photoSchema.parse(req.body);
-      const created = await storage.addTrailerManifestPhoto(
-        { manifestId: id, objectPath: input.objectPath, caption: input.caption || null },
-        user,
-      );
-      await objectStorageService.trySetObjectAclSilent(input.objectPath, {
+      // Validate and claim the file before saving (see claimUpload).
+      const objectPath = await objectStorageService.claimUpload(input.objectPath, {
         owner: String(user.id),
         visibility: "private",
       }, MANIFEST_PHOTO_UPLOAD_CONSTRAINTS);
+      const created = await storage.addTrailerManifestPhoto(
+        { manifestId: id, objectPath, caption: input.caption || null },
+        user,
+      );
       res.status(201).json(created);
     } catch (err) {
+      if (err instanceof UploadClaimError) return res.status(400).json({ message: `Photo could not be attached: ${err.message}` });
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       console.error("[TrailerManifests] Photo error:", err);
       res.status(500).json({ message: "Failed to attach photo" });
@@ -326,6 +367,11 @@ export function registerTrailerManifestRoutes(app: Express) {
     try {
       const manifestId = Number(req.params.id);
       const photoId = Number(req.params.photoId);
+      const manifest = await storage.getTrailerManifest(manifestId);
+      if (!manifest) return res.status(404).json({ message: "Manifest not found" });
+      if (manifest.status === "delivered" || manifest.status === "closed") {
+        return res.status(400).json({ message: "Delivered manifests are locked; photos can't be removed" });
+      }
       const photos = await storage.getTrailerManifestPhotos(manifestId);
       const owned = photos.find((p) => p.id === photoId);
       if (!owned) {

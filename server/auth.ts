@@ -4,6 +4,8 @@ import session from "express-session";
 import crypto from "crypto";
 import csurf from "csurf";
 import { storage } from "./storage";
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
 
 declare module "express-session" {
   interface SessionData {
@@ -26,6 +28,7 @@ declare module "express-session" {
     isAuthenticated?: boolean;
     oauthState?: string;
     oauthNonce?: string;
+    userRefreshedAt?: number;
   }
 }
 
@@ -55,15 +58,37 @@ export function isMicrosoftSsoConfigured(): boolean {
 
 export function setupAuth(app: Express) {
   const sessionSecret = process.env.SESSION_SECRET;
+  // Refuse to start in production without it: a per-process random secret
+  // signs cookies differently on each autoscale instance, logging users out
+  // whenever a request lands on another instance. Development falls back to
+  // a random secret below.
   if (!sessionSecret && process.env.NODE_ENV === "production") {
-    console.warn("WARNING: SESSION_SECRET is not set. This is required in production.");
+    throw new Error("SESSION_SECRET is not set. It is required in production; set it in the deployment's secrets.");
   }
 
   // Trust proxy for correct protocol detection behind reverse proxy
   app.set('trust proxy', 1);
 
+  // Sessions live in Postgres so every autoscale instance (and a restarted
+  // one) sees the same logins and CSRF secrets. The in-memory default logged
+  // users out whenever a request reached a different instance.
+  // The table is also declared in shared/schema.ts so db:push manages it;
+  // creating it here covers the first boot before a push has run.
+  // (connect-pg-simple's own createTableIfMissing reads a .sql file next to
+  // the module, which doesn't survive esbuild bundling.)
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL PRIMARY KEY,
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+  `).catch(err => console.error("[Auth] Could not ensure session table:", err));
+  const PgSessionStore = connectPgSimple(session);
+
   app.use(
     session({
+      store: new PgSessionStore({ pool, tableName: "session", createTableIfMissing: false }),
       secret: sessionSecret || crypto.randomBytes(32).toString("hex"),
       resave: false,
       saveUninitialized: false,
@@ -75,6 +100,63 @@ export function setupAuth(app: Express) {
       },
     })
   );
+
+  // Re-read the signed-in user from the database every 30s so disabling,
+  // deleting, demoting or re-assigning someone takes effect promptly instead
+  // of when their 24h session cookie expires.
+  const SESSION_USER_REFRESH_MS = 30_000;
+  app.use(async (req, res, next) => {
+    const sess = req.session;
+    if (!sess?.user || Date.now() - (sess.userRefreshedAt ?? 0) < SESSION_USER_REFRESH_MS) {
+      return next();
+    }
+    try {
+      const [fresh, freshReal] = await Promise.all([
+        storage.getUser(sess.user.id),
+        sess.realUser ? storage.getUser(sess.realUser.id) : Promise.resolve(undefined),
+      ]);
+      // Impersonating admin must still exist, be active and be an admin.
+      const realUserRevoked = !!sess.realUser && (!freshReal || !freshReal.isActive || freshReal.role !== "admin");
+      if (!fresh || !fresh.isActive || realUserRevoked) {
+        if (sess.realUser && !realUserRevoked && freshReal) {
+          // The impersonated user went away: drop back to the admin.
+          sess.user = { ...sess.realUser, role: freshReal.role, locationIds: freshReal.locationIds };
+          delete sess.realUser;
+        } else {
+          return sess.destroy(() => {
+            if (req.path.startsWith("/api")) {
+              return res.status(401).json({ message: "Your account is no longer active. Please sign in again." });
+            }
+            next();
+          });
+        }
+      } else {
+        sess.user = { ...sess.user, name: fresh.name, email: fresh.email, role: fresh.role, locationIds: fresh.locationIds };
+        if (sess.realUser && freshReal) {
+          sess.realUser = { ...sess.realUser, name: freshReal.name, email: freshReal.email, role: freshReal.role, locationIds: freshReal.locationIds };
+        }
+      }
+      sess.userRefreshedAt = Date.now();
+    } catch (err) {
+      // Database trouble: keep the session as-is rather than locking everyone out.
+      console.error("[Auth] Could not refresh session user:", err);
+    }
+    next();
+  });
+
+  // While an admin is using "View as", records are written under the viewed
+  // user's identity. Log every write with the real admin so the original
+  // actor is preserved.
+  app.use((req, _res, next) => {
+    const sess = req.session;
+    const method = req.method.toUpperCase();
+    if (sess?.realUser && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      console.log(
+        `[Impersonation] ${method} ${req.originalUrl} by admin ${sess.realUser.email} (id ${sess.realUser.id}) viewing as ${sess.user?.email} (id ${sess.user?.id})`
+      );
+    }
+    next();
+  });
 
   const csrfProtection = csurf({ cookie: false });
 
@@ -98,7 +180,8 @@ export function setupAuth(app: Express) {
     let accessibleFeatures: string[] = [];
     if (user) {
       const { getFeaturePermissions } = await import("./middleware");
-      const perms = await getFeaturePermissions();
+      // If permissions can't be read, show no features rather than defaults.
+      const perms = await getFeaturePermissions().catch(() => ({} as Record<string, string[]>));
       if (user.role === "admin") {
         accessibleFeatures = Object.keys(perms);
       } else {

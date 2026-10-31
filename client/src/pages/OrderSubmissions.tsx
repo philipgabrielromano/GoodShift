@@ -1318,7 +1318,7 @@ export default function OrderSubmissions() {
               Each order will be approved with the quantities the store originally requested. The submitter of each order will be emailed.
             </p>
             <p className="text-muted-foreground">
-              Only orders currently visible on this page will be approved. Anything that fails seasonal-inventory validation will be skipped and listed for you afterward.
+              Only orders currently visible on this page will be approved. Any order that can't be approved (for example, one that changed status in the meantime) will be skipped and listed for you afterward.
             </p>
           </div>
           <DialogFooter>

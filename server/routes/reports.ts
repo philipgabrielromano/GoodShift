@@ -1,8 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
+import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE, addDaysInET } from "../middleware";
+import { fromZonedTime } from "date-fns-tz";
+import { getTallyWindow, computeNetTally } from "../occurrenceTally";
 import { isValidLocationName } from "@shared/locationFilters";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
+import { getUserLocationScope } from "../locationScope";
 
 // Per-job-title visibility override (configured by admins). Mirrors the
 // helper used by Coaching/Attendance so DMs/Directors granted visibility
@@ -14,17 +17,11 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
   return new Set(titles.map(t => t.toUpperCase()));
 }
 
-// Helper to resolve user's locationIds (numeric IDs) to location names
+// Store scope (null = unrestricted). Delegates to the shared policy in
+// server/locationScope.ts: a non-admin with no assigned stores, or only
+// stores that no longer exist, sees no stores.
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
-  if (user.role === "admin") return null; // admins see all
-  if (!user.locationIds || user.locationIds.length === 0) return null;
-  const allLocations = await storage.getLocations();
-  const idSet = new Set(user.locationIds.map((id: any) => String(id)));
-  const names = new Set<string>();
-  for (const loc of allLocations) {
-    if (idSet.has(String(loc.id))) names.add(loc.name);
-  }
-  return names.size > 0 ? names : null;
+  return getUserLocationScope(user);
 }
 
 export function registerReportRoutes(app: Express) {
@@ -71,7 +68,6 @@ export function registerReportRoutes(app: Express) {
       // Get all employees
       const allEmployees = await storage.getEmployees();
 
-      const currentYear = new Date().getFullYear();
       let filteredEmployees = showInactive
         ? allEmployees.filter(e => !e.isActive)
         : allEmployees.filter(e => e.isActive);
@@ -91,7 +87,18 @@ export function registerReportRoutes(app: Express) {
       // Visibility filtering - same pattern as Coaching/Attendance.
       // Applies to any non-admin, non-viewer user (built-in or custom role)
       // granted reports.occurrences feature access.
-      if (user.role !== "admin" && user.role !== "viewer") {
+      const explicitReports = user.role !== "admin" && user.role !== "viewer" && user.id
+        ? await storage.getDirectReportsForManager(user.id)
+        : [];
+      if (explicitReports.length > 0) {
+        // Explicit direct-report assignments replace the store scope and the
+        // auto hierarchy, exactly as on the attendance and coaching pages.
+        const explicitSet = new Set(explicitReports);
+        filteredEmployees = (showInactive
+          ? allEmployees.filter(e => !e.isActive)
+          : allEmployees.filter(e => e.isActive)
+        ).filter(e => explicitSet.has(e.id) && (!locationFilter || e.location === locationFilter));
+      } else if (user.role !== "admin" && user.role !== "viewer") {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
@@ -124,30 +131,24 @@ export function registerReportRoutes(app: Express) {
         }
       }
 
-      const now = new Date();
-      const twelveMonthsAgo = new Date(now);
-      twelveMonthsAgo.setFullYear(twelveMonthsAgo.getFullYear() - 1);
-      const startDate = twelveMonthsAgo.toISOString().split("T")[0];
-      const endDate = now.toISOString().split("T")[0];
-
-      // Get all occurrences and adjustments in the date range
-      const allOccurrences = await storage.getAllOccurrencesInDateRange(startDate, endDate);
-      const allAdjustments = await storage.getAllOccurrenceAdjustmentsForYear(currentYear);
-
-      // Build map of employee ID -> total points
-      const employeePoints: Record<number, number> = {};
-
+      // Same window and formula as the employee page and alerts
+      // (server/occurrenceTally.ts).
+      const tallyWindow = getTallyWindow();
+      const [allOccurrences, allAdjustments] = await Promise.all([
+        storage.getAllOccurrencesInDateRange(tallyWindow.startDate, tallyWindow.endDate),
+        storage.getAllOccurrenceAdjustmentsInDateRange(tallyWindow.startDate, tallyWindow.endDate),
+      ]);
+      const occurrencesByEmployee = new Map<number, typeof allOccurrences>();
       for (const occ of allOccurrences) {
-        if (occ.status !== "active") continue;
-        if (occ.isFmla || occ.isOtherLeave || occ.isConsecutiveSickness) continue;
-        if (!employeePoints[occ.employeeId]) employeePoints[occ.employeeId] = 0;
-        employeePoints[occ.employeeId] += occ.occurrenceValue;
+        const list = occurrencesByEmployee.get(occ.employeeId) || [];
+        list.push(occ);
+        occurrencesByEmployee.set(occ.employeeId, list);
       }
-
+      const adjustmentsByEmployee = new Map<number, typeof allAdjustments>();
       for (const adj of allAdjustments) {
-        if (adj.status !== "active") continue;
-        if (!employeePoints[adj.employeeId]) employeePoints[adj.employeeId] = 0;
-        employeePoints[adj.employeeId] += adj.adjustmentValue;
+        const list = adjustmentsByEmployee.get(adj.employeeId) || [];
+        list.push(adj);
+        adjustmentsByEmployee.set(adj.employeeId, list);
       }
 
       // Build result
@@ -156,7 +157,11 @@ export function registerReportRoutes(app: Express) {
         employeeName: emp.name,
         location: emp.location || "Unknown",
         jobTitle: emp.jobTitle,
-        totalPoints: Math.max(0, (employeePoints[emp.id] || 0) / 100), // Convert from x100 to actual
+        totalPoints: computeNetTally(
+          occurrencesByEmployee.get(emp.id) || [],
+          adjustmentsByEmployee.get(emp.id) || [],
+          tallyWindow,
+        ).netTally,
         employmentType: emp.employmentType,
       })).sort((a, b) => b.totalPoints - a.totalPoints);
 
@@ -444,16 +449,22 @@ export function registerReportRoutes(app: Express) {
         return res.json({ weeks: [] });
       }
 
+      // Weeks are ET calendar weeks [Sunday 00:00 ET, next Sunday 00:00 ET).
+      // `new Date(ws + "T00:00:00")` is server-local midnight — UTC on the
+      // host, i.e. 8pm ET Saturday — which cut off Saturday-evening shifts.
       const parsedWeeks = weekStarts.map(ws => {
-        const start = new Date(ws + "T00:00:00");
-        const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const start = fromZonedTime(`${ws}T00:00:00`, TIMEZONE);
+        const end = addDaysInET(start, 7);
         return { ws, start, end };
       });
 
       const minDate = new Date(Math.min(...parsedWeeks.map(w => w.start.getTime())));
       const maxDate = new Date(Math.max(...parsedWeeks.map(w => w.end.getTime())));
 
-      const allShifts = await storage.getShifts(minDate, maxDate);
+      // getShifts filters on endTime <= end; widen by a day so a shift that
+      // starts late Saturday and ends after midnight is still fetched. Each
+      // week below is then bucketed by start time, half-open.
+      const allShifts = await storage.getShifts(minDate, addDaysInET(maxDate, 1));
 
       const weeks = parsedWeeks.map(({ ws, start, end }) => {
         const weekShifts = allShifts.filter(s => {

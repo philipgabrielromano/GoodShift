@@ -7,6 +7,13 @@ import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-grap
 import { storage } from './storage';
 import { brandingFromSettings, renderEmailLayout, dv, htmlEscape, type ResolvedBranding } from './emailBranding';
 
+// "YYYY-MM-DD" (or an ISO string starting with one) → "M/D/YYYY", without a
+// time-zone conversion that could shift the calendar day.
+function formatDateOnlyUS(value: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "");
+  return m ? `${Number(m[2])}/${Number(m[3])}/${m[1]}` : (value ?? "");
+}
+
 const ALWAYS_CC_EMAIL = "promano@goodwillgoodskills.org";
 
 async function getBranding(): Promise<ResolvedBranding> {
@@ -1013,9 +1020,7 @@ export async function sendOrderApprovedEmail(
       return false;
     }
     const branding = await getBranding();
-    const orderDate = data.orderDate
-      ? new Date(data.orderDate).toLocaleDateString("en-US", { timeZone: "America/New_York" })
-      : "";
+    const orderDate = formatDateOnlyUS(data.orderDate);
     // Render the per-item ship list when the approve route passed one.
     // Lines whose original requested value differs from the approved value
     // get a "(requested N)" callout so the store immediately sees what
@@ -1056,7 +1061,7 @@ export async function sendOrderApprovedEmail(
       ctaHref: `${data.appUrl}/orders`,
       branding,
     });
-    const subject = `${branding.appName}: Order Approved - ${data.orderType} - ${data.location}`;
+    const subject = `GoodShift: Order Approved - ${data.orderType} - ${data.location}`;
     const message = {
       subject,
       body: { contentType: 'HTML', content: emailBody },
@@ -1110,9 +1115,7 @@ export async function sendOrderDeniedEmail(
       return false;
     }
     const branding = await getBranding();
-    const orderDate = data.orderDate
-      ? new Date(data.orderDate).toLocaleDateString("en-US", { timeZone: "America/New_York" })
-      : "";
+    const orderDate = formatDateOnlyUS(data.orderDate);
     const reasonHtml = `<div style="background-color: #fef2f2; border-left: 4px solid #b91c1c; padding: 12px 16px; margin: 16px 0;"><strong>Reason:</strong><br>${htmlEscape(data.reason).replace(/\n/g, "<br>")}</div>`;
     const bodyHtml = `
       <p>Your order has been denied. Please review the reason below and re-submit if appropriate.</p>
@@ -1131,7 +1134,7 @@ export async function sendOrderDeniedEmail(
       ctaHref: `${data.appUrl}/orders`,
       branding,
     });
-    const subject = `${branding.appName}: Order Denied - ${data.orderType} - ${data.location}`;
+    const subject = `GoodShift: Order Denied - ${data.orderType} - ${data.location}`;
     const message = {
       subject,
       body: { contentType: 'HTML', content: emailBody },

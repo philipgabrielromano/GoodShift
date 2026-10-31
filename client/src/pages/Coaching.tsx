@@ -146,11 +146,12 @@ export default function Coaching() {
       });
       const { uploadURL, objectPath } = await urlRes.json();
 
-      await fetch(uploadURL, {
+      const putRes = await fetch(uploadURL, {
         method: "PUT",
         body: file,
         headers: { "Content-Type": file.type },
       });
+      if (!putRes.ok) throw new Error("upload failed");
 
       await apiRequest("PATCH", `/api/coaching/logs/${logId}/attachment`, {
         attachmentUrl: objectPath,

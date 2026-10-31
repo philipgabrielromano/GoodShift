@@ -1,7 +1,49 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireManager, requireFeatureAccess, getNotificationEmails } from "../middleware";
+import { requireAuth, requireManager, requireFeatureAccess, getNotificationEmails, TIMEZONE } from "../middleware";
 import { sendTradeNotificationEmail } from "../outlook";
+import type { Employee, Shift } from "@shared/schema";
+import { getUserLocationScope, getEmployeeIdsInScope, canAccessEmployeeLocation } from "../locationScope";
+
+// Rules a trade must satisfy both when it's requested and again when a
+// manager approves it (time, staffing and assignments change in between).
+// Returns a user-facing reason, or null if the trade is allowed.
+async function checkTradeEligibility(
+  requesterShift: Shift,
+  responderShift: Shift,
+  requester: Employee,
+  responder: Employee,
+): Promise<string | null> {
+  if (!requester.isActive || !responder.isActive) {
+    return "Both employees must be active to trade shifts";
+  }
+  if (!requester.location || requester.location !== responder.location) {
+    return "Shifts can only be traded between employees at the same store";
+  }
+  const now = new Date();
+  if (new Date(requesterShift.startTime) <= now || new Date(responderShift.startTime) <= now) {
+    return "Shifts that have already started can't be traded";
+  }
+  // After the swap each employee works the other's shift; it must not
+  // overlap anything else they're already scheduled for.
+  const overlaps = async (employeeId: number, ownShiftId: number, incoming: Shift) => {
+    const dayBefore = new Date(new Date(incoming.startTime).getTime() - 24 * 60 * 60 * 1000);
+    const dayAfter = new Date(new Date(incoming.endTime).getTime() + 24 * 60 * 60 * 1000);
+    const theirs = await storage.getShifts(dayBefore, dayAfter, employeeId);
+    return theirs.some(s =>
+      s.id !== ownShiftId &&
+      new Date(s.startTime) < new Date(incoming.endTime) &&
+      new Date(s.endTime) > new Date(incoming.startTime)
+    );
+  };
+  if (await overlaps(requester.id, requesterShift.id, responderShift)) {
+    return `${requester.name} is already scheduled during the shift they would take`;
+  }
+  if (await overlaps(responder.id, responderShift.id, requesterShift)) {
+    return `${responder.name} is already scheduled during the shift they would take`;
+  }
+  return null;
+}
 
 export function registerShiftTradeRoutes(app: Express) {
   // ========== SHIFT TRADING ==========
@@ -31,7 +73,14 @@ export function registerShiftTradeRoutes(app: Express) {
         employeeId = callerEmployee.id;
       }
 
-      const trades = await storage.getShiftTrades({ employeeId, status });
+      let trades = await storage.getShiftTrades({ employeeId, status });
+      if (isManagerOrAdmin) {
+        // Approvers see trades for their own stores only (admins: all).
+        const inScope = await getEmployeeIdsInScope(await getUserLocationScope(sessionUser));
+        if (inScope !== null) {
+          trades = trades.filter(t => inScope.has(t.requesterId));
+        }
+      }
       res.json(trades);
     } catch (error) {
       console.error("Error fetching shift trades:", error);
@@ -49,6 +98,9 @@ export function registerShiftTradeRoutes(app: Express) {
       const { userHasFeature } = await import("../middleware");
       const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
 
+      if (isManagerOrAdmin && !(await canAccessEmployeeLocation(sessionUser, trade.requesterId))) {
+        return res.status(403).json({ message: "You do not have access to this trade" });
+      }
       if (!isManagerOrAdmin) {
         const allEmployees = await storage.getEmployees();
         const callerEmployee = allEmployees.find(e =>
@@ -107,6 +159,11 @@ export function registerShiftTradeRoutes(app: Express) {
         return res.status(400).json({ message: "Cannot trade a shift with yourself" });
       }
 
+      const ineligible = await checkTradeEligibility(requesterShift, responderShift, requester, responder);
+      if (ineligible) {
+        return res.status(400).json({ message: ineligible });
+      }
+
       // Check for existing pending trades on these shifts
       const existingTrades = await storage.getShiftTrades();
       const conflicting = existingTrades.find(t => 
@@ -134,8 +191,8 @@ export function registerShiftTradeRoutes(app: Express) {
       // Find user account linked to responder's email
       const responderUser = await storage.getUserByEmail(responder.email);
       if (responderUser) {
-        const rShiftDate = new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-        const oShiftDate = new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        const rShiftDate = new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: TIMEZONE });
+        const oShiftDate = new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: TIMEZONE });
         await storage.createNotification({
           userId: responderUser.id,
           type: "trade_requested",
@@ -154,10 +211,10 @@ export function registerShiftTradeRoutes(app: Express) {
           await sendTradeNotificationEmail(email, {
             recipientName: responder.name,
             requesterName: requester.name,
-            requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-            requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-            responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-            responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+            requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TIMEZONE }),
+            requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })}`,
+            responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TIMEZONE }),
+            responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })}`,
             action: "requested",
             appUrl,
           });
@@ -195,11 +252,14 @@ export function registerShiftTradeRoutes(app: Express) {
       const responder = await storage.getEmployee(trade.responderId);
       const requester = await storage.getEmployee(trade.requesterId);
 
-      if (approved) {
-        const updatedTrade = await storage.updateShiftTrade(trade.id, {
+      if (approved === true) {
+        const updatedTrade = await storage.transitionShiftTrade(trade.id, ["pending_peer"], {
           status: "pending_manager",
           responderNote: responderNote || null,
         });
+        if (!updatedTrade) {
+          return res.status(409).json({ message: "This trade was changed or cancelled. Refresh and try again." });
+        }
 
         // Notify requester that peer approved
         const requesterUser = requester ? await storage.getUserByEmail(requester.email) : null;
@@ -221,7 +281,14 @@ export function registerShiftTradeRoutes(app: Express) {
           const { getFeaturePermissions } = await import("../middleware");
           const perms = await getFeaturePermissions();
           const approverRoles = new Set(["admin", ...(perms["shift_trades.approve"] || [])]);
-          const storeManagers = allUsers.filter(u => approverRoles.has(u.role) && u.isActive);
+          const approvers = allUsers.filter(u => approverRoles.has(u.role) && u.isActive);
+          // Only approvers assigned to the requester's store; if the store
+          // has none, fall back to admins so the trade isn't stranded.
+          const storeLocation = (await storage.getLocations()).find(l => l.name === requester.location);
+          const storeApprovers = storeLocation
+            ? approvers.filter(u => u.role !== "admin" && (u.locationIds ?? []).map(String).includes(String(storeLocation.id)))
+            : [];
+          const storeManagers = storeApprovers.length > 0 ? storeApprovers : approvers.filter(u => u.role === "admin");
           for (const mgr of storeManagers) {
             await storage.createNotification({
               userId: mgr.id,
@@ -241,10 +308,10 @@ export function registerShiftTradeRoutes(app: Express) {
                 await sendTradeNotificationEmail(mgr.email, {
                   recipientName: mgr.name,
                   requesterName: requester.name,
-                  requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-                  requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-                  responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-                  responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+                  requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TIMEZONE }),
+                  requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })}`,
+                  responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TIMEZONE }),
+                  responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })}`,
                   responderName: responder?.name || "Employee",
                   action: "pending_manager",
                   appUrl,
@@ -258,10 +325,13 @@ export function registerShiftTradeRoutes(app: Express) {
 
         res.json(updatedTrade);
       } else {
-        const updatedTrade = await storage.updateShiftTrade(trade.id, {
+        const updatedTrade = await storage.transitionShiftTrade(trade.id, ["pending_peer"], {
           status: "declined_peer",
           responderNote: responderNote || null,
         });
+        if (!updatedTrade) {
+          return res.status(409).json({ message: "This trade was changed or cancelled. Refresh and try again." });
+        }
 
         // Notify requester of decline
         const requesterUser = requester ? await storage.getUserByEmail(requester.email) : null;
@@ -296,28 +366,46 @@ export function registerShiftTradeRoutes(app: Express) {
       const { approved, managerNote } = req.body;
       const sessionUser = (req.session as any)?.user;
 
-      if (approved) {
-        // Swap the shifts: update employeeId on each shift
-        const requesterShift = (await storage.getShifts()).find(s => s.id === trade.requesterShiftId);
-        const responderShift = (await storage.getShifts()).find(s => s.id === trade.responderShiftId);
+      if (!(await canAccessEmployeeLocation(sessionUser, trade.requesterId))) {
+        return res.status(403).json({ message: "You can only review trades for your assigned store(s)" });
+      }
+      // An approver can't sign off on a trade they're part of.
+      const reviewerEmployee = sessionUser?.email
+        ? (await storage.getEmployees()).find(e => e.email && e.email.toLowerCase() === sessionUser.email.toLowerCase())
+        : undefined;
+      if (reviewerEmployee && (reviewerEmployee.id === trade.requesterId || reviewerEmployee.id === trade.responderId)) {
+        return res.status(403).json({ message: "You can't review a trade you're part of" });
+      }
 
-        if (!requesterShift || !responderShift) {
+      if (approved === true) {
+        const requesterShift = await storage.getShift(trade.requesterShiftId);
+        const responderShift = await storage.getShift(trade.responderShiftId);
+        const requester = await storage.getEmployee(trade.requesterId);
+        const responder = await storage.getEmployee(trade.responderId);
+
+        if (!requesterShift || !responderShift || !requester || !responder) {
           return res.status(400).json({ message: "One or both shifts no longer exist" });
         }
 
-        // Swap employee IDs
-        await storage.updateShift(trade.requesterShiftId, { employeeId: trade.responderId });
-        await storage.updateShift(trade.responderShiftId, { employeeId: trade.requesterId });
+        // Re-check now: employees may have been terminated or rescheduled
+        // since the trade was requested.
+        const ineligible = await checkTradeEligibility(requesterShift, responderShift, requester, responder);
+        if (ineligible) {
+          return res.status(400).json({ message: ineligible });
+        }
 
-        const updatedTrade = await storage.updateShiftTrade(trade.id, {
-          status: "approved",
+        // Swap the shifts and mark the trade approved in one transaction.
+        const approval = await storage.approveShiftTrade(trade, {
           managerNote: managerNote || null,
           reviewedBy: sessionUser?.id || null,
         });
+        if ("error" in approval) {
+          return res.status(409).json({ message: approval.error });
+        }
+        const updatedTrade = approval.trade;
+        await storage.clearTradeApprovalNotifications(updatedTrade.id);
 
         // Notify both employees
-        const requester = await storage.getEmployee(trade.requesterId);
-        const responder = await storage.getEmployee(trade.responderId);
 
         for (const emp of [requester, responder]) {
           if (!emp) continue;
@@ -341,10 +429,10 @@ export function registerShiftTradeRoutes(app: Express) {
                 recipientName: emp.name,
                 requesterName: requester?.name || "Employee",
                 responderName: responder?.name || "Employee",
-                requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-                requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
-                responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
-                responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`,
+                requesterShiftDate: new Date(requesterShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TIMEZONE }),
+                requesterShiftTime: `${new Date(requesterShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })} - ${new Date(requesterShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })}`,
+                responderShiftDate: new Date(responderShift.startTime).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TIMEZONE }),
+                responderShiftTime: `${new Date(responderShift.startTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })} - ${new Date(responderShift.endTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TIMEZONE })}`,
                 action: "approved",
                 appUrl,
               });
@@ -356,11 +444,14 @@ export function registerShiftTradeRoutes(app: Express) {
 
         res.json(updatedTrade);
       } else {
-        const updatedTrade = await storage.updateShiftTrade(trade.id, {
+        const updatedTrade = await storage.transitionShiftTrade(trade.id, ["pending_manager"], {
           status: "declined_manager",
           managerNote: managerNote || null,
           reviewedBy: sessionUser?.id || null,
         });
+        if (!updatedTrade) {
+          return res.status(409).json({ message: "This trade was changed or cancelled. Refresh and try again." });
+        }
 
         // Notify both employees of decline
         const requester = await storage.getEmployee(trade.requesterId);
@@ -401,7 +492,8 @@ export function registerShiftTradeRoutes(app: Express) {
 
       const sessionUser = (req.session as any)?.user;
       const { userHasFeature } = await import("../middleware");
-      const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve");
+      const isManagerOrAdmin = await userHasFeature(sessionUser, "shift_trades.approve")
+        && await canAccessEmployeeLocation(sessionUser, trade.requesterId);
       if (!isManagerOrAdmin) {
         const allEmployees = await storage.getEmployees();
         const callerEmployee = allEmployees.find(e =>
@@ -412,7 +504,10 @@ export function registerShiftTradeRoutes(app: Express) {
         }
       }
 
-      await storage.updateShiftTrade(trade.id, { status: "cancelled" });
+      const cancelled = await storage.transitionShiftTrade(trade.id, ["pending_peer", "pending_manager"], { status: "cancelled" });
+      if (!cancelled) {
+        return res.status(409).json({ message: "This trade was already approved, declined or cancelled." });
+      }
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Failed to cancel trade" });

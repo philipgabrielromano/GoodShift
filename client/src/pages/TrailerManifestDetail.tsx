@@ -71,6 +71,14 @@ export default function TrailerManifestDetail() {
   });
   const { data: pickerUsers = [] } = useUsersBasic();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  // Typed quantities are kept locally and saved on blur or Enter, so typing
+  // "12" doesn't send 1 and then 12 (possibly out of order).
+  const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+  const clearQtyDraft = (name: string) =>
+    setQtyDrafts(d => {
+      const { [name]: _, ...rest } = d;
+      return rest;
+    });
 
   const { data: trailers = [] } = useQuery<Trailer[]>({ queryKey: ["/api/trailers"] });
   const activeTrailers = trailers.filter(t => t.isActive);
@@ -367,13 +375,21 @@ export default function TrailerManifestDetail() {
                           <Input
                             type="number"
                             min={0}
-                            value={qty}
+                            value={qtyDrafts[name] ?? String(qty)}
                             disabled={isReadOnly}
-                            onChange={(e) => {
-                              const v = parseInt(e.target.value, 10);
+                            onChange={(e) => setQtyDrafts(d => ({ ...d, [name]: e.target.value }))}
+                            onBlur={() => {
+                              const draft = qtyDrafts[name];
+                              if (draft === undefined) return;
+                              const v = parseInt(draft, 10);
                               if (!Number.isNaN(v) && v >= 0 && v !== qty) {
                                 setQtyMutation.mutate({ itemName: name, newQty: v });
                               }
+                              clearQtyDraft(name);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                              if (e.key === "Escape") clearQtyDraft(name);
                             }}
                             className="w-16 text-center h-9"
                             data-testid={`input-qty-${name.replace(/[^a-z0-9]/gi, "_")}`}

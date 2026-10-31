@@ -1,9 +1,13 @@
 import { ukgClient } from "./ukg";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 import type { InsertTimeClockEntry, InsertTimeClockPunch } from "@shared/schema";
 import { ObjectStorageService } from "./replit_integrations/object_storage/objectStorage";
+import { formatInTimeZone } from "date-fns-tz";
+import { TIMEZONE, addDaysInET } from "./middleware";
+
+const etDateString = (d: Date) => formatInTimeZone(d, TIMEZONE, "yyyy-MM-dd");
 
 let employeeSyncInterval: NodeJS.Timeout | null = null;
 let timeClockSyncInterval: NodeJS.Timeout | null = null;
@@ -11,6 +15,32 @@ let timeClockTodaySyncInterval: NodeJS.Timeout | null = null;
 let manifestAutoDeliverInterval: NodeJS.Timeout | null = null;
 let manifestAutoDeliverInitialTimeout: NodeJS.Timeout | null = null;
 let uploadCleanupInterval: NodeJS.Timeout | null = null;
+
+export class JobAlreadyRunningError extends Error {}
+
+// Run a background job only if no other run of it is in progress — in this
+// process or on another autoscale instance (Postgres session advisory lock).
+// Overlapping time-clock syncs used to interleave their delete/insert of
+// punches and store every punch twice.
+async function withJobLock<T>(jobName: string, fn: () => Promise<T>): Promise<T> {
+  const lockKey = `goodshift:${jobName}`;
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query("SELECT pg_try_advisory_lock(hashtext($1)) AS locked", [lockKey]);
+    if (!rows[0]?.locked) {
+      throw new JobAlreadyRunningError(`${jobName} is already running`);
+    }
+    try {
+      return await fn();
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).catch(err => {
+        console.error("[Scheduler] Failed to release %s lock:", jobName, err);
+      });
+    }
+  } finally {
+    client.release();
+  }
+}
 
 // Auto-mark any manifest that has been "in_transit" for more than 24 hours
 // as "delivered". Uses `departedAt` when available (set when status flips to
@@ -41,7 +71,7 @@ async function autoDeliverStaleInTransitManifests(): Promise<void> {
 // Initial date to start syncing time clock data from
 const TIME_CLOCK_START_DATE = "2026-01-01";
 
-async function syncEmployeesFromUKG(): Promise<void> {
+async function syncEmployeesFromUKGUnlocked(): Promise<void> {
   console.log("[Scheduler] Starting daily UKG employee sync...");
   const syncStart = Date.now();
   
@@ -95,9 +125,19 @@ async function syncEmployeesFromUKG(): Promise<void> {
           // assigned store locations from the database.
           // Preserve maxWeeklyHours unless the employee's employment type changed
           // (e.g. part-time → full-time), in which case apply UKG's new default.
-          const updateData = { ...appEmployee };
+          const updateData: Partial<typeof appEmployee> = { ...appEmployee };
           if (!updateData.location) {
             delete updateData.location;
+          }
+          // Same for job titles: an unknown JobId must not overwrite the
+          // stored title with a fallback.
+          if (!ukgEmp.jobTitle) {
+            delete updateData.jobTitle;
+          }
+          // A missing UKG email must not replace the stored one with the
+          // generated placeholder (it may be a manual correction).
+          if (!ukgEmp.email?.trim()) {
+            delete updateData.email;
           }
           const employmentTypeChanged = updateData.employmentType &&
             existingByUkgId.employmentType &&
@@ -166,8 +206,26 @@ export interface TimeClockSyncResult {
   skippedDelete?: boolean;
 }
 
-// Shared core: fetch and upsert time clock data for the given date range.
+// Fetch and upsert time clock data for the given date range. The 30-day,
+// hourly "today" and manual syncs all share one lock because they rewrite the
+// same punch rows. Throws JobAlreadyRunningError if another run is active.
 export async function runTimeClockSync(startDate: string, endDate: string, label: string): Promise<TimeClockSyncResult> {
+  return withJobLock("timeclock-sync", () => runTimeClockSyncUnlocked(startDate, endDate, label));
+}
+
+async function syncEmployeesFromUKG(): Promise<void> {
+  try {
+    await withJobLock("employee-sync", syncEmployeesFromUKGUnlocked);
+  } catch (err) {
+    if (err instanceof JobAlreadyRunningError) {
+      console.log("[Scheduler] Employee sync skipped: another run is in progress");
+      return;
+    }
+    throw err;
+  }
+}
+
+async function runTimeClockSyncUnlocked(startDate: string, endDate: string, label: string): Promise<TimeClockSyncResult> {
   console.log(`[Scheduler] Time clock sync (${label}): ${startDate} → ${endDate}`);
   const syncStart = Date.now();
 
@@ -304,13 +362,9 @@ export async function runTimeClockSync(startDate: string, endDate: string, label
     workDate: e.workDate,
   }));
 
-  if (incomingPunchKeys.length > 0) {
-    const deletedPunches = await storage.deleteTimeClockPunchesByKeys(incomingPunchKeys);
-    console.log(`[Scheduler] Replaced punches for ${incomingPunchKeys.length} employee/date pairs (deleted ${deletedPunches} stale rows) (${label})`);
-  }
-  if (rawPunches.length > 0) {
-    const punchCount = await storage.insertTimeClockPunches(rawPunches);
-    console.log(`[Scheduler] Stored ${punchCount} individual punch records (${label})`);
+  if (incomingPunchKeys.length > 0 || rawPunches.length > 0) {
+    const { deleted, inserted } = await storage.replaceTimeClockPunches(incomingPunchKeys, rawPunches);
+    console.log(`[Scheduler] Replaced punches for ${incomingPunchKeys.length} employee/date pairs (deleted ${deleted} stale rows, stored ${inserted}) (${label})`);
   }
 
   const upserted = await storage.upsertTimeClockEntries(entries);
@@ -364,22 +418,23 @@ async function syncTimeClockFromUKG(): Promise<void> {
   }
 
   try {
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 60);
-    const endDate = futureDate.toISOString().split("T")[0];
+    const now = new Date();
+    const endDate = etDateString(addDaysInET(now, 60));
 
     const lastSyncDate = await storage.getLastTimeClockSyncDate();
     let startDate: string;
     if (!lastSyncDate) {
       startDate = TIME_CLOCK_START_DATE;
     } else {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      startDate = thirtyDaysAgo.toISOString().split("T")[0];
+      startDate = etDateString(addDaysInET(now, -30));
     }
 
     await runTimeClockSync(startDate, endDate, "30-day lookback");
   } catch (err) {
+    if (err instanceof JobAlreadyRunningError) {
+      console.log("[Scheduler] 30-day time clock sync skipped: another time clock sync is in progress");
+      return;
+    }
     console.error("[Scheduler] Failed to sync time clock data:", err);
     ukgClient.addSyncResult({
       timestamp: new Date().toISOString(),
@@ -396,9 +451,14 @@ async function syncTodayTimeClockFromUKG(): Promise<void> {
   if (!ukgClient.isConfigured()) return;
 
   try {
-    const today = new Date().toISOString().split("T")[0];
+    // ET calendar date — the UTC date is already "tomorrow" from 8pm ET.
+    const today = etDateString(new Date());
     await runTimeClockSync(today, today, "today");
   } catch (err) {
+    if (err instanceof JobAlreadyRunningError) {
+      console.log("[Scheduler] Today time clock sync skipped: another time clock sync is in progress");
+      return;
+    }
     console.error("[Scheduler] Failed to sync today's time clock data:", err);
   }
 }
@@ -413,21 +473,24 @@ export function startDailySync(): void {
 
   console.log("[Scheduler] Starting daily UKG sync scheduler");
   
-  // Run initial employee sync after 5 seconds
+  // Startup syncs. Autoscale instances rarely live 24h, so the startup run
+  // is what keeps employees fresh; it waits 2 minutes so it doesn't compete
+  // with the first page loads after a cold start (the job lock already stops
+  // two instances running it at once).
   setTimeout(() => {
     console.log("[Scheduler] Running initial startup sync...");
     syncEmployeesFromUKG().catch(err => {
       console.error("[Scheduler] Initial employee sync failed:", err);
     });
-  }, 5000);
+  }, 2 * 60 * 1000);
 
-  // Run initial time clock sync after 10 seconds (give employee sync time to complete)
+  // Initial time clock sync, a minute after the employee sync.
   setTimeout(() => {
     console.log("[Scheduler] Running initial time clock sync...");
     syncTimeClockFromUKG().catch(err => {
       console.error("[Scheduler] Initial time clock sync failed:", err);
     });
-  }, 10000);
+  }, 3 * 60 * 1000);
 
   // Schedule employee sync every 24 hours
   employeeSyncInterval = setInterval(() => {
@@ -471,15 +534,16 @@ export function startDailySync(): void {
   // Objects older than 2 hours with no ACL policy are treated as abandoned
   // presigned-URL uploads that were never bound to an application record.
   const objectStorageService = new ObjectStorageService();
+  const isUploadReferenced = async (objectPath: string) => (await storage.findObjectOwner(objectPath)) !== null;
   uploadCleanupInterval = setInterval(() => {
-    objectStorageService.cleanupOrphanedUploads().catch(err => {
+    objectStorageService.cleanupOrphanedUploads(undefined, isUploadReferenced).catch(err => {
       console.error("[Scheduler] Orphaned upload cleanup failed:", err);
     });
   }, ONE_HOUR);
   // Run once shortly after startup so stale objects from a previous session
   // are not left sitting indefinitely after a server restart.
   setTimeout(() => {
-    objectStorageService.cleanupOrphanedUploads().catch(err => {
+    objectStorageService.cleanupOrphanedUploads(undefined, isUploadReferenced).catch(err => {
       console.error("[Scheduler] Initial orphaned upload cleanup failed:", err);
     });
   }, 30000);

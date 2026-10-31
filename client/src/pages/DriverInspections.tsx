@@ -22,6 +22,7 @@ interface Summary {
   inspectionsWithRepairs: number;
   totalOpenRepairItems: number;
   inspectionsWithOpenRepairs: number;
+  vehiclesWithOpenRepairs: number;
 }
 
 export default function DriverInspections() {
@@ -40,7 +41,8 @@ export default function DriverInspections() {
     const p = new URLSearchParams();
     if (tab === "open") p.set("openRepairsOnly", "true");
     if (typeFilter !== "all") p.set("inspectionType", typeFilter);
-    if (fromDate) p.set("fromDate", new Date(fromDate).toISOString());
+    // Local midnight, not UTC midnight (which is the previous evening in ET).
+    if (fromDate) p.set("fromDate", new Date(`${fromDate}T00:00:00`).toISOString());
     if (toDate) p.set("toDate", new Date(`${toDate}T23:59:59`).toISOString());
     const s = p.toString();
     return s ? `?${s}` : "";
@@ -100,7 +102,7 @@ export default function DriverInspections() {
           <StatCard label="Total Inspections" value={summary.totalInspections} testid="stat-total" />
           <StatCard label="With Repairs" value={summary.inspectionsWithRepairs} testid="stat-with-repairs" />
           <StatCard label="Open Repair Items" value={summary.totalOpenRepairItems} tone={summary.totalOpenRepairItems > 0 ? "warn" : "ok"} testid="stat-open-items" />
-          <StatCard label="Vehicles Needing Attention" value={summary.inspectionsWithOpenRepairs} tone={summary.inspectionsWithOpenRepairs > 0 ? "warn" : "ok"} testid="stat-vehicles-attention" />
+          <StatCard label="Vehicles Needing Attention" value={summary.vehiclesWithOpenRepairs} tone={summary.vehiclesWithOpenRepairs > 0 ? "warn" : "ok"} testid="stat-vehicles-attention" />
         </div>
       )}
 

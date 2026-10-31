@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getJobTitle } from "@/lib/utils";
@@ -60,8 +61,9 @@ export default function ShiftTrades() {
     queryKey: ["/api/shifts"],
   });
 
-  const userRole = authStatus?.user?.role ?? "viewer";
-  const isManagerOrAdmin = userRole === "manager" || userRole === "admin" || userRole === "optimizer";
+  // Same permission the server checks for approving and cancelling others' trades.
+  const { can } = usePermissions();
+  const isManagerOrAdmin = can("shift_trades.approve");
 
   const currentEmployee = useMemo(() => {
     if (!authStatus?.user?.email) return null;

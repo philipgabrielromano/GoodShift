@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, date, uniqueIndex, index, real, jsonb, varchar, json } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -108,6 +108,8 @@ export const EMAIL_TYPE_IDS = [
   "driver_inspection",
   "warehouse_variance",
   "first_aid_notification",
+  "order_approved",
+  "order_denied",
 ] as const;
 export type EmailTypeId = typeof EMAIL_TYPE_IDS[number];
 
@@ -394,12 +396,29 @@ export type ShiftPattern = {
 // === PUBLISHED SCHEDULES ===
 
 // Track which weeks have been published for viewing by standard users
+// One row per (week, store). location = "" means published for every store —
+// what an admin's "all locations" publish creates, and what every row from
+// before per-store publishing (when a publish covered all stores) becomes.
 export const publishedSchedules = pgTable("published_schedules", {
   id: serial("id").primaryKey(),
-  weekStart: date("week_start").notNull().unique(), // Start of week (Sunday) in yyyy-MM-dd format
+  weekStart: date("week_start").notNull(), // Start of week (Sunday) in yyyy-MM-dd format
+  location: text("location").notNull().default(""), // locations.name, or "" for all stores
   publishedBy: integer("published_by"), // User ID who published it
   publishedAt: timestamp("published_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("published_schedules_week_location_idx").on(table.weekStart, table.location),
+]);
+
+// Express sessions (connect-pg-simple). Shared by every instance so a user
+// stays signed in whichever autoscale instance serves the request. Matches
+// connect-pg-simple's table.sql; server/auth.ts also creates it if missing.
+export const sessions = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { precision: 6 }).notNull(),
+}, (table) => [
+  index("IDX_session_expire").on(table.expire),
+]);
 
 export const insertPublishedScheduleSchema = createInsertSchema(publishedSchedules).omit({ id: true, publishedAt: true });
 export type PublishedSchedule = typeof publishedSchedules.$inferSelect;
@@ -1411,7 +1430,7 @@ export const warehouseInventoryAudits = pgTable("warehouse_inventory_audits", {
   id: serial("id").primaryKey(),
   countId: integer("count_id").notNull(),
   itemName: text("item_name"), // nullable: item-level edits set this; count-level events (finalize/reopen) leave it null
-  action: text("action").notNull(), // 'update' | 'finalize' | 'reopen'
+  action: text("action").notNull(), // 'update' | 'finalize' | 'reopen' | 'delete'
   changedById: integer("changed_by_id"),
   changedByName: text("changed_by_name"),
   changedAt: timestamp("changed_at").notNull().defaultNow(),

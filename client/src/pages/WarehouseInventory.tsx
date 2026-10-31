@@ -58,6 +58,7 @@ interface DashboardWarehouse {
       transfersDelta: number;
       byGroup: Record<string, { onHand: number; baseline: number; ordersDelta: number; transfersDelta: number }>;
     };
+    unassignedStores?: string[];
   };
 }
 
@@ -569,6 +570,11 @@ export default function WarehouseInventory() {
                           </span></span>
                         </div>
                       </div>
+                      {(w.onHand.unassignedStores?.length ?? 0) > 0 && (
+                        <div className="text-xs text-amber-600" data-testid={`text-onhand-unassigned-${w.warehouse}`}>
+                          Not counted (no warehouse assigned): {w.onHand.unassignedStores!.join(", ")}
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex justify-between items-center pt-2">

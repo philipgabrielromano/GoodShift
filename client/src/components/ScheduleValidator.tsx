@@ -92,9 +92,11 @@ interface ScheduleValidatorProps {
   onRemediate?: (remediation: RemediationData) => void;
   weekStart?: Date;
   selectedLocation?: string;
+  // PAL hours per employee for this week; they count toward max hours.
+  palHoursByEmployee?: Map<number, number>;
 }
 
-export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: ScheduleValidatorProps) {
+export function ScheduleValidator({ onRemediate, weekStart, selectedLocation, palHoursByEmployee }: ScheduleValidatorProps) {
   // Memoize date calculations to ensure stable values when weekStart changes
   const { start, end, prevWeekStart, prevWeekEnd, weekDays } = useMemo(() => {
     const baseDate = weekStart || new Date();
@@ -163,18 +165,23 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
       
       totalWeeklyHours += hours;
 
-      // Match server-generator week boundary: [weekStart, weekStart + 7 days].
+      // Match server-generator week boundary: [weekStart, weekStart + 7 days).
       const holidayHours = getPaidHolidayHoursForEmployee(
         weekDays[0], addDays(weekDays[0], 7), emp.hireDate, emp.employmentType,
       );
-      const effectiveHours = hours + holidayHours;
+      const palHours = palHoursByEmployee?.get(emp.id) ?? 0;
+      const effectiveHours = hours + holidayHours + palHours;
       
       if (effectiveHours > emp.maxWeeklyHours) {
+        const extras = [
+          holidayHours > 0 ? `${holidayHours}h paid holiday` : null,
+          palHours > 0 ? `${palHours.toFixed(1)}h PAL` : null,
+        ].filter(Boolean);
         newIssues.push({
           type: "error",
           category: "hours",
-          message: holidayHours > 0
-            ? `${emp.name} is scheduled for ${hours.toFixed(1)}h + ${holidayHours}h paid holiday = ${effectiveHours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
+          message: extras.length > 0
+            ? `${emp.name} is scheduled for ${hours.toFixed(1)}h + ${extras.join(" + ")} = ${effectiveHours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
             : `${emp.name} is scheduled for ${hours.toFixed(1)}h (Max: ${emp.maxWeeklyHours}h)`
         });
       }
@@ -561,7 +568,7 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
 
     // Check 8: Manager closing shift limit (max 3 closes per week)
     // Include WV variants: WVSTMNG, WVSTAST, WVLDWRK
-    const managerJobCodes = ['STSUPER', 'STASSTSP', 'STLDWRK', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
+    const managerJobCodes = ['STSUPER', 'STASSTSP', 'STLDWKR', 'WVSTMNG', 'WVSTAST', 'WVLDWRK'];
     const managers = filteredEmployees.filter(emp => managerJobCodes.includes(emp.jobTitle) && emp.isActive);
     
     managers.forEach(manager => {
@@ -660,8 +667,8 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
         
         // Only show warning if the streak includes current week days
         if (maxStreakEnd >= currentWeekStartDate && maxStreakStart <= currentWeekEndDate) {
-          const startLabel = format(new Date(maxStreakStart), "EEE M/d");
-          const endLabel = format(new Date(maxStreakEnd), "EEE M/d");
+          const startLabel = format(parseISO(maxStreakStart), "EEE M/d");
+          const endLabel = format(parseISO(maxStreakEnd), "EEE M/d");
           newIssues.push({
             type: "warning",
             category: "hours",
@@ -672,7 +679,7 @@ export function ScheduleValidator({ onRemediate, weekStart, selectedLocation }: 
     });
 
     return newIssues;
-  }, [employees, shifts, prevWeekShifts, roles, settings, locations, start, end, selectedLocation]);
+  }, [employees, shifts, prevWeekShifts, roles, settings, locations, start, end, selectedLocation, palHoursByEmployee]);
 
   // Track expanded state for each category
   const [expandedCategories, setExpandedCategories] = useState<Record<IssueCategory, boolean>>({
