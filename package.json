@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@azure/identity": "^4.13.0",
-    "@azure/msal-node": "^5.0.2",
+    "@azure/msal-node": "^7.1.2",
     "@google-cloud/storage": "^7.18.0",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
@@ -132,6 +132,7 @@
     "vite": "^7.3.7"
   },
   "overrides": {
+    "body-parser": "^2.4.0",
     "proxy-addr": "^2.0.8",
     "axios": "^1.20.0",
     "express-rate-limit": {

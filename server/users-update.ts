@@ -49,6 +49,17 @@ export async function applyUserUpdate(
     return { status: 200, body: existing };
   }
 
+  // Ceiling: only admins can grant the admin role or change an admin's
+  // account, and nobody but an admin can change their own role or stores.
+  if (sessionUser?.role !== "admin") {
+    if ((existing as any).role === "admin" || input.role === "admin") {
+      return { status: 403, body: { message: "Only an admin can change an admin user or grant the admin role." } };
+    }
+    if ((existing as any).id === sessionUser?.id && (wantsRole || wantsLocations)) {
+      return { status: 403, body: { message: "You can't change your own role or store assignments." } };
+    }
+  }
+
   if (wantsRole) {
     const validRoles = await storage.getRoles();
     if (!validRoles.some(r => r.name === input.role)) {

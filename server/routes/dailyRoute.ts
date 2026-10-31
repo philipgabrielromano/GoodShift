@@ -3,11 +3,14 @@ import type { RowDataPacket } from "mysql2";
 import ExcelJS from "exceljs";
 import { z } from "zod";
 import { mysqlPool } from "../mysql";
+import { errorStatus } from "../errors";
 import { requireFeatureAccess } from "../middleware";
 import { storage } from "../storage";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
-import { truckRoutes, truckRouteLocations, locations, WAREHOUSES, WAREHOUSE_LABELS } from "@shared/schema";
+import { truckRoutes, truckRouteLocations, locations, WAREHOUSES, WAREHOUSE_LABELS, TRAILER_MANIFEST_CATEGORIES } from "@shared/schema";
+
+const MANIFEST_ITEM_NAMES = new Set<string>(TRAILER_MANIFEST_CATEGORIES.flatMap(c => c.items as readonly string[]));
 import { getUserAllowedLocationNames } from "./orders";
 
 // Allowed origin labels for manifests created from a daily route. The route
@@ -484,7 +487,7 @@ export function registerDailyRouteRoutes(app: Express) {
         res.json(data);
       } catch (err) {
         console.error("[DailyRoute] Load error:", err);
-        res.status(500).json({ message: "Failed to load daily route" });
+        res.status(errorStatus(err)).json({ message: "Failed to load daily route" });
       }
     },
   );
@@ -561,7 +564,7 @@ export function registerDailyRouteRoutes(app: Express) {
           return res.status(400).json({ message: err.message });
         }
         console.error("[DailyRoute] Create manifest error:", err);
-        res.status(500).json({ message: "Failed to create manifest from daily route" });
+        res.status(errorStatus(err)).json({ message: "Failed to create manifest from daily route" });
       }
     },
   );
@@ -587,7 +590,7 @@ export function registerDailyRouteRoutes(app: Express) {
           if (allowedLocations.length === 0) {
             return res.json([]);
           }
-          const allowedSet = new Set(allowedLocations.map(l => l.trim().toLowerCase()));
+          const allowedSet = new Set(allowedLocations.map(normalizeKey));
           const routes = await loadRoutes();
           const allowedRouteIds = new Set(
             routes
@@ -600,7 +603,7 @@ export function registerDailyRouteRoutes(app: Express) {
         res.json(manifests);
       } catch (err) {
         console.error("[DailyRoute] Manifests lookup error:", err);
-        res.status(500).json({ message: "Failed to look up manifests for date" });
+        res.status(errorStatus(err)).json({ message: "Failed to look up manifests for date" });
       }
     },
   );
@@ -631,7 +634,7 @@ export function registerDailyRouteRoutes(app: Express) {
       } catch (err) {
         console.error("[DailyRoute] Export error:", err);
         if (!res.headersSent) {
-          res.status(500).json({ message: "Failed to export daily route" });
+          res.status(errorStatus(err)).json({ message: "Failed to export daily route" });
         } else {
           res.end();
         }
@@ -694,7 +697,12 @@ const createManifestSchema = z.object({
   toLocation: z.string().trim().min(1).max(200).optional(),
   trailerNumber: z.string().trim().max(100).nullable().optional().transform(v => v === "__none__" ? null : v),
   driverUserId: z.number().int().positive().nullable().optional(),
-  itemQuantities: z.record(z.string(), z.number().int().min(0)),
+  // Item names must be real manifest items: a misspelled name used to be
+  // dropped silently, producing an all-zero manifest.
+  itemQuantities: z.record(
+    z.string().refine(n => MANIFEST_ITEM_NAMES.has(n), n => ({ message: `Unknown manifest item: ${n}` })),
+    z.number().int().min(0).max(99999),
+  ),
   notes: z.string().trim().max(500).nullable().optional(),
 });
 

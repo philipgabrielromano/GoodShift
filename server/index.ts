@@ -4,6 +4,10 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { setupAuth } from "./auth";
 import { startDailySync } from "./scheduler";
+import { ZodError } from "zod";
+import { errorStatus, dependencyOf } from "./errors";
+import { pool as pgPool } from "./db";
+import { mysqlPool } from "./mysql";
 
 const app = express();
 app.set('trust proxy', 1);
@@ -58,19 +62,66 @@ app.use((req, res, next) => {
       res.status(200).json({ status: "ok", timestamp: new Date().toISOString() });
     });
 
+    // Dependency check for monitoring. Kept separate from /health on purpose:
+    // the platform restarts instances that fail /health, and a MySQL or tunnel
+    // outage must not turn into a restart loop. Reports up/down only.
+    app.get("/health/deep", async (_req, res) => {
+      const check = async (run: () => Promise<unknown>): Promise<"ok" | "down"> => {
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          await Promise.race([
+            run(),
+            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), 3000); }),
+          ]);
+          return "ok";
+        } catch {
+          return "down";
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+      const mysqlConfigured = !!(process.env.TAILSCALE_AUTH_KEY || process.env.MYSQL_HOST);
+      const [postgres, mysql] = await Promise.all([
+        check(() => pgPool.query("SELECT 1")),
+        mysqlConfigured ? check(() => mysqlPool.query("SELECT 1")) : Promise.resolve("not_configured" as const),
+      ]);
+      const healthy = postgres === "ok" && mysql !== "down";
+      res.status(healthy ? 200 : 503).json({ status: healthy ? "ok" : "degraded", postgres, mysql, timestamp: new Date().toISOString() });
+    });
+
     setupAuth(app);
     await registerRoutes(httpServer, app);
 
-    app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
+    app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+      // Validation errors that escaped a route are the caller's mistake.
+      const isZod = err instanceof ZodError;
+      const status = isZod ? 400 : (err.status || err.statusCode || errorStatus(err));
 
-      console.error("Internal Server Error:", err);
+      // Constant format string: the path is user-controlled and must not be
+      // interpreted as format specifiers.
+      console.error(
+        "[Error] %s %s -> %d (dependency: %s, code: %s):",
+        req.method,
+        req.path,
+        status,
+        dependencyOf(err),
+        String(err?.code ?? err?.cause?.code ?? "none"),
+        err,
+      );
 
       if (res.headersSent) {
         return next(err);
       }
 
+      // Client errors keep their message (the client relies on "invalid csrf
+      // token", for one). Server errors never echo internals to the browser.
+      const message = isZod
+        ? err.errors?.[0]?.message ?? "Invalid request"
+        : status < 500
+          ? err.message || "Request failed"
+          : status === 503
+            ? "A service the app depends on is temporarily unavailable. Please try again in a moment."
+            : "Something went wrong. Please try again.";
       return res.status(status).json({ message });
     });
 

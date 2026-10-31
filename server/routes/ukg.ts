@@ -3,25 +3,38 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
-import { ukgClient } from "../ukg";
-import { runTimeClockSync } from "../scheduler";
-import { requireAuth, requireAdmin, requireFeatureAccess } from "../middleware";
+import { ukgClient, UKGFetchError } from "../ukg";
+import { runTimeClockSync, JobAlreadyRunningError } from "../scheduler";
+import { requireAuth, requireAdmin, requireFeatureAccess, addDaysInET, TIMEZONE } from "../middleware";
+import { formatInTimeZone } from "date-fns-tz";
 import { getAuthorizedUkgEmployeeIds } from "../access-control";
 import { normalizeUkgApiUrl } from "../security/urlValidation";
+
+// The connection check downloads the whole UKG roster, so its result is
+// cached and concurrent page loads share one probe.
+const STATUS_TTL_MS = 10 * 60 * 1000;
+let statusCache: { at: number; connected: boolean } | null = null;
+let statusProbe: Promise<boolean> | null = null;
+
+async function probeUKGConnection(): Promise<boolean> {
+  if (statusCache && Date.now() - statusCache.at < STATUS_TTL_MS) return statusCache.connected;
+  if (!statusProbe) {
+    statusProbe = ukgClient.getAllEmployees()
+      .then(() => true, () => false)
+      .then(connected => {
+        statusCache = { at: Date.now(), connected };
+        statusProbe = null;
+        return connected;
+      });
+  }
+  return statusProbe;
+}
 
 export function registerUKGRoutes(app: Express) {
   // === UKG INTEGRATION ===
   app.get(api.ukg.status.path, requireAuth, async (req, res) => {
     const configured = ukgClient.isConfigured();
-    let connected = false;
-    if (configured) {
-      try {
-        await ukgClient.getAllEmployees();
-        connected = true;
-      } catch {
-        connected = false;
-      }
-    }
+    const connected = configured ? await probeUKGConnection() : false;
     res.json({ configured, connected });
   });
 
@@ -108,6 +121,7 @@ export function registerUKGRoutes(app: Express) {
       }
       await storage.updateGlobalSettings(updateData);
       ukgClient.updateCredentials(normalizedApiUrl, ukgUsername, effectivePassword);
+      statusCache = null;
       res.json({ success: true, message: "UKG credentials updated successfully" });
     } catch (err) {
       console.error("Failed to update UKG credentials:", err);
@@ -141,7 +155,10 @@ export function registerUKGRoutes(app: Express) {
       }
 
       const { storeId } = api.ukg.sync.input.parse(req.body);
-      const ukgEmployees = storeId 
+      // Reload the Job/OrgLevel lookups so job codes added in UKG since the
+      // last load are recognised (the scheduled sync does the same).
+      ukgClient.clearCache();
+      const ukgEmployees = storeId
         ? await ukgClient.getEmployeesByLocation(storeId)
         : await ukgClient.getAllEmployees();
 
@@ -171,9 +188,19 @@ export function registerUKGRoutes(app: Express) {
             // assigned store locations from the database.
             // Preserve maxWeeklyHours unless the employee's employment type changed
             // (e.g. part-time → full-time), in which case apply UKG's new default.
-            const updateData = { ...appEmployee };
+            const updateData: Partial<typeof appEmployee> = { ...appEmployee };
             if (!updateData.location) {
               delete updateData.location;
+            }
+            // Same for job titles: an unknown JobId must not overwrite the
+            // stored title with a fallback.
+            if (!ukgEmp.jobTitle) {
+              delete updateData.jobTitle;
+            }
+            // A missing UKG email must not replace the stored one with the
+            // generated placeholder (it may be a manual correction).
+            if (!ukgEmp.email?.trim()) {
+              delete updateData.email;
             }
             const employmentTypeChanged = updateData.employmentType &&
               existingByUkgId.employmentType &&
@@ -212,6 +239,10 @@ export function registerUKGRoutes(app: Express) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
+      if (err instanceof UKGFetchError) {
+        console.error("UKG sync aborted:", err.message);
+        return res.json({ imported: 0, updated: 0, errors: 0, skipped: 0, apiError: err.message });
+      }
       throw err;
     }
   });
@@ -246,11 +277,9 @@ export function registerUKGRoutes(app: Express) {
       // Default range: today-30 → today+60, matching the daily scheduler's
       // window so a manual run is functionally equivalent to forcing the
       // scheduled job.
-      const today = new Date();
-      const thirtyAgo = new Date(today); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
-      const sixtyOut = new Date(today); sixtyOut.setDate(sixtyOut.getDate() + 60);
-      const startDate = parsed.startDate ?? thirtyAgo.toISOString().split("T")[0];
-      const endDate = parsed.endDate ?? sixtyOut.toISOString().split("T")[0];
+      const now = new Date();
+      const startDate = parsed.startDate ?? formatInTimeZone(addDaysInET(now, -30), TIMEZONE, "yyyy-MM-dd");
+      const endDate = parsed.endDate ?? formatInTimeZone(addDaysInET(now, 60), TIMEZONE, "yyyy-MM-dd");
       if (startDate > endDate) {
         return res.status(400).json({ success: false, message: "startDate must be on or before endDate" });
       }
@@ -259,6 +288,9 @@ export function registerUKGRoutes(app: Express) {
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ success: false, message: err.errors[0].message });
+      }
+      if (err instanceof JobAlreadyRunningError) {
+        return res.status(409).json({ success: false, message: "A time clock sync is already running. Try again in a few minutes." });
       }
       console.error("[UKG] Manual time-clock sync failed:", err);
       return res.status(500).json({
@@ -358,6 +390,7 @@ export function registerUKGRoutes(app: Express) {
       const authorizedEntries = allowedUkgIds === null
         ? storedEntries
         : storedEntries.filter(entry => allowedUkgIds.has(entry.ukgEmployeeId));
+
 
       // Convert stored entries to the format expected by the frontend
       // Database stores hours as minutes, convert back to hours

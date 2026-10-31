@@ -8,9 +8,22 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.4.0";
+export const APP_VERSION = "4.5.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.5.0",
+    date: "2026-10-31",
+    title: "Reliability, scheduling accuracy & security fixes",
+    changes: [
+      { type: "fix", description: "Generated and AI schedules place shifts on the right days in daylight-saving weeks, staff paid holidays (only closed holidays are skipped), honor morning/evening preferences in Eastern time, and keep fixed shifts within Sunday store hours. Copying a week no longer shifts times by an hour across a DST change." },
+      { type: "fix", description: "Order dates in approval, denial and fulfillment emails no longer show the previous day, and the Order Form defaults to today's Eastern-time date. Seasonal inventory pages no longer claim that requests above the available balance are blocked." },
+      { type: "improvement", description: "When the warehouse order database or its connection is briefly unavailable, order pages now respond within seconds with a 'try again' message instead of hanging, and the connection is restarted automatically if it drops." },
+      { type: "fix", description: "Shift trades, manifest counts, warehouse count finalizing, repair resolutions and attendance entries are protected against double-submits and simultaneous edits. Delivered manifests can no longer change status or counts except through an admin reopen." },
+      { type: "security", description: "HR and coaching PDFs, manifest photos and inspection photos are authorized through the record they belong to, and uploads are checked before the record is saved. Sign-in sessions are stored in the database so users stay signed in across servers." },
+      { type: "security", description: "Updated Microsoft sign-in (MSAL 7) and other vulnerable dependencies, and tightened role administration so non-admins can't grant themselves or others admin access." },
+    ],
+  },
   {
     version: "4.4.0",
     date: "2026-10-23",

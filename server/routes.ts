@@ -18,7 +18,7 @@ import { brandingFromSettings, EMAIL_TYPES, GOODWILL_BRAND_PALETTE, DEFAULT_EMAI
 import { renderSampleEmail } from "./emailSamples";
 import type { EmailTypeId } from "@shared/schema";
 import { EMAIL_TYPE_IDS, emailBrandingConfigSchema } from "@shared/schema";
-import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature } from "./middleware";
+import { TIMEZONE, getNotificationEmails, requireAuth, requireAdmin, requireManager, checkAndSendHRNotification, getFeaturePermissions, invalidatePermissionsCache, requireFeatureAccess, userHasFeature, addDaysInET, bulkActionLimiter } from "./middleware";
 import { generateSchedule } from "./schedule-generator";
 import { registerUKGRoutes } from "./routes/ukg";
 import { registerGlobalSettingsRoutes } from "./routes/globalSettings";
@@ -48,7 +48,7 @@ import {
   resolveAuthorizedLocation,
 } from "./access-control";
 
-function deduplicateShifts(shifts: { employeeId: number; startTime: Date; endTime: Date }[]) {
+function deduplicateShifts<T extends { employeeId: number; startTime: Date; endTime: Date }>(shifts: T[]): T[] {
   const seen = new Set<string>();
   return shifts.filter(s => {
     const key = `${s.employeeId}-${new Date(s.startTime).getTime()}-${new Date(s.endTime).getTime()}`;
@@ -236,6 +236,11 @@ export async function registerRoutes(
     if (!(await canManageEmployee((req.session as any).user, employee))) {
       return res.status(403).json({ message: "Access denied: employee outside your assigned scope" });
     }
+    // The UKG sync would re-create a deleted UKG employee under a new id,
+    // leaving their shifts and HR records attached to the old one.
+    if (employee.ukgEmployeeId) {
+      return res.status(409).json({ message: "This employee is synced from UKG and would come back on the next sync. Hide them from the schedule or deactivate them instead." });
+    }
     await storage.deleteEmployee(employee.id);
     res.status(204).send();
   });
@@ -298,6 +303,7 @@ export async function registerRoutes(
       }
     }
 
+    // Viewers only see shifts in weeks published for that shift's store.
     if (user?.role === "viewer") {
       const employees = await storage.getEmployees();
       const employeeLocations = new Map(employees.map(employee => [employee.id, employee.location]));
@@ -365,7 +371,7 @@ export async function registerRoutes(
        }
 
       const input = api.shifts.update.input.parse(body);
-      const existing = (await storage.getShifts()).find(s => s.id === Number(req.params.id));
+      const existing = await storage.getShift(Number(req.params.id));
       if (!existing) return res.status(404).json({ message: "Shift not found" });
       const oldEmployee = await storage.getEmployee(existing.employeeId);
       const newEmployee = await storage.getEmployee(input.employeeId ?? existing.employeeId);
@@ -374,18 +380,25 @@ export async function registerRoutes(
       if (!(await canAccessEmployeeLocation(user, oldEmployee)) || !(await canAccessEmployeeLocation(user, newEmployee))) {
         return res.status(403).json({ message: "Access denied: shift outside your assigned scope" });
       }
+      // Validate the merged times, not only when both are sent.
+      const mergedStart = new Date(input.startTime ?? existing.startTime);
+      const mergedEnd = new Date(input.endTime ?? existing.endTime);
+      if (mergedEnd.getTime() <= mergedStart.getTime()) {
+        return res.status(400).json({ message: "Shift end time must be after start time" });
+      }
       const shift = await storage.updateShift(existing.id, input);
       res.json(shift);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
-      return res.status(404).json({ message: "Shift not found" });
+      console.error("Error updating shift:", err);
+      return res.status(500).json({ message: "Failed to update shift" });
     }
   });
 
   app.delete(api.shifts.delete.path, requireFeatureAccess("schedule.edit"), async (req, res) => {
-    const existing = (await storage.getShifts()).find(s => s.id === Number(req.params.id));
+    const existing = await storage.getShift(Number(req.params.id));
     if (!existing) return res.status(404).json({ message: "Shift not found" });
     const employee = await storage.getEmployee(existing.employeeId);
     if (!employee || !(await canAccessEmployeeLocation((req.session as any).user, employee))) {
@@ -415,9 +428,9 @@ export async function registerRoutes(
         allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
       );
 
-      // Determine which UKG IDs the caller is permitted to see.
-      // Admins see everything; non-admins with assigned locations are scoped to
-      // those locations only (mirroring the filter in GET /api/employees).
+      // Determine which UKG IDs the caller is permitted to see: admins see
+      // everything; everyone else only their assigned stores (mirroring the
+      // filter in GET /api/employees).
       const user = (req.session as any)?.user;
       const allowedUkgIds = await getAuthorizedUkgEmployeeIds(user, allEmployees);
       
@@ -469,9 +482,9 @@ export async function registerRoutes(
         allEmployees.filter(e => e.ukgEmployeeId).map(e => [e.ukgEmployeeId, e])
       );
 
-      // Determine which UKG IDs the caller is permitted to see.
-      // Admins see everything; non-admins with assigned locations are scoped to
-      // those locations only (mirroring the filter in GET /api/employees).
+      // Determine which UKG IDs the caller is permitted to see: admins see
+      // everything; everyone else only their assigned stores (mirroring the
+      // filter in GET /api/employees).
       const user = (req.session as any)?.user;
       const allowedUkgIds = await getAuthorizedUkgEmployeeIds(user, allEmployees);
       
@@ -531,11 +544,11 @@ export async function registerRoutes(
       const { effectiveLocation, error: locError } = await resolveAuthorizedLocation(user, location);
       if (locError) return res.status(403).json({ message: locError });
       
+      // Week bounds and the copy offset are ET calendar weeks, not 168 hours:
+      // a fixed 7×24h shift moves every time by an hour across a DST change.
       const currentWeekStart = new Date(weekStart);
-      const currentWeekEnd = new Date(currentWeekStart);
-      currentWeekEnd.setDate(currentWeekEnd.getDate() + 7);
-      currentWeekEnd.setUTCHours(11, 0, 0, 0);
-      
+      const currentWeekEnd = addDaysInET(currentWeekStart, 7);
+
       const shifts = await storage.getShifts(currentWeekStart, currentWeekEnd);
       
       let filteredShifts = shifts;
@@ -549,26 +562,27 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No shifts to copy in the current week" });
       }
       
-      const nextWeekStart = new Date(currentWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-      const nextWeekEnd = new Date(nextWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-      
-      const cleared = await storage.deleteShiftsByDateRange(nextWeekStart, nextWeekEnd, effectiveLocation);
-      if (cleared > 0) {
-        const safeLocation = (effectiveLocation || "all locations").replace(/[\r\n\t]/g, "");
-        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${safeLocation})`);
-      }
-      
+      const nextWeekStart = currentWeekEnd;
+      const nextWeekEnd = addDaysInET(nextWeekStart, 7);
+
       const newShifts = filteredShifts.map(shift => ({
         employeeId: shift.employeeId,
-        startTime: new Date(new Date(shift.startTime).getTime() + 7 * 24 * 60 * 60 * 1000),
-        endTime: new Date(new Date(shift.endTime).getTime() + 7 * 24 * 60 * 60 * 1000),
+        startTime: addDaysInET(new Date(shift.startTime), 7),
+        endTime: addDaysInET(new Date(shift.endTime), 7),
+        crossTrainedRole: shift.crossTrainedRole ?? null,
       }));
-      
+
       const deduped = deduplicateShifts(newShifts);
       if (deduped.length < newShifts.length) {
         console.log(`[Copy Schedule] Removed ${newShifts.length - deduped.length} duplicate shift(s)`);
       }
-      const created = await storage.createShiftsBatch(deduped);
+      // Clear next week and insert the copy in one transaction, so a failed
+      // insert can't leave next week empty.
+      const { deleted: cleared, created } = await storage.replaceShiftsInRange(nextWeekStart, nextWeekEnd, effectiveLocation, deduped);
+      if (cleared > 0) {
+        const safeLocation = (effectiveLocation || "all locations").replace(/[\r\n\t]/g, "");
+        console.log(`[Copy Schedule] Cleared ${cleared} existing shifts for next week (${safeLocation})`);
+      }
       res.json({ message: `Copied ${created.length} shifts to next week`, count: created.length });
     } catch (err) {
       console.error("Error copying schedule:", err);
@@ -679,7 +693,7 @@ export async function registerRoutes(
       }
       
       const targetWeekStart = new Date(weekStart);
-      const targetWeekEnd = new Date(targetWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const targetWeekEnd = addDaysInET(targetWeekStart, 7);
       const targetWeekStartET = toZonedTime(targetWeekStart, TIMEZONE);
       
       let filteredPatterns = patterns;
@@ -687,12 +701,6 @@ export async function registerRoutes(
         const allEmployees = await storage.getEmployees();
         const locationEmpIds = new Set(allEmployees.filter(e => e.location === effectiveLocation).map(e => e.id));
         filteredPatterns = patterns.filter((p: any) => locationEmpIds.has(p.employeeId));
-      }
-      
-      const cleared = await storage.deleteShiftsByDateRange(targetWeekStart, targetWeekEnd, effectiveLocation);
-      if (cleared > 0) {
-        const safeLocation = (effectiveLocation || "all locations").replace(/[\r\n\t]/g, "");
-        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${safeLocation})`);
       }
       
       const newShifts = filteredPatterns.map((pattern: any) => {
@@ -725,7 +733,12 @@ export async function registerRoutes(
       
       const deduped = deduplicateShifts(validShifts);
       console.log(`[Template Apply] Template "${template.name}" has ${patterns.length} total patterns, ${filteredPatterns.length} for location, ${validShifts.length} valid, ${deduped.length} after dedup`);
-      const created = await storage.createShiftsBatch(deduped);
+      // Clear the week and insert the template in one transaction.
+      const { deleted: cleared, created } = await storage.replaceShiftsInRange(targetWeekStart, targetWeekEnd, effectiveLocation, deduped);
+      if (cleared > 0) {
+        const safeLocation = (effectiveLocation || "all locations").replace(/[\r\n\t]/g, "");
+        console.log(`[Template Apply] Cleared ${cleared} existing shifts for week (${safeLocation})`);
+      }
       res.json({ message: `Applied template with ${created.length} shifts`, count: created.length });
     } catch (err) {
       console.error("Error applying template:", err);
@@ -918,7 +931,7 @@ export async function registerRoutes(
     res.json(logs);
   });
 
-  app.post(api.schedule.generate.path, requireFeatureAccess("schedule.generate"), async (req, res) => {
+  app.post(api.schedule.generate.path, requireFeatureAccess("schedule.generate"), bulkActionLimiter, async (req, res) => {
     try {
       const { weekStart, location } = api.schedule.generate.input.parse(req.body);
       const { effectiveLocation, error } = await resolveAuthorizedLocation((req.session as any).user, location);
@@ -970,7 +983,7 @@ export async function registerRoutes(
   });
 
   // Clear schedule for a week (optionally filtered by location)
-  app.post("/api/schedule/clear", requireFeatureAccess("schedule.edit"), async (req, res) => {
+  app.post("/api/schedule/clear", requireFeatureAccess("schedule.edit"), bulkActionLimiter, async (req, res) => {
     try {
       const parsed = api.schedule.generate.input.parse(req.body);
       const user = (req.session as any).user;
@@ -1043,13 +1056,18 @@ export async function registerRoutes(
       if (settingLocations && !(await userHasFeature(sessionUser, "users.assign_locations"))) {
         return res.status(403).json({ message: "You don't have permission to assign locations to users." });
       }
+      if (input.role === "admin" && sessionUser?.role !== "admin") {
+        return res.status(403).json({ message: "Only an admin can create admin users." });
+      }
       if (input.role) {
         const validRoles = await storage.getRoles();
         if (!validRoles.some(r => r.name === input.role)) {
           return res.status(400).json({ message: `Invalid role: ${input.role}` });
         }
       }
-      const user = await storage.createUser(input as any);
+      // SSO binding and login time are set by the login flow, never by an admin form.
+      const { microsoftId: _microsoftId, lastLoginAt: _lastLoginAt, ...createInput } = input;
+      const user = await storage.createUser(createInput as any);
       res.status(201).json(user);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -1081,7 +1099,16 @@ export async function registerRoutes(
   });
 
   app.delete(api.users.delete.path, requireFeatureAccess("users.delete"), async (req, res) => {
-    await storage.deleteUser(Number(req.params.id));
+    const sessionUser = (req.session as any)?.user;
+    const target = await storage.getUser(Number(req.params.id));
+    if (!target) return res.status(404).json({ message: "User not found" });
+    if (target.id === sessionUser?.id) {
+      return res.status(403).json({ message: "You can't delete your own account." });
+    }
+    if (target.role === "admin" && sessionUser?.role !== "admin") {
+      return res.status(403).json({ message: "Only an admin can delete an admin user." });
+    }
+    await storage.deleteUser(target.id);
     res.status(204).send();
   });
 
@@ -1131,26 +1158,31 @@ export async function registerRoutes(
         if (!userLocationIds.includes(String(locationId))) {
           return res.status(403).json({ message: "You can only update your assigned locations" });
         }
-        // Managers cannot change isActive status
-        if (input.isActive !== undefined) {
-          return res.status(403).json({ message: "Only admins can enable or disable locations" });
+        const current = await storage.getLocation(locationId);
+        if (!current) {
+          return res.status(404).json({ message: "Location not found" });
         }
-        // Managers cannot change Order Form catalog fields
-        if (input.availableForOrderForm !== undefined || input.formOnly !== undefined || input.orderFormName !== undefined) {
-          return res.status(403).json({ message: "Only admins can change Order Form settings for a location" });
-        }
-        // Managers cannot toggle a location off for scheduling
-        if (input.availableForScheduling !== undefined) {
-          return res.status(403).json({ message: "Only admins can change scheduling availability for a location" });
-        }
-        // Roster targets visibility is admin-only (mirrors scheduling)
-        if (input.availableForRosterTargets !== undefined) {
-          return res.status(403).json({ message: "Only admins can change Roster Targets availability for a location" });
-        }
-        // Warehouse routing affects on-hand calculations across all warehouses;
-        // restrict to admins only.
-        if (input.warehouseAssignment !== undefined) {
-          return res.status(403).json({ message: "Only admins can change warehouse assignment for a location" });
+        // The edit form sends every field it shows, so an admin-only field is
+        // only rejected when its value actually changes; unchanged ones are
+        // dropped so they aren't rewritten.
+        const adminOnlyFields: [Array<keyof typeof input & keyof typeof current>, string][] = [
+          // The name is the join key for employees, shifts and scoping.
+          [["name"], "Only admins can rename a location"],
+          [["isActive"], "Only admins can enable or disable locations"],
+          [["availableForOrderForm", "formOnly", "orderFormName"], "Only admins can change Order Form settings for a location"],
+          [["availableForScheduling"], "Only admins can change scheduling availability for a location"],
+          [["availableForRosterTargets"], "Only admins can change Roster Targets availability for a location"],
+          // Warehouse routing affects on-hand calculations across all warehouses.
+          [["warehouseAssignment"], "Only admins can change warehouse assignment for a location"],
+        ];
+        for (const [keys, message] of adminOnlyFields) {
+          for (const key of keys) {
+            if (input[key] === undefined) continue;
+            if ((input[key] ?? null) !== (current[key] ?? null)) {
+              return res.status(403).json({ message });
+            }
+            delete input[key];
+          }
         }
       }
       
@@ -1238,7 +1270,7 @@ export async function registerRoutes(
   });
 
   // Publish a week's schedule (anyone with schedule.publish feature)
-  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), async (req, res) => {
+  app.post("/api/schedule/publish", requireFeatureAccess("schedule.publish"), bulkActionLimiter, async (req, res) => {
     try {
       const user = (req.session as any)?.user;
       
@@ -1246,7 +1278,6 @@ export async function registerRoutes(
       if (!isPublicationWeek(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
-      
       if (req.body.location !== undefined && typeof req.body.location !== "string") {
         return res.status(400).json({ message: "Invalid location" });
       }
@@ -1266,7 +1297,7 @@ export async function registerRoutes(
           const employees = await storage.getEmployees();
 
           let weekShifts = allShifts;
-          if (location && location !== "all") {
+          if (location) {
             const locationEmpIds = new Set(employees.filter(e => e.location === location).map(e => e.id));
             weekShifts = allShifts.filter(s => locationEmpIds.has(s.employeeId));
           }
@@ -1306,14 +1337,13 @@ export async function registerRoutes(
   });
 
   // Unpublish a week's schedule (anyone with schedule.publish feature)
-  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), async (req, res) => {
+  app.delete("/api/schedule/publish/:weekStart", requireFeatureAccess("schedule.publish"), bulkActionLimiter, async (req, res) => {
     try {
       
       const weekStart = req.params.weekStart as string;
       if (!isPublicationWeek(weekStart)) {
         return res.status(400).json({ message: "Invalid weekStart date" });
       }
-      
       const requestedLocation = req.query.location;
       if (requestedLocation !== undefined && typeof requestedLocation !== "string") {
         return res.status(400).json({ message: "Invalid location" });
@@ -1493,6 +1523,21 @@ export async function registerRoutes(
       }));
       const updates = schema.parse(req.body);
       const legacyKeysToRetire = new Set<string>();
+
+      // A non-admin may manage other roles' permissions, but not their own
+      // role's, so the permission can't be used to escalate oneself.
+      const sessionUser = (req.session as any)?.user;
+      if (sessionUser?.role !== "admin") {
+        const current = await getFeaturePermissions();
+        const ownRole = sessionUser?.role;
+        const changesOwnRole = updates.some(u =>
+          SYSTEM_FEATURES.some(f => f.feature === u.feature) &&
+          u.allowedRoles.includes(ownRole) !== (current[u.feature] ?? []).includes(ownRole)
+        );
+        if (changesOwnRole) {
+          return res.status(403).json({ message: "You can't change the permissions of your own role." });
+        }
+      }
 
       for (const update of updates) {
         const featureInfo = SYSTEM_FEATURES.find(f => f.feature === update.feature);

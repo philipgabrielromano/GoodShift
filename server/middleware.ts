@@ -1,10 +1,11 @@
 
 import type { Request, Response, NextFunction } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { storage } from "./storage";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { sendOccurrenceAlertEmail, type OccurrenceAlertEmailData } from "./outlook";
 import { STORE_MANAGER_TITLES } from "./hierarchy";
-import { computeNetTally, getRollingTallyWindow } from "./occurrenceTally";
+import { computeNetTally, getRollingTallyWindow, inWindow } from "./occurrenceTally";
 
 export const TIMEZONE = "America/New_York";
 
@@ -27,7 +28,31 @@ export function createESTTime(baseDate: Date, hours: number, minutes: number = 0
   return fromZonedTime(zonedDate, TIMEZONE);
 }
 
+// Move a date forward by whole calendar days in EST timezone, keeping its
+// wall-clock time. Unlike adding 24h multiples, this stays on the right day
+// across DST transitions (a fall-back week has one 25-hour day).
+export function addDaysInET(baseDate: Date, days: number): Date {
+  const zonedDate = toZonedTime(baseDate, TIMEZONE);
+  zonedDate.setDate(zonedDate.getDate() + days);
+  return fromZonedTime(zonedDate, TIMEZONE);
+}
+
 // Middleware to require authentication (uses session user like rest of codebase)
+// Rate limit for expensive or destructive bulk actions (schedule generate,
+// clear, publish/unpublish, order delete): at most 20 per minute per signed-in
+// user, so a stuck client or script can't hammer them. Per instance.
+export const bulkActionLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = (req.session as any)?.user?.id;
+    return userId ? `user:${userId}` : ipKeyGenerator(req.ip ?? "");
+  },
+  message: { message: "Too many requests. Please wait a minute and try again." },
+});
+
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const user = (req.session as any)?.user;
   if (!user) {
@@ -109,8 +134,31 @@ export async function getFeaturePermissions(): Promise<Record<string, string[]>>
     permissionsCache = perms;
     cacheTimestamp = now;
     return perms;
+  } catch (err) {
+    // Never fall back to the code defaults: they would restore grants an
+    // admin removed. Use the last good read if there is one, else fail.
+    if (permissionsCache) {
+      console.error("[Permissions] Read failed; using last cached permissions:", err);
+      return permissionsCache;
+    }
+    console.error("[Permissions] Read failed and nothing is cached:", err);
+    throw new PermissionsUnavailableError();
+  }
+}
+
+export class PermissionsUnavailableError extends Error {
+  constructor() {
+    super("Permissions are temporarily unavailable");
+    this.name = "PermissionsUnavailableError";
+  }
+}
+
+async function getFeaturePermissionsOr503(res: Response): Promise<Record<string, string[]> | null> {
+  try {
+    return await getFeaturePermissions();
   } catch {
-    return { ...DEFAULT_FEATURE_PERMISSIONS };
+    res.status(503).json({ message: "Permissions are temporarily unavailable. Please try again." });
+    return null;
   }
 }
 
@@ -138,7 +186,8 @@ export function requireFeatureAccess(feature: string) {
     if (user.role === "admin") {
       return next();
     }
-    const perms = await getFeaturePermissions();
+    const perms = await getFeaturePermissionsOr503(res);
+    if (!perms) return;
     const allowedRoles = perms[feature] || [];
     if (!allowedRoles.includes(user.role)) {
       return res.status(403).json({ message: "Access denied" });
@@ -159,7 +208,8 @@ export function requireFeatureAccessAny(features: string[]) {
     if (user.role === "admin") {
       return next();
     }
-    const perms = await getFeaturePermissions();
+    const perms = await getFeaturePermissionsOr503(res);
+    if (!perms) return;
     for (const f of features) {
       const allowedRoles = perms[f] || [];
       if (allowedRoles.includes(user.role)) {
@@ -172,11 +222,13 @@ export function requireFeatureAccessAny(features: string[]) {
 
 // Helper function to check if HR notification should be sent for occurrence thresholds
 // Sends emails to managers assigned to the employee's store location
-// addedOccurrenceValue: the value of the occurrence just added (used to detect crossing vs already over)
+// addedOccurrenceValue: how much the change raised the tally (×100) — an
+// occurrence's value, or minus the value of a retracted adjustment.
 export async function checkAndSendHRNotification(
   employeeId: number, 
-  addedOccurrenceValue: number, 
-  appUrl: string
+  addedOccurrenceValue: number,
+  appUrl: string,
+  addedOccurrenceDate?: string,
 ): Promise<void> {
   try {
     const employee = await storage.getEmployee(employeeId);
@@ -184,43 +236,37 @@ export async function checkAndSendHRNotification(
       return;
     }
 
-    // Calculate current occurrence tally (rolling 12-month window).
-    // Shared math with the in-app alerts / summary / report lives in
-    // server/occurrenceTally.ts so email and in-app views always agree.
-    const window = getRollingTallyWindow();
-
-    // Get occurrences and adjustments (adjustments use the same rolling
-    // window as occurrences — not the calendar year — so backfilled
-    // adjustments near year boundaries are treated consistently)
-    const occurrences = await storage.getOccurrences(employeeId, window.startDate, window.endDate);
-    const adjustments = await storage.getOccurrenceAdjustments(employeeId, window.startDate, window.endDate);
+    // Current tally — same rolling window and formula as the employee page,
+    // alerts and occurrence report (server/occurrenceTally.ts).
+    const tallyWindow = getRollingTallyWindow();
+    const occurrences = await storage.getOccurrences(employeeId, tallyWindow.startDate, tallyWindow.endDate);
+    const adjustments = await storage.getOccurrenceAdjustments(employeeId, tallyWindow.startDate, tallyWindow.endDate);
     const correctiveActions = await storage.getCorrectiveActions(employeeId);
+    const { totalPoints, totalAdjustment, netTally } = computeNetTally(occurrences, adjustments, tallyWindow);
 
-    // Net tally (includes the newly added occurrence). Stored
-    // perfect-attendance adjustments count here exactly like they do in the
-    // in-app alerts and summary; no automatic bonus is applied anywhere.
-    const { netTally } = computeNetTally(occurrences, adjustments, window);
-    
-    // Calculate what the tally was BEFORE this occurrence was added
-    const addedPoints = addedOccurrenceValue / 100;
-    const previousTally = Math.max(0, netTally - addedPoints);
+    // The tally BEFORE this change, from the same data with the change taken
+    // out (before the floor at 0 is applied). A backdated or future-dated
+    // change outside the window didn't move the tally, so it can't have
+    // crossed a threshold.
+    const addedCounts = !addedOccurrenceDate || inWindow(addedOccurrenceDate, tallyWindow);
+    const addedPoints = addedCounts ? addedOccurrenceValue / 100 : 0;
+    const previousTally = Math.max(0, totalPoints + totalAdjustment - addedPoints);
 
     // Helper to check if threshold was JUST crossed (not already over)
     const justCrossedThreshold = (thresholdValue: number): boolean => {
       return previousTally < thresholdValue && netTally >= thresholdValue;
     };
 
-    // Check if a threshold was JUST crossed (previousTally < threshold <= netTally)
+    // Only the highest threshold just crossed matters, and only when its
+    // corrective action isn't on record yet (e.g. a termination already on
+    // record means no further email).
+    const requiredAction = { 8: "termination", 7: "final_warning", 5: "warning" } as const;
     let threshold: 5 | 7 | 8 | null = null;
-    if (justCrossedThreshold(8)) {
-      const hasTerminationAction = correctiveActions.some(a => a.actionType === 'termination');
-      if (!hasTerminationAction) threshold = 8;
-    } else if (justCrossedThreshold(7)) {
-      const hasFinalWarning = correctiveActions.some(a => a.actionType === 'final_warning');
-      if (!hasFinalWarning) threshold = 7;
-    } else if (justCrossedThreshold(5)) {
-      const hasWarning = correctiveActions.some(a => a.actionType === 'warning');
-      if (!hasWarning) threshold = 5;
+    for (const t of [8, 7, 5] as const) {
+      if (justCrossedThreshold(t)) {
+        if (!correctiveActions.some(a => a.actionType === requiredAction[t])) threshold = t;
+        break;
+      }
     }
 
     if (threshold) {

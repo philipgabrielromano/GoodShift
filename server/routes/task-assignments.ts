@@ -1,7 +1,8 @@
-import type { Express, Request } from "express";
+import type { Express } from "express";
 import { storage } from "../storage";
-import { requireFeatureAccess } from "../middleware";
-import { filterEmployeesByLocationScope } from "../access-control";
+import { requireAuth, requireFeatureAccess } from "../middleware";
+import { getUserLocationScope, isLocationInScope } from "../locationScope";
+import { insertTaskAssignmentSchema, TASK_LIST } from "@shared/schema";
 import { z } from "zod";
 
 const taskAssignmentValidation = z.object({
@@ -13,9 +14,28 @@ const taskAssignmentValidation = z.object({
   createdBy: z.number().int().positive().nullable().optional(),
 });
 
-async function scopedEmployeeIds(req: Request, location?: string): Promise<Set<number>> {
-  const employees = await filterEmployeesByLocationScope((req.session as any).user, await storage.getEmployees());
-  return new Set(employees.filter(e => !location || location === "all" || e.location === location).map(e => e.id));
+// Employees whose task assignments the caller may see/change for a request,
+// optionally narrowed to one store. null = every employee (admin, all stores).
+async function resolveTaskScope(
+  user: any,
+  requestedLocation: string | undefined,
+): Promise<{ employeeIds: Set<number> | null; error: string | null }> {
+  const scope = await getUserLocationScope(user);
+  const narrowed = requestedLocation && requestedLocation !== "all" ? requestedLocation : undefined;
+  // A store outside the caller's scope simply has nothing for them.
+  if (narrowed && !isLocationInScope(scope, narrowed)) {
+    return { employeeIds: new Set(), error: null };
+  }
+  if (!narrowed && scope === null) return { employeeIds: null, error: null };
+  const employees = await storage.getEmployees();
+  return {
+    employeeIds: new Set(
+      employees
+        .filter(e => (narrowed ? e.location === narrowed : isLocationInScope(scope, e.location)))
+        .map(e => e.id),
+    ),
+    error: null,
+  };
 }
 
 export function registerTaskAssignmentRoutes(app: Express) {
@@ -24,9 +44,12 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
     }
-    const ids = await scopedEmployeeIds(req, req.query.location as string);
-    const assignments = (await storage.getTaskAssignments(date)).filter(a => ids.has(a.employeeId));
-
+    const { employeeIds, error } = await resolveTaskScope((req.session as any)?.user, req.query.location as string | undefined);
+    if (error) return res.status(403).json({ message: error });
+    let assignments = await storage.getTaskAssignments(date);
+    if (employeeIds) {
+      assignments = assignments.filter(a => employeeIds.has(a.employeeId));
+    }
     res.json(assignments);
   });
 
@@ -35,12 +58,15 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!parsed.success) {
       return res.status(400).json({ message: parsed.error.errors[0].message });
     }
+    const user = (req.session as any)?.user;
     const employee = await storage.getEmployee(parsed.data.employeeId);
     if (!employee) {
       return res.status(400).json({ message: "Employee not found" });
     }
-    if (!(await scopedEmployeeIds(req)).has(employee.id)) return res.status(403).json({ message: "Access denied" });
-    const assignment = await storage.createTaskAssignment(parsed.data);
+    if (!isLocationInScope(await getUserLocationScope(user), employee.location)) {
+      return res.status(403).json({ message: "You can only assign tasks at your assigned store(s)" });
+    }
+    const assignment = await storage.createTaskAssignment({ ...parsed.data, createdBy: user?.id ?? null });
     res.status(201).json(assignment);
   });
 
@@ -49,42 +75,50 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!Array.isArray(assignments) || assignments.length === 0) {
       return res.status(400).json({ message: "assignments array is required" });
     }
-    const ids = await scopedEmployeeIds(req);
-    const validated = [];
+    // Validate and authorize every item before writing any, so a bad item
+    // can't leave the batch half-inserted.
+    const user = (req.session as any)?.user;
+    const { employeeIds } = await resolveTaskScope(user, undefined);
+    const valid = [];
     for (const item of assignments) {
       const parsed = taskAssignmentValidation.safeParse(item);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.errors[0].message });
       }
-      if (!ids.has(parsed.data.employeeId)) return res.status(403).json({ message: "Access denied" });
-      validated.push(parsed.data);
+      if (employeeIds && !employeeIds.has(parsed.data.employeeId)) {
+        return res.status(403).json({ message: "You can only assign tasks at your assigned store(s)" });
+      }
+      valid.push({ ...parsed.data, createdBy: user?.id ?? null });
     }
     const results = [];
-    for (const assignment of validated) results.push(await storage.createTaskAssignment(assignment));
+    for (const item of valid) {
+      results.push(await storage.createTaskAssignment(item));
+    }
     res.status(201).json(results);
   });
 
   app.put("/api/task-assignments/:id", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const updateSchema = taskAssignmentValidation.partial();
+      const updateSchema = taskAssignmentValidation.omit({ createdBy: true }).partial();
       const parsed = updateSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: parsed.error.errors[0].message });
       }
       const existing = await storage.getTaskAssignment(id);
-      if (!existing) return res.status(404).json({ message: "Task assignment not found" });
-      const ids = await scopedEmployeeIds(req);
-      if (!ids.has(existing.employeeId) || (parsed.data.employeeId !== undefined && !ids.has(parsed.data.employeeId))) {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      const updated = await storage.updateTaskAssignment(id, parsed.data);
-      if (!updated) {
+      if (!existing) {
         return res.status(404).json({ message: "Task assignment not found" });
       }
+      const { employeeIds } = await resolveTaskScope((req.session as any)?.user, undefined);
+      if (employeeIds && (!employeeIds.has(existing.employeeId) ||
+          (parsed.data.employeeId !== undefined && !employeeIds.has(parsed.data.employeeId)))) {
+        return res.status(403).json({ message: "You can only change tasks at your assigned store(s)" });
+      }
+      const updated = await storage.updateTaskAssignment(id, parsed.data);
       res.json(updated);
-    } catch {
-      res.status(404).json({ message: "Task assignment not found" });
+    } catch (err) {
+      console.error("[TaskAssignments] Update error:", err);
+      res.status(500).json({ message: "Failed to update task assignment" });
     }
   });
 
@@ -96,15 +130,25 @@ export function registerTaskAssignmentRoutes(app: Express) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate) || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
       return res.status(400).json({ message: "Dates must be YYYY-MM-DD format" });
     }
+    const user = (req.session as any)?.user;
+    const { employeeIds, error } = await resolveTaskScope(user, location);
+    if (error) return res.status(403).json({ message: error });
 
-    const locationEmpIds = await scopedEmployeeIds(req, location);
-    const sourceAssignments = (await storage.getTaskAssignments(sourceDate)).filter(a => locationEmpIds.has(a.employeeId));
+    let sourceAssignments = await storage.getTaskAssignments(sourceDate);
+    if (employeeIds) {
+      sourceAssignments = sourceAssignments.filter(a => employeeIds.has(a.employeeId));
+    }
 
     if (sourceAssignments.length === 0) {
       return res.status(400).json({ message: "No task assignments to copy from source date" });
     }
 
-    await storage.deleteTaskAssignmentsByDate(targetDate, [...locationEmpIds]);
+    // Only the caller's stores (or the chosen store) are replaced on the target day.
+    if (employeeIds) {
+      await storage.deleteTaskAssignmentsByDate(targetDate, Array.from(employeeIds));
+    } else {
+      await storage.deleteTaskAssignmentsByDate(targetDate);
+    }
 
     const results = [];
     for (const a of sourceAssignments) {
@@ -114,7 +158,7 @@ export function registerTaskAssignmentRoutes(app: Express) {
         date: targetDate,
         startMinute: a.startMinute,
         durationMinutes: a.durationMinutes,
-        createdBy: a.createdBy,
+        createdBy: user?.id ?? a.createdBy,
       });
       results.push(created);
     }
@@ -125,18 +169,26 @@ export function registerTaskAssignmentRoutes(app: Express) {
   app.delete("/api/task-assignments/:id", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const existing = await storage.getTaskAssignment(Number(req.params.id));
     if (!existing) return res.status(404).json({ message: "Task assignment not found" });
-    if (!(await scopedEmployeeIds(req)).has(existing.employeeId)) return res.status(403).json({ message: "Access denied" });
-    await storage.deleteTaskAssignment(Number(req.params.id));
+    const { employeeIds } = await resolveTaskScope((req.session as any)?.user, undefined);
+    if (employeeIds && !employeeIds.has(existing.employeeId)) {
+      return res.status(403).json({ message: "You can only change tasks at your assigned store(s)" });
+    }
+    await storage.deleteTaskAssignment(existing.id);
     res.status(204).send();
   });
 
+  // Clear a day — for the selected store (?location=), or every store the
+  // caller covers. Only an admin with no location clears every store.
   app.delete("/api/task-assignments", requireFeatureAccess("task_assignment.edit"), async (req, res) => {
     const date = req.query.date as string;
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ message: "Valid date query parameter (YYYY-MM-DD) is required" });
     }
-    const ids = await scopedEmployeeIds(req, req.query.location as string);
-    const count = await storage.deleteTaskAssignmentsByDate(date, [...ids]);
+    const { employeeIds, error } = await resolveTaskScope((req.session as any)?.user, req.query.location as string | undefined);
+    if (error) return res.status(403).json({ message: error });
+    const count = employeeIds
+      ? await storage.deleteTaskAssignmentsByDate(date, Array.from(employeeIds))
+      : await storage.deleteTaskAssignmentsByDate(date);
     res.json({ deleted: count });
   });
 

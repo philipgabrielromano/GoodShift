@@ -7,13 +7,19 @@ import {
   type DriverInspectionItem,
 } from "@shared/schema";
 import { z } from "zod";
-import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints, UploadClaimError } from "../replit_integrations/object_storage/objectStorage";
 import { sendDriverInspectionAlertEmail } from "../outlook";
 
 const DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
   allowedContentTypes: new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]),
 };
+
+class ItemChangeError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
 
 const LABEL_BY_KEY = DRIVER_INSPECTION_ITEMS.reduce(
   (map, item) => map.set(item.key, item),
@@ -68,8 +74,14 @@ export function registerDriverInspectionRoutes(app: Express) {
       const totalInspections = all.length;
       const inspectionsWithRepairs = all.filter(r => r.anyRepairsNeeded).length;
       const totalOpenRepairItems = all.reduce((s, r) => s + (r.openRepairCount || 0), 0);
-      const inspectionsWithOpenRepairs = all.filter(r => (r.openRepairCount || 0) > 0).length;
-      res.json({ totalInspections, inspectionsWithRepairs, totalOpenRepairItems, inspectionsWithOpenRepairs });
+      const withOpenRepairs = all.filter(r => (r.openRepairCount || 0) > 0);
+      const inspectionsWithOpenRepairs = withOpenRepairs.length;
+      // Distinct vehicles, not inspections: two open inspections of one
+      // tractor are one vehicle needing attention.
+      const vehiclesWithOpenRepairs = new Set(withOpenRepairs.map(r =>
+        r.inspectionType === "trailer" ? `trailer:${r.trailerNumber ?? r.id}` : `tractor:${r.tractorNumber ?? r.id}`
+      )).size;
+      res.json({ totalInspections, inspectionsWithRepairs, totalOpenRepairItems, inspectionsWithOpenRepairs, vehiclesWithOpenRepairs });
     } catch (err) {
       console.error("Error computing driver inspections summary:", err);
       res.status(500).json({ message: "Failed to compute summary" });
@@ -115,21 +127,23 @@ export function registerDriverInspectionRoutes(app: Express) {
       const anyRepairsNeeded = repairItems.length > 0;
       const openRepairCount = repairItems.length;
 
+      // Validate and claim the photo before saving (see claimUpload).
+      const photoUrl = parsed.photoUrl
+        ? await objectStorageService.claimUpload(parsed.photoUrl, {
+            owner: String(sessionUser.id),
+            visibility: "private",
+          }, DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS)
+        : parsed.photoUrl;
+
       const created = await storage.createDriverInspection({
         ...parsed,
+        photoUrl,
         items: normalizedItems,
         driverId: sessionUser?.id ?? null,
         driverName: sessionUser?.name ?? null,
         anyRepairsNeeded,
         openRepairCount,
       });
-
-      if (parsed.photoUrl && sessionUser?.id) {
-        await objectStorageService.trySetObjectAclSilent(parsed.photoUrl, {
-          owner: String(sessionUser.id),
-          visibility: "private",
-        }, DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS);
-      }
 
       // Fire-and-forget repair notification
       if (anyRepairsNeeded) {
@@ -151,7 +165,7 @@ export function registerDriverInspectionRoutes(app: Express) {
                   tractorNumber: parsed.tractorNumber ?? null,
                   trailerNumber: parsed.trailerNumber ?? null,
                   startingMileage: parsed.startingMileage ?? null,
-                  submittedAt: new Date(created.createdAt).toLocaleString(),
+                  submittedAt: new Date(created.createdAt).toLocaleString("en-US", { timeZone: "America/New_York" }),
                   repairItems: repairItems.map(r => ({ label: r.label, section: r.section })),
                   notes: parsed.notes ?? null,
                   appUrl: getAppUrl(req),
@@ -170,6 +184,9 @@ export function registerDriverInspectionRoutes(app: Express) {
 
       res.status(201).json(created);
     } catch (err) {
+      if (err instanceof UploadClaimError) {
+        return res.status(400).json({ message: `Photo could not be attached: ${err.message}` });
+      }
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
       }
@@ -186,35 +203,33 @@ export function registerDriverInspectionRoutes(app: Express) {
       const body = resolveItemSchema.parse(req.body);
       const sessionUser = (req.session as any)?.user;
 
-      const row = await storage.getDriverInspection(id);
-      if (!row) return res.status(404).json({ message: "Inspection not found" });
-
-      const items = (row.items as DriverInspectionItem[]) || [];
-      const idx = items.findIndex(i => i.key === key);
-      if (idx === -1) return res.status(404).json({ message: "Checklist item not found" });
-      if (items[idx].status !== "repair") {
-        return res.status(400).json({ message: "Only repair items can be resolved." });
-      }
-
-      const updated: DriverInspectionItem[] = items.map((it, i) =>
-        i === idx
-          ? {
-              ...it,
-              resolved: body.resolved,
-              resolvedAt: body.resolved ? new Date().toISOString() : null,
-              resolvedById: body.resolved ? (sessionUser?.id ?? null) : null,
-              resolvedByName: body.resolved ? (sessionUser?.name ?? null) : null,
-              resolutionNotes: body.resolved ? (body.resolutionNotes?.trim() || null) : null,
-            }
-          : it
-      );
-
-      const openRepairCount = updated.filter(i => i.status === "repair" && !i.resolved).length;
-      const result = await storage.updateDriverInspectionItems(id, updated, openRepairCount);
+      const result = await storage.modifyDriverInspectionItems(id, items => {
+        const idx = items.findIndex(i => i.key === key);
+        if (idx === -1) throw new ItemChangeError(404, "Checklist item not found");
+        if (items[idx].status !== "repair") {
+          throw new ItemChangeError(400, "Only repair items can be resolved.");
+        }
+        return items.map((it, i) =>
+          i === idx
+            ? {
+                ...it,
+                resolved: body.resolved,
+                resolvedAt: body.resolved ? new Date().toISOString() : null,
+                resolvedById: body.resolved ? (sessionUser?.id ?? null) : null,
+                resolvedByName: body.resolved ? (sessionUser?.name ?? null) : null,
+                resolutionNotes: body.resolved ? (body.resolutionNotes?.trim() || null) : null,
+              }
+            : it
+        );
+      });
+      if (!result) return res.status(404).json({ message: "Inspection not found" });
       res.json(result);
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({ message: err.errors[0].message });
+      }
+      if (err instanceof ItemChangeError) {
+        return res.status(err.status).json({ message: err.message });
       }
       console.error("Error resolving inspection item:", err);
       res.status(500).json({ message: "Failed to update item" });
@@ -233,8 +248,8 @@ export function registerDriverInspectionRoutes(app: Express) {
       if (!fileName || !contentType) {
         return res.status(400).json({ message: "Missing fileName or contentType" });
       }
-      if (!String(contentType).startsWith("image/")) {
-        return res.status(400).json({ message: "Only image uploads are allowed" });
+      if (!DRIVER_INSPECTION_PHOTO_UPLOAD_CONSTRAINTS.allowedContentTypes!.has(String(contentType))) {
+        return res.status(400).json({ message: "Only JPEG, PNG, WebP or GIF photos are allowed" });
       }
       const maxSize = 10 * 1024 * 1024;
       if (fileSize && fileSize > maxSize) {

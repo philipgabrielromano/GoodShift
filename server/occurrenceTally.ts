@@ -1,4 +1,8 @@
+import { formatInTimeZone } from "date-fns-tz";
 import type { Occurrence, OccurrenceAdjustment } from "@shared/schema";
+
+// Same value as TIMEZONE in ./middleware (kept local so this module stays dependency-free)
+const TIMEZONE = "America/New_York";
 
 // ============================================================================
 // Single source of truth for the attendance "net tally" math.
@@ -31,14 +35,21 @@ export interface TallyWindow {
   endDate: string;
 }
 
-/** Rolling 12-month window ending today (matches all tally call sites). */
+/**
+ * Rolling 12-month window ending today in Eastern Time (matches all tally
+ * call sites). "Today" is the ET calendar date: the UTC date is already
+ * tomorrow from 8 PM EDT / 7 PM EST.
+ */
 export function getRollingTallyWindow(now: Date = new Date()): TallyWindow {
-  const oneYearAgo = new Date(now);
-  oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-  return {
-    startDate: oneYearAgo.toISOString().split("T")[0],
-    endDate: now.toISOString().split("T")[0],
-  };
+  const endDate = formatInTimeZone(now, TIMEZONE, "yyyy-MM-dd");
+  // Same month/day one year earlier. Feb 29 → "YYYY-02-29" of a non-leap year,
+  // which still compares correctly as a string (between 02-28 and 03-01).
+  const startDate = `${Number(endDate.slice(0, 4)) - 1}${endDate.slice(4)}`;
+  return { startDate, endDate };
+}
+
+export function inWindow(date: string, window: TallyWindow): boolean {
+  return date >= window.startDate && date <= window.endDate;
 }
 
 /** True when the occurrence adds points (active + not exempt). */

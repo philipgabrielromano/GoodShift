@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 import { storage } from "./storage";
-import { toZonedTime, fromZonedTime } from "date-fns-tz";
-import { isHoliday, getHolidaysInRange } from "./holidays";
+import { toZonedTime, fromZonedTime, formatInTimeZone } from "date-fns-tz";
+import { getClosedHolidaysForYear, isClosedHoliday } from "./holidays";
+import { addDaysInET } from "./middleware";
 
 const TIMEZONE = "America/New_York";
 
@@ -32,9 +33,19 @@ interface AIScheduleResponse {
 
 export async function generateAISchedule(weekStart: string, userLocationIds?: string[]): Promise<{ shifts: any[]; reasoning: string; warnings: string[] }> {
   const startDate = new Date(weekStart);
-  const weekEndDate = new Date(startDate.getTime() + 6 * 24 * 60 * 60 * 1000);
-  const weekStartStr = startDate.toISOString().split('T')[0];
-  const weekEndStr = weekEndDate.toISOString().split('T')[0];
+  const weekEndDate = addDaysInET(startDate, 6);
+  const weekStartStr = formatInTimeZone(startDate, TIMEZONE, 'yyyy-MM-dd');
+  const weekEndStr = formatInTimeZone(weekEndDate, TIMEZONE, 'yyyy-MM-dd');
+
+  // Day index (0 = Sunday) of a YYYY-MM-DD date or an instant, counted in ET
+  // calendar days from the week start. Millisecond division is off by one for
+  // date-only strings (parsed as UTC midnight) and across DST weeks.
+  const etDayIndex = (dateOrKey: Date | string): number => {
+    const key = typeof dateOrKey === "string"
+      ? dateOrKey.slice(0, 10)
+      : formatInTimeZone(dateOrKey, TIMEZONE, 'yyyy-MM-dd');
+    return Math.round((Date.parse(`${key}T00:00:00Z`) - Date.parse(`${weekStartStr}T00:00:00Z`)) / (24 * 60 * 60 * 1000));
+  };
   
   let employees = await storage.getEmployees();
   const settings = await storage.getGlobalSettings();
@@ -81,8 +92,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
     palHoursByEmployee.set(emp.id, currentHours + hoursDecimal);
     
     // Calculate day index (0-6, Sunday-Saturday)
-    const palDate = new Date(pal.workDate);
-    const dayDiff = Math.floor((palDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+    const dayDiff = etDayIndex(pal.workDate);
     if (dayDiff >= 0 && dayDiff < 7) {
       const days = palDaysByEmployee.get(emp.id) || [];
       days.push({ date: pal.workDate, hours: hoursDecimal, dayIndex: dayDiff });
@@ -98,8 +108,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
     if (!emp) continue;
     
     const hoursDecimal = (uto.totalHours || 0) / 60;
-    const utoDate = new Date(uto.workDate);
-    const dayDiff = Math.floor((utoDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+    const dayDiff = etDayIndex(uto.workDate);
     if (dayDiff >= 0 && dayDiff < 7) {
       const days = utoDaysByEmployee.get(emp.id) || [];
       days.push({ date: uto.workDate, hours: hoursDecimal, dayIndex: dayDiff });
@@ -112,7 +121,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
 
   // Fetch existing shifts for the week to respect manually-entered shifts
   // Use 8 days to ensure we capture all Saturday shifts (which may end past midnight UTC)
-  const weekEnd = new Date(startDate.getTime() + 8 * 24 * 60 * 60 * 1000);
+  const weekEnd = addDaysInET(startDate, 8);
   const existingShifts = await storage.getShifts(startDate, weekEnd);
   
   // Build maps of existing shift hours and days per employee
@@ -121,7 +130,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
   
   // Helper to classify shift type based on start time
   function classifyShiftType(startTime: Date, endTime: Date): string {
-    const startHour = startTime.getHours();
+    const startHour = toZonedTime(startTime, TIMEZONE).getHours();
     const duration = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
     
     if (duration >= 7.5) {
@@ -150,7 +159,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
     existingHoursByEmployee.set(shift.employeeId, currentHours + paidHours);
     
     // Calculate day index (0-6)
-    const dayDiff = Math.floor((shiftStart.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+    const dayDiff = etDayIndex(shiftStart);
     if (dayDiff >= 0 && dayDiff < 7) {
       const days = existingDaysByEmployee.get(shift.employeeId) || [];
       days.push({ 
@@ -168,7 +177,7 @@ export async function generateAISchedule(weekStart: string, userLocationIds?: st
     existingShifts.forEach(shift => {
       const emp = employees.find(e => e.id === shift.employeeId);
       const shiftDate = new Date(shift.startTime);
-      const dayDiff = Math.floor((shiftDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+      const dayDiff = etDayIndex(shiftDate);
       console.log(`  - ${emp?.name || 'Unknown'} (ID: ${shift.employeeId}): Day ${dayDiff}, ${shift.startTime} - ${shift.endTime}`);
     });
   }
@@ -356,13 +365,18 @@ ${(() => {
 
 ## HOLIDAYS (STORE IS CLOSED - DO NOT SCHEDULE ANYONE)
 ${(() => {
-  const weekEnd = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-  const holidays = getHolidaysInRange(startDate, weekEnd);
-  if (holidays.length === 0) return 'None this week';
-  return holidays.map(h => {
-    const dayIndex = Math.floor((h.date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
-    return `- Day ${dayIndex} (${h.name}): STORE CLOSED - Do NOT schedule anyone`;
-  }).join('\n');
+  // Only closed holidays — on paid holidays the store is open and must be staffed.
+  // Holiday dates are local-midnight Dates, so key them by local calendar parts.
+  const closed = [Number(weekStartStr.slice(0, 4)), Number(weekEndStr.slice(0, 4))]
+    .filter((y, i, arr) => arr.indexOf(y) === i)
+    .flatMap(y => getClosedHolidaysForYear(y))
+    .map(h => ({
+      name: h.name,
+      dayIndex: etDayIndex(`${h.date.getFullYear()}-${String(h.date.getMonth() + 1).padStart(2, '0')}-${String(h.date.getDate()).padStart(2, '0')}`),
+    }))
+    .filter(h => h.dayIndex >= 0 && h.dayIndex < 7);
+  if (closed.length === 0) return 'None this week';
+  return closed.map(h => `- Day ${h.dayIndex} (${h.name}): STORE CLOSED - Do NOT schedule anyone`).join('\n');
 })()}
 
 ## PRE-FILLED SHIFTS (Already scheduled - DO NOT DUPLICATE or OVERRIDE)
@@ -444,7 +458,7 @@ Respond with a JSON object:
     const existingShiftDays = new Set<string>();
     for (const shift of existingShifts) {
       const shiftDate = new Date(shift.startTime);
-      const dayDiff = Math.floor((shiftDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+      const dayDiff = etDayIndex(shiftDate);
       if (dayDiff >= 0 && dayDiff < 7) {
         existingShiftDays.add(`${shift.employeeId}-${dayDiff}`);
       }
@@ -463,12 +477,13 @@ Respond with a JSON object:
       prod_afternoon: { startHour: 16, startMin: 30, endHour: 20, endMin: 30 },
     };
 
-    const createdShifts = [];
+    // Validated first, then written in one insert so a failure saves nothing.
+    const pendingShifts: { employeeId: number; startTime: Date; endTime: Date }[] = [];
     let skippedDuplicates = 0;
     
     console.log("[AI Scheduler] existingShiftDays set contains %d entries:", existingShiftDays.size, Array.from(existingShiftDays));
     
-    for (const shift of aiResponse.shifts) {
+    for (const shift of Array.isArray(aiResponse.shifts) ? aiResponse.shifts : []) {
       // Skip if employee already has a shift on this day (pre-filled)
       const shiftKey = `${shift.employeeId}-${shift.dayIndex}`;
       if (existingShiftDays.has(shiftKey)) {
@@ -478,21 +493,54 @@ Respond with a JSON object:
         continue;
       }
       
-      const dayMs = startDate.getTime() + shift.dayIndex * 24 * 60 * 60 * 1000;
-      const currentDay = new Date(dayMs);
-      
+      // The model's output is untrusted: only accept in-week days, employees
+      // that were offered to it, and days the store is open.
+      if (!Number.isInteger(shift.dayIndex) || shift.dayIndex < 0 || shift.dayIndex > 6) {
+        console.warn(`[AI Scheduler] Skipping shift with invalid dayIndex ${shift.dayIndex}`);
+        continue;
+      }
+      if (!activeEmployees.some(e => e.id === shift.employeeId)) {
+        console.warn(`[AI Scheduler] Skipping shift for employee ${shift.employeeId} not in this schedule's employee list`);
+        continue;
+      }
+      const currentDay = addDaysInET(startDate, shift.dayIndex);
+      if (isClosedHoliday(currentDay)) continue;
+      // PAL and unpaid time off block the day.
+      const offDays = [...(palDaysByEmployee.get(shift.employeeId) ?? []), ...(utoDaysByEmployee.get(shift.employeeId) ?? [])];
+      if (offDays.some(o => o.dayIndex === shift.dayIndex)) {
+        console.warn(`[AI Scheduler] Skipping shift for employee ${shift.employeeId} on day ${shift.dayIndex}: time off`);
+        continue;
+      }
+
       const times = shiftTimes[shift.shiftType];
       if (!times) continue;
 
-      const shiftStart = createESTTime(currentDay, times.startHour, times.startMin);
-      const shiftEnd = createESTTime(currentDay, times.endHour, times.endMin);
+      // Day 0 is Sunday (store hours 10:00–19:30): clamp to them.
+      let { startHour, startMin, endHour, endMin } = times;
+      if (shift.dayIndex === 0) {
+        if (startHour * 60 + startMin < 10 * 60) { startHour = 10; startMin = 0; }
+        if (endHour * 60 + endMin > 19 * 60 + 30) { endHour = 19; endMin = 30; }
+        if (endHour * 60 + endMin <= startHour * 60 + startMin) continue;
+      }
+      const shiftStart = createESTTime(currentDay, startHour, startMin);
+      const shiftEnd = createESTTime(currentDay, endHour, endMin);
 
-      const createdShift = await storage.createShift({
+      // Never exceed max hours (existing + PAL + what this run already added).
+      const clockHours = (shiftEnd.getTime() - shiftStart.getTime()) / (1000 * 60 * 60);
+      const paidHours = clockHours >= 6 ? clockHours - 0.5 : clockHours;
+      const emp = activeEmployees.find(e => e.id === shift.employeeId)!;
+      const hoursSoFar = (existingHoursByEmployee.get(emp.id) ?? 0) + (palHoursByEmployee.get(emp.id) ?? 0);
+      if (hoursSoFar + paidHours > (emp.maxWeeklyHours || 40)) {
+        console.warn(`[AI Scheduler] Skipping shift for ${emp.name} on day ${shift.dayIndex}: would exceed max hours`);
+        continue;
+      }
+      existingHoursByEmployee.set(emp.id, (existingHoursByEmployee.get(emp.id) ?? 0) + paidHours);
+
+      pendingShifts.push({
         employeeId: shift.employeeId,
         startTime: shiftStart,
         endTime: shiftEnd,
       });
-      createdShifts.push(createdShift);
       
       // Mark this day as now having a shift to prevent duplicates within AI response
       existingShiftDays.add(shiftKey);
@@ -501,6 +549,8 @@ Respond with a JSON object:
     if (skippedDuplicates > 0) {
       console.log(`[AI Scheduler] Skipped ${skippedDuplicates} duplicate shifts for employees with pre-filled days`);
     }
+
+    const createdShifts = await storage.createShiftsBatch(pendingShifts);
 
     // Include info about preserved pre-filled shifts
     const preservedCount = existingShifts.length;

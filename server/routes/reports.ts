@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
-import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE } from "../middleware";
+import { requireAuth, requireManager, requireFeatureAccess, TIMEZONE, addDaysInET } from "../middleware";
+import { fromZonedTime } from "date-fns-tz";
 import { isValidLocationName } from "@shared/locationFilters";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
@@ -16,7 +17,9 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
   return new Set(titles.map(t => t.toUpperCase()));
 }
 
-// Helper to resolve user's locationIds (numeric IDs) to location names
+// Store scope (null = unrestricted). Delegates to the shared policy in
+// server/locationScope.ts: a non-admin with no assigned stores, or only
+// stores that no longer exist, sees no stores.
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
   return getAuthorizedLocationNames(user);
 }
@@ -84,7 +87,18 @@ export function registerReportRoutes(app: Express) {
       // Visibility filtering - same pattern as Coaching/Attendance.
       // Applies to any non-admin, non-viewer user (built-in or custom role)
       // granted reports.occurrences feature access.
-      if (user.role !== "admin" && user.role !== "viewer") {
+      const explicitReports = user.role !== "admin" && user.role !== "viewer" && user.id
+        ? await storage.getDirectReportsForManager(user.id)
+        : [];
+      if (explicitReports.length > 0) {
+        // Explicit direct-report assignments replace the store scope and the
+        // auto hierarchy, exactly as on the attendance and coaching pages.
+        const explicitSet = new Set(explicitReports);
+        filteredEmployees = (showInactive
+          ? allEmployees.filter(e => !e.isActive)
+          : allEmployees.filter(e => e.isActive)
+        ).filter(e => explicitSet.has(e.id) && (!locationFilter || e.location === locationFilter));
+      } else if (user.role !== "admin" && user.role !== "viewer") {
         const managerEmployee = allEmployees.find(e =>
           e.email && user.email && e.email.toLowerCase() === user.email.toLowerCase()
         );
@@ -438,16 +452,22 @@ export function registerReportRoutes(app: Express) {
         return res.json({ weeks: [] });
       }
 
+      // Weeks are ET calendar weeks [Sunday 00:00 ET, next Sunday 00:00 ET).
+      // `new Date(ws + "T00:00:00")` is server-local midnight — UTC on the
+      // host, i.e. 8pm ET Saturday — which cut off Saturday-evening shifts.
       const parsedWeeks = weekStarts.map(ws => {
-        const start = new Date(ws + "T00:00:00");
-        const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const start = fromZonedTime(`${ws}T00:00:00`, TIMEZONE);
+        const end = addDaysInET(start, 7);
         return { ws, start, end };
       });
 
       const minDate = new Date(Math.min(...parsedWeeks.map(w => w.start.getTime())));
       const maxDate = new Date(Math.max(...parsedWeeks.map(w => w.end.getTime())));
 
-      const allShifts = await storage.getShifts(minDate, maxDate);
+      // getShifts filters on endTime <= end; widen by a day so a shift that
+      // starts late Saturday and ends after midnight is still fetched. Each
+      // week below is then bucketed by start time, half-open.
+      const allShifts = await storage.getShifts(minDate, addDaysInET(maxDate, 1));
 
       const weeks = parsedWeeks.map(({ ws, start, end }) => {
         const weekShifts = allShifts.filter(s => {

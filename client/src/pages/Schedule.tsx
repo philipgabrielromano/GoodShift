@@ -215,8 +215,9 @@ export default function Schedule() {
   const updateSettings = useUpdateGlobalSettings();
 
   // Fetch time clock data for the current week
-  const weekStartStr = format(weekStart, "yyyy-MM-dd");
-  const weekEndStr = format(addDays(weekStart, 6), "yyyy-MM-dd");
+  // ET calendar dates (the publish key and PAL/UTO range), not the browser's zone.
+  const weekStartStr = formatInTimeZone(weekStart, TIMEZONE, "yyyy-MM-dd");
+  const weekEndStr = formatInTimeZone(addDays(weekStart, 6), TIMEZONE, "yyyy-MM-dd");
   
   interface TimeClockEntry {
     employeeId: string;
@@ -266,6 +267,16 @@ export default function Schedule() {
     staleTime: 5 * 60 * 1000,
   });
   
+  // PAL hours per employee for the week (passed to the validator so its
+  // max-hours check matches the grid and the generator).
+  const palHoursByEmployee = useMemo(() => {
+    const map = new Map<number, number>();
+    for (const entry of palEntries ?? []) {
+      if (entry.employeeId) map.set(entry.employeeId, (map.get(entry.employeeId) ?? 0) + entry.hoursDecimal);
+    }
+    return map;
+  }, [palEntries]);
+
   // Create a lookup map for PAL entries by employee ID and date
   const palByEmpDate = useMemo(() => {
     const map = new Map<string, PALEntry>();
@@ -1606,7 +1617,7 @@ export default function Schedule() {
           })()}
           
           {/* Schedule Validator */}
-          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} />}
+          {canEditSchedule && <ScheduleValidator weekStart={weekStart} onRemediate={handleRemediation} selectedLocation={selectedLocation} palHoursByEmployee={palHoursByEmployee} />}
           
         </div>
         

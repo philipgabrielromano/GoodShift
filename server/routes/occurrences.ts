@@ -1,12 +1,26 @@
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { requireAuth, requireFeatureAccess } from "../middleware";
-import { checkAndSendHRNotification } from "../middleware";
+import { checkAndSendHRNotification, TIMEZONE } from "../middleware";
+import { formatInTimeZone } from "date-fns-tz";
+import { ABSENCE_REASONS } from "@shared/schema";
 import { getHierarchyLevel, getEffectiveLevel } from "../hierarchy";
 import { computeNetTally, getRollingTallyWindow } from "../occurrenceTally";
-import { ObjectStorageService, UploadConstraints } from "../replit_integrations/object_storage/objectStorage";
+import { ObjectStorageService, UploadConstraints, UploadClaimError } from "../replit_integrations/object_storage/objectStorage";
 import { getAuthorizedLocationNames } from "../access-control";
 import { isValidObjectPath } from "../security/urlValidation";
+
+// Points (×100) per occurrence type. An NCNS counts as a full occurrence.
+const OCCURRENCE_TYPE_VALUES: Record<string, number> = { half: 50, full: 100, ncns: 100 };
+
+// YYYY-MM-DD, a real calendar date, and not after today in Eastern Time.
+function validatePastOrTodayDate(value: unknown, field: string): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${field} must be in YYYY-MM-DD format`;
+  const parsed = new Date(value + "T00:00:00Z");
+  if (isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) return `${field} is not a valid calendar date`;
+  if (value > formatInTimeZone(new Date(), TIMEZONE, "yyyy-MM-dd")) return `${field} cannot be in the future`;
+  return null;
+}
 
 const OCCURRENCE_UPLOAD_CONSTRAINTS: UploadConstraints = {
   maxSizeBytes: 10 * 1024 * 1024,
@@ -20,11 +34,14 @@ async function getVisibleJobTitleSet(viewerJobTitle: string | null | undefined):
   return new Set(titles.map(t => t.toUpperCase()));
 }
 
+// Store scope (null = unrestricted). Delegates to the shared policy in
+// server/locationScope.ts: a non-admin with no assigned stores, or only
+// stores that no longer exist, sees no stores.
 async function getAllowedLocationNames(user: any): Promise<Set<string> | null> {
   return getAuthorizedLocationNames(user);
 }
 
-async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<boolean> {
+export async function canAccessEmployee(user: any, targetEmployeeId: number): Promise<boolean> {
   if (user.role === "admin") return true;
 
   const allEmployees = await storage.getEmployees();
@@ -248,10 +265,22 @@ export function registerOccurrenceRoutes(app: Express) {
     try {
       const user = (req.session as any)?.user;
       
-      const { employeeId, occurrenceDate, occurrenceType, occurrenceValue, illnessGroupId, notes, isNcns, isFmla, isOtherLeave, isConsecutiveSickness, reason, documentUrl } = req.body;
+      const { employeeId, occurrenceDate, occurrenceType, illnessGroupId, notes, isFmla, isOtherLeave, isConsecutiveSickness, reason, documentUrl } = req.body;
       
-      if (!employeeId || !occurrenceDate || !occurrenceType || occurrenceValue === undefined) {
-        return res.status(400).json({ message: "employeeId, occurrenceDate, occurrenceType, and occurrenceValue are required" });
+      if (!employeeId || !occurrenceDate || !occurrenceType) {
+        return res.status(400).json({ message: "employeeId, occurrenceDate, and occurrenceType are required" });
+      }
+      // The value and the NCNS flag follow from the type; the client's
+      // occurrenceValue/isNcns are ignored so a value can't be made up.
+      const occurrenceValue = OCCURRENCE_TYPE_VALUES[occurrenceType as string];
+      if (occurrenceValue === undefined) {
+        return res.status(400).json({ message: "occurrenceType must be 'half', 'full' or 'ncns'" });
+      }
+      const isNcns = occurrenceType === "ncns";
+      const dateError = validatePastOrTodayDate(occurrenceDate, "occurrenceDate");
+      if (dateError) return res.status(400).json({ message: dateError });
+      if (reason && !ABSENCE_REASONS.some(r => r.value === reason)) {
+        return res.status(400).json({ message: "Invalid reason" });
       }
       if (documentUrl != null && documentUrl !== "" && !isValidObjectPath(documentUrl)) {
         return res.status(400).json({ message: "Invalid document path" });
@@ -262,19 +291,15 @@ export function registerOccurrenceRoutes(app: Express) {
         return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
       }
 
-      if (documentUrl) {
-        try {
-          await objectStorageService.trySetObjectEntityAclPolicy(documentUrl, {
+      // Validate and claim the PDF before saving (see claimUpload).
+      const claimedDocumentUrl = documentUrl
+        ? await objectStorageService.claimUpload(documentUrl, {
             owner: String(user.id),
             visibility: "private",
-          }, OCCURRENCE_UPLOAD_CONSTRAINTS);
-        } catch (err) {
-          console.warn("[Occurrences] Rejected document attachment:", err);
-          return res.status(400).json({ message: "Invalid or unavailable document attachment" });
-        }
-      }
-      
-      const occurrence = await storage.createOccurrence({
+          }, OCCURRENCE_UPLOAD_CONSTRAINTS)
+        : null;
+
+      const occurrence = await storage.createOccurrenceUnlessDuplicate({
         employeeId,
         occurrenceDate,
         occurrenceType,
@@ -286,22 +311,28 @@ export function registerOccurrenceRoutes(app: Express) {
         isOtherLeave: isOtherLeave || false,
         isConsecutiveSickness: isConsecutiveSickness || false,
         reason: reason || null,
-        documentUrl: documentUrl || null,
+        documentUrl: claimedDocumentUrl,
         createdBy: user.id
       });
-
+      if (!occurrence) {
+        return res.status(409).json({ message: "This occurrence is already recorded for that date. Retract it first to record it again." });
+      }
+      
       // Only check HR notification thresholds for countable occurrences (not FMLA, other leave, or consecutive sickness)
       if (!isFmla && !isOtherLeave && !isConsecutiveSickness) {
         const protocol = req.headers['x-forwarded-proto'] || 'https';
         const host = req.headers.host || 'localhost:5000';
         const appUrl = `${protocol}://${host}`;
-        checkAndSendHRNotification(employeeId, occurrenceValue, appUrl).catch(err => 
+        checkAndSendHRNotification(employeeId, occurrenceValue, appUrl, occurrenceDate).catch(err => 
           console.error('[HR Notification] Background error:', err)
         );
       }
       
       res.status(201).json(occurrence);
     } catch (error) {
+      if (error instanceof UploadClaimError) {
+        return res.status(400).json({ message: `Document could not be attached: ${error.message}` });
+      }
       console.error("Error creating occurrence:", error);
       res.status(500).json({ message: "Failed to create occurrence" });
     }
@@ -329,6 +360,9 @@ export function registerOccurrenceRoutes(app: Express) {
       }
       
       const occurrence = await storage.retractOccurrence(id, reason, user.id);
+      if (!occurrence) {
+        return res.status(409).json({ message: "This occurrence is already retracted" });
+      }
       res.json(occurrence);
     } catch (error) {
       console.error("Error retracting occurrence:", error);
@@ -359,8 +393,14 @@ export function registerOccurrenceRoutes(app: Express) {
 
       const adjustment = await storage.retractAdjustment(id, reason, user.id);
       if (!adjustment) {
-        return res.status(404).json({ message: "Adjustment not found" });
+        return res.status(409).json({ message: "This adjustment is already retracted" });
       }
+      // Retracting an adjustment raises the tally, so it can cross a threshold.
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      const host = req.headers.host || 'localhost:5000';
+      checkAndSendHRNotification(targetAdj.employeeId, -targetAdj.adjustmentValue, `${protocol}://${host}`, targetAdj.adjustmentDate).catch(err =>
+        console.error('[HR Notification] Background error:', err)
+      );
       res.json(adjustment);
     } catch (error) {
       console.error("Error retracting adjustment:", error);
@@ -393,8 +433,8 @@ export function registerOccurrenceRoutes(app: Express) {
       // rolling-window filter itself. An adjustment dated in a prior year
       // that's still inside the rolling window (e.g. backfilled to 2025-11
       // while viewing in 2026-05) reduces the current net tally just like
-      // occurrences in the same window.
-      const currentYear = now.getFullYear();
+      // occurrences in the same window. The year is the ET calendar year.
+      const currentYear = Number(endDate.slice(0, 4));
       const allAdjustmentsEver = await storage.getOccurrenceAdjustments(employeeId, '1900-01-01', endDate);
       const currentYearAdjustments = allAdjustmentsEver.filter(a => a.calendarYear === currentYear);
       
@@ -630,8 +670,7 @@ export function registerOccurrenceRoutes(app: Express) {
         return res.status(403).json({ message: "You do not have access to manage occurrences for this employee" });
       }
       
-      const now = new Date();
-      const todayStr = now.toISOString().split('T')[0];
+      const todayStr = formatInTimeZone(new Date(), TIMEZONE, "yyyy-MM-dd");
 
       // Validate optional adjustmentDate (YYYY-MM-DD); reject future and invalid dates
       let effectiveDate = todayStr;
@@ -672,7 +711,7 @@ export function registerOccurrenceRoutes(app: Express) {
         return res.status(400).json({ message: `Employee has already used their adjustment for ${year}` });
       }
       
-      const adjustment = await storage.createOccurrenceAdjustment({
+      const adjustment = await storage.createManualAdjustmentWithinYearlyCap({
         employeeId,
         adjustmentDate: effectiveDate,
         adjustmentValue,
@@ -681,6 +720,9 @@ export function registerOccurrenceRoutes(app: Express) {
         calendarYear: year,
         createdBy: user.id
       });
+      if (!adjustment) {
+        return res.status(400).json({ message: `Employee has already used their adjustment for ${year}` });
+      }
       
       res.status(201).json(adjustment);
     } catch (error) {
@@ -782,11 +824,24 @@ export function registerOccurrenceRoutes(app: Express) {
 
       const allActions = await storage.getAllCorrectiveActions();
       const targetAction = allActions.find(a => a.id === id);
-      if (targetAction) {
-        const hasAccess = await canAccessEmployee(user, targetAction.employeeId);
-        if (!hasAccess) {
-          return res.status(403).json({ message: "You do not have access to manage corrective actions for this employee" });
-        }
+      if (!targetAction) {
+        return res.status(404).json({ message: "Corrective action not found" });
+      }
+      const hasAccess = await canAccessEmployee(user, targetAction.employeeId);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "You do not have access to manage corrective actions for this employee" });
+      }
+      // Remove steps top-down: a warning can't go while a final warning or
+      // termination that builds on it is still on record.
+      const laterSteps: Record<string, string[]> = {
+        warning: ["final_warning", "termination"],
+        final_warning: ["termination"],
+      };
+      const blocking = allActions.find(a =>
+        a.employeeId === targetAction.employeeId && (laterSteps[targetAction.actionType] ?? []).includes(a.actionType)
+      );
+      if (blocking) {
+        return res.status(409).json({ message: `Remove the ${blocking.actionType.replace("_", " ")} first; it builds on this ${targetAction.actionType.replace("_", " ")}.` });
       }
 
       await storage.deleteCorrectiveAction(id);
