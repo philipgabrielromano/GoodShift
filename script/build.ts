@@ -55,7 +55,9 @@ async function buildAll() {
     define: {
       "process.env.NODE_ENV": '"production"',
     },
-    minify: true,
+    // Readable server lines keep Node's fatal source excerpts from flooding
+    // deployment logs and truncating the actual exception. Client stays minified.
+    minify: false,
     external: externals,
     logLevel: "info",
   });

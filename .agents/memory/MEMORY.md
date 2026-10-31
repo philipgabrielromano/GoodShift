@@ -5,3 +5,4 @@
 - [Permission test contracts](permission-test-contracts.md) — verify form lookup dependencies, not just current route wiring, when repairing stale permission tests.
 - [Permission test isolation](permission-test-isolation.md) — direct test invocations must be safe; restoring shared permission snapshots can erase concurrent edits.
 - [Order identity ambiguity](order-identity-ambiguity.md) — deny scoped access to ambiguous legacy aliases rather than guessing which store owns historical orders.
+- [Production crash diagnostics](production-crash-diagnostics.md) — compact fatal logs and helper cleanup; never swallow crashes or replay submissions.

@@ -8,10 +8,11 @@
     "test:permissions": "npx tsx --test test/permissions.test.ts",
     "test:occurrences": "tsx --test test/occurrence-thresholds.test.ts",
     "test:dependency-security": "tsx --test test/dependency-dos.test.ts",
-    "validate:release": "npm run check && npm run test:permissions",
+    "test:lifecycle": "node --test test/production-lifecycle.test.cjs",
+    "validate:release": "npm run check && npm run test:permissions && npm run test:lifecycle",
     "prebuild": "npm run validate:release",
     "build": "tsx script/build.ts",
-    "start": "NODE_ENV=production node dist/index.cjs",
+    "start": "bash scripts/start-production.sh",
     "check": "tsc",
     "db:push": "drizzle-kit push"
   },

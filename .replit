@@ -74,7 +74,7 @@ PORT = "5000"
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "bash scripts/start-tailscale.sh && node dist/index.cjs"]
+run = ["bash", "scripts/start-production.sh"]
 build = ["npm", "run", "build"]
 
 [workflows]
