@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useRoute, useLocation as useWouterLocation } from "wouter";
+import { Link, useRoute, useLocation as useWouterLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocations } from "@/hooks/use-locations";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Loader2, ClipboardList, Pencil, Lock, Clock, CheckCircle2 } from "lucide-react";
+import { Loader2, ClipboardList, Pencil, Lock, Clock, CheckCircle2, AlertTriangle } from "lucide-react";
 import { ORDER_CONFIRMATION_KIND } from "@shared/schema";
 
 const ORDER_TYPES = [
@@ -182,6 +182,35 @@ const FIRST_AID_FIELDS = [
   { field: "eyeWash32oz" as const, label: "Eye Wash (32oz)", testId: "input-eye-wash-32oz" },
 ];
 
+// GET /api/orders/reconciliation-hold — unconfirmed Transfer & Receive orders
+// that stop this store from submitting a new one.
+interface ReconciliationHold {
+  blocked: boolean;
+  canOverride: boolean;
+  orders: { id: number; orderDate: string }[];
+}
+const HOLD_PATH = "/api/orders/reconciliation-hold";
+const isHoldQueryKey = (key: readonly unknown[]) =>
+  typeof key[0] === "string" && key[0].startsWith(HOLD_PATH);
+
+function formatYmd(ymd: string): string {
+  const [y, m, d] = ymd.split("-");
+  return y && m && d ? `${Number(m)}/${Number(d)}/${y}` : ymd;
+}
+
+// apiRequest throws "<status>: <body>"; pull the server's message out of a
+// JSON body so the toast reads as plain language.
+function serverMessage(err: Error): string {
+  const match = err.message.match(/^\d{3}: (\{.*\})$/s);
+  if (match) {
+    try {
+      const body = JSON.parse(match[1]);
+      if (typeof body?.message === "string") return body.message;
+    } catch { /* not JSON */ }
+  }
+  return err.message;
+}
+
 interface AuthStatus {
   isAuthenticated: boolean;
   user: { id: number; name: string; email: string; role: string; locationIds: string[] | null } | null;
@@ -314,6 +343,27 @@ export default function OrderForm() {
   const isConfirmedGoodsMoving = !!existingKind && !!existingConfirmedAt;
   const editLocked = isEditMode && isConfirmedGoodsMoving;
 
+  // Reconciliation hold: a store with unconfirmed Transfer & Receive orders
+  // can't submit a new one. Only relevant when this form would create a new
+  // T&R request for the selected store (a new order, or an edit that changes
+  // the type or the store). The server enforces the same rule.
+  const existingLocation = existingOrder?.location as string | undefined;
+  const holdApplies =
+    isTransfer &&
+    !!location &&
+    !editLocked &&
+    (!isEditMode || existingType !== "Transfer and Receive" || existingLocation !== location);
+  const { data: hold } = useQuery<ReconciliationHold>({
+    queryKey: [`${HOLD_PATH}?location=${encodeURIComponent(location ?? "")}`],
+    enabled: holdApplies,
+    // The app default caches forever; the hold changes whenever an order is
+    // confirmed or approved elsewhere, so always re-check when the form opens.
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const activeHold = holdApplies && hold?.blocked ? hold : null;
+  const holdBlocksSubmit = !!activeHold && !activeHold.canOverride;
+
   const submitMutation = useMutation({
     mutationFn: async (data: FormValues) => {
       const method = isEditMode ? "PUT" : "POST";
@@ -321,9 +371,13 @@ export default function OrderForm() {
       const res = await apiRequest(method, url, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (result: { warning?: string }) => {
       toast({ title: isEditMode ? "Order updated successfully" : "Order submitted successfully" });
+      if (result?.warning) {
+        toast({ title: "Reconciliation hold overridden", description: result.warning });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
+      queryClient.invalidateQueries({ predicate: q => isHoldQueryKey(q.queryKey) });
       if (isEditMode) {
         navigate("/orders");
       } else {
@@ -331,16 +385,18 @@ export default function OrderForm() {
       }
     },
     onError: (err: Error) => {
+      // A 409 may be the reconciliation hold; refresh the banner either way.
+      queryClient.invalidateQueries({ predicate: q => isHoldQueryKey(q.queryKey) });
       toast({
         title: isEditMode ? "Failed to update order" : "Failed to submit order",
-        description: err.message,
+        description: serverMessage(err),
         variant: "destructive",
       });
     },
   });
 
   const onSubmit = (data: FormValues) => {
-    if (editLocked) return;
+    if (editLocked || holdBlocksSubmit) return;
     submitMutation.mutate(data);
   };
 
@@ -463,6 +519,46 @@ export default function OrderForm() {
             </div>
           </CardContent>
         </Card>
+
+        {activeHold && (
+          <div
+            className={
+              activeHold.canOverride
+                ? "flex items-start gap-3 rounded border-l-4 border-amber-500 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm"
+                : "flex items-start gap-3 rounded border-l-4 border-destructive bg-destructive/10 p-3 text-sm"
+            }
+            role="alert"
+            data-testid={activeHold.canOverride ? "banner-reconciliation-hold-override" : "banner-reconciliation-hold"}
+          >
+            <AlertTriangle
+              className={
+                activeHold.canOverride
+                  ? "w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+                  : "w-4 h-4 mt-0.5 shrink-0 text-destructive"
+              }
+            />
+            <div className="space-y-1">
+              <div className="font-medium">
+                {location} has {activeHold.orders.length} Transfer &amp; Receive{" "}
+                {activeHold.orders.length === 1 ? "order" : "orders"} that still need to be reconciled.
+              </div>
+              <ul className="list-disc pl-5 text-muted-foreground" data-testid="list-reconciliation-hold-orders">
+                {activeHold.orders.slice(0, 5).map(o => (
+                  <li key={o.id}>Order #{o.id} — {formatYmd(o.orderDate)}</li>
+                ))}
+                {activeHold.orders.length > 5 && <li>…and {activeHold.orders.length - 5} more</li>}
+              </ul>
+              <div className="text-muted-foreground">
+                {activeHold.canOverride
+                  ? "You can still submit this order as an override. It will be noted in the order's history."
+                  : "Confirm what was received on those orders before submitting a new Transfer & Receive order."}{" "}
+                <Link href="/orders" className="underline font-medium text-foreground" data-testid="link-reconcile-orders">
+                  Go to Order Submissions
+                </Link>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isTransfer && (
           <>
@@ -745,12 +841,16 @@ export default function OrderForm() {
         <Button
           type="submit"
           className="w-full md:w-auto"
-          disabled={submitMutation.isPending || editLocked}
+          disabled={submitMutation.isPending || editLocked || holdBlocksSubmit}
           data-testid="button-submit-order"
         >
           {submitMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-          {editLocked ? <Lock className="w-4 h-4 mr-2" /> : null}
-          {editLocked ? "Locked — confirmed" : isEditMode ? "Update Order" : "Submit Order"}
+          {editLocked || holdBlocksSubmit ? <Lock className="w-4 h-4 mr-2" /> : null}
+          {editLocked
+            ? "Locked — confirmed"
+            : holdBlocksSubmit
+              ? "Reconcile earlier orders first"
+              : isEditMode ? "Update Order" : "Submit Order"}
         </Button>
       </form>
     </div>
