@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { unambiguousOrderLocationNames } from "../order-location-access";
 import type { ResultSetHeader, RowDataPacket } from "mysql2";
-import { requireFeatureAccess, requireAdmin, userHasFeature, bulkActionLimiter } from "../middleware";
+import { requireFeatureAccess, requireAdmin, userHasFeature, bulkActionLimiter, readLimiter } from "../middleware";
 import type { PoolConnection } from "mysql2/promise";
 import { mysqlPool } from "../mysql";
 import { errorStatus } from "../errors";
@@ -15,6 +15,15 @@ import {
   type OrderNotificationEmailData,
 } from "../outlook";
 import { storage } from "../storage";
+import {
+  decideTransferHold,
+  findBlockingTransferOrders,
+  HOLD_LOCKED_MESSAGE,
+  isOrderHoldingStore,
+  RECONCILIATION_HOLD_LOCKED_CODE,
+  TRANSFER_ORDER_TYPE,
+  type TransferHoldDecision,
+} from "../services/orderReconciliationHold";
 import {
   ORDER_STATUSES,
   type OrderStatus,
@@ -597,6 +606,24 @@ export function registerOrderRoutes(app: Express) {
         });
       }
 
+      // Reconciliation hold: no new T&R order while this store has unconfirmed
+      // T&R orders under the policy. Admins/approvers (unrestricted scope) may
+      // override; the override is recorded on the order's history. Checked
+      // outside the insert transaction: a new submitted order never blocks
+      // anything, so there's nothing to lock.
+      let holdOverride: Extract<TransferHoldDecision, { action: "override" }> | null = null;
+      if (parsed.orderType === TRANSFER_ORDER_TYPE) {
+        const decision = decideTransferHold({
+          orderType: parsed.orderType,
+          blockers: await findBlockingTransferOrders(mysqlPool, parsed.location),
+          canOverride: allowedLocations === null,
+        });
+        if (decision.action === "block") {
+          return res.status(409).json(decision.body);
+        }
+        if (decision.action === "override") holdOverride = decision;
+      }
+
       const { columns, values } = toSnakeColumns(parsed);
 
       columns.push("submitted_by");
@@ -637,6 +664,7 @@ export function registerOrderRoutes(app: Express) {
         toStatus: isAutoApproved ? "approved" : "submitted",
         byUserId: actor.id,
         byUserName: isAutoApproved ? "auto_approved" : actor.name,
+        note: holdOverride?.auditNote ?? null,
       });
 
       const finalStatus = isAutoApproved ? "approved" : "submitted";
@@ -644,6 +672,7 @@ export function registerOrderRoutes(app: Express) {
         id: newOrderId,
         status: finalStatus,
         message: isAutoApproved ? "Order submitted and auto-approved" : "Order submitted successfully",
+        ...(holdOverride ? { warning: holdOverride.warning } : {}),
       });
 
       const submittedBy = actor.name;
@@ -794,6 +823,28 @@ export function registerOrderRoutes(app: Express) {
     } catch (err) {
       console.error("[Orders] Error fetching orders:", err);
       res.status(errorStatus(err)).json({ message: "Failed to fetch orders" });
+    }
+  });
+
+  // Reconciliation hold status for the Order Form: does this store have
+  // unconfirmed T&R orders that block a new T&R submission? Store-scoped like
+  // submit (404, not 403, for another store so its status isn't revealed).
+  // Registered before /api/orders/:id so that route can't capture it.
+  app.get("/api/orders/reconciliation-hold", requireFeatureAccess("orders.submit"), readLimiter, async (req, res) => {
+    try {
+      const location = typeof req.query.location === "string" ? req.query.location.trim() : "";
+      if (!location) {
+        return res.status(400).json({ message: "location is required" });
+      }
+      const allowedLocations = await getUserAllowedLocationNames((req.session as any)?.user);
+      if (allowedLocations !== null && !allowedLocations.includes(location)) {
+        return res.status(404).json({ message: "Location not found" });
+      }
+      const orders = await findBlockingTransferOrders(mysqlPool, location);
+      res.json({ blocked: orders.length > 0, canOverride: allowedLocations === null, orders });
+    } catch (err) {
+      console.error("[Orders] Error checking reconciliation hold:", err);
+      res.status(errorStatus(err)).json({ message: "Failed to check reconciliation status" });
     }
   });
 
@@ -1986,6 +2037,14 @@ export function registerOrderRoutes(app: Express) {
             message: "You can only edit orders for your assigned store(s).",
           });
         }
+        // Reconciliation hold: a store user can't edit away the order that is
+        // holding their store (any edit would send it back to "submitted").
+        if (await isOrderHoldingStore(conn, existing[0] as any)) {
+          await conn.rollback();
+          conn.release();
+          conn = null;
+          return res.status(409).json({ code: RECONCILIATION_HOLD_LOCKED_CODE, message: HOLD_LOCKED_MESSAGE });
+        }
       }
 
       // An edit by someone who can't approve must not keep an approval nobody
@@ -2011,6 +2070,29 @@ export function registerOrderRoutes(app: Express) {
           conn = null;
           return res.status(409).json({ message: blockedMessage });
         }
+      }
+
+      // Reconciliation hold: an edit that turns an order into a T&R, or moves
+      // a T&R to another store, is a new T&R request for that store. The order
+      // being edited never counts against itself.
+      let holdOverride: Extract<TransferHoldDecision, { action: "override" }> | null = null;
+      const beforeLocation = String(existing[0].location ?? "");
+      if (
+        parsed.orderType === TRANSFER_ORDER_TYPE &&
+        (existingType !== TRANSFER_ORDER_TYPE || beforeLocation !== parsed.location)
+      ) {
+        const decision = decideTransferHold({
+          orderType: parsed.orderType,
+          blockers: await findBlockingTransferOrders(conn, parsed.location, { excludeOrderId: id }),
+          canOverride: scopeLocations === null,
+        });
+        if (decision.action === "block") {
+          await conn.rollback();
+          conn.release();
+          conn = null;
+          return res.status(409).json(decision.body);
+        }
+        if (decision.action === "override") holdOverride = decision;
       }
 
       // Seasonal balance is informational only — edits are not blocked by
@@ -2064,7 +2146,10 @@ export function registerOrderRoutes(app: Express) {
         toStatus: resetToSubmitted ? "submitted" : beforeStatus,
         byUserId: actor.id,
         byUserName: actor.name,
-        note: resetToSubmitted ? `Edited after ${beforeStatus}; sent back for warehouse approval` : null,
+        note: [
+          resetToSubmitted ? `Edited after ${beforeStatus}; sent back for warehouse approval` : null,
+          holdOverride?.auditNote ?? null,
+        ].filter(Boolean).join(" ") || null,
         changes: { before, after },
       });
 
@@ -2073,6 +2158,7 @@ export function registerOrderRoutes(app: Express) {
           ? "Order updated and sent back to the warehouse for approval"
           : "Order updated successfully",
         status: resetToSubmitted ? "submitted" : beforeStatus,
+        ...(holdOverride ? { warning: holdOverride.warning } : {}),
       });
     } catch (err) {
       if (conn) {
@@ -2121,6 +2207,13 @@ export function registerOrderRoutes(app: Express) {
         return res.status(409).json({
           message: "This order has been confirmed. Undo the confirmation before deleting it.",
         });
+      }
+
+      // Reconciliation hold: a store user can't delete the order that is
+      // holding their store. Admins/approvers (unrestricted scope) can.
+      if (allowedDelLocations !== null && (await isOrderHoldingStore(conn, row))) {
+        await conn.rollback(); conn.release(); conn = null;
+        return res.status(409).json({ code: RECONCILIATION_HOLD_LOCKED_CODE, message: HOLD_LOCKED_MESSAGE });
       }
 
       // Write the audit row (with a full snapshot, since the order itself is

@@ -1615,6 +1615,13 @@ export const GOODS_MOVING_ORDER_TYPES = [
   "End of Day/Equipment Count",
 ] as const;
 
+// Transfer & Receive reconciliation hold: a store can't submit a new T&R order
+// while it has an approved-but-unconfirmed T&R order dated or submitted AFTER
+// this calendar day (America/New_York). Older orders are grandfathered so
+// stores don't have to go back and reconcile them. The rule itself lives in
+// server/services/orderReconciliationHold.ts.
+export const TR_RECONCILIATION_POLICY_DATE = "2026-11-16";
+
 // Which confirmation flow an order type uses.
 //  - "receipt": the receiving store types what it actually received / returned.
 //  - "export":  the transportation designee types what was actually loaded.

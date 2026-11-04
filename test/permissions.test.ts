@@ -428,6 +428,15 @@ const ROUTE_GATES: RouteGate[] = [
       /app\.get\(\s*"\/api\/orders\/seasonal-balances"\s*,\s*requireFeatureAccess\(\s*"orders\.submit"\s*\)/,
   },
   {
+    feature: "orders.submit",
+    method: "GET",
+    path: "/api/orders/reconciliation-hold?location=Test%20Store%20A",
+    kind: "real",
+    sourceFile: "server/routes/orders.ts",
+    sourcePattern:
+      /app\.get\(\s*"\/api\/orders\/reconciliation-hold"\s*,\s*requireFeatureAccess\(\s*"orders\.submit"\s*\)/,
+  },
+  {
     feature: "orders.receive",
     method: "POST",
     path: "/api/orders/999999/fulfill",
@@ -1496,6 +1505,257 @@ test("seasonal aggregation isolates accent-equivalent order identities before su
     await setAllowedRoles("orders.submit", originalSubmit);
     await setAllowedRoles("seasonal_inventory.view", originalSeasonal);
   }
+});
+
+// -------------------- Transfer & Receive reconciliation hold --------------------
+// Store A has one approved, unconfirmed T&R order that falls under the policy
+// (submitted after the cutoff, dated in the past). Store B has none.
+const HOLD_LOCATIONS = [
+  { id: 1, name: "Test Store A", orderFormName: "Test Store A" },
+  { id: 2, name: "Test Store B", orderFormName: "Test Store B" },
+];
+const HOLD_BLOCKER_ROW = { id: 11, order_ymd: "2026-11-01", submitted_after_cutoff: 1 };
+const isHoldQuery = (sql: string) => /submitted_after_cutoff/.test(sql);
+const holdRowsFor = (params: unknown[]) => (params.includes("Test Store A") ? [HOLD_BLOCKER_ROW] : []);
+const TR_ORDER_BODY = { orderDate: "2026-11-01", orderType: "Transfer and Receive", location: "Test Store A" };
+
+test("reconciliation hold lookup is limited to the caller's own stores", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  const execute = t.mock.method(mysqlPool, "execute", async (sql: string, params: unknown[]) => {
+    assert.ok(isHoldQuery(sql), "only the hold query should run");
+    assert.match(sql, /BINARY location = \?/);
+    return [holdRowsFor(params), []];
+  });
+  const originalSubmit = await grantTestRole("orders.submit");
+  try {
+    const cookie = (await request({ method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1"] } })).cookie!;
+    const own = await request({ method: "GET", path: "/api/orders/reconciliation-hold?location=Test%20Store%20A", cookie });
+    assert.equal(own.status, 200);
+    assert.deepEqual(own.body, { blocked: true, canOverride: false, orders: [{ id: 11, orderDate: "2026-11-01" }] });
+
+    const callsBefore = execute.mock.callCount();
+    const other = await request({ method: "GET", path: "/api/orders/reconciliation-hold?location=Test%20Store%20B", cookie });
+    assert.equal(other.status, 404, "another store's hold status must not leak");
+    const missing = await request({ method: "GET", path: "/api/orders/reconciliation-hold", cookie });
+    assert.equal(missing.status, 400);
+    assert.equal(execute.mock.callCount(), callsBefore, "rejected lookups must not query MySQL");
+
+    const admin = await loginAs("admin");
+    const adminView = await request({ method: "GET", path: "/api/orders/reconciliation-hold?location=Test%20Store%20B", cookie: admin });
+    assert.equal(adminView.status, 200);
+    assert.deepEqual(adminView.body, { blocked: false, canOverride: true, orders: [] });
+  } finally {
+    await setAllowedRoles("orders.submit", originalSubmit);
+  }
+});
+
+test("store users can't submit a Transfer & Receive order while their store has unreconciled transfers", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  t.mock.method(mysqlPool, "execute", async (sql: string, params: unknown[]) => {
+    assert.ok(isHoldQuery(sql), "only the hold query should run");
+    return [holdRowsFor(params), []];
+  });
+  const getConnection = t.mock.method(mysqlPool, "getConnection", async () => {
+    throw new Error("a held submission must not open a write transaction");
+  });
+  const originalSubmit = await grantTestRole("orders.submit");
+  try {
+    const cookie = (await request({ method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1"] } })).cookie!;
+    const res = await request({ method: "POST", path: "/api/orders", body: TR_ORDER_BODY, cookie });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, "UNRECONCILED_TRANSFERS");
+    assert.deepEqual(res.body.blockingOrders, [{ id: 11, orderDate: "2026-11-01" }]);
+    assert.match(res.body.message, /#11/);
+    assert.equal(getConnection.mock.callCount(), 0);
+  } finally {
+    await setAllowedRoles("orders.submit", originalSubmit);
+  }
+});
+
+test("approvers can override the reconciliation hold and the override is recorded", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  t.mock.method(mysqlPool, "execute", async (sql: string, params: unknown[]) => {
+    assert.ok(isHoldQuery(sql), "only the hold query should run on the pool");
+    return [holdRowsFor(params), []];
+  });
+  const inserts: string[] = [];
+  t.mock.method(mysqlPool, "getConnection", async () => ({
+    beginTransaction: async () => {},
+    execute: async (sql: string) => {
+      inserts.push(sql);
+      return [{ insertId: 500, affectedRows: 1 }, []];
+    },
+    commit: async () => {},
+    rollback: async () => {},
+    release: () => {},
+  }));
+  const events: any[] = [];
+  t.mock.method(storage, "createOrderEvent", async (event: any) => {
+    events.push(event);
+    return { id: 1, ...event };
+  });
+  // No submitter email, so the background notification doesn't try Outlook.
+  const cookie = (await request({ method: "POST", path: "/_test/login",
+    body: { role: "admin", email: "", locationIds: null } })).cookie!;
+  const res = await request({ method: "POST", path: "/api/orders", body: TR_ORDER_BODY, cookie });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.id, 500);
+  assert.match(res.body.warning, /not yet reconciled/);
+  assert.equal(inserts.length, 1);
+  assert.match(inserts[0], /^INSERT INTO orders/);
+  for (let i = 0; i < 20 && events.length === 0; i++) await new Promise(r => setTimeout(r, 10));
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, "created");
+  assert.match(events[0].note, /Reconciliation hold overridden/);
+  assert.match(events[0].note, /#11/);
+});
+
+test("moving a Transfer & Receive order to a held store is refused for store users", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  const statements: string[] = [];
+  let rolledBack = false;
+  t.mock.method(mysqlPool, "getConnection", async () => ({
+    beginTransaction: async () => {},
+    execute: async (sql: string, params: unknown[]) => {
+      statements.push(sql);
+      if (/FOR UPDATE/.test(sql)) {
+        return [[{ id: 77, order_type: "Transfer and Receive", location: "Test Store B", status: "submitted", confirmed_at: null }], []];
+      }
+      if (isHoldQuery(sql)) {
+        assert.equal(params.at(-1), 77, "the edited order must not count against itself");
+        return [holdRowsFor(params), []];
+      }
+      throw new Error(`unexpected statement: ${sql.slice(0, 60)}`);
+    },
+    commit: async () => { throw new Error("a held edit must not commit"); },
+    rollback: async () => { rolledBack = true; },
+    release: () => {},
+  }));
+  const originalEdit = await grantTestRole("orders.edit");
+  try {
+    const cookie = (await request({ method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1", "2"] } })).cookie!;
+    const res = await request({ method: "PUT", path: "/api/orders/77", body: TR_ORDER_BODY, cookie });
+    assert.equal(res.status, 409);
+    assert.equal(res.body.code, "UNRECONCILED_TRANSFERS");
+    assert.ok(rolledBack);
+    assert.ok(!statements.some(s => /^\s*UPDATE/i.test(s)), "no UPDATE may run");
+  } finally {
+    await setAllowedRoles("orders.edit", originalEdit);
+  }
+});
+
+// A fake MySQL connection holding a single existing order (id 11 at Store A,
+// the store's own blocker) plus Store A's hold rows.
+function holdEditConnection(existing: Record<string, unknown>) {
+  const statements: { sql: string; params: unknown[] }[] = [];
+  const state = { committed: false, rolledBack: false };
+  const conn = {
+    beginTransaction: async () => {},
+    execute: async (sql: string, params: unknown[] = []) => {
+      statements.push({ sql, params });
+      if (/FOR UPDATE/.test(sql)) return [[existing], []];
+      if (isHoldQuery(sql)) return [holdRowsFor(params), []];
+      return [{ affectedRows: 1 }, []];
+    },
+    commit: async () => { state.committed = true; },
+    rollback: async () => { state.rolledBack = true; },
+    release: () => {},
+  };
+  return { conn, statements, state };
+}
+const BLOCKING_ORDER_ROW = {
+  id: 11, order_type: "Transfer and Receive", location: "Test Store A", status: "approved",
+  confirmed_at: null, order_date: "2026-11-01", notes: null,
+};
+
+test("store users can't edit or delete the order that is holding their store", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  const originalEdit = await grantTestRole("orders.edit");
+  const originalDelete = await grantTestRole("orders.delete");
+  try {
+    const cookie = (await request({ method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1"] } })).cookie!;
+
+    const edit = holdEditConnection(BLOCKING_ORDER_ROW);
+    t.mock.method(mysqlPool, "getConnection", async () => edit.conn);
+    const put = await request({ method: "PUT", path: "/api/orders/11", cookie,
+      body: { ...TR_ORDER_BODY, notes: "just a note" } });
+    assert.equal(put.status, 409);
+    assert.equal(put.body.code, "RECONCILIATION_HOLD_LOCKED");
+    assert.ok(edit.state.rolledBack && !edit.state.committed);
+    assert.ok(!edit.statements.some(s => /^\s*UPDATE/i.test(s.sql)));
+
+    const del = holdEditConnection(BLOCKING_ORDER_ROW);
+    t.mock.method(mysqlPool, "getConnection", async () => del.conn);
+    const removed = await request({ method: "DELETE", path: "/api/orders/11", cookie });
+    assert.equal(removed.status, 409);
+    assert.equal(removed.body.code, "RECONCILIATION_HOLD_LOCKED");
+    assert.ok(!del.statements.some(s => /^\s*DELETE/i.test(s.sql)));
+  } finally {
+    await setAllowedRoles("orders.edit", originalEdit);
+    await setAllowedRoles("orders.delete", originalDelete);
+  }
+});
+
+test("edits that keep a T&R order's type and store don't run the hold check", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  // A submitted (not yet approved) T&R at a held store: editing it is fine.
+  const edit = holdEditConnection({ ...BLOCKING_ORDER_ROW, id: 12, status: "submitted" });
+  t.mock.method(mysqlPool, "getConnection", async () => edit.conn);
+  t.mock.method(storage, "createOrderEvent", async (event: any) => ({ id: 1, ...event }));
+  const originalEdit = await grantTestRole("orders.edit");
+  try {
+    const cookie = (await request({ method: "POST", path: "/_test/login",
+      body: { role: TEST_ROLE, locationIds: ["1"] } })).cookie!;
+    const res = await request({ method: "PUT", path: "/api/orders/12", cookie,
+      body: { ...TR_ORDER_BODY, notes: "updated" } });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.warning, undefined);
+    assert.ok(edit.state.committed);
+    assert.ok(!edit.statements.some(s => isHoldQuery(s.sql)), "no hold lookup for an unchanged type/store");
+  } finally {
+    await setAllowedRoles("orders.edit", originalEdit);
+  }
+});
+
+test("approvers can override the hold on edit, and can still edit a blocking order", async t => {
+  const { mysqlPool } = await import("../server/mysql");
+  t.mock.method(storage, "getLocations", async () => HOLD_LOCATIONS);
+  const events: any[] = [];
+  t.mock.method(storage, "createOrderEvent", async (event: any) => {
+    events.push(event);
+    return { id: 1, ...event };
+  });
+  const cookie = await loginAs("admin");
+
+  // Turning an End of Day order at held Store A into a T&R: override.
+  const convert = holdEditConnection({ ...BLOCKING_ORDER_ROW, id: 13, order_type: "End of Day/Equipment Count", status: "approved" });
+  t.mock.method(mysqlPool, "getConnection", async () => convert.conn);
+  const res = await request({ method: "PUT", path: "/api/orders/13", cookie, body: TR_ORDER_BODY });
+  assert.equal(res.status, 200);
+  assert.match(res.body.warning, /not yet reconciled/);
+  assert.ok(convert.state.committed);
+  const hold = convert.statements.find(s => isHoldQuery(s.sql));
+  assert.ok(hold, "type change to T&R must run the hold check");
+  assert.equal(hold!.params.at(-1), 13, "the edited order must not count against itself");
+  for (let i = 0; i < 20 && events.length === 0; i++) await new Promise(r => setTimeout(r, 10));
+  assert.match(events.at(-1).note, /Reconciliation hold overridden/);
+
+  // An approver editing the blocking order itself is allowed.
+  const own = holdEditConnection(BLOCKING_ORDER_ROW);
+  t.mock.method(mysqlPool, "getConnection", async () => own.conn);
+  const ownEdit = await request({ method: "PUT", path: "/api/orders/11", cookie, body: { ...TR_ORDER_BODY, notes: "fixed" } });
+  assert.equal(ownEdit.status, 200);
+  assert.ok(own.state.committed);
 });
 
 // One concrete test per feature — generated from ROUTE_GATES so adding a new
