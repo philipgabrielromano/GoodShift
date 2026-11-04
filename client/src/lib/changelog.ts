@@ -8,9 +8,18 @@ export interface ChangelogEntry {
   }[];
 }
 
-export const APP_VERSION = "4.5.0";
+export const APP_VERSION = "4.6.0";
 
 export const changelog: ChangelogEntry[] = [
+  {
+    version: "4.6.0",
+    date: "2026-11-04",
+    title: "Transfer & Receive reconciliation hold",
+    changes: [
+      { type: "feature", description: "Stores can't submit a new Transfer & Receive order while they have earlier Transfer & Receive orders that were approved but not yet reconciled. The policy covers orders dated or submitted after November 16, 2026; older orders don't need to be reconciled. An order only counts once its date has arrived, so deliveries that haven't happened yet never hold a store up. The Order Form lists the orders to reconcile and links to Order Submissions." },
+      { type: "feature", description: "Administrators and order approvers can still submit a Transfer & Receive order for a store on hold. They see a warning first, and the override is recorded in the order's history." },
+    ],
+  },
   {
     version: "4.5.0",
     date: "2026-10-31",
